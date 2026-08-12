@@ -21,15 +21,34 @@ class NormalizedSalary:
 
 def normalize_salary(salary_text: str) -> NormalizedSalary:
     """
-    Parse text lương thô của TopCV thành dữ liệu có cấu trúc.
+    Parse text lương thô (TopCV hoặc VietnamWorks) thành dữ liệu có cấu trúc.
 
     Ví dụ input -> output:
-      "Thoả thuận"        -> NEGOTIABLE, (None, None)
-      "10 - 30 triệu"     -> RANGE, (10_000_000, 30_000_000), VNĐ
-      "Tới 3,000 USD"     -> UPTO, (None, 3000), USD
-      "Từ 12 triệu"       -> STARTING_FROM, (12_000_000, None), VNĐ
-      "15 triệu"          -> EXACT, (15_000_000, 15_000_000), VNĐ
-      ""                  -> NEGOTIABLE, (None, None)  (mặc định an toàn)
+      "Thoả thuận"              -> NEGOTIABLE, (None, None)
+      "10 - 30 triệu"           -> RANGE, (10_000_000, 30_000_000), VNĐ
+      "Tới 3,000 USD"           -> UPTO, (None, 3000), USD
+      "Từ 12 triệu"             -> STARTING_FROM, (12_000_000, None), VNĐ
+      "15 triệu"                -> EXACT, (15_000_000, 15_000_000), VNĐ
+      "15tr-30tr ₫/tháng"       -> RANGE, (15_000_000, 30_000_000), VNĐ  (VietnamWorks)
+      "12,000-30,000 ₫/tháng"   -> RANGE, (12_000_000, 30_000_000), VNĐ  (VietnamWorks, xem BUG bên dưới)
+      "$ 3,000-5,000 /tháng"    -> RANGE, (3_000, 5_000), USD          (VietnamWorks)
+      ""                        -> NEGOTIABLE, (None, None)  (mặc định an toàn)
+
+    BUG ĐÃ SỬA (08/2026, phát hiện qua đối chiếu dữ liệu thật đã crawl):
+    VietnamWorks trả `prettySalary` theo 2 kiểu KHÁC NHAU cho cùng 1 đơn vị
+    VNĐ, không phải lúc nào cũng có hậu tố "tr"/"triệu" đi kèm mỗi số:
+      - "15tr-30tr ₫/tháng"      -> số nhỏ (15, 30), có hậu tố "tr" rõ ràng
+        -> đúng là "triệu", nhân 1_000_000 là chuẩn.
+      - "12,000-30,000 ₫/tháng"  -> số LỚN (12000, 30000), KHÔNG có "tr" —
+        đây là số đã ở đơn vị "nghìn đồng" (12.000 nghìn đồng = 12 triệu),
+        nếu vẫn nhân 1_000_000 như trên sẽ ra 12 TỶ (sai gấp 1000 lần).
+    Bản cũ luôn nhân 1_000_000 cho MỌI số VNĐ bất kể độ lớn -> case thứ 2
+    bị lỗi (xác nhận thực tế: job "Sales Engineer... Thu Nhập 15–30 Triệu"
+    bị lưu salary_max = 30 tỷ). Sửa bằng cách suy luận multiplier THEO ĐỘ
+    LỚN từng số (xem _vnd_multiplier() bên dưới) thay vì áp 1 hằng số cho
+    toàn bộ chuỗi — an toàn với mọi case cũ vì lương thật luôn nằm trong
+    khoảng vài trăm nghìn - vài trăm triệu đồng, không có chuyện 1 số vừa
+    hợp lệ ở nghĩa "triệu" vừa hợp lệ ở nghĩa "nghìn đồng" cùng lúc.
     """
     text = (salary_text or "").strip()
     if not text or "thoả thuận" in text.lower() or "thỏa thuận" in text.lower():
@@ -44,30 +63,56 @@ def normalize_salary(salary_text: str) -> NormalizedSalary:
     numbers = [n for n in numbers if n is not None]
 
     currency = "USD" if is_usd else "VNĐ"
-    unit_multiplier = 1 if is_usd else 1_000_000  # "triệu" -> nhân 1 triệu
 
     lowered = text.lower()
 
     if not numbers:
         return NormalizedSalary(currency, None, None, "NEGOTIABLE")
 
+    def _scale(n: float) -> int:
+        """Quy đổi 1 số thô -> đơn vị đồng thật. USD không quy đổi gì cả
+        (số đọc được đã là USD). VNĐ suy luận theo độ lớn — xem docstring
+        normalize_salary()."""
+        if is_usd:
+            return int(n)
+        return int(n * _vnd_multiplier(n))
+
     if ("tới" in lowered or "toi " in lowered or lowered.startswith("upto")
             or "up to" in lowered):
-        val = int(numbers[0] * unit_multiplier)
-        return NormalizedSalary(currency, None, val, "UPTO")
+        return NormalizedSalary(currency, None, _scale(numbers[0]), "UPTO")
 
     if "từ" in lowered or lowered.startswith("tu "):
-        val = int(numbers[0] * unit_multiplier)
-        return NormalizedSalary(currency, val, None, "STARTING_FROM")
+        return NormalizedSalary(currency, _scale(numbers[0]), None, "STARTING_FROM")
 
     if len(numbers) >= 2:
-        lo, hi = int(numbers[0] * unit_multiplier), int(numbers[1] * unit_multiplier)
+        lo, hi = _scale(numbers[0]), _scale(numbers[1])
         if lo > hi:
             lo, hi = hi, lo
         return NormalizedSalary(currency, lo, hi, "RANGE")
 
-    val = int(numbers[0] * unit_multiplier)
+    val = _scale(numbers[0])
     return NormalizedSalary(currency, val, val, "EXACT")
+
+
+def _vnd_multiplier(number: float) -> int:
+    """Suy luận hệ số nhân cho 1 số lương VNĐ THEO ĐỘ LỚN của chính số đó
+    (không dựa vào có/không có chữ "triệu"/"tr" trong text, vì VietnamWorks
+    có case số lớn KHÔNG kèm hậu tố này — xem BUG trong docstring
+    normalize_salary()).
+
+    Lương thật ở VN luôn rơi vào 1 trong 3 dải rõ rệt, không chồng lấn:
+      - number < 1,000              -> đang ở đơn vị "triệu" (vd 15, 30,
+                                        8.5) -> nhân 1_000_000.
+      - 1,000 <= number < 1,000,000 -> đang ở đơn vị "nghìn đồng" (vd
+                                        12_000, 30_000, đã bỏ dấu phẩy)
+                                        -> nhân 1_000.
+      - number >= 1,000,000         -> đã là số đồng đầy đủ (hiếm gặp,
+                                        phòng hờ) -> không nhân thêm gì cả."""
+    if number >= 1_000_000:
+        return 1
+    if number >= 1_000:
+        return 1_000
+    return 1_000_000
 
 
 def _parse_number(raw: str) -> Optional[float]:

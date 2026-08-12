@@ -3,7 +3,13 @@
 Crawler job từ **TopCV** và **VietnamWorks** (Data Analyst / Data Engineer /
 Software Engineering, dễ mở rộng sang ngành khác), chuẩn hóa dữ liệu, crawl
 sâu hồ sơ công ty (website, mã số thuế, quy mô, lĩnh vực, địa chỉ), lưu vào
-PostgreSQL.
+PostgreSQL — expose ra ngoài qua 1 lớp **API FastAPI có auth**, **đã deploy
+public trên Render**.
+
+**Trạng thái hiện tại (08/2026):** pipeline crawl + API layer đã chạy ổn
+định, có bảo mật (API key + CORS), đã lên production. Còn thiếu: frontend
+dashboard (chưa làm), và vài field công ty còn thiếu dữ liệu (xem mục
+[Tình trạng dữ liệu](#tình-trạng-dữ-liệu) bên dưới).
 
 Ngoài pipeline crawl chính còn có 2 script độc lập, chạy khi cần:
 
@@ -27,6 +33,13 @@ pipeline.py                      <- nối adapter -> normalize -> db
 main.py                          <- CLI chạy crawl
 get_company_fb_linkedin_link.py  <- script riêng: fanpage/LinkedIn
 enrich_company_web_info.py       <- script riêng: website/tax_id qua Tavily + Gemini
+api/                              <- lớp API FastAPI, bọc ngoài codebase crawler (xem mục riêng bên dưới)
+  app.py                          <- entry point, đăng ký auth + CORS + router
+  auth.py                         <- API key tĩnh, áp dụng cho toàn bộ endpoint
+  deps.py                         <- get_db(): mở/đóng connection Postgres theo request
+  schemas.py                      <- Pydantic models (request/response JSON)
+  crawl_runner.py                 <- chạy pipeline crawl ở nền, theo dõi qua run_id
+  routers/                        <- jobs.py, companies.py, crawl.py, meta.py
 sql/schema.sql                   <- schema PostgreSQL đầy đủ (chạy 1 lần cho DB mới)
 sql/migration_*.sql              <- vá DB cũ đã tạo trước khi có tính năng mới
 tests/                           <- test parser + logic, không cần DB/internet
@@ -45,6 +58,9 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
 - **Windows**: https://www.postgresql.org/download/windows/
 - **macOS**: `brew install postgresql@16 && brew services start postgresql@16`
 - **Linux**: `sudo apt install postgresql postgresql-contrib`
+
+Hoặc dùng managed Postgres cloud (vd Supabase) — không cần cài gì, chỉ cần
+điền đúng thông tin kết nối vào `.env` ở bước 4.
 
 ### 2. Tạo database
 
@@ -86,6 +102,10 @@ Sửa `PGPASSWORD` thành mật khẩu PostgreSQL thật. `PGDATABASE` đã đi�
 Nếu định chạy `enrich_company_web_info.py`, điền thêm `TAVILY_API_KEY` và
 `GEMINI_API_KEY` (xem [mục riêng](#enrich_company_web_infopy---vá-websitetax_id) bên dưới để biết cách lấy key).
 
+Nếu định chạy **API layer** (`uvicorn api.app:app`), bắt buộc điền thêm
+`API_KEY` và `ALLOWED_ORIGINS` — xem [mục API layer](#api-layer-fastapi)
+bên dưới.
+
 ### 5. Tạo bảng
 
 ```bash
@@ -102,9 +122,10 @@ Kỳ vọng: `✅ Đã tạo/cập nhật schema trong database.`
 
 ```bash
 python tests/test_parse_and_normalize.py
+python tests/test_merge_companies.py
 ```
 
-Kỳ vọng `✅ PASS`.
+Kỳ vọng `✅ PASS` cho cả 2.
 
 ---
 
@@ -132,6 +153,16 @@ Mỗi lần crawl, hệ thống tự động:
 - Match công ty **ưu tiên theo mã số thuế** — nếu 2 job cùng 1 công ty
   nhưng tên viết khác nhau, vẫn nhận ra là 1 công ty, không tạo trùng.
 
+**⚠️ Chưa an toàn khi chạy song song 2 lượt crawl cùng lúc** (vd vừa chạy
+CLI vừa gọi `POST /crawl`, hoặc bấm crawl 2 lần liên tiếp trước khi lượt
+đầu kịp `commit()`) — có thể tạo ra 2 job trùng `source_url` do race
+condition ở bước "check trùng rồi mới insert" trong `pipeline.py`. Đã gặp
+thực tế 1 lần (2 job cùng link, timestamp cách nhau vài giây). Cách xử lý
+tạm thời: chỉ chạy 1 lượt crawl tại 1 thời điểm; soát dọn bằng
+`v_duplicate_job_candidates` (xem mục Xem kết quả) nếu nghi trùng. Nâng
+cấp đúng cần thêm advisory lock theo `source_url` hoặc unique constraint ở
+tầng DB — chưa làm, xem mục [Việc còn tồn đọng](#việc-còn-tồn-đọng).
+
 ## Xem kết quả
 
 ```bash
@@ -158,11 +189,152 @@ SELECT * FROM v_duplicate_job_candidates;
 
 ---
 
+## API layer (FastAPI)
+
+Lớp API bọc ngoài codebase crawler hiện có — không sửa gì `main.py` (CLI
+crawl cũ vẫn chạy y hệt), chỉ thêm nhóm hàm query mới cuối `db.py` (mục
+"QUERY LAYER CHO API").
+
+### Chạy local
+
+```bash
+uvicorn api.app:app --reload --port 8000
+```
+
+Mọi request cần header `X-API-Key: <giá trị API_KEY trong .env>`, kể cả
+`/health`. Không có key hoặc sai key -> `401`.
+
+Swagger UI (`/docs`) và ReDoc (`/redoc`) **mặc định TẮT** — 2 route này
+không đi qua được lớp kiểm tra API key (giới hạn kỹ thuật của FastAPI, ai
+cũng xem được cấu trúc API dù không lộ dữ liệu thật), nên tắt hẳn theo
+nguyên tắc an toàn mặc định. Cần xem Swagger lúc dev local: set
+`ENABLE_DOCS=true` trong `.env`. Không bật trên môi trường public trừ khi
+đang debug tạm thời.
+
+### Bảo mật
+
+- **API key tĩnh** (`api/auth.py`) — 1 key dùng chung, gửi qua header
+  `X-API-Key` (hoặc query `?api_key=` để tiện test, không khuyến khích
+  dùng ở frontend thật). Thiếu `API_KEY` trong `.env` -> server tự chặn
+  hết (fail-closed), không âm thầm mở toang.
+- **CORS siết theo domain** — chỉ domain liệt kê trong `ALLOWED_ORIGINS`
+  (phân tách dấu phẩy) mới gọi được từ trình duyệt. Để trống -> không
+  domain nào gọi được (fail-closed).
+- Đây là mức bảo mật **đơn giản, đủ dùng cho quy mô hiện tại** (team nội
+  bộ ít người) — không phải OAuth2/JWT, không phân quyền theo user. Nâng
+  cấp khi cần nhiều người dùng hơn, xem docstring `api/auth.py`.
+
+### Endpoints hiện có
+
+| Method | Path | Việc |
+|---|---|---|
+| GET | `/jobs?industry=&province=&level=&work_type=&status=&keyword=&limit=&offset=` | List job, filter + phân trang |
+| GET | `/jobs/{job_id}` | Chi tiết 1 job (kèm parsed_content) |
+| GET | `/companies?keyword=&province=&has_social=&limit=&offset=` | List công ty, filter + phân trang |
+| GET | `/companies/{company_id}` | Chi tiết công ty (kèm danh sách job) |
+| POST | `/crawl` | Kích hoạt crawl nền — body `{"source": "topcv", "category": "data-analyst", "pages": 3}`, trả `run_id` ngay |
+| GET | `/crawl/{run_id}` | Theo dõi tiến độ/kết quả 1 lượt crawl |
+| GET | `/stats` | Tổng job/công ty, tỷ lệ có social, phân bố ngành/nguồn |
+| GET | `/sources` | Danh sách source/category có sẵn (đọc từ `config.py`) — frontend render dropdown |
+| GET | `/health` | Health check đơn giản (vẫn cần API key) |
+
+Đã test thực tế cả 9 endpoint trên local (200 OK, field đúng, join company
+đúng) và trên production (Render) — xem mục Deploy bên dưới.
+
+### Giới hạn đã biết
+
+- **Trạng thái crawl (`POST /crawl`) lưu trong RAM**, mất khi restart
+  server, không đồng bộ nếu chạy nhiều worker (`--workers > 1`). Đủ dùng ở
+  quy mô hiện tại. Nâng cấp sau: Celery + Redis hoặc RQ.
+- **Không giới hạn số crawl chạy song song** — xem cảnh báo race condition
+  ở mục [Crawl job](#crawl-job) bên trên.
+- **Connection Postgres mở/đóng mỗi request**, không dùng pool — đủ cho
+  traffic thấp. Nâng cấp sau: connection pool nếu nhiều người dùng cùng
+  lúc.
+- Chỉ đọc (read-only) — chưa có endpoint sửa `ss_team_notes`,
+  `contact_status`... (dễ thêm sau, tái dùng `db.update_*` có sẵn).
+
+---
+
+## Deploy production
+
+Backend đã deploy thật, public trên internet:
+
+- **Repo**: GitHub private (`Koaito/scrap-jd`) — `.env` không commit lên
+  git (`.gitignore` đã chặn).
+- **API server**: Render Web Service, build từ repo trên, đọc 10 biến môi
+  trường (Postgres, `API_KEY`, `ALLOWED_ORIGINS`, Tavily/Gemini key) từ
+  cấu hình Render — **không phải** từ file `.env` (file đó chỉ dùng local).
+- **URL public**: `https://scrap-jd-api.onrender.com`
+
+**Chưa làm — cần làm khi bắt đầu phần frontend:**
+
+1. Deploy dashboard (frontend) lên Vercel, lấy domain thật.
+2. Quay lại Render, cập nhật `ALLOWED_ORIGINS` cho khớp domain Vercel đó
+   (hiện tại `ALLOWED_ORIGINS` trên Render đang trỏ vào domain
+   placeholder/localhost, CHƯA có domain frontend thật).
+
+---
+
+## Tình trạng dữ liệu
+
+Snapshot tại thời điểm viết (176 job / 122 công ty, crawl 2 ngành *Data
+Analysis* + *Data Engineer* trên cả 2 nguồn):
+
+| Field | Độ phủ |
+|---|---|
+| `job_postings.work_type` / `deadline` / `parsed_content` | 97% |
+| `job_postings.salary_min` (không tính "Thoả thuận") | 31% |
+| `companies.tax_id` | 98% |
+| `companies.website` | 86% |
+| `companies.industry` | 81% |
+| `companies.fanpage_url` | 57% |
+| `companies.company_size` | 56% |
+| `companies.address` | 44% |
+| `companies.linkedin_url` | 31% |
+
+Không có job hay công ty nào trùng lặp thật (0 `content_hash` trùng, 0
+`tax_id` trùng, 0 `source_url` trùng) tại thời điểm snapshot này.
+
+### Bug đã sửa: sai đơn vị lương VietnamWorks (08/2026)
+
+`normalize_salary()` trước đây luôn nhân số VNĐ với 1.000.000 (giả định
+mọi số đều ở đơn vị "triệu"). VietnamWorks có 2 định dạng `prettySalary`
+khác nhau cho cùng đơn vị VNĐ — `"15tr-30tr ₫/tháng"` (có hậu tố "tr", đúng
+là triệu) và `"12,000-30,000 ₫/tháng"` (số đã ở đơn vị nghìn đồng, KHÔNG
+có hậu tố) — nhân cứng 1 kiểu cho cả 2 khiến case thứ 2 bị lệch 1000 lần
+(ra hàng chục tỷ thay vì hàng chục triệu). Phát hiện qua đối chiếu dữ liệu
+thật đã crawl (1 outlier salary_max = 30 tỷ). Đã sửa bằng cách suy luận
+hệ số nhân theo **độ lớn của chính con số** thay vì áp 1 hằng số cho cả
+chuỗi — xem docstring `_vnd_multiplier()` trong `normalize.py`. Đã test
+lại toàn bộ dữ liệu thật đã crawl: chỉ đúng 1 bản ghi thay đổi (case lỗi
+trên), không ảnh hưởng bản ghi nào khác.
+
+### Việc còn tồn đọng
+
+- **Chưa sửa lỗi trùng job do race condition** (xem cảnh báo ở mục Crawl
+  job) — mới phát hiện, chưa vá.
+- **9 job có `required_skills` bị lặp phần tử** trong `parsed_content` (vd
+  cùng 1 kỹ năng xuất hiện 2-3 lần) — nghi do artifact khi parse DOM, chưa
+  dedupe ở tầng `normalize`/`pipeline`.
+- **Company_size (56%), address (44%), linkedin_url (31%) còn thiếu
+  nhiều** — chạy thêm `get_company_fb_linkedin_link.py` /
+  `enrich_company_web_info.py` để vá, hoặc chấp nhận vì nguồn gốc không
+  luôn có sẵn field này (vd VietnamWorks không hiển thị mã số thuế công
+  ty trên trang profile).
+- **Dữ liệu hiện tại mới chỉ từ 1 lượt crawl, 2 ngành, 2 nguồn** — quy mô
+  còn nhỏ so với mục tiêu dự án, cần crawl thêm định kỳ để có dữ liệu đủ
+  lớn cho dashboard.
+- **Frontend dashboard chưa làm** — backend đã sẵn sàng (API + auth +
+  deploy), bước tiếp theo là xây frontend gọi vào các endpoint đã có.
+
+---
+
 ## `get_company_fb_linkedin_link.py` — điền fanpage/LinkedIn
 
 ```bash
 python get_company_fb_linkedin_link.py --limit 10   # test thử ít công ty
-	                # chạy full
+python get_company_fb_linkedin_link.py               # chạy full
 ```
 
 - Chỉ xử lý công ty **đã có `website`** (từ pipeline crawl chính) và **còn
