@@ -4,7 +4,8 @@ Entry point FastAPI — lớp API layer bọc ngoài codebase crawler hiện có
 CHẠY:
     uvicorn api.app:app --reload --port 8000
 
-Sau khi chạy, xem tài liệu tự sinh tại:
+Sau khi chạy, xem tài liệu tự sinh tại (CẦN set ENABLE_DOCS=true trong
+.env trước — mặc định TẮT, xem mục "GIỚI HẠN ĐÃ BIẾT" bên dưới):
     http://localhost:8000/docs       (Swagger UI, có thể bấm thử luôn)
     http://localhost:8000/redoc      (ReDoc, dạng đọc)
 
@@ -13,14 +14,29 @@ cả hai cùng nói chuyện với 1 Postgres, có thể chạy song song, khôn
 xung đột. main.py KHÔNG bị sửa gì trong đợt thêm API layer này.
 
 AUTH + CORS (xem thêm api/auth.py và .env.example):
-  - MỌI endpoint (kể cả /health) yêu cầu header 'X-API-Key' đúng giá
-    trị biến môi trường API_KEY — đăng ký 1 lần ở cấp app bằng
-    `dependencies=[Depends(require_api_key)]`, không cần sửa từng
-    router riêng lẻ.
+  - MỌI endpoint THẬT SỰ trả dữ liệu (kể cả /health) yêu cầu header
+    'X-API-Key' đúng giá trị biến môi trường API_KEY — đăng ký 1 lần ở
+    cấp app bằng `dependencies=[Depends(require_api_key)]`, không cần
+    sửa từng router riêng lẻ.
   - CORS chỉ mở cho domain liệt kê trong biến môi trường
     ALLOWED_ORIGINS (phân tách bằng dấu phẩy) — KHÔNG còn "*". Đổi
     domain (vd frontend deploy Vercel preview URL mới) chỉ cần sửa
     .env, không cần sửa code.
+
+GIỚI HẠN ĐÃ BIẾT — /docs, /redoc, /openapi.json KHÔNG đi qua
+`dependencies=` cấp app (08/2026, xác nhận bằng thực nghiệm): đây là
+hành vi riêng của FastAPI — 3 route này được tự sinh bằng
+`self.add_route()` (route Starlette thuần), KHÔNG phải "path operation"
+kiểu FastAPI thường nên KHÔNG chạy qua dependency injection, bất kể
+`dependencies=` khai báo ở đâu. Hệ quả: ai cũng xem được CẤU TRÚC API
+(tên endpoint, tham số) dù không có key — KHÔNG lộ dữ liệu thật (mọi
+route dữ liệu vẫn đòi key bình thường, đã test).
+
+XỬ LÝ: mặc định TẮT HẲN 3 route này (docs_url/redoc_url/openapi_url =
+None) — cùng nguyên tắc "fail closed" như API_KEY/ALLOWED_ORIGINS rỗng.
+Cần xem Swagger lúc dev local -> set ENABLE_DOCS=true trong .env. KHÔNG
+khuyến khích bật ENABLE_DOCS=true trên môi trường public (Render) trừ
+khi đang cần debug tạm thời.
 """
 
 import logging
@@ -38,11 +54,22 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
+# Fail-closed giống API_KEY/ALLOWED_ORIGINS: không set / set giá trị
+# khác "true" -> TẮT docs công khai. Chỉ bật khi thật sự cần xem Swagger
+# (dev local), KHÔNG khuyến khích bật trên môi trường public lâu dài.
+_docs_enabled = os.getenv("ENABLE_DOCS", "").strip().lower() == "true"
+
 app = FastAPI(
     title="SCRAP JD API",
     description="API layer cho crawler job TopCV/VietnamWorks — team Student Success.",
     version="0.1.0",
     dependencies=[Depends(require_api_key)],
+    # /docs, /redoc, /openapi.json KHÔNG đi qua dependencies= ở trên (xem
+    # docstring đầu file) -> mặc định TẮT HẲN (fail-closed), chỉ bật khi
+    # ENABLE_DOCS=true trong .env (dùng lúc dev local).
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
 # CORS: chỉ cho phép domain khai báo trong ALLOWED_ORIGINS (.env) gọi API
