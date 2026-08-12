@@ -39,6 +39,8 @@ def list_jobs(
 
 @router.get("/{job_id}", response_model=JobDetailOut)
 def get_job(job_id: str, conn=Depends(get_db)):
+    if not db_module.is_valid_uuid(job_id):
+        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
     row = db_module.get_job_by_id(conn, job_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy job")
@@ -55,7 +57,25 @@ def create_job(payload: JobCreate, conn=Depends(get_db)):
     API_README.md.
 
     level_code/province_name: người dùng gõ text thường (giống crawl),
-    route tự map sang level_id/province_id qua các hàm db.* đã có."""
+    route tự map sang level_id/province_id qua các hàm db.* đã có.
+
+    IDEMPOTENT: gọi lại nhiều lần với data y hệt (company_id + job_title
+    + level_code + province_name giống nhau) sẽ KHÔNG tạo job trùng —
+    trả về đúng job đã có (xem db.create_manual_job())."""
+    if not db_module.is_valid_uuid(payload.company_id):
+        # BUG ĐÃ VÁ (08/2026, phát hiện qua test thật): trước đây company_id
+        # sai định dạng UUID (vd còn sót placeholder mẫu, gõ nhầm) sẽ được
+        # đưa thẳng vào query Postgres -> psycopg2 raise lỗi không bắt được
+        # -> 500 Internal Server Error mù mờ. Validate ở đây để trả 400 rõ
+        # ràng, chỉ đúng nguyên nhân, TRƯỚC KHI chạm tới DB.
+        raise HTTPException(
+            status_code=400,
+            detail=f"company_id '{payload.company_id}' không đúng định dạng UUID "
+                   f"— kiểm tra lại đã thay đúng company_id THẬT lấy từ response "
+                   f"của POST /companies (hoặc GET /companies?keyword=) chưa, "
+                   f"không phải chuỗi mẫu/placeholder.",
+        )
+
     company = db_module.get_company_by_id(conn, payload.company_id)
     if company is None:
         raise HTTPException(
@@ -99,6 +119,9 @@ def patch_job(job_id: str, payload: JobUpdate, conn=Depends(get_db)):
     Dùng {"job_status": "CLOSED"} để "xoá mềm" — KHÔNG có endpoint DELETE
     thật, vì job đã xoá thật sẽ bị crawl lại tạo trùng ở lượt crawl sau
     (get_job_probe_by_source_url() không còn thấy job này nữa)."""
+    if not db_module.is_valid_uuid(job_id):
+        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+
     level_id = (
         db_module.get_level_id(conn, payload.level_code)
         if payload.level_code is not None else None

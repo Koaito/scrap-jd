@@ -32,6 +32,8 @@ def list_companies(
 
 @router.get("/{company_id}", response_model=CompanyDetailOut)
 def get_company(company_id: str, conn=Depends(get_db)):
+    if not db_module.is_valid_uuid(company_id):
+        raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
     row = db_module.get_company_by_id(conn, company_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy công ty")

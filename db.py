@@ -5,6 +5,7 @@ Module DB — nói chuyện với PostgreSQL thật theo đúng schema.sql.
 
 import json
 import logging
+import uuid as uuid_module
 from typing import Optional
 
 import psycopg2
@@ -13,6 +14,24 @@ import psycopg2.extras
 from config import DB_CONFIG
 
 logger = logging.getLogger(__name__)
+
+
+def is_valid_uuid(value: Optional[str]) -> bool:
+    """Kiểm tra `value` có đúng định dạng UUID không, TRƯỚC khi đưa vào
+    query Postgres. BUG ĐÃ VÁ (08/2026, phát hiện qua test thật): nếu
+    truyền thẳng 1 chuỗi sai định dạng UUID (vd người dùng quên thay thế
+    placeholder mẫu như "<company_id_vừa_tạo_ở_bước_1>" bằng ID thật) vào
+    cột kiểu UUID, psycopg2 raise lỗi KHÔNG được bắt (InvalidTextRepresentation)
+    -> vọt thành 500 Internal Server Error mù mờ, không rõ nguyên nhân cho
+    người gọi API. Validate trước bằng hàm này để trả 400 rõ ràng thay
+    vì để Postgres tự raise lỗi giữa chừng request."""
+    if not value:
+        return False
+    try:
+        uuid_module.UUID(str(value))
+        return True
+    except (ValueError, AttributeError, TypeError):
+        return False
 
 
 def get_connection():
@@ -508,6 +527,48 @@ def count_jobs(conn) -> int:
 # không phải insert hàng loạt từ adapter).
 # ============================================================
 
+def find_manual_job_duplicate(conn, *, company_id: str, job_title: str,
+                               level_id: Optional[int],
+                               province_id: Optional[int]) -> Optional[str]:
+    """Tìm job đã tồn tại TRÙNG (company_id, job_title, level_id,
+    province_id) — CÙNG bộ khoá mà trigger Postgres generate_job_hash()
+    dùng để tính content_hash (xem sql/schema.sql mục 5) — dùng để chống
+    trùng khi POST /jobs bị gọi nhiều lần với data y hệt.
+
+    TẠI SAO CẦN HÀM RIÊNG (không tái dùng job_exists_by_source_url() có
+    sẵn): job crawl chống trùng theo source_url (link JD gốc, ổn định,
+    duy nhất) — nhưng job NHẬP TAY qua create_manual_job() không có link
+    gốc thật, source_url tự sinh NGẪU NHIÊN mỗi lần gọi
+    ("manual://<uuid4-mới>") NÊN LUÔN LUÔN KHÁC NHAU -> cơ chế chống
+    trùng theo source_url KHÔNG BAO GIỜ bắt được job nhập tay bị gửi lặp
+    (vd người dùng bấm "Execute" trên Swagger nhiều lần, hoặc double-
+    click nút Submit ở frontend sau này) -> mỗi lần bấm tạo 1 job_id mới
+    dù nội dung y hệt (phát hiện qua test thật 08/2026).
+
+    So khớp job_title không phân biệt hoa/thường + bỏ khoảng trắng thừa
+    (giống cách content_hash chuẩn hoá) — level_id/province_id dùng
+    IS NOT DISTINCT FROM để so khớp đúng cả trường hợp NULL (khác NULL
+    != NULL thông thường của SQL, nếu dùng = thường sẽ luôn False khi 1
+    trong 2 bên NULL, bỏ sót trường hợp cả 2 cùng thiếu level/province).
+
+    Trả về job_id đã có (str) nếu tìm thấy trùng, None nếu chưa có."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT job_id FROM job_postings
+            WHERE company_id = %s
+              AND lower(trim(job_title)) = lower(trim(%s))
+              AND level_id IS NOT DISTINCT FROM %s
+              AND province_id IS NOT DISTINCT FROM %s
+              AND job_status != 'CLOSED'
+            LIMIT 1
+            """,
+            (company_id, job_title, level_id, province_id),
+        )
+        row = cur.fetchone()
+        return str(row[0]) if row else None
+
+
 def create_manual_job(conn, *, job_title: str, company_id: str,
                        matching_industry: str = "",
                        level_id: Optional[int] = None,
@@ -523,6 +584,15 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
     khác nguồn gọi tới, tránh viết trùng logic INSERT job_postings +
     job_sources_log.
 
+    IDEMPOTENT (08/2026, vá bug trùng job — xem find_manual_job_duplicate()):
+    kiểm tra trùng TRƯỚC khi insert — nếu đã có job cùng (company_id,
+    job_title, level_id, province_id) VÀ CHƯA bị đóng (job_status !=
+    'CLOSED'), trả về job_id ĐÃ CÓ đó thay vì tạo mới. An toàn khi bấm
+    "Execute"/Submit nhiều lần với data y hệt (double-click, F5, gọi lại
+    do timeout tưởng lỗi...). Chỉ bỏ qua job đã CLOSED khi so khớp — cho
+    phép tạo lại 1 job y hệt title/company nếu job cũ đã bị đóng có chủ
+    đích (không coi đó là "trùng ngoài ý muốn").
+
     KHÁC job crawl ở 2 điểm, để phân biệt rõ trong dữ liệu:
     - source_name = 'MANUAL' (thay vì 'TopCV'/'VietnamWorks').
     - source_url tự sinh dạng 'manual://<uuid>' — job nhập tay không có
@@ -530,6 +600,18 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
       mặt logic nghiệp vụ (dùng làm khoá chống trùng cho job crawl) nên
       cần 1 giá trị duy nhất thay vì để trống, tránh nhầm với chuỗi rỗng
       ở nơi khác trong code đang coi "" là chưa có giá trị."""
+    existing_job_id = find_manual_job_duplicate(
+        conn, company_id=company_id, job_title=job_title,
+        level_id=level_id, province_id=province_id,
+    )
+    if existing_job_id:
+        logger.info(
+            "POST /jobs trùng (company_id=%s, job_title=%r, level_id=%s, "
+            "province_id=%s) -> trả về job đã có %s, KHÔNG tạo mới.",
+            company_id, job_title, level_id, province_id, existing_job_id,
+        )
+        return existing_job_id
+
     import uuid
     source_url = f"manual://{uuid.uuid4()}"
     return insert_job(
