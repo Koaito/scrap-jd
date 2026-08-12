@@ -119,7 +119,7 @@ VNW_RETRIEVE_FIELDS = [
 DEFAULT_MAX_PAGES = 3
 
 # Độ trễ giữa các request (giây)
-REQUEST_DELAY_SECONDS = 4.0 
+REQUEST_DELAY_SECONDS = 5.0
 
 DEFAULT_HEADERS = {
     "User-Agent": (

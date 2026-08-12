@@ -46,7 +46,7 @@ from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.auth import require_api_key
-from api.routers import companies, crawl, jobs, meta
+from api.routers import auth, companies, crawl, jobs, meta
 
 logging.basicConfig(
     level=logging.INFO,
@@ -95,6 +95,7 @@ app.include_router(jobs.router)
 app.include_router(companies.router)
 app.include_router(crawl.router)
 app.include_router(meta.router)
+app.include_router(auth.router)
 
 
 @app.get("/health", tags=["meta"])

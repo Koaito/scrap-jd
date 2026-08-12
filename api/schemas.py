@@ -205,3 +205,77 @@ class CrawlStatusOut(BaseModel):
     finished_at: Optional[datetime] = None
     stats: Optional[dict] = None
     error: Optional[str] = None
+
+
+# ------------------------------------------------------------------
+# Auth — đăng nhập TỪNG NGƯỜI qua JWT (thêm 08/2026)
+#
+# KHÁC API_KEY tĩnh (không có schema riêng, chỉ 1 header cố định) — nhóm
+# schema dưới đây phục vụ luồng login/refresh/đổi mật khẩu/admin tạo
+# user cho frontend, xem api/routers/auth.py.
+# ------------------------------------------------------------------
+
+class LoginRequest(BaseModel):
+    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
+
+
+class TokenPairOut(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    must_change_password: bool = False
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(..., min_length=1)
+
+
+class AccessTokenOut(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+class ChangePasswordRequest(BaseModel):
+    # Optional: KHÔNG bắt buộc khi must_change_password=True (tài khoản
+    # mới tạo/vừa bị admin reset — người dùng chưa từng có mật khẩu
+    # "thật" của riêng họ để xác nhận, chỉ có mật khẩu tạm admin đưa).
+    # Route (api/routers/auth.py) tự quyết định có bắt buộc field này
+    # hay không dựa theo must_change_password hiện tại của user.
+    old_password: Optional[str] = None
+    new_password: str = Field(..., min_length=8)
+
+
+class UserOut(BaseModel):
+    """KHÔNG bao giờ chứa password_hash — dùng cho mọi response trả
+    thông tin user ra ngoài (GET /auth/me, danh sách user cho admin)."""
+    ss_user_id: str
+    full_name: str
+    email: str
+    role: str
+    is_active: bool
+    must_change_password: bool
+    last_login_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class UserCreateByAdmin(BaseModel):
+    """Admin tạo tài khoản MỚI — KHÔNG có luồng tự đăng ký công khai
+    (xem README.md mục Auth). Mật khẩu TẠM được server tự sinh
+    (security.generate_temp_password()), trả về ĐÚNG 1 LẦN trong response
+    (xem UserCreatedOut) — admin tự đưa cho người dùng qua kênh khác
+    (Slack/nói miệng), KHÔNG có luồng gửi email."""
+    full_name: str = Field(..., min_length=1)
+    email: str = Field(..., min_length=1)
+    role: str = Field(default="member", description="admin | member")
+
+
+class UserCreatedOut(UserOut):
+    """Như UserOut, thêm temp_password — CHỈ xuất hiện trong response
+    NGAY LÚC TẠO, không có endpoint nào khác trả lại được mật khẩu tạm
+    này sau đó (không lưu bản rõ, chỉ lưu hash)."""
+    temp_password: str

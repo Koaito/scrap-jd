@@ -17,3 +17,9 @@ google-genai>=1.0.0
 # Không cần nếu chỉ chạy pipeline crawl CLI (main.py) như cũ.
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
+
+# Dùng cho lớp đăng nhập TỪNG NGƯỜI (api/security.py, api/routers/auth.py)
+# — KHÁC API_KEY tĩnh (api/auth.py, không cần 2 lib này). Không cần nếu
+# chỉ dùng API_KEY chung, không có nhu cầu đăng nhập cá nhân qua frontend.
+argon2-cffi>=23.1.0
+pyjwt>=2.9.0

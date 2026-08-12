@@ -7,9 +7,11 @@ Ví dụ:
     python main.py crawl --category data-engineer --pages 5
     python main.py crawl --category data-analyst --max-jobs 20
     python main.py stats
+    python main.py create-admin --email admin@congty.vn --name "Nguyễn Văn A"
 """
 
 import argparse
+import getpass
 import logging
 import sys
 
@@ -42,6 +44,49 @@ def cmd_init_db(args):
     try:
         db.apply_schema(conn)
         print("✅ Đã tạo/cập nhật schema trong database.")
+    finally:
+        conn.close()
+
+
+def cmd_create_admin(args):
+    """Tạo tài khoản ADMIN đầu tiên — chỉ dùng qua CLI (chạy trực tiếp
+    trên máy/server có quyền truy cập DB), vì POST /auth/users trên API
+    yêu cầu ĐÃ CÓ admin để gọi (require_admin) — "con gà quả trứng" lúc
+    khởi tạo hệ thống lần đầu. Sau khi có 1 admin, tạo user tiếp theo
+    (admin hoặc member) nên làm qua POST /auth/users từ frontend."""
+    # Import ở đây (không import ở đầu file) vì api/security.py raise
+    # lỗi ngay lúc import nếu thiếu JWT_SECRET_KEY — không muốn việc đó
+    # chặn luôn các lệnh CLI khác (crawl/stats) vốn không cần tới auth.
+    from api import security
+
+    email = args.email
+    full_name = args.name
+
+    conn = db.get_connection()
+    try:
+        if db.get_user_by_email(conn, email) is not None:
+            print(f"❌ Email '{email}' đã có tài khoản.")
+            sys.exit(1)
+
+        password = getpass.getpass("Nhập mật khẩu cho tài khoản admin (không hiện ký tự): ")
+        password_confirm = getpass.getpass("Nhập lại mật khẩu: ")
+        if password != password_confirm:
+            print("❌ 2 lần nhập mật khẩu không khớp.")
+            sys.exit(1)
+        if len(password) < 8:
+            print("❌ Mật khẩu cần tối thiểu 8 ký tự.")
+            sys.exit(1)
+
+        ss_user_id = db.create_user(
+            conn,
+            full_name=full_name,
+            email=email,
+            password_hash=security.hash_password(password),
+            role="admin",
+            must_change_password=False,  # tự gõ mật khẩu thật ngay từ đầu, không cần ép đổi lại
+        )
+        conn.commit()
+        print(f"✅ Đã tạo tài khoản admin: {full_name} <{email}> (ss_user_id={ss_user_id})")
     finally:
         conn.close()
 
@@ -131,6 +176,13 @@ def main():
 
     sub.add_parser("stats", help="Xem số lượng job hiện có trong DB")
 
+    p_create_admin = sub.add_parser(
+        "create-admin",
+        help="Tạo tài khoản admin đầu tiên cho hệ thống login (chỉ dùng lúc khởi tạo)",
+    )
+    p_create_admin.add_argument("--email", required=True, help="Email đăng nhập")
+    p_create_admin.add_argument("--name", required=True, help="Họ tên đầy đủ")
+
     args = parser.parse_args()
 
     if args.command == "init-db":
@@ -139,6 +191,8 @@ def main():
         cmd_crawl(args)
     elif args.command == "stats":
         cmd_stats(args)
+    elif args.command == "create-admin":
+        cmd_create_admin(args)
 
 
 if __name__ == "__main__":

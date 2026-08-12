@@ -6,6 +6,7 @@ Module DB — nói chuyện với PostgreSQL thật theo đúng schema.sql.
 import json
 import logging
 import uuid as uuid_module
+from datetime import datetime, timezone
 from typing import Optional
 
 import psycopg2
@@ -949,3 +950,188 @@ def get_stats_summary(conn) -> dict:
         "by_industry": by_industry,
         "by_source": by_source,
     }
+
+
+# ============================================================
+# AUTH LAYER — đăng nhập người dùng (08/2026)
+#
+# KHÁC với API_KEY tĩnh (api/auth.py, dùng chung cho MỌI request kiểu
+# "máy gọi máy") — nhóm hàm dưới đây phục vụ đăng nhập TỪNG NGƯỜI thật
+# qua frontend (JWT access token + refresh token xoay vòng, xem
+# api/security.py). Dùng chung bảng ss_team_members đã có (mở rộng thêm
+# cột qua sql/migration_add_auth.sql) thay vì tạo bảng users riêng — bảng
+# này vốn đã đại diện đúng "người trong team".
+# ============================================================
+
+def get_user_by_email(conn, email: str):
+    """Trả dict đầy đủ field (kể cả password_hash, failed_login_count,
+    locked_until — CHỈ dùng nội bộ cho luồng login, KHÔNG lộ ra response
+    API, xem api/schemas.py UserOut không có các field này) hoặc None
+    nếu không tìm thấy. So khớp email KHÔNG phân biệt hoa/thường."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM ss_team_members WHERE lower(email) = lower(%s)",
+            (email,),
+        )
+        return cur.fetchone()
+
+
+def get_user_by_id(conn, ss_user_id: str):
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM ss_team_members WHERE ss_user_id = %s", (ss_user_id,))
+        return cur.fetchone()
+
+
+def create_user(conn, *, full_name: str, email: str, password_hash: str,
+                 role: str = "member", must_change_password: bool = True) -> str:
+    """Tạo 1 tài khoản MỚI — chỉ admin gọi được (qua POST /auth/users hoặc
+    CLI `python main.py create-admin` để tạo admin đầu tiên). KHÔNG có
+    luồng tự đăng ký công khai (xem README.md mục Auth).
+
+    role: quy ước 'admin' cho quyền quản trị (tạo user khác, reset mật
+    khẩu hộ người khác), giá trị khác (mặc định 'member') là thành viên
+    thường — xem require_admin() ở api/deps.py."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO ss_team_members
+                (full_name, email, role, password_hash, must_change_password, is_active)
+            VALUES (%s, %s, %s, %s, %s, true)
+            RETURNING ss_user_id
+            """,
+            (full_name, email, role, password_hash, must_change_password),
+        )
+        return str(cur.fetchone()[0])
+
+
+def update_user_password(conn, ss_user_id: str, password_hash: str,
+                          must_change_password: bool = False) -> None:
+    """Ghi mật khẩu MỚI — dùng khi user tự đổi mật khẩu (must_change_password
+    thường = False sau đó) hoặc admin reset hộ (thường = True, ép đổi lại
+    ngay lần đăng nhập kế tiếp — xem docstring cột trong migration)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE ss_team_members SET password_hash = %s, must_change_password = %s "
+            "WHERE ss_user_id = %s",
+            (password_hash, must_change_password, ss_user_id),
+        )
+
+
+def record_failed_login(conn, ss_user_id: str, *, lock_threshold: int, lock_minutes: int) -> bool:
+    """Tăng failed_login_count lên 1; nếu vừa CHẠM ngưỡng lock_threshold,
+    khoá tài khoản lock_minutes phút (set locked_until) và reset
+    failed_login_count về 0 (để lần khoá SAU tính lại từ đầu, không cộng
+    dồn vô hạn). Trả True nếu tài khoản VỪA bị khoá ở lần gọi này (route
+    dùng để trả thông báo phù hợp), False nếu chỉ tăng đếm bình thường."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT failed_login_count FROM ss_team_members WHERE ss_user_id = %s",
+            (ss_user_id,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            return False
+        new_count = row[0] + 1
+
+        if new_count >= lock_threshold:
+            cur.execute(
+                "UPDATE ss_team_members SET failed_login_count = 0, "
+                "locked_until = now() + (%s || ' minutes')::interval "
+                "WHERE ss_user_id = %s",
+                (lock_minutes, ss_user_id),
+            )
+            return True
+
+        cur.execute(
+            "UPDATE ss_team_members SET failed_login_count = %s WHERE ss_user_id = %s",
+            (new_count, ss_user_id),
+        )
+        return False
+
+
+def is_account_locked(user_row) -> bool:
+    """Kiểm tra thuần Python (không query thêm) — user_row lấy từ
+    get_user_by_email()/get_user_by_id(), đọc field locked_until có sẵn."""
+    locked_until = user_row.get("locked_until") if user_row else None
+    if locked_until is None:
+        return False
+    now = datetime.now(timezone.utc)
+    if locked_until.tzinfo is None:
+        locked_until = locked_until.replace(tzinfo=timezone.utc)
+    return locked_until > now
+
+
+def reset_failed_login(conn, ss_user_id: str) -> None:
+    """Gọi sau khi đăng nhập ĐÚNG mật khẩu — xoá đếm sai, mở khoá (nếu
+    có), cập nhật last_login_at."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE ss_team_members SET failed_login_count = 0, locked_until = NULL, "
+            "last_login_at = now() WHERE ss_user_id = %s",
+            (ss_user_id,),
+        )
+
+
+def create_refresh_token(conn, *, ss_user_id: str, token_hash: str, expires_at,
+                          user_agent: Optional[str] = None,
+                          ip_address: Optional[str] = None) -> str:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO auth_refresh_tokens
+                (ss_user_id, token_hash, expires_at, user_agent, ip_address)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING refresh_token_id
+            """,
+            (ss_user_id, token_hash, expires_at, user_agent, ip_address),
+        )
+        return str(cur.fetchone()[0])
+
+
+def get_refresh_token_by_hash(conn, token_hash: str):
+    """Trả dict (refresh_token_id, ss_user_id, expires_at, revoked_at,
+    replaced_by_token_id...) hoặc None. Route tự kiểm tra hết hạn/đã
+    revoke — hàm này chỉ tra cứu thuần, không tự raise/chặn gì."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM auth_refresh_tokens WHERE token_hash = %s", (token_hash,)
+        )
+        return cur.fetchone()
+
+
+def revoke_refresh_token(conn, refresh_token_id: str,
+                          replaced_by_token_id: Optional[str] = None) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE auth_refresh_tokens SET revoked_at = now(), replaced_by_token_id = %s "
+            "WHERE refresh_token_id = %s AND revoked_at IS NULL",
+            (replaced_by_token_id, refresh_token_id),
+        )
+
+
+def revoke_all_refresh_tokens_for_user(conn, ss_user_id: str) -> int:
+    """Thu hồi TOÀN BỘ refresh token còn sống của 1 user — dùng khi: phát
+    hiện refresh token bị TÁI SỬ DỤNG sau khi đã revoke (dấu hiệu bị đánh
+    cắp, xem docstring cột replaced_by_token_id trong migration), hoặc
+    khi đổi mật khẩu (đăng xuất mọi thiết bị khác cho an toàn), hoặc admin
+    reset mật khẩu hộ người khác. Trả số token vừa bị thu hồi."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE auth_refresh_tokens SET revoked_at = now() "
+            "WHERE ss_user_id = %s AND revoked_at IS NULL",
+            (ss_user_id,),
+        )
+        return cur.rowcount
+
+
+def list_users(conn):
+    """Danh sách thành viên team (không lộ password_hash) — cho admin xem
+    ai đang có tài khoản, dùng cho trang quản lý user phía frontend sau
+    này."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT ss_user_id, full_name, email, role, is_active, "
+            "must_change_password, last_login_at, created_at "
+            "FROM ss_team_members ORDER BY created_at"
+        )
+        return cur.fetchall()
