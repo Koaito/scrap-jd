@@ -1,0 +1,19 @@
+# requests>=2.31.0 -- ĐÃ THAY bằng curl_cffi (08/2026): adapter TopCV cần
+# giả lập TLS fingerprint Chrome thật để vượt qua chặn 403 của WAF, mà
+# requests thuần không làm được. Không còn file nào khác trong project
+# dùng `requests` trực tiếp nên bỏ hẳn, không giữ song song 2 thư viện.
+curl_cffi>=0.7.0
+beautifulsoup4>=4.12.0
+psycopg2-binary>=2.9.9
+python-dotenv>=1.0.0
+
+# Dùng cho enrich_company_web_info.py (script riêng, xem docstring đầu
+# file đó) — tra cứu website/tax_id công ty qua Tavily search + Gemini
+# trích xuất. Không cần nếu chỉ chạy pipeline crawl chính.
+tavily-python>=0.5.0
+google-genai>=1.0.0
+
+# Dùng cho API layer (api/) — expose dữ liệu qua HTTP cho frontend.
+# Không cần nếu chỉ chạy pipeline crawl CLI (main.py) như cũ.
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0

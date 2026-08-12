@@ -1,0 +1,27 @@
+# Bí mật — TUYỆT ĐỐI không commit (chứa PGPASSWORD, API_KEY, TAVILY_API_KEY,
+# GEMINI_API_KEY thật). .env.example (không có giá trị thật) vẫn commit
+# bình thường, không nằm trong danh sách chặn này.
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.pytest_cache/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Log files (nếu sau này thêm logging ra file)
+*.log

@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Test CORS — giả lập frontend gọi API</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 700px; margin: 40px auto; padding: 0 16px; }
+  input, button { font-size: 14px; padding: 8px; margin: 4px 0; width: 100%; box-sizing: border-box; }
+  button { cursor: pointer; background: #2563eb; color: white; border: none; border-radius: 4px; }
+  button:hover { background: #1d4ed8; }
+  pre { background: #f3f4f6; padding: 12px; border-radius: 4px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+  .ok { color: #16a34a; font-weight: bold; }
+  .fail { color: #dc2626; font-weight: bold; }
+  label { font-weight: 600; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<h2>Test CORS — file này giả lập 1 "frontend" ở domain khác</h2>
+<p>Mở file này bằng cách <b>click đúp</b> (không chạy qua server nào) — trình duyệt sẽ coi trang này khác domain với API, đúng kịch bản CORS thật.</p>
+
+<label>API URL (vd http://localhost:8000/jobs hoặc URL Render sau khi deploy):</label>
+<input id="apiUrl" value="http://localhost:8000/jobs?limit=3">
+
+<label>API Key (dán giá trị API_KEY trong .env):</label>
+<input id="apiKey" placeholder="dán API key vào đây">
+
+<button onclick="testCall()">Gọi thử API</button>
+
+<h3>Kết quả:</h3>
+<div id="status"></div>
+<pre id="result">(chưa gọi)</pre>
+
+<script>
+async function testCall() {
+  const url = document.getElementById('apiUrl').value;
+  const key = document.getElementById('apiKey').value;
+  const statusEl = document.getElementById('status');
+  const resultEl = document.getElementById('result');
+  statusEl.innerHTML = '⏳ Đang gọi...';
+  resultEl.textContent = '';
+
+  try {
+    const res = await fetch(url, {
+      headers: { 'X-API-Key': key }
+    });
+    const data = await res.json();
+    statusEl.innerHTML = `<span class="ok">✅ Gọi thành công — CORS đã cho phép domain này. HTTP ${res.status}</span>`;
+    resultEl.textContent = JSON.stringify(data, null, 2);
+  } catch (err) {
+    statusEl.innerHTML = `<span class="fail">❌ Bị chặn hoặc lỗi — xem chi tiết bên dưới. Nếu message nhắc tới "CORS" hoặc "Access-Control-Allow-Origin", đó là do domain hiện tại (file://) chưa nằm trong ALLOWED_ORIGINS của server.</span>`;
+    resultEl.textContent = err.toString() + '\n\n(Mở DevTools Console - F12 - để xem chi tiết lỗi CORS thật sự, trình duyệt thường log rõ hơn ở đó)';
+  }
+}
+</script>
+
+</body>
+</html>
