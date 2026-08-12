@@ -7,12 +7,17 @@ trang, HTTP request giữ lâu vậy sẽ timeout ở phía client/proxy).
 CÁCH HOẠT ĐỘNG:
   1. POST /crawl -> tạo 1 run_id (uuid4), lưu status "queued" vào
      _RUNS (dict trong RAM), trả về run_id NGAY LẬP TỨC.
-  2. FastAPI BackgroundTasks chạy _execute() sau khi response đã trả -
-     _execute() tự mở connection DB riêng (không dùng chung connection
+  2. FastAPI BackgroundTasks chạy execute() sau khi response đã trả -
+     execute() tự mở connection DB riêng (không dùng chung connection
      của request gốc, vì request đó đã kết thúc), gọi thẳng
      pipeline.run_pipeline() y hệt main.py CLI đang làm.
   3. Client gọi GET /crawl/{run_id} để poll tiến độ, đọc "status" +
      "stats" khi xong.
+
+max_jobs (08/2026, khớp với --max-jobs đã có ở CLI): body POST /crawl
+có thể kèm "max_jobs" để giới hạn TỔNG SỐ JD thay vì tính theo trang —
+xem resolve_effective_pages() để biết cách "pages" tự được tính lại khi
+chỉ truyền "max_jobs" mà không truyền "pages".
 
 GIỚI HẠN ĐÃ BIẾT (chấp nhận được ở quy mô hiện tại — 1 process, ít
 người dùng nội bộ; KHÔNG phù hợp nếu deploy nhiều worker/instance):
@@ -43,6 +48,7 @@ import db as db_module
 from pipeline import run_pipeline
 from adapters.topcv import TopCVAdapter
 from adapters.vietnamworks import VietnamWorksAdapter
+from config import DEFAULT_MAX_PAGES
 
 logger = logging.getLogger(__name__)
 
@@ -64,16 +70,36 @@ def get_run(run_id: str) -> Optional[dict]:
     return _RUNS.get(run_id)
 
 
-def start_crawl(source: str, category: str, pages: int) -> str:
+def resolve_effective_pages(pages: Optional[int], max_jobs: Optional[int]) -> int:
+    """Y HỆT logic trong main.py cmd_crawl() (--pages/--max-jobs) — tách
+    thành hàm riêng ở đây để CLI và API cùng resolve theo 1 quy tắc, dễ
+    đối chiếu khi đọc code cả 2 phía (không copy-paste rời rạc).
+
+    - Có truyền pages -> dùng đúng giá trị đó.
+    - Không truyền pages nhưng có max_jobs -> nới pages lên rất cao,
+      để max_jobs mới là giới hạn thực sự (pipeline.run_pipeline() dừng
+      ngay khi đủ max_jobs, không thật sự crawl hết số trang này).
+    - Không truyền gì cả -> dùng DEFAULT_MAX_PAGES như trước giờ."""
+    if pages is not None:
+        return pages
+    if max_jobs is not None:
+        return 999
+    return DEFAULT_MAX_PAGES
+
+
+def start_crawl(source: str, category: str, pages: Optional[int],
+                 max_jobs: Optional[int] = None) -> str:
     """Tạo 1 run mới, trả về run_id NGAY (chưa chạy thật) — nơi gọi
-    (route) chịu trách nhiệm add background task gọi _execute() sau."""
+    (route) chịu trách nhiệm add background task gọi execute() sau."""
     run_id = str(uuid.uuid4())
+    effective_pages = resolve_effective_pages(pages, max_jobs)
     _RUNS[run_id] = {
         "run_id": run_id,
         "status": "queued",
         "source": source,
         "category": category,
-        "pages": pages,
+        "pages": effective_pages,
+        "max_jobs": max_jobs,
         "started_at": datetime.now(timezone.utc),
         "finished_at": None,
         "stats": None,
@@ -101,7 +127,10 @@ def execute(run_id: str) -> None:
     conn = db_module.get_connection()
     try:
         adapter = adapter_cls()
-        stats = run_pipeline(adapter, conn, run["category"], run["pages"])
+        stats = run_pipeline(
+            adapter, conn, run["category"], run["pages"],
+            max_jobs=run.get("max_jobs"),
+        )
         run["stats"] = stats
         run["status"] = "done"
     except Exception as exc:  # noqa: BLE001 - ghi lại lỗi vào run, không làm chết background task

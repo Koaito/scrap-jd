@@ -48,13 +48,29 @@ def _build_parsed_content_and_raw(job_detail: dict):
     return parsed_content, raw_jd_content
 
 
-def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int) -> dict:
+def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
+                  max_jobs: "int | None" = None) -> dict:
+    """
+    max_jobs: giới hạn TỔNG SỐ JD sẽ crawl (đếm theo raw record nhận được
+    từ adapter, không phân biệt sau đó có insert được hay không) — dùng
+    khi muốn crawl 1 lượng nhỏ để test/lấy mẫu mà không cần quan tâm mỗi
+    trang có bao nhiêu job. None (mặc định) -> không giới hạn, crawl hết
+    max_pages như cũ.
+
+    Cách dừng: adapter.fetch_jobs() là generator sinh job THEO TỪNG TRANG
+    (xem adapters/topcv.py, adapters/vietnamworks.py) — dừng vòng lặp
+    for ở đây (break) trước khi gọi next() lần nữa sẽ tự động khiến
+    adapter KHÔNG fetch thêm trang mới nữa, không tốn request thừa ra
+    ngoài internet. Không cần sửa gì trong adapter."""
     stats = {
         "fetched": 0, "inserted": 0, "skipped_duplicate": 0,
         "updated_existing": 0, "skipped_fetch_failed": 0, "errors": 0,
     }
 
     for raw in adapter.fetch_jobs(category_key, max_pages):
+        if max_jobs is not None and stats["fetched"] >= max_jobs:
+            logger.info("Đã đạt giới hạn --max-jobs=%d, dừng crawl.", max_jobs)
+            break
         stats["fetched"] += 1
         try:
             # 1) Chống trùng theo link JD gốc. Job đã crawl trước đó thì KHÔNG

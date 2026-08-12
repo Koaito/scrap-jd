@@ -5,6 +5,7 @@ Ví dụ:
     python main.py init-db
     python main.py crawl --category data-analyst --pages 3
     python main.py crawl --category data-engineer --pages 5
+    python main.py crawl --category data-analyst --max-jobs 20
     python main.py stats
 """
 
@@ -58,11 +59,31 @@ def cmd_crawl(args):
               f"Các category có sẵn: {list(categories.keys())}")
         sys.exit(1)
 
+    # --pages mặc định để None (chưa gán DEFAULT_MAX_PAGES ngay ở argparse)
+    # để phân biệt được "người dùng không truyền --pages" với "truyền
+    # đúng bằng giá trị mặc định" — cần biết điều này để quyết định có
+    # tự động nới --pages lên khi chỉ dùng --max-jobs hay không (xem bên
+    # dưới).
+    if args.pages is not None:
+        effective_pages = args.pages
+    elif args.max_jobs is not None:
+        # Chỉ giới hạn theo --max-jobs, không quan tâm số trang -> nới
+        # --pages lên rất cao để KHÔNG PHẢI --pages là thứ chặn crawl lại
+        # (--max-jobs mới là giới hạn thực sự người dùng muốn). Vẫn an
+        # toàn vì vòng lặp trong pipeline.py sẽ dừng ngay khi đủ
+        # --max-jobs, không thật sự crawl tới 999 trang.
+        effective_pages = 999
+    else:
+        effective_pages = DEFAULT_MAX_PAGES
+
     conn = db.get_connection()
     try:
         adapter = source_cfg["adapter_cls"]()
-        stats = run_pipeline(adapter, conn, args.category, args.pages)
+        stats = run_pipeline(adapter, conn, args.category, effective_pages,
+                              max_jobs=args.max_jobs)
         print("\n===== KẾT QUẢ =====")
+        if args.max_jobs is not None:
+            print(f"(Giới hạn theo --max-jobs={args.max_jobs})")
         print(f"Tổng job crawl được : {stats['fetched']}")
         print(f"Đã lưu vào DB        : {stats['inserted']}")
         print(f"Bỏ qua (đã tồn tại)  : {stats['skipped_duplicate']}")
@@ -96,8 +117,17 @@ def main():
                           help=f"Ngành cần crawl. Mặc định: {DEFAULT_CATEGORY}. "
                                f"Có sẵn (TopCV): {list(TOPCV_CATEGORIES.keys())}; "
                                f"(VietnamWorks): {list(VIETNAMWORKS_CATEGORIES.keys())}")
-    p_crawl.add_argument("--pages", type=int, default=DEFAULT_MAX_PAGES,
-                          help=f"Số trang tối đa. Mặc định: {DEFAULT_MAX_PAGES}")
+    p_crawl.add_argument("--pages", type=int, default=None,
+                          help=f"Số trang tối đa. Mặc định: {DEFAULT_MAX_PAGES} "
+                               f"(trừ khi chỉ dùng --max-jobs, xem bên dưới). "
+                               f"1 trang TopCV ~20-25 job, 1 trang VietnamWorks ~50 job.")
+    p_crawl.add_argument("--max-jobs", type=int, default=None,
+                          help="Giới hạn TỔNG SỐ JD sẽ crawl, dừng ngay khi đủ "
+                               "(không cần đợi hết --pages) — tiện khi chỉ muốn "
+                               "lấy 1 lượng nhỏ để test/lấy mẫu thay vì tính theo "
+                               "trang. Có thể dùng CÙNG --pages (dừng ở điều kiện "
+                               "nào tới trước); nếu chỉ truyền --max-jobs mà không "
+                               "truyền --pages, tự động crawl đủ số trang cần thiết.")
 
     sub.add_parser("stats", help="Xem số lượng job hiện có trong DB")
 

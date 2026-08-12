@@ -134,13 +134,25 @@ Kỳ vọng `✅ PASS` cho cả 2.
 ```bash
 python main.py crawl --source topcv --category data-analyst --pages 3
 python main.py crawl --source vietnamworks --category data-engineer --pages 3
+
+# Giới hạn theo SỐ LƯỢNG JD thay vì theo trang (tiện lấy mẫu nhỏ để test,
+# không cần tính "mấy trang thì đủ N job"):
+python main.py crawl --source topcv --category data-analyst --max-jobs 20
 ```
 
 - `--source`: `topcv` (mặc định) hoặc `vietnamworks`.
 - `--category`: ngành muốn crawl. Xem danh sách có sẵn trong `config.py`
   (`TOPCV_CATEGORIES` / `VIETNAMWORKS_CATEGORIES`). Hiện có: `data-analyst`,
   `data-engineer`, `software-engineering`.
-- `--pages`: số trang tối đa. Bắt đầu với số nhỏ (2-3) để test.
+- `--pages`: số trang tối đa. Bắt đầu với số nhỏ (2-3) để test. 1 trang
+  TopCV ~20-25 job, 1 trang VietnamWorks ~50 job.
+- `--max-jobs`: giới hạn TỔNG SỐ JD sẽ crawl, dừng ngay khi đủ — không cần
+  đợi hết `--pages`. Dùng riêng `--max-jobs` (không kèm `--pages`) sẽ tự
+  động crawl đủ số trang cần thiết để đạt số lượng đó. Dùng CÙNG lúc cả 2
+  cờ -> dừng ở điều kiện nào tới trước. Cách dừng không tốn request thừa:
+  `adapter.fetch_jobs()` sinh job theo từng trang (generator), dừng vòng
+  lặp ở `pipeline.py` ngay khi đủ `--max-jobs` sẽ khiến adapter KHÔNG gọi
+  thêm trang mới nữa.
 
 Mỗi lần crawl, hệ thống tự động:
 
@@ -309,6 +321,19 @@ hệ số nhân theo **độ lớn của chính con số** thay vì áp 1 hằng
 chuỗi — xem docstring `_vnd_multiplier()` trong `normalize.py`. Đã test
 lại toàn bộ dữ liệu thật đã crawl: chỉ đúng 1 bản ghi thay đổi (case lỗi
 trên), không ảnh hưởng bản ghi nào khác.
+
+**Sửa code chỉ áp dụng cho job crawl MỚI SAU NÀY** — job đã insert từ
+trước (kể cả bản ghi lỗi 30 tỷ đó) vẫn còn sai trong DB cho tới khi chạy:
+
+```bash
+python fix_salary_data.py            # xem trước sẽ vá gì (dry-run, an toàn)
+python fix_salary_data.py --apply    # ghi thật vào DB
+```
+
+Script đọc lại `salary_raw_content` gốc từ `job_sources_log`, chạy lại
+`normalize_salary()` (bản đã sửa), so sánh với giá trị đang lưu trong
+`job_postings` — chỉ UPDATE job nào thật sự khác, không đụng job đã đúng.
+Chạy lại nhiều lần an toàn (idempotent).
 
 ### Việc còn tồn đọng
 

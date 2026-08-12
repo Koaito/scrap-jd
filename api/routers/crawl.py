@@ -16,7 +16,12 @@ _CATEGORIES_BY_SOURCE = {
 def trigger_crawl(payload: CrawlRequest, background_tasks: BackgroundTasks):
     """Kích hoạt 1 lượt crawl CHẠY NỀN — trả về run_id ngay, KHÔNG chờ
     crawl xong (crawl thật có thể mất vài phút - vài chục phút). Dùng
-    GET /crawl/{run_id} để theo dõi tiến độ."""
+    GET /crawl/{run_id} để theo dõi tiến độ.
+
+    Body hỗ trợ CẢ pages lẫn max_jobs (khớp --pages/--max-jobs ở CLI):
+    dùng max_jobs mà bỏ trống pages -> tự nới pages đủ lớn để max_jobs
+    là giới hạn thực sự; dùng cả 2 cùng lúc -> dừng ở điều kiện nào tới
+    trước; bỏ trống cả 2 -> dùng DEFAULT_MAX_PAGES như trước giờ."""
     if payload.source not in crawl_runner._SOURCE_ADAPTERS:
         raise HTTPException(
             status_code=400,
@@ -31,7 +36,9 @@ def trigger_crawl(payload: CrawlRequest, background_tasks: BackgroundTasks):
                    f"'{payload.source}'. Có sẵn: {list(categories.keys())}",
         )
 
-    run_id = crawl_runner.start_crawl(payload.source, payload.category, payload.pages)
+    run_id = crawl_runner.start_crawl(
+        payload.source, payload.category, payload.pages, max_jobs=payload.max_jobs,
+    )
     background_tasks.add_task(crawl_runner.execute, run_id)
     return CrawlAccepted(run_id=run_id, status="queued")
 
