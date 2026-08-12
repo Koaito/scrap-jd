@@ -238,17 +238,17 @@ nguyên tắc an toàn mặc định. Cần xem Swagger lúc dev local: set
 
 ### Endpoints hiện có
 
-| Method | Path | Việc |
-|---|---|---|
-| GET | `/jobs?industry=&province=&level=&work_type=&status=&keyword=&limit=&offset=` | List job, filter + phân trang |
-| GET | `/jobs/{job_id}` | Chi tiết 1 job (kèm parsed_content) |
-| GET | `/companies?keyword=&province=&has_social=&limit=&offset=` | List công ty, filter + phân trang |
-| GET | `/companies/{company_id}` | Chi tiết công ty (kèm danh sách job) |
-| POST | `/crawl` | Kích hoạt crawl nền — body `{"source": "topcv", "category": "data-analyst", "pages": 3}`, trả `run_id` ngay |
-| GET | `/crawl/{run_id}` | Theo dõi tiến độ/kết quả 1 lượt crawl |
-| GET | `/stats` | Tổng job/công ty, tỷ lệ có social, phân bố ngành/nguồn |
-| GET | `/sources` | Danh sách source/category có sẵn (đọc từ `config.py`) — frontend render dropdown |
-| GET | `/health` | Health check đơn giản (vẫn cần API key) |
+| Method | Path                                                                            | Việc                                                                                                               |
+| ------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| GET    | `/jobs?industry=&province=&level=&work_type=&status=&keyword=&limit=&offset=` | List job, filter + phân trang                                                                                      |
+| GET    | `/jobs/{job_id}`                                                              | Chi tiết 1 job (kèm parsed_content)                                                                               |
+| GET    | `/companies?keyword=&province=&has_social=&limit=&offset=`                    | List công ty, filter + phân trang                                                                                 |
+| GET    | `/companies/{company_id}`                                                     | Chi tiết công ty (kèm danh sách job)                                                                            |
+| POST   | `/crawl`                                                                      | Kích hoạt crawl nền — body`{"source": "topcv", "category": "data-analyst", "pages"?, "max_jobs"?}` (khớp `--pages`/`--max-jobs` ở CLI, xem chi tiết trong `API_README.md`), trả `run_id` ngay |
+| GET    | `/crawl/{run_id}`                                                             | Theo dõi tiến độ/kết quả 1 lượt crawl                                                                       |
+| GET    | `/stats`                                                                      | Tổng job/công ty, tỷ lệ có social, phân bố ngành/nguồn                                                     |
+| GET    | `/sources`                                                                    | Danh sách source/category có sẵn (đọc từ`config.py`) — frontend render dropdown                            |
+| GET    | `/health`                                                                     | Health check đơn giản (vẫn cần API key)                                                                        |
 
 Đã test thực tế cả 9 endpoint trên local (200 OK, field đúng, join company
 đúng) và trên production (Render) — xem mục Deploy bên dưới.
@@ -293,17 +293,17 @@ Backend đã deploy thật, public trên internet:
 Snapshot tại thời điểm viết (176 job / 122 công ty, crawl 2 ngành *Data
 Analysis* + *Data Engineer* trên cả 2 nguồn):
 
-| Field | Độ phủ |
-|---|---|
-| `job_postings.work_type` / `deadline` / `parsed_content` | 97% |
-| `job_postings.salary_min` (không tính "Thoả thuận") | 31% |
-| `companies.tax_id` | 98% |
-| `companies.website` | 86% |
-| `companies.industry` | 81% |
-| `companies.fanpage_url` | 57% |
-| `companies.company_size` | 56% |
-| `companies.address` | 44% |
-| `companies.linkedin_url` | 31% |
+| Field                                                          | Độ phủ |
+| -------------------------------------------------------------- | --------- |
+| `job_postings.work_type` / `deadline` / `parsed_content` | 97%       |
+| `job_postings.salary_min` (không tính "Thoả thuận")      | 31%       |
+| `companies.tax_id`                                           | 98%       |
+| `companies.website`                                          | 86%       |
+| `companies.industry`                                         | 81%       |
+| `companies.fanpage_url`                                      | 57%       |
+| `companies.company_size`                                     | 56%       |
+| `companies.address`                                          | 44%       |
+| `companies.linkedin_url`                                     | 31%       |
 
 Không có job hay công ty nào trùng lặp thật (0 `content_hash` trùng, 0
 `tax_id` trùng, 0 `source_url` trùng) tại thời điểm snapshot này.
@@ -323,17 +323,10 @@ lại toàn bộ dữ liệu thật đã crawl: chỉ đúng 1 bản ghi thay đ
 trên), không ảnh hưởng bản ghi nào khác.
 
 **Sửa code chỉ áp dụng cho job crawl MỚI SAU NÀY** — job đã insert từ
-trước (kể cả bản ghi lỗi 30 tỷ đó) vẫn còn sai trong DB cho tới khi chạy:
-
-```bash
-python fix_salary_data.py            # xem trước sẽ vá gì (dry-run, an toàn)
-python fix_salary_data.py --apply    # ghi thật vào DB
-```
-
-Script đọc lại `salary_raw_content` gốc từ `job_sources_log`, chạy lại
-`normalize_salary()` (bản đã sửa), so sánh với giá trị đang lưu trong
-`job_postings` — chỉ UPDATE job nào thật sự khác, không đụng job đã đúng.
-Chạy lại nhiều lần an toàn (idempotent).
+trước (kể cả bản ghi lỗi 30 tỷ đó) vẫn còn sai trong DB. Hiện **chưa có
+script tự động vá lại dữ liệu cũ** — cần soát tay bằng SQL (vd tìm
+`salary_max` bất thường lớn) hoặc xoá/crawl lại job liên quan nếu số
+lượng ảnh hưởng nhỏ (tại thời điểm phát hiện: 1 bản ghi duy nhất).
 
 ### Việc còn tồn đọng
 
