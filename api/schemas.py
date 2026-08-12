@@ -53,6 +53,47 @@ class PaginatedJobs(BaseModel):
 
 
 # ------------------------------------------------------------------
+# Ghi từ frontend (thêm 08/2026) — team tự thêm/sửa/đóng job qua web,
+# KHÔNG qua crawl. Company chọn từ danh sách ĐÃ CÓ trong DB (người dùng
+# tự tra cứu tax_id/thông tin công ty rồi tạo company trước qua
+# POST /companies nếu công ty chưa tồn tại — xem CompanyCreate bên dưới)
+# — route không tự tạo company mới kèm theo job, tránh nhập nhằng giữa
+# "công ty đã chọn đúng" và "công ty gõ nhầm tên tạo trùng".
+# ------------------------------------------------------------------
+
+class JobCreate(BaseModel):
+    job_title: str = Field(..., min_length=1)
+    company_id: str = Field(..., description="company_id đã có trong DB — dùng GET /companies?keyword= để tìm, hoặc POST /companies để tạo mới nếu công ty chưa tồn tại")
+    matching_industry: Optional[str] = Field(default=None, examples=["Data Analysis"])
+    level_code: Optional[str] = Field(default=None, description="Intern | Fresher | Junior | Middle | Senior | Lead | Manager")
+    province_name: Optional[str] = Field(default=None, examples=["Hà Nội"])
+    work_type: Optional[str] = Field(default=None, description="FULL_TIME | PART_TIME | INTERNSHIP | OTHER")
+    currency: str = Field(default="VNĐ", description="VNĐ | USD")
+    salary_min: Optional[int] = Field(default=None, ge=0)
+    salary_max: Optional[int] = Field(default=None, ge=0)
+    salary_type: str = Field(default="NEGOTIABLE", description="RANGE | EXACT | UPTO | STARTING_FROM | NEGOTIABLE | UNPAID")
+    deadline: Optional[date] = None
+
+
+class JobUpdate(BaseModel):
+    """Mọi field optional — chỉ gửi field muốn sửa, field không gửi giữ
+    nguyên giá trị cũ. Dùng field job_status='CLOSED' để "xoá mềm" 1 job
+    (xem chi tiết trong docstring db.update_job())."""
+    job_title: Optional[str] = Field(default=None, min_length=1)
+    matching_industry: Optional[str] = None
+    level_code: Optional[str] = Field(default=None, description="Intern | Fresher | Junior | Middle | Senior | Lead | Manager")
+    province_name: Optional[str] = None
+    work_type: Optional[str] = Field(default=None, description="FULL_TIME | PART_TIME | INTERNSHIP | OTHER")
+    currency: Optional[str] = None
+    salary_min: Optional[int] = Field(default=None, ge=0)
+    salary_max: Optional[int] = Field(default=None, ge=0)
+    salary_type: Optional[str] = Field(default=None, description="RANGE | EXACT | UPTO | STARTING_FROM | NEGOTIABLE | UNPAID")
+    deadline: Optional[date] = None
+    job_status: Optional[str] = Field(default=None, description="OPEN | EXPIRED | CLOSED — dùng CLOSED để 'xoá mềm'")
+    ss_team_notes: Optional[str] = None
+
+
+# ------------------------------------------------------------------
 # Companies
 # ------------------------------------------------------------------
 
@@ -84,6 +125,26 @@ class PaginatedCompanies(BaseModel):
     limit: int
     offset: int
     items: list[CompanyOut]
+
+
+class CompanyCreate(BaseModel):
+    """Tạo công ty mới THỦ CÔNG từ frontend — dùng khi công ty chưa có
+    trong DB (GET /companies?keyword= tìm không ra) để lấy company_id
+    trước khi tạo job qua POST /jobs.
+
+    Nếu tax_id điền vào TRÙNG với công ty đã có sẵn (vd công ty này đã
+    được crawl từ TopCV/VietnamWorks trước đó) — route tự động dùng
+    LẠI company đã có đó, KHÔNG tạo bản ghi trùng (tái dùng đúng
+    get_or_create_company_by_profile() đã dùng cho pipeline crawl)."""
+    company_name: str = Field(..., min_length=1)
+    tax_id: Optional[str] = Field(default=None, description="Mã số thuế — nếu điền đúng, tự match với công ty đã crawl trước đó (nếu có), tránh tạo trùng")
+    website: Optional[str] = None
+    industry: Optional[str] = None
+    company_size: Optional[str] = None
+    address: Optional[str] = None
+    province_name: Optional[str] = None
+    fanpage_url: Optional[str] = None
+    linkedin_url: Optional[str] = None
 
 
 # ------------------------------------------------------------------

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db as db_module
 from api.deps import get_db
-from api.schemas import CompanyDetailOut, PaginatedCompanies
+from api.schemas import CompanyCreate, CompanyDetailOut, CompanyOut, PaginatedCompanies
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
@@ -37,3 +37,37 @@ def get_company(company_id: str, conn=Depends(get_db)):
         raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
     jobs = db_module.get_jobs_by_company_id(conn, company_id)
     return {**row, "jobs": jobs}
+
+
+@router.post("", response_model=CompanyOut, status_code=201)
+def create_company(payload: CompanyCreate, conn=Depends(get_db)):
+    """Tạo công ty THỦ CÔNG — dùng trước POST /jobs khi công ty chưa có
+    trong DB (GET /companies?keyword= tìm không ra). Nếu tax_id điền vào
+    trùng với công ty đã crawl trước đó, tự động DÙNG LẠI company đã có
+    (không tạo trùng) — xem docstring db.get_or_create_company_by_profile().
+
+    Trả về company đầy đủ (kể cả khi thực ra là company đã có sẵn từ
+    trước do trùng tax_id) — frontend luôn dùng company_id trong response
+    này cho bước tạo job tiếp theo, không giả định trùng ID với request."""
+    province_id = db_module.get_or_create_province(conn, payload.province_name or "")
+    company_id = db_module.get_or_create_company_by_profile(
+        conn, payload.company_name, province_id, tax_id=payload.tax_id or "",
+    )
+    db_module.update_company_profile(
+        conn, company_id,
+        tax_id=payload.tax_id or "",
+        website=payload.website or "",
+        industry=payload.industry or "",
+        company_size=payload.company_size or "",
+        address=payload.address or "",
+    )
+    if payload.fanpage_url or payload.linkedin_url:
+        db_module.update_company_social_links(
+            conn, company_id,
+            fanpage_url=payload.fanpage_url or "",
+            linkedin_url=payload.linkedin_url or "",
+        )
+    conn.commit()
+
+    row = db_module.get_company_by_id(conn, company_id)
+    return row

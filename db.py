@@ -502,6 +502,145 @@ def count_jobs(conn) -> int:
 
 
 # ============================================================
+# GHI TỪ FRONTEND (thêm 08/2026) — team tự thêm/sửa/đóng job qua giao
+# diện web, KHÔNG qua crawl. Tách riêng khỏi nhóm hàm pipeline crawl ở
+# trên vì mục đích khác (ghi tay 1 job đơn lẻ theo yêu cầu người dùng,
+# không phải insert hàng loạt từ adapter).
+# ============================================================
+
+def create_manual_job(conn, *, job_title: str, company_id: str,
+                       matching_industry: str = "",
+                       level_id: Optional[int] = None,
+                       province_id: Optional[int] = None,
+                       work_type: Optional[str] = None,
+                       currency: str = "VNĐ",
+                       salary_min: Optional[int] = None,
+                       salary_max: Optional[int] = None,
+                       salary_type: str = "NEGOTIABLE",
+                       deadline=None) -> str:
+    """Tạo 1 job NHẬP TAY từ frontend (không qua crawl/adapter). Tái dùng
+    thẳng insert_job() đã có sẵn cho pipeline crawl — cùng 1 hàm ghi, chỉ
+    khác nguồn gọi tới, tránh viết trùng logic INSERT job_postings +
+    job_sources_log.
+
+    KHÁC job crawl ở 2 điểm, để phân biệt rõ trong dữ liệu:
+    - source_name = 'MANUAL' (thay vì 'TopCV'/'VietnamWorks').
+    - source_url tự sinh dạng 'manual://<uuid>' — job nhập tay không có
+      link JD gốc thật, nhưng job_sources_log.source_url là NOT NULL về
+      mặt logic nghiệp vụ (dùng làm khoá chống trùng cho job crawl) nên
+      cần 1 giá trị duy nhất thay vì để trống, tránh nhầm với chuỗi rỗng
+      ở nơi khác trong code đang coi "" là chưa có giá trị."""
+    import uuid
+    source_url = f"manual://{uuid.uuid4()}"
+    return insert_job(
+        conn,
+        company_id=company_id,
+        job_title=job_title,
+        matching_industry=matching_industry,
+        level_id=level_id,
+        province_id=province_id,
+        work_type=work_type,
+        currency=currency,
+        salary_min=salary_min,
+        salary_max=salary_max,
+        salary_type=salary_type,
+        source_url=source_url,
+        source_name="MANUAL",
+        deadline=deadline,
+    )
+
+
+def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
+               matching_industry: Optional[str] = None,
+               level_id: Optional[int] = None,
+               province_id: Optional[int] = None,
+               work_type: Optional[str] = None,
+               currency: Optional[str] = None,
+               salary_min: Optional[int] = None,
+               salary_max: Optional[int] = None,
+               salary_type: Optional[str] = None,
+               deadline=None,
+               job_status: Optional[str] = None,
+               ss_team_notes: Optional[str] = None) -> bool:
+    """Sửa TỰ DO các field của 1 job đã tồn tại — dùng cho PATCH /jobs/{id}
+    phía frontend. KHÔNG phân biệt job crawl hay job nhập tay (team không
+    cần phân quyền, mọi người dùng nội bộ ngang quyền — xem quyết định
+    thiết kế trong API_README.md).
+
+    Cũng là cách "xoá mềm" 1 job: gọi update_job(job_id, job_status='CLOSED')
+    thay vì DELETE thật — job vẫn còn trong DB nên KHÔNG bị crawl lại tạo
+    trùng ở lượt crawl sau (get_job_probe_by_source_url() vẫn thấy job
+    này qua job_sources_log, không insert lại).
+
+    salary_min/salary_max: CHO PHÉP truyền 0 (khác None) — vd người dùng
+    muốn xoá lương cũ, sửa lại "Thoả thuận" (NEGOTIABLE, cả 2 đều None).
+    Vì vậy dùng cờ has_* để phân biệt "không truyền field này" (giữ
+    nguyên) với "truyền None có chủ đích" (xoá giá trị cũ) — khác các
+    hàm update_* khác trong file này vốn coi giá trị rỗng/None là "bỏ
+    qua", ở đây cần phân biệt rõ hơn vì lương là field có thể cố ý set
+    về rỗng.
+
+    Trả False nếu job_id không tồn tại (không có gì để update), True nếu
+    đã update thành công — route dùng giá trị này để trả 404 đúng lúc."""
+    updates = []
+    values = []
+
+    if job_title is not None:
+        updates.append("job_title = %s")
+        values.append(job_title)
+    if matching_industry is not None:
+        updates.append("matching_industry = %s")
+        values.append(matching_industry)
+    if level_id is not None:
+        updates.append("level_id = %s")
+        values.append(level_id)
+    if province_id is not None:
+        updates.append("province_id = %s")
+        values.append(province_id)
+    if work_type is not None:
+        updates.append("work_type = %s")
+        values.append(work_type)
+    if currency is not None:
+        updates.append("currency = %s")
+        values.append(currency)
+    if salary_min is not None:
+        updates.append("salary_min = %s")
+        values.append(salary_min)
+    if salary_max is not None:
+        updates.append("salary_max = %s")
+        values.append(salary_max)
+    if salary_type is not None:
+        updates.append("salary_type = %s")
+        values.append(salary_type)
+    if deadline is not None:
+        updates.append("deadline = %s")
+        values.append(deadline)
+    if job_status is not None:
+        updates.append("job_status = %s")
+        values.append(job_status)
+    if ss_team_notes is not None:
+        updates.append("ss_team_notes = %s")
+        values.append(ss_team_notes)
+
+    if not updates:
+        return job_exists_by_id(conn, job_id)
+
+    values.append(job_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE job_postings SET {', '.join(updates)} WHERE job_id = %s",
+            values,
+        )
+        return cur.rowcount > 0
+
+
+def job_exists_by_id(conn, job_id: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM job_postings WHERE job_id = %s LIMIT 1", (job_id,))
+        return cur.fetchone() is not None
+
+
+# ============================================================
 # QUERY LAYER CHO API (thêm 08/2026, dùng cho FastAPI layer)
 #
 # Khác các hàm phía trên (dùng cho pipeline crawl — mỗi hàm 1 việc hẹp,
