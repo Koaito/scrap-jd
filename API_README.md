@@ -140,6 +140,16 @@ Khi làm frontend và deploy lên Vercel: quay lại Render, sửa
 `ALLOWED_ORIGINS` cho khớp domain Vercel thật, KHÔNG quên bước này
 (thiếu → frontend gọi API bị chặn bởi CORS dù key đúng).
 
+> ⚠️ **Trạng thái hiện tại:** `ALLOWED_ORIGINS` trên Render vẫn đang trỏ
+> domain placeholder/localhost — **chưa** có domain frontend thật nào
+> được thêm vào. Test API bằng Postman/curl/Swagger (`ENABLE_DOCS=true`)
+> không bị ảnh hưởng vì CORS chỉ áp dụng cho request gửi từ trình duyệt
+> (có `Origin` header). Nhưng ngay khi frontend deploy lên domain thật
+> (Vercel hoặc bất kỳ đâu) và bắt đầu gọi API từ code chạy trên trình
+> duyệt, MỌI request sẽ bị chặn bởi CORS cho tới khi domain đó được thêm
+> vào `ALLOWED_ORIGINS` trên Render — báo lại domain thật ngay khi có để
+> cập nhật kịp thời, tránh nhầm tưởng lỗi auth/API key.
+
 ## Cấu trúc
 
 ```
@@ -180,9 +190,9 @@ api/
 | GET | `/stats` | Tổng job/công ty, tỷ lệ có social, phân bố ngành/nguồn | API key |
 | GET | `/sources` | Danh sách source/category có sẵn (đọc từ `config.py`) — frontend render dropdown | API key |
 | GET | `/health` | Health check | API key |
-| POST | `/auth/register` | Tự đăng ký (luôn role `user`), gửi email xác thực | API key |
-| GET | `/auth/verify-email?token=` | Kích hoạt tài khoản — bấm từ link trong email, trả HTML | API key |
-| POST | `/auth/resend-verification` | Xin gửi lại email xác thực | API key |
+| POST | `/auth/register` | Tự đăng ký (luôn role `user`), gửi email xác thực | **KHÔNG cần API key** (public_router) |
+| GET | `/auth/verify-email?token=` | Kích hoạt tài khoản — bấm từ link trong email, trả HTML | **KHÔNG cần API key** (public_router) |
+| POST | `/auth/resend-verification` | Xin gửi lại email xác thực | **KHÔNG cần API key** (public_router) |
 | POST | `/auth/login` | Đăng nhập, trả `access_token` + `refresh_token`. Chặn nếu email chưa xác thực | API key |
 | POST | `/auth/refresh` | Xoay vòng lấy access token mới | API key |
 | POST | `/auth/logout` | Thu hồi refresh token hiện tại | API key |
@@ -196,6 +206,17 @@ api/
 "JWT" = cần thêm header `Authorization: Bearer <access_token>` (lấy từ
 `POST /auth/login`). "(ss_team+)"/"(admin)" = role tối thiểu theo
 `ROLE_HIERARCHY` (`user` < `ss_team` < `admin`, xem mục Phân quyền).
+
+**Ngoại lệ quan trọng — 3 route auth công khai (08/2026):**
+`POST /auth/register`, `GET /auth/verify-email`, `POST
+/auth/resend-verification` là **3 route DUY NHẤT trong toàn bộ API
+không cần `X-API-Key`** (tách riêng thành `auth.public_router`, xem
+`api/app.py`). Lý do: `GET /auth/verify-email` được người dùng **bấm
+thẳng từ email**, trình duyệt không có cách nào tự gắn header
+`X-API-Key` vào request đó — nếu vẫn bắt buộc key, link xác thực sẽ
+luôn lỗi 401 (đây từng là 1 bug thật, đã sửa 08/2026). Frontend gọi 3
+route này **không cần gửi header `X-API-Key`** (gửi cũng không sao,
+server không kiểm tra, nhưng không cần thiết).
 
 ### `POST /jobs` — tạo job thủ công
 
@@ -413,9 +434,10 @@ pool, vì tần suất chạy thấp (1 lần/script), không cần thiết.
   (vd nhân viên nghỉ việc) cần gọi `revoke_all_refresh_tokens_for_user()`
   để chặn cấp access token MỚI, access token cũ (tối đa 30 phút) vẫn còn
   hiệu lực tới khi tự hết hạn.
-- **Domain gửi email vẫn là domain test mặc định của Resend**
-  (`onboarding@resend.dev`) — chưa verify domain riêng của team, đổi qua
-  `EMAIL_FROM` khi có domain thật.
+- ~~Domain gửi email vẫn là domain test mặc định của Resend~~ — **đã
+  xong (08/2026)**: domain riêng `scrapjd.xyz` đã verify với Resend,
+  `EMAIL_FROM` trên Render đã đổi thành `no-reply@scrapjd.xyz` và deploy
+  xong.
 - **Thiếu `RESEND_API_KEY` không làm sập `POST /auth/register`** — tài
   khoản vẫn tạo thành công, chỉ email không gửi được (log lỗi, xem
   `api/email_service.py`).

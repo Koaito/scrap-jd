@@ -296,12 +296,16 @@ domain nào gọi được (fail-closed).
 ### Đăng ký công khai + xác thực email
 
 Thêm 08/2026 (`api/email_service.py`, `sql/migration_add_email_verification.sql`).
-Ai cũng gọi được `POST /auth/register` (không cần JWT/API key theo
-người), luôn tạo tài khoản role `user`, `email_verified=false`. Server
-gửi email chứa link xác thực qua **Resend** (miễn phí, domain mặc định
-`onboarding@resend.dev` — team hiện chưa có domain riêng verify với
-Resend). `POST /auth/login` **chặn** nếu email chưa xác thực. Link hết
-hạn sau 24h, xin gửi lại qua `POST /auth/resend-verification`.
+Ai cũng gọi được `POST /auth/register` — và **CẢ 3 route công khai này
+(`register`/`verify-email`/`resend-verification`) KHÔNG cần header
+`X-API-Key`** (khác mọi route khác trong hệ thống, xem `public_router`
+ở `api/routers/auth.py` — tách riêng vì `GET /auth/verify-email` được
+người dùng bấm thẳng từ email, trình duyệt không tự gắn được header).
+Luôn tạo tài khoản role `user`, `email_verified=false`. Server gửi
+email chứa link xác thực qua **Resend**, gửi từ domain riêng của team
+`no-reply@scrapjd.xyz` (verify xong 08/2026, xem `EMAIL_FROM`).
+`POST /auth/login` **chặn** nếu email chưa xác thực. Link hết hạn sau
+24h, xin gửi lại qua `POST /auth/resend-verification`.
 
 Nếu Resend gửi lỗi (rate-limit, mạng chập chờn...) — tài khoản **vẫn đã
 tạo thành công** trong DB, không mất dữ liệu, chỉ cần gọi lại
@@ -365,9 +369,12 @@ Xem chi tiết body/response từng endpoint trong `API_README.md`.
 - **`RESEND_API_KEY` chưa cấu hình → email xác thực không gửi được**,
   nhưng tài khoản vẫn tạo thành công trong DB (không mất dữ liệu) — xem
   mục Đăng ký công khai.
-- **Domain gửi email vẫn là domain test mặc định của Resend**
-  (`onboarding@resend.dev`) — team chưa có domain riêng verify với
-  Resend, đổi qua biến môi trường `EMAIL_FROM` khi có domain thật.
+- ~~Domain gửi email vẫn là domain test mặc định của Resend~~ — **đã xong
+  (08/2026)**: domain riêng `scrapjd.xyz` đã verify với Resend (DKIM/MX/
+  SPF/DMARC), `EMAIL_FROM` trên Render đã đổi thành `no-reply@scrapjd.xyz`
+  và deploy xong. Email xác thực đăng ký giờ gửi từ domain thật của team,
+  không còn giới hạn "chỉ gửi được về đúng email chủ tài khoản Resend"
+  của domain test trước đây.
 
 ---
 
@@ -383,6 +390,16 @@ Backend đã deploy thật, public trên internet:
 - **URL public**: `https://scrap-jd-api.onrender.com`
 
 **Chưa làm — cần làm khi bắt đầu phần frontend:**
+
+> ⚠️ **Lưu ý cho frontend (đọc trước khi bắt đầu gọi API):**
+> `ALLOWED_ORIGINS` trên Render hiện đang trỏ vào domain
+> placeholder/localhost, **CHƯA có domain frontend thật**. Nghĩa là
+> **mọi request gọi từ trình duyệt trên domain frontend thật sẽ bị CORS
+> chặn** (dù `X-API-Key`/JWT đúng hết) cho tới khi domain frontend deploy
+> xong và được thêm vào `ALLOWED_ORIGINS`. Gọi thử bằng Postman/curl/
+> Swagger (không qua trình duyệt) thì KHÔNG bị ảnh hưởng — CORS chỉ chặn
+> request có `Origin` header từ trình duyệt. Báo lại domain Vercel thật
+> ngay khi có để cập nhật, tránh mất thời gian debug nhầm tưởng lỗi auth.
 
 1. Deploy dashboard (frontend) lên Vercel, lấy domain thật.
 2. Quay lại Render, cập nhật `ALLOWED_ORIGINS` cho khớp domain Vercel đó
@@ -451,9 +468,8 @@ lượng ảnh hưởng nhỏ (tại thời điểm phát hiện: 1 bản ghi du
   deploy), bước tiếp theo là xây frontend gọi vào các endpoint đã có
   (cần màn hình đăng nhập/đăng ký để dùng được các route ghi, xem mục
   API layer).
-- **Chưa verify domain riêng với Resend** — email xác thực đang gửi từ
-  domain test mặc định `onboarding@resend.dev`, cần domain thật của
-  team để chuyên nghiệp hơn (xem mục Đăng ký công khai).
+- ~~Chưa verify domain riêng với Resend~~ — **đã xong (08/2026)**, xem
+  mục Đăng ký công khai.
 
 ---
 
