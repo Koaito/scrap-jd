@@ -3,9 +3,16 @@ Router đăng nhập TỪNG NGƯỜI (JWT + refresh token xoay vòng) — xem
 docstring api/security.py và sql/migration_add_auth.sql để hiểu toàn bộ
 thiết kế trước khi đọc file này.
 
-Mọi endpoint ở đây vẫn nằm SAU lớp API_KEY (đăng ký cấp app trong
-api/app.py) — tức client vẫn cần đúng X-API-Key để gọi TỚI ĐƯỢC những
-route này, JWT là lớp thứ 2 xác định "user thật nào" bên trong.
+File này khai báo 2 router (08/2026, sửa sau bug link verify-email luôn
+401 vì trình duyệt không tự gắn được X-API-Key khi bấm link từ email):
+
+  - `router`: mọi endpoint vẫn nằm SAU lớp API_KEY (app.py include kèm
+    dependencies=[Depends(require_api_key)]) — client cần đúng
+    X-API-Key để gọi TỚI ĐƯỢC, JWT là lớp thứ 2 xác định "user thật
+    nào" bên trong.
+  - `public_router`: 3 route đăng ký/xác thực email công khai (register,
+    verify-email, resend-verification) — KHÔNG cần X-API-Key (app.py
+    include KHÔNG kèm dependencies), đúng ý nghĩa "ai cũng gọi được".
 """
 
 import logging
@@ -28,6 +35,21 @@ from api.schemas import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# public_router: 3 route đăng ký/xác thực email công khai (register,
+# verify-email, resend-verification) — KHÔNG đi qua lớp X-API-Key đăng
+# ký ở app.py (khác `router` ở trên, vẫn nằm sau X-API-Key như bình
+# thường). Lý do tách riêng: GET /auth/verify-email được người dùng BẤM
+# THẲNG từ email, trình duyệt không thể tự gắn header X-API-Key vào
+# request đó -> nếu vẫn nằm trong lớp X-API-Key, link xác thực email sẽ
+# LUÔN 401, không cách nào sửa được từ phía người dùng. register/
+# resend-verification không bị giới hạn kỹ thuật này (có thể gọi qua
+# code kèm key), nhưng gom chung 3 route vào public_router cho ĐÚNG Ý
+# NGHĨA "đăng ký công khai" (ai cũng gọi được, không cần biết API_KEY
+# nội bộ của team) — khớp đúng docstring đã ghi ngay trước 3 route này
+# lúc code (xem bên dưới). app.py include_router(auth.public_router) mà
+# KHÔNG kèm dependencies=[Depends(require_api_key)].
+public_router = APIRouter(prefix="/auth", tags=["auth"])
 
 # Link xác thực email hết hạn sau 24h — đủ dài để người dùng không bị
 # gấp gáp (khác OTP thường vài phút), đủ ngắn để không treo lơ lửng tài
@@ -342,7 +364,7 @@ def update_user_role(
 # (đúng ý nghĩa "đăng ký công khai").
 # ------------------------------------------------------------------
 
-@router.post("/register", response_model=RegisterOut, status_code=201)
+@public_router.post("/register", response_model=RegisterOut, status_code=201)
 def register(payload: RegisterRequest, conn=Depends(get_db)):
     """Tự đăng ký — luôn tạo role='user' (thấp nhất, xem
     api.deps.ROLE_HIERARCHY), KHÔNG cho tự chọn role qua request (khác
@@ -383,7 +405,7 @@ def register(payload: RegisterRequest, conn=Depends(get_db)):
     return RegisterOut(ss_user_id=ss_user_id, email=payload.email)
 
 
-@router.get("/verify-email", response_class=HTMLResponse)
+@public_router.get("/verify-email", response_class=HTMLResponse)
 def verify_email(token: str, conn=Depends(get_db)):
     """Endpoint người dùng BẤM TỪ EMAIL (không phải gọi qua code/frontend
     — xem api/email_service.py dựng link này), nên trả HTML tĩnh đơn
@@ -423,7 +445,7 @@ def verify_email(token: str, conn=Depends(get_db)):
     )
 
 
-@router.post("/resend-verification", response_model=MessageOut)
+@public_router.post("/resend-verification", response_model=MessageOut)
 def resend_verification(payload: ResendVerificationRequest, conn=Depends(get_db)):
     """Xin gửi lại email xác thực — dùng khi token cũ hết hạn (24h) hoặc
     email thất lạc. LUÔN trả cùng 1 message dù email có tồn tại hay

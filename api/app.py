@@ -15,9 +15,18 @@ xung đột. main.py KHÔNG bị sửa gì trong đợt thêm API layer này.
 
 AUTH + CORS (xem thêm api/auth.py và .env.example):
   - MỌI endpoint THẬT SỰ trả dữ liệu (kể cả /health) yêu cầu header
-    'X-API-Key' đúng giá trị biến môi trường API_KEY — đăng ký 1 lần ở
-    cấp app bằng `dependencies=[Depends(require_api_key)]`, không cần
-    sửa từng router riêng lẻ.
+    'X-API-Key' đúng giá trị biến môi trường API_KEY — đăng ký theo
+    TỪNG router bằng `dependencies=[Depends(require_api_key)]` ở
+    include_router() (và trực tiếp trên @app.get("/health")).
+  - NGOẠI LỆ (08/2026, sửa bug link xác thực email luôn 401): 3 route
+    công khai trong api/routers/auth.py — POST /auth/register, GET
+    /auth/verify-email, POST /auth/resend-verification — nằm ở
+    `auth.public_router`, include KHÔNG kèm X-API-Key. Lý do: GET
+    /auth/verify-email được người dùng bấm thẳng từ email, trình duyệt
+    không thể tự gắn header X-API-Key vào request đó — nếu vẫn bắt
+    buộc key, link xác thực sẽ luôn 401 (đã gặp thực tế). Trước
+    08/2026, KHÔNG có ngoại lệ này (dependencies đăng ký 1 lần cấp app
+    cho MỌI route) — đây chính là bug đã sửa.
   - CORS chỉ mở cho domain liệt kê trong biến môi trường
     ALLOWED_ORIGINS (phân tách bằng dấu phẩy) — KHÔNG còn "*". Đổi
     domain (vd frontend deploy Vercel preview URL mới) chỉ cần sửa
@@ -79,7 +88,10 @@ app = FastAPI(
     title="SCRAP JD API",
     description="API layer cho crawler job TopCV/VietnamWorks — team Student Success.",
     version="0.1.0",
-    dependencies=[Depends(require_api_key)],
+    # KHÔNG còn dependencies=[Depends(require_api_key)] ở cấp app (khác
+    # bản trước 08/2026) — X-API-Key giờ đăng ký RIÊNG cho từng router
+    # bên dưới (include_router(..., dependencies=[...])) để có thể loại
+    # trừ auth.public_router (xem docstring đầu file + api/routers/auth.py).
     lifespan=lifespan,
     # /docs, /redoc, /openapi.json KHÔNG đi qua dependencies= ở trên (xem
     # docstring đầu file) -> mặc định TẮT HẲN (fail-closed), chỉ bật khi
@@ -108,18 +120,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(jobs.router)
-app.include_router(companies.router)
-app.include_router(contacts.router)
-app.include_router(crawl.router)
-app.include_router(meta.router)
-app.include_router(auth.router)
+# X-API-Key bắt buộc cho MỌI router dữ liệu thật (kể cả auth.router —
+# login/refresh/logout/me/change-password/users, những route CẦN biết
+# client là frontend nội bộ trước khi xử lý tiếp JWT bên trong).
+_require_key = [Depends(require_api_key)]
+app.include_router(jobs.router, dependencies=_require_key)
+app.include_router(companies.router, dependencies=_require_key)
+app.include_router(contacts.router, dependencies=_require_key)
+app.include_router(crawl.router, dependencies=_require_key)
+app.include_router(meta.router, dependencies=_require_key)
+app.include_router(auth.router, dependencies=_require_key)
+
+# auth.public_router: register/verify-email/resend-verification — CỐ Ý
+# KHÔNG kèm dependencies=_require_key (xem docstring đầu file).
+app.include_router(auth.public_router)
 
 
-@app.get("/health", tags=["meta"])
+@app.get("/health", tags=["meta"], dependencies=_require_key)
 def health_check():
     """Kiểm tra server sống. LƯU Ý: endpoint này CŨNG yêu cầu API key
-    (đăng ký ở cấp app) — nếu dùng cho load balancer/uptime monitor bên
-    ngoài, monitor đó cần được cấp API_KEY để gọi được. Không động vào
-    DB (health check nên nhanh, không phụ thuộc DB down)."""
+    (khai báo trực tiếp qua dependencies= ở decorator này, vì /health
+    định nghĩa thẳng trên `app`, không qua include_router()) — nếu dùng
+    cho load balancer/uptime monitor bên ngoài, monitor đó cần được cấp
+    API_KEY để gọi được. Không động vào DB (health check nên nhanh,
+    không phụ thuộc DB down)."""
     return {"status": "ok"}
