@@ -7,10 +7,12 @@ PostgreSQL — expose ra ngoài qua 1 lớp **API FastAPI có auth**, **đã dep
 public trên Render**.
 
 **Trạng thái hiện tại (08/2026):** pipeline crawl + API layer đã chạy ổn
-định, có bảo mật 2 lớp (API key dùng chung + đăng nhập JWT từng người),
-kết nối Postgres qua connection pool, ghi audit trail (ai tạo/sửa job và
-công ty), đã lên production. Còn thiếu: frontend dashboard (chưa làm), và
-vài field công ty còn thiếu dữ liệu (xem mục
+định, bảo mật 3 lớp (API key dùng chung, đăng nhập JWT từng người, phân
+quyền 3 cấp `user`/`ss_team`/`admin`), đăng ký công khai có xác thực
+email qua Resend, CRUD liên hệ HR (`company_contacts`) có soft-delete,
+kết nối Postgres qua connection pool, ghi audit trail (ai tạo/sửa job,
+công ty, contact), đã lên production. Còn thiếu: frontend dashboard
+(chưa làm), và vài field công ty còn thiếu dữ liệu (xem mục
 [Tình trạng dữ liệu](#tình-trạng-dữ-liệu) bên dưới).
 
 Ngoài pipeline crawl chính còn có 2 script độc lập, chạy khi cần:
@@ -39,10 +41,11 @@ api/                              <- lớp API FastAPI, bọc ngoài codebase cr
   app.py                          <- entry point, đăng ký auth + CORS + router + lifespan (init/close connection pool)
   auth.py                         <- API key tĩnh, áp dụng cho toàn bộ endpoint
   security.py                     <- băm mật khẩu, ký/verify JWT access + refresh token
-  deps.py                         <- get_db(): mượn/trả connection từ pool; get_current_user()/require_admin(): xác thực JWT
+  email_service.py                <- gửi email xác thực đăng ký qua Resend
+  deps.py                         <- get_db(): mượn/trả connection từ pool; get_current_user()/require_role()/require_admin(): xác thực JWT + phân quyền
   schemas.py                      <- Pydantic models (request/response JSON)
   crawl_runner.py                 <- chạy pipeline crawl ở nền, theo dõi qua run_id
-  routers/                        <- jobs.py, companies.py, crawl.py, meta.py, auth.py
+  routers/                        <- jobs.py, companies.py, contacts.py, crawl.py, meta.py, auth.py
 sql/schema.sql                   <- schema PostgreSQL đầy đủ (chạy 1 lần cho DB mới)
 sql/migration_*.sql              <- vá DB cũ đã tạo trước khi có tính năng mới
 tests/                           <- test parser + logic, không cần DB/internet
@@ -108,10 +111,13 @@ Nếu định chạy `enrich_company_web_info.py`, điền thêm `TAVILY_API_KEY
 Nếu định chạy **API layer** (`uvicorn api.app:app`), bắt buộc điền thêm
 `API_KEY` và `ALLOWED_ORIGINS` — xem [mục API layer](#api-layer-fastapi)
 bên dưới. Muốn dùng lớp đăng nhập JWT (`POST /jobs`, `PATCH /jobs/{id}`,
-`POST /companies`, `POST /crawl` bắt buộc đăng nhập từ 08/2026) thì cần
-thêm `JWT_SECRET_KEY`. `DB_POOL_MIN`/`DB_POOL_MAX` có giá trị mặc định
-sẵn (2/20), chỉ cần sửa nếu Postgres phía deploy giới hạn connection
-thấp hơn.
+`POST /companies`, CRUD `/companies/{id}/contacts`, `POST /crawl` bắt
+buộc đăng nhập/đúng role từ 08/2026) thì cần thêm `JWT_SECRET_KEY`. Muốn
+bật luồng đăng ký công khai (`POST /auth/register`) gửi được email xác
+thực thật thì cần thêm `RESEND_API_KEY`/`EMAIL_FROM`/`API_BASE_URL` (xem
+[mục Đăng ký công khai](#đăng-ký-công-khai--xác-thực-email) bên dưới).
+`DB_POOL_MIN`/`DB_POOL_MAX` có giá trị mặc định sẵn (2/20), chỉ cần sửa
+nếu Postgres phía deploy giới hạn connection thấp hơn.
 
 ### 5. Tạo bảng
 
@@ -126,10 +132,19 @@ Kỳ vọng: `✅ Đã tạo/cập nhật schema trong database.`
 > tương ứng — xem comment đầu mỗi file để biết chạy khi nào.
 >
 > **Quan trọng nếu định bật lớp ghi có JWT** (`POST`/`PATCH` bắt buộc đăng
-> nhập, xem mục API layer): phải chạy `sql/migration_add_auth.sql` (bảng
-> user/refresh token) VÀ `sql/migration_add_audit_columns.sql` (cột
-> `created_by`/`updated_by`) TRƯỚC khi deploy code — thiếu 1 trong 2 sẽ
-> làm `POST`/`PATCH /jobs`, `POST /companies` lỗi 500.
+> nhập, xem mục API layer): phải chạy đúng thứ tự sau (migration sau phụ
+> thuộc bảng/cột migration trước):
+>
+> ```bash
+> psql -U postgres -d "..." -f sql/migration_add_auth.sql
+> psql -U postgres -d "..." -f sql/migration_add_audit_columns.sql
+> psql -U postgres -d "..." -f sql/migration_add_role_hierarchy.sql
+> psql -U postgres -d "..." -f sql/migration_add_email_verification.sql
+> ```
+>
+> Thiếu 1 trong 4 file trên sẽ làm `POST`/`PATCH /jobs`,
+> `POST /companies`, CRUD `/companies/{id}/contacts` hoặc
+> `POST /auth/register` lỗi 500 (thiếu bảng/cột).
 
 ### 6. Chạy test (không cần DB/internet)
 
@@ -236,7 +251,7 @@ nguyên tắc an toàn mặc định. Cần xem Swagger lúc dev local: set
 `ENABLE_DOCS=true` trong `.env`. Không bật trên môi trường public trừ khi
 đang debug tạm thời.
 
-### Bảo mật — 2 lớp xếp chồng
+### Bảo mật — 3 lớp xếp chồng
 
 1. **API key tĩnh** (`api/auth.py`) — 1 key dùng chung cho mọi request,
    gửi qua header `X-API-Key` (hoặc query `?api_key=` để tiện test,
@@ -246,31 +261,58 @@ nguyên tắc an toàn mặc định. Cần xem Swagger lúc dev local: set
 2. **Đăng nhập JWT từng người** (`api/security.py`, `api/routers/auth.py`,
    thêm 08/2026) — xác định **AI** đang gọi API, KHÁC lớp API key ở trên
    (chỉ xác nhận "client này là frontend của mình", không phân biệt
-   người dùng). Chỉ bắt buộc ở các route **ghi** dữ liệu:
-   - `POST /jobs`, `PATCH /jobs/{id}` — cần đăng nhập (`get_current_user`).
-   - `POST /companies` — cần đăng nhập (`get_current_user`).
-   - `POST /crawl` — cần đăng nhập **VÀ** role `admin` (`require_admin`),
-     chặt hơn vì tốn tài nguyên server thật khi chạy crawl.
+   người dùng). Luồng: `POST /auth/login` (email + password) trả
+   `access_token` (JWT, sống 30 phút) + `refresh_token` (sống dài hơn,
+   xoay vòng) -> gửi kèm `Authorization: Bearer <access_token>` cho các
+   route cần đăng nhập -> `POST /auth/refresh` để lấy access token mới
+   khi hết hạn.
+3. **Phân quyền 3 cấp** (`ROLE_HIERARCHY`/`require_role()` trong
+   `api/deps.py`, thêm 08/2026) — mỗi tài khoản có đúng 1 role, cấp cao
+   thoả mọi route yêu cầu cấp thấp hơn:
 
-   Mọi route **đọc** (`GET /jobs`, `GET /companies`, `GET /stats`...) vẫn
-   chỉ cần API key như cũ — không bắt buộc đăng nhập, không phá frontend
-   hiện tại.
+   | Role | Cấp | Được làm |
+   |---|---|---|
+   | `user` | 0 (thấp nhất) | Chỉ xem/lọc job (`GET /jobs`) — mặc định khi tự đăng ký qua `POST /auth/register` |
+   | `ss_team` | 1 | + tạo/sửa job/company, CRUD liên hệ HR (`/companies/{id}/contacts`), xem danh sách tài khoản |
+   | `admin` | 2 (cao nhất) | + trigger crawl (`POST /crawl`), tạo tài khoản hộ (`POST /auth/users`), đổi role người khác |
 
-   Luồng: `POST /auth/login` (email + password) trả `access_token` (JWT,
-   sống 30 phút) + `refresh_token` (sống dài hơn, xoay vòng) -> gửi kèm
-   `Authorization: Bearer <access_token>` cho các route ghi ở trên ->
-   `POST /auth/refresh` để lấy access token mới khi hết hạn. Tài khoản
-   chỉ được tạo bởi admin qua `POST /auth/users` — không có luồng tự
-   đăng ký công khai.
+   Có 2 cách tạo tài khoản: **tự đăng ký công khai** (`POST
+   /auth/register`, luôn ra role `user`, phải xác thực email trước khi
+   login được — xem mục [Đăng ký công khai](#đăng-ký-công-khai--xác-thực-email))
+   hoặc **admin tạo hộ** (`POST /auth/users`, chọn được role bất kỳ,
+   không cần xác thực email). Muốn nâng `user` lên `ss_team` phải nhờ
+   admin gọi `PATCH /auth/users/{id}/role` — không tự nâng được.
 
 Mọi thao tác ghi qua JWT được ghi lại vào cột `created_by`/`updated_by`
-của `job_postings`/`companies` (audit trail, xem
-`sql/migration_add_audit_columns.sql`) — job/công ty tạo qua crawl tự
+của `job_postings`/`companies`/`company_contacts` (audit trail, xem
+`sql/migration_add_audit_columns.sql` và
+`sql/migration_add_role_hierarchy.sql`) — job/công ty tạo qua crawl tự
 động (không qua JWT) có `created_by = NULL`.
 
 **CORS siết theo domain** — chỉ domain liệt kê trong `ALLOWED_ORIGINS`
 (phân tách dấu phẩy) mới gọi được từ trình duyệt. Để trống -> không
 domain nào gọi được (fail-closed).
+
+### Đăng ký công khai + xác thực email
+
+Thêm 08/2026 (`api/email_service.py`, `sql/migration_add_email_verification.sql`).
+Ai cũng gọi được `POST /auth/register` (không cần JWT/API key theo
+người), luôn tạo tài khoản role `user`, `email_verified=false`. Server
+gửi email chứa link xác thực qua **Resend** (miễn phí, domain mặc định
+`onboarding@resend.dev` — team hiện chưa có domain riêng verify với
+Resend). `POST /auth/login` **chặn** nếu email chưa xác thực. Link hết
+hạn sau 24h, xin gửi lại qua `POST /auth/resend-verification`.
+
+Nếu Resend gửi lỗi (rate-limit, mạng chập chờn...) — tài khoản **vẫn đã
+tạo thành công** trong DB, không mất dữ liệu, chỉ cần gọi lại
+`resend-verification` sau, không cần đăng ký lại từ đầu.
+
+Bắt buộc `RESEND_API_KEY` trong `.env`/biến môi trường Render để gửi
+được email thật (thiếu -> log lỗi, tài khoản vẫn tạo nhưng email không
+tới, xem docstring `send_verification_email()`). `API_BASE_URL` phải
+trỏ đúng domain API thật đang chạy (vd
+`https://scrap-jd-api.onrender.com`, KHÔNG có `/docs` hay dấu `/` cuối)
+để link trong email đúng.
 
 ### Endpoints hiện có
 
@@ -278,22 +320,31 @@ domain nào gọi được (fail-closed).
 | ------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/jobs?industry=&province=&level=&work_type=&status=&keyword=&limit=&offset=` | List job, filter + phân trang — chỉ cần API key                                                                    |
 | GET    | `/jobs/{job_id}`                                                              | Chi tiết 1 job (kèm parsed_content) — chỉ cần API key                                                             |
-| POST   | `/jobs`                                                                       | Tạo job thủ công (company phải có sẵn) — **cần đăng nhập**, ghi `created_by`                                       |
-| PATCH  | `/jobs/{job_id}`                                                              | Sửa job (đổi trạng thái, lương, ghi chú...) — **cần đăng nhập**, ghi `updated_by`. Dùng `job_status:"CLOSED"` để "xoá mềm" |
+| POST   | `/jobs`                                                                       | Tạo job thủ công (company phải có sẵn) — **role ss_team+**, ghi `created_by`                                       |
+| PATCH  | `/jobs/{job_id}`                                                              | Sửa job (đổi trạng thái, lương, ghi chú...) — **role ss_team+**, ghi `updated_by`. Dùng `job_status:"CLOSED"` để "xoá mềm" |
 | GET    | `/companies?keyword=&province=&has_social=&limit=&offset=`                    | List công ty, filter + phân trang — chỉ cần API key                                                               |
 | GET    | `/companies/{company_id}`                                                     | Chi tiết công ty (kèm danh sách job) — chỉ cần API key                                                          |
-| POST   | `/companies`                                                                  | Tạo công ty thủ công (tự dùng lại nếu trùng tax_id) — **cần đăng nhập**, ghi `created_by`/`updated_by`             |
-| POST   | `/crawl`                                                                      | Kích hoạt crawl nền — body`{"source": "topcv", "category": "data-analyst", "pages"?, "max_jobs"?}` — **cần đăng nhập + role admin** |
+| POST   | `/companies`                                                                  | Tạo công ty thủ công (tự dùng lại nếu trùng tax_id) — **role ss_team+**, ghi `created_by`/`updated_by`             |
+| GET    | `/companies/{company_id}/contacts?include_inactive=`                          | List liên hệ HR của 1 công ty — **role ss_team+**                                                                |
+| POST   | `/companies/{company_id}/contacts`                                            | Thêm liên hệ HR — **role ss_team+**                                                                              |
+| PATCH  | `/companies/{company_id}/contacts/{contact_id}`                               | Sửa liên hệ HR — **role ss_team+**                                                                                |
+| DELETE | `/companies/{company_id}/contacts/{contact_id}`                               | Xoá mềm liên hệ HR (`is_active=false`, giữ lịch sử) — **role ss_team+**                                          |
+| POST   | `/crawl`                                                                      | Kích hoạt crawl nền — body`{"source": "topcv", "category": "data-analyst", "pages"?, "max_jobs"?}` — **role admin** |
 | GET    | `/crawl/{run_id}`                                                             | Theo dõi tiến độ/kết quả 1 lượt crawl — chỉ cần API key                                                       |
 | GET    | `/stats`                                                                      | Tổng job/công ty, tỷ lệ có social, phân bố ngành/nguồn — chỉ cần API key                                    |
 | GET    | `/sources`                                                                    | Danh sách source/category có sẵn (đọc từ`config.py`) — frontend render dropdown                            |
 | GET    | `/health`                                                                     | Health check đơn giản (vẫn cần API key)                                                                        |
-| POST   | `/auth/login`                                                                 | Đăng nhập, trả `access_token` (30 phút) + `refresh_token`                                                       |
+| POST   | `/auth/register`                                                              | Tự đăng ký (luôn role `user`), gửi email xác thực — không cần đăng nhập trước                                    |
+| GET    | `/auth/verify-email?token=`                                                   | Bấm từ link trong email, kích hoạt tài khoản vừa đăng ký                                                        |
+| POST   | `/auth/resend-verification`                                                  | Xin gửi lại email xác thực nếu token cũ hết hạn/thất lạc                                                        |
+| POST   | `/auth/login`                                                                 | Đăng nhập, trả `access_token` (30 phút) + `refresh_token`. Chặn nếu email chưa xác thực                        |
 | POST   | `/auth/refresh`                                                               | Xoay vòng lấy access token mới                                                                                  |
 | POST   | `/auth/logout`                                                                | Thu hồi refresh token hiện tại                                                                                  |
 | GET    | `/auth/me`                                                                    | Thông tin tài khoản đang đăng nhập                                                                              |
 | POST   | `/auth/change-password`                                                      | Tự đổi mật khẩu                                                                                                  |
-| POST   | `/auth/users`                                                                 | Tạo tài khoản mới cho thành viên team — chỉ admin gọi được                                                     |
+| POST   | `/auth/users`                                                                 | Admin tạo hộ tài khoản mới (chọn được role) — **role admin**                                                    |
+| GET    | `/auth/users`                                                                 | Danh sách toàn bộ tài khoản — **role ss_team+**                                                                  |
+| PATCH  | `/auth/users/{id}/role`                                                      | Đổi role của 1 tài khoản khác (không tự đổi role chính mình) — **role admin**                                    |
 
 Xem chi tiết body/response từng endpoint trong `API_README.md`.
 
@@ -309,8 +360,14 @@ Xem chi tiết body/response từng endpoint trong `API_README.md`.
   hạn kỹ thuật FastAPI) — mặc định tắt hẳn, chỉ bật `ENABLE_DOCS=true`
   lúc dev local.
 - **Auth API key vẫn là 1 khoá dùng chung** ở tầng "máy gọi máy" — muốn
-  biết chính xác người nào gọi thì phải qua JWT (chỉ bắt buộc ở route
-  ghi, xem mục Bảo mật).
+  biết chính xác người nào gọi thì phải qua JWT (bắt buộc ở route ghi và
+  route xem thông tin nhạy cảm, xem mục Bảo mật).
+- **`RESEND_API_KEY` chưa cấu hình → email xác thực không gửi được**,
+  nhưng tài khoản vẫn tạo thành công trong DB (không mất dữ liệu) — xem
+  mục Đăng ký công khai.
+- **Domain gửi email vẫn là domain test mặc định của Resend**
+  (`onboarding@resend.dev`) — team chưa có domain riêng verify với
+  Resend, đổi qua biến môi trường `EMAIL_FROM` khi có domain thật.
 
 ---
 
@@ -390,13 +447,13 @@ lượng ảnh hưởng nhỏ (tại thời điểm phát hiện: 1 bản ghi du
   còn nhỏ so với mục tiêu dự án, cần crawl thêm định kỳ để có dữ liệu đủ
   lớn cho dashboard.
 - **Frontend dashboard chưa làm** — backend đã sẵn sàng (API + JWT auth +
-  connection pool + audit trail + deploy), bước tiếp theo là xây frontend
-  gọi vào các endpoint đã có (cần thêm màn hình đăng nhập để dùng được
-  các route ghi, xem mục API layer).
-- **Chưa deploy migration audit trail / pool lên Postgres production** —
-  phải chạy `sql/migration_add_audit_columns.sql` trên DB thật TRƯỚC khi
-  deploy code có `Depends(get_current_user)` ở route ghi, nếu không mọi
-  `POST`/`PATCH /jobs`, `POST /companies` sẽ lỗi 500 (thiếu cột).
+  phân quyền 3 cấp + connection pool + audit trail + đăng ký công khai +
+  deploy), bước tiếp theo là xây frontend gọi vào các endpoint đã có
+  (cần màn hình đăng nhập/đăng ký để dùng được các route ghi, xem mục
+  API layer).
+- **Chưa verify domain riêng với Resend** — email xác thực đang gửi từ
+  domain test mặc định `onboarding@resend.dev`, cần domain thật của
+  team để chuyên nghiệp hơn (xem mục Đăng ký công khai).
 
 ---
 

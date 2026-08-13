@@ -23,3 +23,9 @@ uvicorn[standard]>=0.32.0
 # chỉ dùng API_KEY chung, không có nhu cầu đăng nhập cá nhân qua frontend.
 argon2-cffi>=23.1.0
 pyjwt>=2.9.0
+
+# Dùng cho gửi email xác thực đăng ký công khai (api/email_service.py,
+# POST /auth/register) — thêm 08/2026, xem
+# sql/migration_add_email_verification.sql. Không cần nếu tắt hẳn luồng
+# đăng ký công khai (chỉ dùng POST /auth/users admin tạo hộ).
+resend>=2.36.0

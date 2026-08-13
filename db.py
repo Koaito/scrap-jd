@@ -1269,6 +1269,75 @@ def update_user_role(conn, ss_user_id: str, new_role: str) -> bool:
 
 
 # ------------------------------------------------------------------
+# Đăng ký công khai + xác thực email (thêm 08/2026, xem
+# sql/migration_add_email_verification.sql) — KHÁC create_user() ở
+# trên (admin tạo hộ) vì ai cũng gọi được (không cần JWT), luôn cố định
+# role='user', email_verified=false cho tới khi verify.
+# ------------------------------------------------------------------
+
+def create_user_pending_verification(conn, *, full_name: str, email: str,
+                                      password_hash: str, verify_token: str,
+                                      verify_expires) -> str:
+    """Tạo tài khoản role='user' CHƯA xác thực — KHÁC create_user() ở
+    chỗ must_change_password=False (mật khẩu do CHÍNH người dùng tự đặt
+    lúc đăng ký, không phải mật khẩu tạm admin sinh hộ, không cần ép đổi
+    lại) và có thêm email_verify_token/expires. is_active vẫn true ngay
+    từ đầu (is_active là cờ RIÊNG cho admin khoá tài khoản, KHÁC
+    email_verified — 2 khái niệm độc lập, xem docstring migration)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO ss_team_members
+                (full_name, email, role, password_hash, must_change_password,
+                 is_active, email_verified, email_verify_token, email_verify_expires)
+            VALUES (%s, %s, 'user', %s, false, true, false, %s, %s)
+            RETURNING ss_user_id
+            """,
+            (full_name, email, password_hash, verify_token, verify_expires),
+        )
+        return str(cur.fetchone()[0])
+
+
+def get_user_by_verify_token(conn, verify_token: str):
+    """Trả dict user (đủ field, kể cả email_verify_expires) hoặc None
+    nếu token không tồn tại — KHÔNG tự kiểm tra hết hạn ở đây, route tự
+    so sánh email_verify_expires với thời gian hiện tại (tách trách
+    nhiệm: hàm này chỉ tra cứu, route quyết định logic nghiệp vụ)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM ss_team_members WHERE email_verify_token = %s",
+            (verify_token,),
+        )
+        return cur.fetchone()
+
+
+def mark_email_verified(conn, ss_user_id: str) -> None:
+    """Đánh dấu đã xác thực + XOÁ token (đặt NULL) — token chỉ dùng
+    được ĐÚNG 1 LẦN, xoá ngay sau khi verify thành công để không ai
+    verify lại lần 2 bằng link cũ (link cũ giờ vô nghĩa, không trỏ tới
+    token nào còn tồn tại trong DB nữa)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE ss_team_members SET email_verified = true, "
+            "email_verify_token = NULL, email_verify_expires = NULL "
+            "WHERE ss_user_id = %s",
+            (ss_user_id,),
+        )
+
+
+def set_new_verify_token(conn, ss_user_id: str, verify_token: str, verify_expires) -> None:
+    """Ghi ĐÈ token xác thực mới — dùng cho POST /auth/resend-verification
+    (token cũ hết hạn hoặc email thất lạc, user xin gửi lại). Token cũ
+    (nếu còn) bị thay thế hoàn toàn, không dùng lại được nữa."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE ss_team_members SET email_verify_token = %s, "
+            "email_verify_expires = %s WHERE ss_user_id = %s",
+            (verify_token, verify_expires, ss_user_id),
+        )
+
+
+# ------------------------------------------------------------------
 # Company contacts (HR contact) — CRUD thêm 08/2026 (Phần 1 phân
 # quyền). Bảng đã có sẵn từ schema.sql gốc (dùng nội bộ qua
 # merge_companies() khi gộp company trùng), nhưng CHƯA từng có route

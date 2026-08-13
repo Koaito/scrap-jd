@@ -9,21 +9,39 @@ route này, JWT là lớp thứ 2 xác định "user thật nào" bên trong.
 """
 
 import logging
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse
 
 import db as db_module
 from api import security
 from api.deps import get_db, get_current_user, require_admin, require_role
+from api.email_service import send_verification_email
 from api.schemas import (
-    AccessTokenOut, ChangePasswordRequest, LoginRequest, RefreshRequest,
+    AccessTokenOut, ChangePasswordRequest, LoginRequest, MessageOut,
+    RefreshRequest, RegisterOut, RegisterRequest, ResendVerificationRequest,
     TokenPairOut, UserCreateByAdmin, UserCreatedOut, UserOut, UserRoleUpdate,
 )
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Link xác thực email hết hạn sau 24h — đủ dài để người dùng không bị
+# gấp gáp (khác OTP thường vài phút), đủ ngắn để không treo lơ lửng tài
+# khoản CHƯA xác thực quá lâu trong DB. Hết hạn thì gọi POST
+# /auth/resend-verification xin token mới, không cần đăng ký lại.
+EMAIL_VERIFY_EXPIRE_HOURS = 24
+
+
+def _generate_verify_token() -> str:
+    """Chuỗi ngẫu nhiên URL-safe — tái dùng CÙNG cơ chế
+    security.generate_refresh_token() (secrets.token_urlsafe) nhưng
+    KHÔNG gọi thẳng hàm đó để giữ 2 khái niệm tách biệt rõ trong code
+    (refresh token vs email verify token, dù cùng cách sinh)."""
+    return secrets.token_urlsafe(32)
 
 
 def _issue_token_pair(conn, user_row, request: Request) -> tuple[str, str]:
@@ -60,6 +78,18 @@ def login(payload: LoginRequest, request: Request, conn=Depends(get_db)):
 
     if not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Tài khoản đã bị vô hiệu hoá.")
+
+    if not user.get("email_verified", True):
+        # default=True: tài khoản tạo TRƯỚC Phần 2 (qua POST /auth/users,
+        # không có cột này lúc code) coi như đã verify — migration đã tự
+        # set true hàng loạt cho dữ liệu cũ (xem
+        # sql/migration_add_email_verification.sql), default ở đây chỉ
+        # là phòng hờ thêm 1 lớp, KHÔNG phải nguồn sự thật chính.
+        raise HTTPException(
+            status_code=403,
+            detail="Email chưa được xác thực — kiểm tra hộp thư hoặc gọi "
+                   "POST /auth/resend-verification để gửi lại link xác thực.",
+        )
 
     if db_module.is_account_locked(user):
         raise HTTPException(
@@ -303,3 +333,122 @@ def update_user_role(
     conn.commit()
 
     return db_module.get_user_by_id(conn, ss_user_id)
+
+
+# ------------------------------------------------------------------
+# Đăng ký công khai + xác thực email (thêm 08/2026, xem
+# sql/migration_add_email_verification.sql, api/email_service.py) —
+# 3 route dưới đây KHÔNG cần JWT/API_KEY-per-user, ai cũng gọi được
+# (đúng ý nghĩa "đăng ký công khai").
+# ------------------------------------------------------------------
+
+@router.post("/register", response_model=RegisterOut, status_code=201)
+def register(payload: RegisterRequest, conn=Depends(get_db)):
+    """Tự đăng ký — luôn tạo role='user' (thấp nhất, xem
+    api.deps.ROLE_HIERARCHY), KHÔNG cho tự chọn role qua request (khác
+    POST /auth/users admin-only có thể chọn role). Muốn lên 'ss_team'
+    phải nhờ admin nâng cấp qua PATCH /auth/users/{id}/role SAU KHI đã
+    đăng ký + xác thực email (đúng luồng đã thống nhất — xem lịch sử
+    trao đổi).
+
+    Tài khoản tạo xong CHƯA login được ngay — phải xác thực email trước
+    (xem GET /auth/verify-email, login() chặn nếu email_verified=false).
+    Nếu gửi email lỗi (Resend down/rate-limit...), tài khoản VẪN đã tạo
+    thành công — người dùng tự gọi POST /auth/resend-verification sau,
+    KHÔNG mất dữ liệu đã nhập, không cần đăng ký lại (xem
+    api/email_service.py để hiểu lý do không raise khi gửi lỗi)."""
+    existing = db_module.get_user_by_email(conn, payload.email)
+    if existing is not None:
+        raise HTTPException(status_code=409, detail="Email này đã có tài khoản.")
+
+    verify_token = _generate_verify_token()
+    verify_expires = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFY_EXPIRE_HOURS)
+
+    ss_user_id = db_module.create_user_pending_verification(
+        conn,
+        full_name=payload.full_name,
+        email=payload.email,
+        password_hash=security.hash_password(payload.password),
+        verify_token=verify_token,
+        verify_expires=verify_expires,
+    )
+    conn.commit()
+
+    send_verification_email(
+        to_email=payload.email,
+        full_name=payload.full_name,
+        verify_token=verify_token,
+    )
+
+    return RegisterOut(ss_user_id=ss_user_id, email=payload.email)
+
+
+@router.get("/verify-email", response_class=HTMLResponse)
+def verify_email(token: str, conn=Depends(get_db)):
+    """Endpoint người dùng BẤM TỪ EMAIL (không phải gọi qua code/frontend
+    — xem api/email_service.py dựng link này), nên trả HTML tĩnh đơn
+    giản thay vì JSON (frontend CHƯA xong lúc code phần này — xem lịch
+    sử trao đổi). Khi có frontend thật, đổi route này sang redirect(302)
+    tới URL frontend — KHÔNG cần sửa gì phần logic verify bên dưới, chỉ
+    đổi câu return cuối cùng."""
+    user = db_module.get_user_by_verify_token(conn, token)
+
+    if user is None:
+        return HTMLResponse(
+            "<h2>Liên kết xác thực không hợp lệ</h2>"
+            "<p>Liên kết đã được dùng trước đó hoặc không đúng — thử "
+            "đăng ký lại hoặc xin gửi lại email xác thực.</p>",
+            status_code=400,
+        )
+
+    expires_at = user["email_verify_expires"]
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            return HTMLResponse(
+                "<h2>Liên kết xác thực đã hết hạn</h2>"
+                "<p>Gọi POST /auth/resend-verification để nhận email "
+                "xác thực mới.</p>",
+                status_code=400,
+            )
+
+    db_module.mark_email_verified(conn, str(user["ss_user_id"]))
+    conn.commit()
+
+    return HTMLResponse(
+        "<h2>✅ Xác thực thành công</h2>"
+        "<p>Tài khoản của bạn đã được xác thực — bây giờ có thể đăng "
+        "nhập.</p>"
+    )
+
+
+@router.post("/resend-verification", response_model=MessageOut)
+def resend_verification(payload: ResendVerificationRequest, conn=Depends(get_db)):
+    """Xin gửi lại email xác thực — dùng khi token cũ hết hạn (24h) hoặc
+    email thất lạc. LUÔN trả cùng 1 message dù email có tồn tại hay
+    không, và dù tài khoản đã verify từ trước hay chưa (giống nguyên tắc
+    _WRONG_CREDENTIALS_MSG ở login() — tránh lộ qua thông báo lỗi việc
+    email nào đã có tài khoản trong hệ thống, chống dò email hàng loạt)."""
+    _GENERIC_MSG = (
+        "Nếu email này có tài khoản CHƯA xác thực, một email xác thực "
+        "mới đã được gửi tới đó."
+    )
+
+    user = db_module.get_user_by_email(conn, payload.email)
+    if user is None or user.get("email_verified", True):
+        return MessageOut(message=_GENERIC_MSG)
+
+    verify_token = _generate_verify_token()
+    verify_expires = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFY_EXPIRE_HOURS)
+
+    db_module.set_new_verify_token(conn, str(user["ss_user_id"]), verify_token, verify_expires)
+    conn.commit()
+
+    send_verification_email(
+        to_email=user["email"],
+        full_name=user["full_name"],
+        verify_token=verify_token,
+    )
+
+    return MessageOut(message=_GENERIC_MSG)

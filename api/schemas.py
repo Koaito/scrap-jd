@@ -10,6 +10,7 @@ mục đích khác nhau, gộp chung sẽ rối khi 1 bên cần đổi mà bên
 
 from datetime import date, datetime
 from typing import Optional
+import re
 from pydantic import BaseModel, Field
 
 
@@ -304,6 +305,54 @@ class UserCreatedOut(UserOut):
 class UserRoleUpdate(BaseModel):
     """Body cho PATCH /auth/users/{id}/role (admin-only, thêm 08/2026)."""
     role: str = Field(..., description="user | ss_team | admin")
+
+
+# ------------------------------------------------------------------
+# Đăng ký công khai + xác thực email (thêm 08/2026, xem
+# sql/migration_add_email_verification.sql, api/email_service.py) —
+# KHÁC UserCreateByAdmin (admin tạo hộ) ở chỗ AI CŨNG gọi được (không
+# cần JWT), tự chọn mật khẩu (không có must_change_password), luôn cố
+# định role='user' — route (KHÔNG phải schema) tự gán cứng role, người
+# gọi không truyền/chọn được field này qua request.
+# ------------------------------------------------------------------
+
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class RegisterRequest(BaseModel):
+    full_name: str = Field(..., min_length=1)
+    email: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=8)
+
+    class Config:
+        str_strip_whitespace = True  # tự trim khoảng trắng thừa TRƯỚC khi validate email/full_name
+
+    def model_post_init(self, __context) -> None:
+        # Pydantic v2: EmailStr cần cài thêm 'email-validator' (chưa có
+        # trong requirements.txt) — tự viết regex đơn giản để KHÔNG
+        # thêm dependency mới cho 1 việc nhỏ. Không cần chuẩn RFC 5322
+        # đầy đủ, chỉ cần chặn input rõ ràng sai (thiếu @, thiếu domain).
+        if not _EMAIL_RE.match(self.email):
+            raise ValueError("Email không đúng định dạng.")
+
+
+class RegisterOut(BaseModel):
+    """KHÔNG trả access_token/refresh_token — đăng ký xong PHẢI xác
+    thực email trước mới login được (xem api/routers/auth.py login()),
+    nên trả về thông báo hướng dẫn thay vì token."""
+    ss_user_id: str
+    email: str
+    message: str = "Đăng ký thành công — kiểm tra email để xác thực tài khoản trước khi đăng nhập."
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str = Field(..., min_length=1)
+
+
+class MessageOut(BaseModel):
+    """Response chung cho các action chỉ cần xác nhận đã thực hiện,
+    không có dữ liệu cụ thể để trả (resend-verification...)."""
+    message: str
 
 
 # ------------------------------------------------------------------

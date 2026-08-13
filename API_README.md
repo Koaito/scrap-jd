@@ -16,6 +16,9 @@ pip install -r requirements.txt   # đã thêm fastapi + uvicorn
 - `API_KEY`, `ALLOWED_ORIGINS` — bắt buộc để chạy API ở mức tối thiểu.
 - `JWT_SECRET_KEY` — bắt buộc nếu dùng lớp đăng nhập từng người (`/auth/*`
   và các route ghi `POST`/`PATCH` bên dưới).
+- `RESEND_API_KEY`, `EMAIL_FROM`, `API_BASE_URL` — bắt buộc nếu muốn
+  `POST /auth/register` gửi được email xác thực thật (xem mục "Đăng ký
+  công khai + xác thực email").
 - `DB_POOL_MIN`/`DB_POOL_MAX` — có giá trị mặc định (2/20), chỉ cần sửa
   nếu Postgres phía deploy giới hạn connection thấp hơn.
 
@@ -32,7 +35,7 @@ nhập `API_KEY`, hoặc thêm header thủ công khi thử "Try it out". Các r
 ghi (POST/PATCH) cần thêm `Authorization: Bearer <access_token>` — lấy
 token qua `POST /auth/login` trước.
 
-## Bảo mật — 2 lớp xếp chồng
+## Bảo mật — 3 lớp xếp chồng
 
 ### Lớp 1 — API key tĩnh (mọi request)
 
@@ -42,7 +45,7 @@ chặn hết, không âm thầm mở toang. Đây là khoá "máy gọi máy" d�
 cho cả team, xác nhận "client này là frontend của mình" — KHÔNG phân biệt
 được người dùng cụ thể nào đang gọi. Chi tiết: `api/auth.py`.
 
-### Lớp 2 — Đăng nhập JWT từng người (chỉ route ghi)
+### Lớp 2 — Đăng nhập JWT từng người
 
 Thêm 08/2026, xác nhận **AI thật** đang gọi — dùng bảng `ss_team_members`
 đã mở rộng qua `sql/migration_add_auth.sql` (cột `password_hash`, `role`)
@@ -51,25 +54,48 @@ và bảng `auth_refresh_tokens`. Chi tiết thiết kế: `api/security.py`,
 
 Luồng:
 
-1. `POST /auth/login` (email + password) → trả `access_token` (JWT, sống
+1. Có tài khoản qua **tự đăng ký** (`POST /auth/register` — luôn role
+   `user`, phải xác thực email trước khi login được) hoặc **admin tạo
+   hộ** (`POST /auth/users` — chọn được role, không cần xác thực email).
+2. `POST /auth/login` (email + password) → trả `access_token` (JWT, sống
    30 phút) + `refresh_token` (sống dài hơn, xoay vòng mỗi lần dùng).
-2. Gửi kèm `Authorization: Bearer <access_token>` cho các route cần biết
+3. Gửi kèm `Authorization: Bearer <access_token>` cho các route cần biết
    user thật (bảng dưới) hoặc route quản lý tài khoản (`/auth/me`, đổi
    mật khẩu...).
-3. `POST /auth/refresh` khi access token hết hạn, lấy cặp token mới.
-4. `POST /auth/users` — chỉ `role=admin` gọi được, tạo tài khoản mới cho
-   thành viên team (không có luồng tự đăng ký công khai).
+4. `POST /auth/refresh` khi access token hết hạn, lấy cặp token mới.
 
-**Route nào bắt buộc lớp 2:**
+### Lớp 3 — Phân quyền 3 cấp
+
+Thêm 08/2026 (`ROLE_HIERARCHY`, `require_role()` trong `api/deps.py`, xem
+`sql/migration_add_role_hierarchy.sql`). Mỗi tài khoản có đúng 1 role,
+cấp cao thoả mọi route yêu cầu cấp thấp hơn (so sánh **theo bậc**, không
+so khớp đúng 1 chuỗi):
+
+| Role | Cấp | Được làm |
+|---|---|---|
+| `user` | 0 | Chỉ các route `GET` đọc dữ liệu — mặc định khi tự đăng ký |
+| `ss_team` | 1 | + `POST`/`PATCH /jobs`, `POST /companies`, CRUD `/companies/{id}/contacts`, `GET /auth/users` |
+| `admin` | 2 | + `POST /crawl`, `POST /auth/users`, `PATCH /auth/users/{id}/role` |
+
+Nâng `user` lên `ss_team` phải nhờ admin gọi `PATCH
+/auth/users/{id}/role` — không có cách tự nâng. Admin **không tự đổi
+được role chính mình** (chặn cứng ở route, tránh tự khoá quyền do bấm
+nhầm) — cần admin khác thực hiện, hoặc sửa thẳng DB nếu chỉ có 1 admin
+duy nhất.
+
+**Route nào bắt buộc lớp 2/3:**
 
 | Route | Yêu cầu |
 |---|---|
-| `POST /jobs`, `PATCH /jobs/{id}` | Đăng nhập (`get_current_user`) |
-| `POST /companies` | Đăng nhập (`get_current_user`) |
-| `POST /crawl` | Đăng nhập **+ role admin** (`require_admin`) |
-| Mọi route `GET` khác | Chỉ cần API key (lớp 1), KHÔNG bắt buộc đăng nhập |
+| `POST /jobs`, `PATCH /jobs/{id}` | Đăng nhập + role `ss_team` trở lên |
+| `POST /companies` | Đăng nhập + role `ss_team` trở lên |
+| `GET/POST /companies/{id}/contacts`, `PATCH/DELETE .../contacts/{cid}` | Đăng nhập + role `ss_team` trở lên |
+| `GET /auth/users` | Đăng nhập + role `ss_team` trở lên |
+| `POST /crawl` | Đăng nhập + role `admin` |
+| `POST /auth/users`, `PATCH /auth/users/{id}/role` | Đăng nhập + role `admin` |
+| Mọi route `GET` khác (`/jobs`, `/companies`, `/stats`...) | Chỉ cần API key (lớp 1), KHÔNG bắt buộc đăng nhập |
 
-Chọn `require_admin` riêng cho `POST /crawl` (chặt hơn `POST /jobs`) vì
+Chọn `role admin` riêng cho `POST /crawl` (chặt hơn `POST /jobs`) vì
 kích hoạt crawl tốn tài nguyên server thật (network + CPU parse vài
 phút) — hạn chế để tránh spam nhiều lượt crawl chạy song song.
 
@@ -91,19 +117,24 @@ public. Xem chi tiết trong docstring `api/app.py`.
 
 Đã deploy thật lên **Render** (Web Service, kết nối GitHub private repo
 `Koaito/scrap-jd`), khai báo đủ biến môi trường (Postgres, `API_KEY`,
-`ALLOWED_ORIGINS`, `JWT_SECRET_KEY`, `DB_POOL_MIN`/`DB_POOL_MAX`,
-Tavily/Gemini key). URL public: `https://scrap-jd-api.onrender.com`.
+`ALLOWED_ORIGINS`, `JWT_SECRET_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`,
+`API_BASE_URL`, `DB_POOL_MIN`/`DB_POOL_MAX`, Tavily/Gemini key). URL
+public: `https://scrap-jd-api.onrender.com`.
 
-**Trước khi deploy bản có JWT audit trail này**, phải chạy trên Postgres
-thật (đúng thứ tự, migration sau phụ thuộc bảng/cột migration trước):
+**Trước khi deploy bản có JWT/phân quyền/đăng ký này**, phải chạy trên
+Postgres thật **đúng thứ tự** (migration sau phụ thuộc bảng/cột migration
+trước):
 
 ```bash
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_auth.sql
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_audit_columns.sql
+psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_role_hierarchy.sql
+psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_email_verification.sql
 ```
 
-Deploy code trước khi chạy migration → mọi `POST`/`PATCH /jobs`,
-`POST /companies` sẽ lỗi 500 (cột `created_by`/`updated_by` chưa tồn tại).
+Deploy code trước khi chạy đủ 4 migration → `POST`/`PATCH /jobs`,
+`POST /companies`, CRUD `/companies/{id}/contacts`, hoặc
+`POST /auth/register` sẽ lỗi 500 (bảng/cột liên quan chưa tồn tại).
 
 Khi làm frontend và deploy lên Vercel: quay lại Render, sửa
 `ALLOWED_ORIGINS` cho khớp domain Vercel thật, KHÔNG quên bước này
@@ -115,16 +146,18 @@ Khi làm frontend và deploy lên Vercel: quay lại Render, sửa
 api/
   app.py              <- entry point FastAPI, đăng ký auth + CORS + router + lifespan (init/close connection pool)
   auth.py              <- kiểm tra X-API-Key, fail-closed nếu thiếu cấu hình
-  security.py           <- băm mật khẩu (bcrypt), ký/verify JWT access token, sinh + băm refresh token
-  deps.py               <- get_db(): mượn/trả connection từ pool; get_current_user()/require_admin(): xác thực JWT
+  security.py           <- băm mật khẩu (Argon2id), ký/verify JWT access token, sinh + băm refresh token
+  email_service.py        <- gửi email xác thực đăng ký qua Resend
+  deps.py               <- get_db(): mượn/trả connection từ pool; get_current_user()/require_role()/require_admin(): xác thực JWT + phân quyền
   schemas.py             <- Pydantic models (request/response JSON)
   crawl_runner.py         <- chạy pipeline crawl ở nền, theo dõi qua run_id
   routers/
     jobs.py                <- GET/POST /jobs, GET/PATCH /jobs/{id}
     companies.py             <- GET/POST /companies, GET /companies/{id}
-    crawl.py                  <- POST /crawl (admin), GET /crawl/{run_id}
-    meta.py                    <- GET /stats, GET /sources, GET /health
-    auth.py                     <- POST /auth/login, /refresh, /logout, GET /auth/me, POST /auth/change-password, POST /auth/users
+    contacts.py                <- CRUD /companies/{id}/contacts (liên hệ HR, soft-delete)
+    crawl.py                     <- POST /crawl (admin), GET /crawl/{run_id}
+    meta.py                       <- GET /stats, GET /sources, GET /health
+    auth.py                        <- login/refresh/logout/me/change-password/register/verify-email/resend-verification/users
 ```
 
 ## Endpoints hiện có
@@ -133,26 +166,36 @@ api/
 |---|---|---|---|
 | GET | `/jobs?industry=&province=&level=&work_type=&status=&keyword=&limit=&offset=` | List job, filter + phân trang | API key |
 | GET | `/jobs/{job_id}` | Chi tiết 1 job (kèm parsed_content) | API key |
-| POST | `/jobs` | Tạo job thủ công (company phải có sẵn), idempotent | API key + JWT |
-| PATCH | `/jobs/{job_id}` | Sửa job tự do (đổi trạng thái/lương/ghi chú...). Dùng `job_status:"CLOSED"` để "xoá mềm" | API key + JWT |
+| POST | `/jobs` | Tạo job thủ công (company phải có sẵn), idempotent | API key + JWT (ss_team+) |
+| PATCH | `/jobs/{job_id}` | Sửa job tự do (đổi trạng thái/lương/ghi chú...). Dùng `job_status:"CLOSED"` để "xoá mềm" | API key + JWT (ss_team+) |
 | GET | `/companies?keyword=&province=&has_social=&limit=&offset=` | List công ty, filter + phân trang | API key |
 | GET | `/companies/{company_id}` | Chi tiết công ty (kèm danh sách job) | API key |
-| POST | `/companies` | Tạo công ty thủ công (tự dùng lại công ty đã có nếu trùng tax_id) | API key + JWT |
+| POST | `/companies` | Tạo công ty thủ công (tự dùng lại công ty đã có nếu trùng tax_id) | API key + JWT (ss_team+) |
+| GET | `/companies/{company_id}/contacts?include_inactive=` | List liên hệ HR của 1 công ty | API key + JWT (ss_team+) |
+| POST | `/companies/{company_id}/contacts` | Thêm liên hệ HR | API key + JWT (ss_team+) |
+| PATCH | `/companies/{company_id}/contacts/{contact_id}` | Sửa liên hệ HR (chỉ field gửi lên bị ghi đè) | API key + JWT (ss_team+) |
+| DELETE | `/companies/{company_id}/contacts/{contact_id}` | Xoá mềm (`is_active=false`, giữ lịch sử) | API key + JWT (ss_team+) |
 | POST | `/crawl` | Kích hoạt crawl nền — body `{"source", "category", "pages"?, "max_jobs"?}`, trả `run_id` ngay | API key + JWT (admin) |
 | GET | `/crawl/{run_id}` | Theo dõi tiến độ/kết quả 1 lượt crawl | API key |
 | GET | `/stats` | Tổng job/công ty, tỷ lệ có social, phân bố ngành/nguồn | API key |
 | GET | `/sources` | Danh sách source/category có sẵn (đọc từ `config.py`) — frontend render dropdown | API key |
 | GET | `/health` | Health check | API key |
-| POST | `/auth/login` | Đăng nhập, trả `access_token` + `refresh_token` | API key |
+| POST | `/auth/register` | Tự đăng ký (luôn role `user`), gửi email xác thực | API key |
+| GET | `/auth/verify-email?token=` | Kích hoạt tài khoản — bấm từ link trong email, trả HTML | API key |
+| POST | `/auth/resend-verification` | Xin gửi lại email xác thực | API key |
+| POST | `/auth/login` | Đăng nhập, trả `access_token` + `refresh_token`. Chặn nếu email chưa xác thực | API key |
 | POST | `/auth/refresh` | Xoay vòng lấy access token mới | API key |
 | POST | `/auth/logout` | Thu hồi refresh token hiện tại | API key |
 | GET | `/auth/me` | Thông tin tài khoản đang đăng nhập | API key + JWT |
 | POST | `/auth/change-password` | Tự đổi mật khẩu | API key + JWT |
-| POST | `/auth/users` | Tạo tài khoản mới cho thành viên team | API key + JWT (admin) |
+| POST | `/auth/users` | Admin tạo hộ tài khoản mới, chọn được role | API key + JWT (admin) |
+| GET | `/auth/users` | Danh sách toàn bộ tài khoản | API key + JWT (ss_team+) |
+| PATCH | `/auth/users/{id}/role` | Đổi role tài khoản khác (không tự đổi role chính mình) | API key + JWT (admin) |
 
 "API key" = mọi request đều cần header `X-API-Key: <giá trị API_KEY>`.
 "JWT" = cần thêm header `Authorization: Bearer <access_token>` (lấy từ
-`POST /auth/login`).
+`POST /auth/login`). "(ss_team+)"/"(admin)" = role tối thiểu theo
+`ROLE_HIERARCHY` (`user` < `ss_team` < `admin`, xem mục Phân quyền).
 
 ### `POST /jobs` — tạo job thủ công
 
@@ -209,6 +252,39 @@ Nếu `tax_id` trùng với công ty đã có sẵn (vd đã crawl từ TopCV tr
 → route tự động dùng lại company đã có, KHÔNG tạo bản ghi trùng. Luôn
 dùng `company_id` trong response cho bước tạo job tiếp theo.
 
+### `POST /companies/{company_id}/contacts` — thêm liên hệ HR
+
+```json
+{
+  "contact_name": "Nguyễn Văn A",
+  "job_title": "HR Manager",
+  "work_email": "a.nguyen@abc.vn",
+  "social_link": "https://linkedin.com/in/nguyenvana",
+  "phone_number": "0901234567",
+  "found_source": "LinkedIn"
+}
+```
+
+Chỉ `contact_name` bắt buộc, các field khác optional. `contact_status`
+mặc định `UNCONTACTED` lúc tạo (đổi qua `PATCH`).
+
+### `PATCH /companies/{company_id}/contacts/{contact_id}` — sửa liên hệ HR
+
+Chỉ gửi field muốn sửa:
+
+```json
+{"contact_status": "EMAIL_SENT", "last_contacted_date": "2026-08-13"}
+```
+
+`contact_status` phải là 1 trong: `UNCONTACTED` | `EMAIL_SENT` |
+`RESPONDED` | `IN_PARTNERSHIP`.
+
+### `DELETE /companies/{company_id}/contacts/{contact_id}` — xoá mềm
+
+Không xoá thật — chỉ đặt `is_active=false`, giữ nguyên lịch sử liên hệ
+trong DB. `GET` mặc định không trả contact đã ẩn; thêm
+`?include_inactive=true` để xem lại.
+
 ### `POST /crawl` — giới hạn theo trang hoặc theo số lượng JD
 
 Khớp 1-1 với `--pages`/`--max-jobs` đã có ở CLI (`main.py`):
@@ -230,6 +306,23 @@ Khớp 1-1 với `--pages`/`--max-jobs` đã có ở CLI (`main.py`):
 `GET /crawl/{run_id}` trả thêm field `max_jobs` (null nếu không giới hạn
 theo số lượng) bên cạnh `pages` đã có.
 
+### `POST /auth/register` — tự đăng ký
+
+```json
+{
+  "full_name": "Nguyễn Văn B",
+  "email": "b.nguyen@example.com",
+  "password": "mat-khau-toi-thieu-8-ky-tu"
+}
+```
+
+Luôn tạo tài khoản role `user`, KHÔNG cho chọn role qua request. Trả
+`{"ss_user_id", "email", "message"}` — KHÔNG trả token, vì phải xác
+thực email trước mới login được. Server tự gửi email chứa link
+`GET /auth/verify-email?token=...` (hết hạn sau 24h) qua Resend — nếu
+gửi lỗi, tài khoản **vẫn đã tạo thành công**, gọi
+`POST /auth/resend-verification` để xin gửi lại, không cần đăng ký lại.
+
 ### `POST /auth/login`
 
 ```json
@@ -238,22 +331,52 @@ theo số lượng) bên cạnh `pages` đã có.
 
 Trả `{"access_token", "refresh_token", "token_type": "bearer",
 "must_change_password"}`. `must_change_password=true` nghĩa là tài khoản
-mới tạo/vừa bị admin reset — frontend nên ép chuyển sang màn đổi mật
-khẩu (`POST /auth/change-password`) trước khi cho dùng tiếp.
+mới tạo qua `POST /auth/users`/vừa bị admin reset — frontend nên ép
+chuyển sang màn đổi mật khẩu (`POST /auth/change-password`) trước khi
+cho dùng tiếp. Trả `403` nếu email chưa xác thực (tài khoản tự đăng ký
+qua `POST /auth/register` chưa bấm link trong email).
 
-## Audit trail — ai tạo/sửa job và công ty
+### `PATCH /auth/users/{id}/role` — đổi role (admin-only)
 
-Thêm 08/2026 cùng với việc bắt buộc JWT ở route ghi. `job_postings` và
-`companies` có thêm 2 cột `created_by`/`updated_by` (UUID, tham chiếu
+```json
+{"role": "ss_team"}
+```
+
+`role` phải là 1 trong `user`/`ss_team`/`admin`. Trả `400` nếu
+`{id}` trùng chính admin đang gọi request (chặn tự đổi role bản thân).
+
+## Phân quyền — role hierarchy
+
+Thêm 08/2026 cùng lúc với `POST /auth/register` (xem
+`sql/migration_add_role_hierarchy.sql`). `api/deps.py` định nghĩa
+`ROLE_HIERARCHY = {"user": 0, "ss_team": 1, "admin": 2}` — mỗi route
+khai báo `Depends(require_role("ss_team"))` (hoặc `require_admin`, alias
+của `require_role("admin")`) sẽ chấp nhận role của người gọi **nếu cấp
+số của role đó >= cấp yêu cầu**, không so khớp đúng 1 chuỗi. Nghĩa là
+`admin` tự động thoả mọi route yêu cầu `ss_team` hoặc `user`, không cần
+liệt kê `admin` riêng ở từng nơi.
+
+Token JWT phát hành **trước** khi chạy `migration_add_role_hierarchy.sql`
+vẫn mang giá trị role cũ (`member`) trong payload — bị `require_role()`
+từ chối (coi như cấp thấp nhất, an toàn theo hướng từ chối) cho tới khi
+access token tự hết hạn (30 phút) hoặc người dùng đăng nhập lại để lấy
+token mới mang đúng role hiện tại.
+
+## Audit trail — ai tạo/sửa job, công ty, liên hệ HR
+
+Thêm 08/2026 cùng với việc bắt buộc JWT ở route ghi. `job_postings`,
+`companies`, và `company_contacts` (thêm cùng lúc với role hierarchy) có
+2 cột `created_by`/`updated_by` (UUID, tham chiếu
 `ss_team_members.ss_user_id`), trả về trong response của
-`GET`/`POST`/`PATCH` (`JobOut`/`CompanyOut`).
+`GET`/`POST`/`PATCH` tương ứng.
 
 - Job/công ty tạo qua **crawl tự động** (`main.py`, không qua JWT) →
   `created_by = null`. Đây là giá trị bình thường, không phải lỗi.
-- Job/công ty tạo/sửa qua **API có JWT** (`POST`/`PATCH` ở trên) →
-  `created_by`/`updated_by` = `ss_user_id` của người vừa gọi.
-- Migration `sql/migration_add_audit_columns.sql` PHẢI chạy trước khi
-  deploy code này (xem mục Deploy production).
+- Job/công ty/liên hệ HR tạo/sửa qua **API có JWT** (`POST`/`PATCH` ở
+  trên) → `created_by`/`updated_by` = `ss_user_id` của người vừa gọi.
+- Migration `sql/migration_add_audit_columns.sql` VÀ
+  `sql/migration_add_role_hierarchy.sql` PHẢI chạy trước khi deploy code
+  này (xem mục Deploy production).
 
 ## Connection pool
 
@@ -284,16 +407,25 @@ pool, vì tần suất chạy thấp (1 lần/script), không cần thiết.
   hạn ở phía frontend (disable nút "Crawl" khi đang chạy).
 - **Auth API key (lớp 1) vẫn là 1 khoá dùng chung** cho mọi client kiểu
   "máy gọi máy" — không phân biệt được nội bộ ai gọi ở TẦNG NÀY (muốn
-  biết ai thì phải qua JWT, chỉ bắt buộc ở route ghi, xem mục Bảo mật).
+  biết ai thì phải qua JWT, xem mục Bảo mật).
 - **Access token JWT không tự kiểm tra lại DB** (`get_current_user()` chỉ
   verify chữ ký, không query `is_active`) — thu hồi tức thời 1 tài khoản
   (vd nhân viên nghỉ việc) cần gọi `revoke_all_refresh_tokens_for_user()`
   để chặn cấp access token MỚI, access token cũ (tối đa 30 phút) vẫn còn
   hiệu lực tới khi tự hết hạn.
+- **Domain gửi email vẫn là domain test mặc định của Resend**
+  (`onboarding@resend.dev`) — chưa verify domain riêng của team, đổi qua
+  `EMAIL_FROM` khi có domain thật.
+- **Thiếu `RESEND_API_KEY` không làm sập `POST /auth/register`** — tài
+  khoản vẫn tạo thành công, chỉ email không gửi được (log lỗi, xem
+  `api/email_service.py`).
 
 ## Việc CHƯA làm (để team quyết định có cần không)
 
-- Phân quyền chi tiết hơn 2 mức `admin`/`member` hiện có (vd quyền theo
-  từng resource).
-- Rate limiting.
+- Rate limiting (đặc biệt `POST /auth/register`, `POST
+  /auth/resend-verification` — hiện ai cũng gọi được không giới hạn số
+  lần, có thể bị spam tạo tài khoản/gửi email hàng loạt).
+- Trang xác nhận `GET /auth/verify-email` hiện trả HTML tĩnh đơn giản
+  (frontend chưa có lúc code) — khi có frontend thật, nên đổi sang
+  redirect về 1 URL frontend cụ thể.
 - Frontend — chưa bắt đầu.
