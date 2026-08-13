@@ -1098,14 +1098,16 @@ def get_user_by_id(conn, ss_user_id: str):
 
 
 def create_user(conn, *, full_name: str, email: str, password_hash: str,
-                 role: str = "member", must_change_password: bool = True) -> str:
-    """Tạo 1 tài khoản MỚI — chỉ admin gọi được (qua POST /auth/users hoặc
-    CLI `python main.py create-admin` để tạo admin đầu tiên). KHÔNG có
-    luồng tự đăng ký công khai (xem README.md mục Auth).
+                 role: str = "user", must_change_password: bool = True) -> str:
+    """Tạo 1 tài khoản MỚI — qua POST /auth/users (admin tạo hộ, mọi
+    role) hoặc CLI `python main.py create-admin` (tạo admin đầu tiên).
+    Từ Phần 2 (đăng ký công khai) sẽ có thêm luồng tự đăng ký, luôn cố
+    định role='user' ở tầng route, không cho tự chọn.
 
-    role: quy ước 'admin' cho quyền quản trị (tạo user khác, reset mật
-    khẩu hộ người khác), giá trị khác (mặc định 'member') là thành viên
-    thường — xem require_admin() ở api/deps.py."""
+    role: 1 trong 3 giá trị 'user' < 'ss_team' < 'admin' (xem
+    api.deps.ROLE_HIERARCHY, sql/migration_add_role_hierarchy.sql) —
+    mặc định 'user' (thấp nhất, chỉ xem), KHÔNG tự cấp quyền CRUD như
+    hành vi cũ (trước đây mặc định 'member' = toàn quyền CRUD)."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -1240,9 +1242,9 @@ def revoke_all_refresh_tokens_for_user(conn, ss_user_id: str) -> int:
 
 
 def list_users(conn):
-    """Danh sách thành viên team (không lộ password_hash) — cho admin xem
-    ai đang có tài khoản, dùng cho trang quản lý user phía frontend sau
-    này."""
+    """Danh sách thành viên team (không lộ password_hash) — ss_team trở
+    lên xem được (GET /auth/users, thêm 08/2026), dùng cho trang quản lý
+    user phía frontend."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "SELECT ss_user_id, full_name, email, role, is_active, "
@@ -1250,3 +1252,112 @@ def list_users(conn):
             "FROM ss_team_members ORDER BY created_at"
         )
         return cur.fetchall()
+
+
+def update_user_role(conn, ss_user_id: str, new_role: str) -> bool:
+    """Đổi role của 1 user — CHỈ gọi từ route admin-only (PATCH
+    /auth/users/{id}/role). Route tự chặn admin đổi role CHÍNH MÌNH
+    TRƯỚC KHI gọi hàm này (xem api/routers/auth.py) — hàm ở đây không tự
+    biết "ai đang gọi", chỉ thực thi UPDATE thuần, tránh trộn logic
+    nghiệp vụ vào tầng DB. Trả False nếu ss_user_id không tồn tại."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE ss_team_members SET role = %s WHERE ss_user_id = %s",
+            (new_role, ss_user_id),
+        )
+        return cur.rowcount > 0
+
+
+# ------------------------------------------------------------------
+# Company contacts (HR contact) — CRUD thêm 08/2026 (Phần 1 phân
+# quyền). Bảng đã có sẵn từ schema.sql gốc (dùng nội bộ qua
+# merge_companies() khi gộp company trùng), nhưng CHƯA từng có route
+# public nào — đây là lần đầu lộ ra API, ss_team trở lên mới thấy được
+# (xem require_role("ss_team") ở router).
+# ------------------------------------------------------------------
+
+def list_company_contacts(conn, company_id: str, *, include_inactive: bool = False):
+    """Danh sách contact của 1 company. include_inactive=True để xem lại
+    contact đã soft-delete (xem lịch sử liên hệ cũ) — mặc định False,
+    chỉ trả contact đang active."""
+    query = (
+        "SELECT * FROM company_contacts WHERE company_id = %s"
+        + ("" if include_inactive else " AND is_active = true")
+        + " ORDER BY created_at DESC"
+    )
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query, (company_id,))
+        return cur.fetchall()
+
+
+def get_company_contact_by_id(conn, contact_id: str):
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM company_contacts WHERE contact_id = %s", (contact_id,))
+        return cur.fetchone()
+
+
+def create_company_contact(conn, *, company_id: str, contact_name: str,
+                            job_title: Optional[str] = None, work_email: Optional[str] = None,
+                            social_link: Optional[str] = None, phone_number: Optional[str] = None,
+                            found_source: Optional[str] = None, created_by: str) -> str:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO company_contacts
+                (company_id, contact_name, job_title, work_email, social_link,
+                 phone_number, found_source, collected_date, created_by, updated_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, %s, %s)
+            RETURNING contact_id
+            """,
+            (company_id, contact_name, job_title, work_email, social_link,
+             phone_number, found_source, created_by, created_by),
+        )
+        return str(cur.fetchone()[0])
+
+
+def update_company_contact(conn, contact_id: str, *, contact_name: Optional[str] = None,
+                            job_title: Optional[str] = None, work_email: Optional[str] = None,
+                            social_link: Optional[str] = None, phone_number: Optional[str] = None,
+                            contact_status: Optional[str] = None,
+                            last_contacted_date=None, updated_by: str) -> bool:
+    """Chỉ field truyền vào (khác None) mới bị ghi đè — giống pattern
+    update_job()/update_company_profile() đã có, tránh phải gửi lại
+    toàn bộ object mỗi lần PATCH."""
+    fields, values = [], []
+    for col, val in [
+        ("contact_name", contact_name), ("job_title", job_title),
+        ("work_email", work_email), ("social_link", social_link),
+        ("phone_number", phone_number), ("contact_status", contact_status),
+        ("last_contacted_date", last_contacted_date),
+    ]:
+        if val is not None:
+            fields.append(f"{col} = %s")
+            values.append(val)
+
+    if not fields:
+        return True  # không có gì để cập nhật, coi như thành công
+
+    fields.append("updated_by = %s")
+    values.append(updated_by)
+    fields.append("updated_at = now()")
+    values.append(contact_id)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE company_contacts SET {', '.join(fields)} WHERE contact_id = %s",
+            values,
+        )
+        return cur.rowcount > 0
+
+
+def soft_delete_company_contact(conn, contact_id: str, updated_by: str) -> bool:
+    """Xoá MỀM — is_active=false, KHÔNG DELETE thật (xem
+    sql/migration_add_role_hierarchy.sql mục 2 để hiểu lý do giữ lịch
+    sử). GET mặc định sẽ không còn thấy contact này nữa."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE company_contacts SET is_active = false, updated_by = %s, "
+            "updated_at = now() WHERE contact_id = %s",
+            (updated_by, contact_id),
+        )
+        return cur.rowcount > 0

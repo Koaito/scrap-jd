@@ -48,7 +48,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import db as db_module
 from api.auth import require_api_key
-from api.routers import auth, companies, crawl, jobs, meta
+from api.routers import auth, companies, contacts, crawl, jobs, meta
 
 logging.basicConfig(
     level=logging.INFO,
@@ -110,6 +110,7 @@ app.add_middleware(
 
 app.include_router(jobs.router)
 app.include_router(companies.router)
+app.include_router(contacts.router)
 app.include_router(crawl.router)
 app.include_router(meta.router)
 app.include_router(auth.router)

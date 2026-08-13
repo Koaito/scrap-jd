@@ -15,10 +15,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 import db as db_module
 from api import security
-from api.deps import get_db, get_current_user, require_admin
+from api.deps import get_db, get_current_user, require_admin, require_role
 from api.schemas import (
     AccessTokenOut, ChangePasswordRequest, LoginRequest, RefreshRequest,
-    TokenPairOut, UserCreateByAdmin, UserCreatedOut, UserOut,
+    TokenPairOut, UserCreateByAdmin, UserCreatedOut, UserOut, UserRoleUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -237,6 +237,12 @@ def create_user(
     dùng qua kênh khác (Slack/nói miệng), KHÔNG có luồng gửi email (xem
     README.md mục Auth). Tài khoản mới luôn must_change_password=True,
     bắt đổi mật khẩu ngay lần đăng nhập đầu."""
+    if payload.role not in ("user", "ss_team", "admin"):
+        raise HTTPException(
+            status_code=400,
+            detail="role phải là 1 trong: user, ss_team, admin.",
+        )
+
     existing = db_module.get_user_by_email(conn, payload.email)
     if existing is not None:
         raise HTTPException(status_code=409, detail="Email này đã có tài khoản.")
@@ -254,3 +260,46 @@ def create_user(
 
     row = db_module.get_user_by_id(conn, ss_user_id)
     return {**row, "temp_password": temp_password}
+
+
+@router.get("/users", response_model=list[UserOut])
+def list_users(
+    user: dict = Depends(require_role("ss_team")),
+    conn=Depends(get_db),
+):
+    """Danh sách toàn bộ tài khoản (thêm 08/2026) — ss_team trở lên xem
+    được (khác POST /auth/users tạo tài khoản, vẫn admin-only), dùng cho
+    mục "xem danh sách tài khoản" trong dashboard ss_team đã thống nhất."""
+    return db_module.list_users(conn)
+
+
+@router.patch("/users/{ss_user_id}/role", response_model=UserOut)
+def update_user_role(
+    ss_user_id: str,
+    payload: UserRoleUpdate,
+    admin: dict = Depends(require_admin),
+    conn=Depends(get_db),
+):
+    """CHỈ admin gọi được. Đổi role của 1 user khác — CHẶN admin tự đổi
+    role CHÍNH MÌNH (tránh tự khoá mình khỏi quyền admin do bấm nhầm;
+    muốn đổi role của chính mình thì nhờ admin khác, hoặc sửa thẳng
+    trong DB nếu là admin duy nhất — xem lịch sử trao đổi trước khi
+    code phần này)."""
+    if payload.role not in ("user", "ss_team", "admin"):
+        raise HTTPException(
+            status_code=400,
+            detail="role phải là 1 trong: user, ss_team, admin.",
+        )
+    if ss_user_id == admin["sub"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Không thể tự đổi role của chính mình — nhờ admin "
+                   "khác thực hiện thao tác này.",
+        )
+
+    updated = db_module.update_user_role(conn, ss_user_id, payload.role)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+    conn.commit()
+
+    return db_module.get_user_by_id(conn, ss_user_id)

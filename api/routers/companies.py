@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db as db_module
-from api.deps import get_current_user, get_db
+from api.deps import get_db, require_role
 from api.schemas import CompanyCreate, CompanyDetailOut, CompanyOut, PaginatedCompanies
 
 router = APIRouter(prefix="/companies", tags=["companies"])
@@ -45,7 +45,7 @@ def get_company(company_id: str, conn=Depends(get_db)):
 def create_company(
     payload: CompanyCreate,
     conn=Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_role("ss_team")),
 ):
     """Tạo công ty THỦ CÔNG — dùng trước POST /jobs khi công ty chưa có
     trong DB (GET /companies?keyword= tìm không ra). Nếu tax_id điền vào
@@ -56,9 +56,10 @@ def create_company(
     trước do trùng tax_id) — frontend luôn dùng company_id trong response
     này cho bước tạo job tiếp theo, không giả định trùng ID với request.
 
-    BẮT BUỘC đăng nhập (thêm 08/2026, xem Depends(get_current_user)) —
-    ghi lại companies.created_by (nếu company MỚI tạo) và updated_by
-    (kể cả khi trùng company đã có, đang vá thêm thông tin)."""
+    BẮT BUỘC đăng nhập VÀ role 'ss_team' trở lên (đổi từ chỉ-cần-đăng-nhập,
+    08/2026, xem sql/migration_add_role_hierarchy.sql) — ghi lại
+    companies.created_by (nếu company MỚI tạo) và updated_by (kể cả khi
+    trùng company đã có, đang vá thêm thông tin)."""
     province_id = db_module.get_or_create_province(conn, payload.province_name or "")
     company_id = db_module.get_or_create_company_by_profile(
         conn, payload.company_name, province_id, tax_id=payload.tax_id or "",

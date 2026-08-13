@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db as db_module
-from api.deps import get_current_user, get_db
+from api.deps import get_db, require_role
 from api.schemas import JobCreate, JobDetailOut, JobUpdate, PaginatedJobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -51,7 +51,7 @@ def get_job(job_id: str, conn=Depends(get_db)):
 def create_job(
     payload: JobCreate,
     conn=Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_role("ss_team")),
 ):
     """Tạo 1 job THỦ CÔNG (không qua crawl) — company_id PHẢI đã tồn tại
     trong DB (dùng GET /companies?keyword= để tìm, hoặc POST /companies
@@ -67,11 +67,14 @@ def create_job(
     + level_code + province_name giống nhau) sẽ KHÔNG tạo job trùng —
     trả về đúng job đã có (xem db.create_manual_job()).
 
-    BẮT BUỘC đăng nhập (thêm 08/2026, xem Depends(get_current_user)) —
-    khác các route GET (chỉ cần API_KEY) — để ghi lại job_postings.created_by
-    (audit trail "ai tạo job này"). Vẫn cần header X-API-Key NHƯ CŨ (2
-    lớp xếp chồng, xem docstring api/deps.py), CỘNG THÊM header
-    Authorization: Bearer <access_token> lấy từ POST /auth/login."""
+    BẮT BUỘC đăng nhập VÀ role 'ss_team' trở lên (require_role("ss_team"),
+    đổi từ chỉ-cần-đăng-nhập sang có phân cấp — 08/2026, xem
+    sql/migration_add_role_hierarchy.sql) — để ghi lại
+    job_postings.created_by (audit trail "ai tạo job này"), đồng thời
+    chặn role 'user' (chỉ xem) không sửa được dữ liệu. Vẫn cần header
+    X-API-Key NHƯ CŨ (2 lớp xếp chồng, xem docstring api/deps.py), CỘNG
+    THÊM header Authorization: Bearer <access_token> lấy từ POST
+    /auth/login."""
     if not db_module.is_valid_uuid(payload.company_id):
         # BUG ĐÃ VÁ (08/2026, phát hiện qua test thật): trước đây company_id
         # sai định dạng UUID (vd còn sót placeholder mẫu, gõ nhầm) sẽ được
@@ -126,19 +129,20 @@ def patch_job(
     job_id: str,
     payload: JobUpdate,
     conn=Depends(get_db),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_role("ss_team")),
 ):
     """Sửa TỰ DO các field của 1 job đã tồn tại (crawl hay nhập tay đều
-    được — team không phân quyền theo route này, chỉ cần đã đăng nhập,
-    xem API_README.md). Chỉ field có mặt trong body mới bị ghi đè,
-    field không gửi giữ nguyên giá trị cũ.
+    được — team không phân quyền chi tiết hơn theo route này, chỉ cần
+    role 'ss_team' trở lên, xem API_README.md). Chỉ field có mặt trong
+    body mới bị ghi đè, field không gửi giữ nguyên giá trị cũ.
 
     Dùng {"job_status": "CLOSED"} để "xoá mềm" — KHÔNG có endpoint DELETE
     thật, vì job đã xoá thật sẽ bị crawl lại tạo trùng ở lượt crawl sau
     (get_job_probe_by_source_url() không còn thấy job này nữa).
 
-    BẮT BUỘC đăng nhập (thêm 08/2026) — giống POST /jobs, ghi lại
-    job_postings.updated_by = người vừa sửa."""
+    BẮT BUỘC đăng nhập VÀ role 'ss_team' trở lên (đổi từ chỉ-cần-đăng-nhập,
+    08/2026) — giống POST /jobs, ghi lại job_postings.updated_by = người
+    vừa sửa, đồng thời chặn role 'user' không sửa được."""
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
 

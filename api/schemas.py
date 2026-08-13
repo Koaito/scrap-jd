@@ -291,7 +291,7 @@ class UserCreateByAdmin(BaseModel):
     (Slack/nói miệng), KHÔNG có luồng gửi email."""
     full_name: str = Field(..., min_length=1)
     email: str = Field(..., min_length=1)
-    role: str = Field(default="member", description="admin | member")
+    role: str = Field(default="user", description="user | ss_team | admin")
 
 
 class UserCreatedOut(UserOut):
@@ -299,3 +299,57 @@ class UserCreatedOut(UserOut):
     NGAY LÚC TẠO, không có endpoint nào khác trả lại được mật khẩu tạm
     này sau đó (không lưu bản rõ, chỉ lưu hash)."""
     temp_password: str
+
+
+class UserRoleUpdate(BaseModel):
+    """Body cho PATCH /auth/users/{id}/role (admin-only, thêm 08/2026)."""
+    role: str = Field(..., description="user | ss_team | admin")
+
+
+# ------------------------------------------------------------------
+# Company contacts (HR contact) — thêm 08/2026, xem db.py mục cùng tên
+# ------------------------------------------------------------------
+
+class CompanyContactOut(BaseModel):
+    contact_id: str
+    company_id: str
+    contact_name: str
+    job_title: Optional[str] = None
+    work_email: Optional[str] = None
+    social_link: Optional[str] = None
+    phone_number: Optional[str] = None
+    found_source: Optional[str] = None
+    collected_date: Optional[date] = None
+    last_contacted_date: Optional[date] = None
+    contact_status: str
+    is_active: bool
+    created_by: Optional[str] = None
+    updated_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class CompanyContactCreate(BaseModel):
+    contact_name: str = Field(..., min_length=1)
+    job_title: Optional[str] = None
+    work_email: Optional[str] = None
+    social_link: Optional[str] = None
+    phone_number: Optional[str] = None
+    found_source: Optional[str] = None
+
+
+class CompanyContactUpdate(BaseModel):
+    """Mọi field optional — chỉ field có mặt trong body mới bị ghi đè,
+    giống pattern JobUpdate."""
+    contact_name: Optional[str] = None
+    job_title: Optional[str] = None
+    work_email: Optional[str] = None
+    social_link: Optional[str] = None
+    phone_number: Optional[str] = None
+    contact_status: Optional[str] = Field(
+        None, description="UNCONTACTED | EMAIL_SENT | RESPONDED | IN_PARTNERSHIP"
+    )
+    last_contacted_date: Optional[date] = None

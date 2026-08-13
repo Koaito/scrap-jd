@@ -9,16 +9,22 @@ thật mỗi request (08/2026, xem lịch sử trao đổi) sang mượn/trả c
 lúc. Pool được khởi tạo 1 lần lúc app khởi động (api/app.py, startup
 event gọi db.init_pool()) — get_db() chỉ mượn/trả, không tự khởi tạo.
 
-get_current_user()/require_admin() (thêm 08/2026): lớp đăng nhập TỪNG
+get_current_user()/require_role()/require_admin() (require_role thêm
+08/2026, xem sql/migration_add_role_hierarchy.sql): lớp đăng nhập TỪNG
 NGƯỜI qua JWT — KHÁC api/auth.py (API_KEY tĩnh, đã đăng ký cấp app,
 chặn TRƯỚC khi request chạm tới đây). 2 lớp xếp CHỒNG lên nhau:
   1. API_KEY (api/auth.py, dependencies=[] cấp app trong app.py) — xác
      nhận "client này là frontend của chúng ta", áp dụng MỌI request.
   2. JWT (get_current_user() dưới đây) — xác nhận "user THẬT nào đang
      gọi", chỉ áp dụng cho route nào khai báo Depends(get_current_user)
-     hoặc Depends(require_admin) rõ ràng (không đăng ký cấp app, vì
+     hoặc Depends(require_role(...)) rõ ràng (không đăng ký cấp app, vì
      nhiều route như GET /jobs vẫn nên dùng được chỉ với API_KEY, không
      bắt buộc đăng nhập cá nhân).
+
+3 role phân cấp (0 'user' < 1 'ss_team' < 2 'admin', xem ROLE_HIERARCHY)
+thay cho 2 role cũ ('admin'/'member') — require_admin giờ chỉ là alias
+của require_role("admin"), giữ để không phải sửa lại mọi chỗ đã dùng
+tên cũ.
 
 Route handler khai báo bằng `def` (KHÔNG phải `async def`) — FastAPI tự
 chạy các route `def` thường trong threadpool riêng, nên psycopg2 (thư
@@ -77,12 +83,40 @@ def get_current_user(
     return payload
 
 
-def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    """Như get_current_user(), thêm điều kiện role='admin'. Dùng cho
-    route quản trị (vd POST /auth/users tạo tài khoản mới)."""
-    if user.get("role") != "admin":
-        raise HTTPException(
-            status_code=403,
-            detail="Chỉ admin mới có quyền thực hiện thao tác này.",
-        )
-    return user
+# Phân cấp role (08/2026, xem sql/migration_add_role_hierarchy.sql) —
+# số càng lớn càng nhiều quyền. 'user': chỉ xem/lọc job. 'ss_team': CRUD
+# job/company/contact + xem danh sách tài khoản. 'admin': + trigger
+# crawl + tạo/đổi role user khác. So sánh THEO BẬC (>=) chứ không so
+# khớp đúng 1 chuỗi — admin tự động thoả mọi route yêu cầu ss_team trở
+# xuống, không cần liệt kê admin riêng ở từng nơi.
+ROLE_HIERARCHY = {"user": 0, "ss_team": 1, "admin": 2}
+
+
+def require_role(min_role: str):
+    """Trả về 1 dependency FastAPI chặn nếu role của user (lấy từ JWT,
+    xem get_current_user) thấp hơn min_role theo ROLE_HIERARCHY. Dùng
+    kiểu Depends(require_role("ss_team")) ngay trong khai báo route,
+    tương tự require_admin() cũ nhưng tổng quát cho cả 3 bậc thay vì chỉ
+    biết mỗi 'admin'.
+
+    role không có trong ROLE_HIERARCHY (dữ liệu hỏng/token cũ trước khi
+    đổi tên 'member' -> 'ss_team') bị coi như bậc thấp nhất có thể
+    (-1, thấp hơn cả 'user') — an toàn theo hướng TỪ CHỐI thay vì lỡ cho
+    qua nhầm."""
+    required_level = ROLE_HIERARCHY[min_role]
+
+    def dependency(user: dict = Depends(get_current_user)) -> dict:
+        user_level = ROLE_HIERARCHY.get(user.get("role"), -1)
+        if user_level < required_level:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Cần quyền tối thiểu '{min_role}' để thực hiện thao tác này.",
+            )
+        return user
+
+    return dependency
+
+
+# Giữ lại tên cũ làm alias — tránh phải sửa lại crawl.py/auth.py cùng
+# lúc với việc đổi tên; cả 2 đều hiểu 'admin' là bậc cao nhất.
+require_admin = require_role("admin")

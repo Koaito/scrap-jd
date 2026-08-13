@@ -28,12 +28,12 @@ def trigger_crawl(
     là giới hạn thực sự; dùng cả 2 cùng lúc -> dừng ở điều kiện nào tới
     trước; bỏ trống cả 2 -> dùng DEFAULT_MAX_PAGES như trước giờ.
 
-    BẮT BUỘC đăng nhập VÀ role='admin' (thêm 08/2026, xem
-    Depends(require_admin)) — chặt hơn POST /jobs, POST /companies
-    (chỉ cần đăng nhập, không cần admin), vì kích hoạt crawl tốn tài
-    nguyên server thật (network + CPU parse trong vài phút) nên hạn chế
-    ai cũng bấm được, tránh spam nhiều lượt crawl chạy song song ngoài
-    ý muốn."""
+    BẮT BUỘC đăng nhập VÀ role='admin' (Depends(require_admin), nay là
+    alias của require_role("admin") — xem api/deps.py) — chặt hơn POST
+    /jobs, POST /companies (chỉ cần role 'ss_team' trở lên), vì kích
+    hoạt crawl tốn tài nguyên server thật (network + CPU parse trong vài
+    phút) nên hạn chế ai cũng bấm được, tránh spam nhiều lượt crawl chạy
+    song song ngoài ý muốn."""
     if payload.source not in crawl_runner._SOURCE_ADAPTERS:
         raise HTTPException(
             status_code=400,
