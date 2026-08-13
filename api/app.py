@@ -41,10 +41,12 @@ khi đang cần debug tạm thời.
 
 import logging
 import os
+from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+import db as db_module
 from api.auth import require_api_key
 from api.routers import auth, companies, crawl, jobs, meta
 
@@ -59,11 +61,26 @@ logging.basicConfig(
 # (dev local), KHÔNG khuyến khích bật trên môi trường public lâu dài.
 _docs_enabled = os.getenv("ENABLE_DOCS", "").strip().lower() == "true"
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Khởi tạo connection pool (db.py) 1 LẦN lúc app khởi động, đóng lại
+    khi app tắt — thay cho mở/đóng connection Postgres thật ở MỖI
+    request (08/2026, xem db.py mục "CONNECTION POOL"). Dùng lifespan
+    (khuyến nghị hiện tại của FastAPI) thay vì @app.on_event("startup"/
+    "shutdown") đã deprecated. Đóng pool lúc shutdown tránh connection
+    bị bỏ "treo" phía Postgres khi Render restart/deploy lại server."""
+    db_module.init_pool()
+    yield
+    db_module.close_pool()
+
+
 app = FastAPI(
     title="SCRAP JD API",
     description="API layer cho crawler job TopCV/VietnamWorks — team Student Success.",
     version="0.1.0",
     dependencies=[Depends(require_api_key)],
+    lifespan=lifespan,
     # /docs, /redoc, /openapi.json KHÔNG đi qua dependencies= ở trên (xem
     # docstring đầu file) -> mặc định TẮT HẲN (fail-closed), chỉ bật khi
     # ENABLE_DOCS=true trong .env (dùng lúc dev local).

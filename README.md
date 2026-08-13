@@ -7,8 +7,10 @@ PostgreSQL — expose ra ngoài qua 1 lớp **API FastAPI có auth**, **đã dep
 public trên Render**.
 
 **Trạng thái hiện tại (08/2026):** pipeline crawl + API layer đã chạy ổn
-định, có bảo mật (API key + CORS), đã lên production. Còn thiếu: frontend
-dashboard (chưa làm), và vài field công ty còn thiếu dữ liệu (xem mục
+định, có bảo mật 2 lớp (API key dùng chung + đăng nhập JWT từng người),
+kết nối Postgres qua connection pool, ghi audit trail (ai tạo/sửa job và
+công ty), đã lên production. Còn thiếu: frontend dashboard (chưa làm), và
+vài field công ty còn thiếu dữ liệu (xem mục
 [Tình trạng dữ liệu](#tình-trạng-dữ-liệu) bên dưới).
 
 Ngoài pipeline crawl chính còn có 2 script độc lập, chạy khi cần:
@@ -34,12 +36,13 @@ main.py                          <- CLI chạy crawl
 get_company_fb_linkedin_link.py  <- script riêng: fanpage/LinkedIn
 enrich_company_web_info.py       <- script riêng: website/tax_id qua Tavily + Gemini
 api/                              <- lớp API FastAPI, bọc ngoài codebase crawler (xem mục riêng bên dưới)
-  app.py                          <- entry point, đăng ký auth + CORS + router
+  app.py                          <- entry point, đăng ký auth + CORS + router + lifespan (init/close connection pool)
   auth.py                         <- API key tĩnh, áp dụng cho toàn bộ endpoint
-  deps.py                         <- get_db(): mở/đóng connection Postgres theo request
+  security.py                     <- băm mật khẩu, ký/verify JWT access + refresh token
+  deps.py                         <- get_db(): mượn/trả connection từ pool; get_current_user()/require_admin(): xác thực JWT
   schemas.py                      <- Pydantic models (request/response JSON)
   crawl_runner.py                 <- chạy pipeline crawl ở nền, theo dõi qua run_id
-  routers/                        <- jobs.py, companies.py, crawl.py, meta.py
+  routers/                        <- jobs.py, companies.py, crawl.py, meta.py, auth.py
 sql/schema.sql                   <- schema PostgreSQL đầy đủ (chạy 1 lần cho DB mới)
 sql/migration_*.sql              <- vá DB cũ đã tạo trước khi có tính năng mới
 tests/                           <- test parser + logic, không cần DB/internet
@@ -104,7 +107,11 @@ Nếu định chạy `enrich_company_web_info.py`, điền thêm `TAVILY_API_KEY
 
 Nếu định chạy **API layer** (`uvicorn api.app:app`), bắt buộc điền thêm
 `API_KEY` và `ALLOWED_ORIGINS` — xem [mục API layer](#api-layer-fastapi)
-bên dưới.
+bên dưới. Muốn dùng lớp đăng nhập JWT (`POST /jobs`, `PATCH /jobs/{id}`,
+`POST /companies`, `POST /crawl` bắt buộc đăng nhập từ 08/2026) thì cần
+thêm `JWT_SECRET_KEY`. `DB_POOL_MIN`/`DB_POOL_MAX` có giá trị mặc định
+sẵn (2/20), chỉ cần sửa nếu Postgres phía deploy giới hạn connection
+thấp hơn.
 
 ### 5. Tạo bảng
 
@@ -117,6 +124,12 @@ Kỳ vọng: `✅ Đã tạo/cập nhật schema trong database.`
 > Nếu bạn có DB tạo từ bản rất cũ (trước khi có cột `tax_id` hoặc
 > `work_type`/`deadline`), chạy thêm các file trong `sql/migration_*.sql`
 > tương ứng — xem comment đầu mỗi file để biết chạy khi nào.
+>
+> **Quan trọng nếu định bật lớp ghi có JWT** (`POST`/`PATCH` bắt buộc đăng
+> nhập, xem mục API layer): phải chạy `sql/migration_add_auth.sql` (bảng
+> user/refresh token) VÀ `sql/migration_add_audit_columns.sql` (cột
+> `created_by`/`updated_by`) TRƯỚC khi deploy code — thiếu 1 trong 2 sẽ
+> làm `POST`/`PATCH /jobs`, `POST /companies` lỗi 500.
 
 ### 6. Chạy test (không cần DB/internet)
 
@@ -223,35 +236,66 @@ nguyên tắc an toàn mặc định. Cần xem Swagger lúc dev local: set
 `ENABLE_DOCS=true` trong `.env`. Không bật trên môi trường public trừ khi
 đang debug tạm thời.
 
-### Bảo mật
+### Bảo mật — 2 lớp xếp chồng
 
-- **API key tĩnh** (`api/auth.py`) — 1 key dùng chung, gửi qua header
-  `X-API-Key` (hoặc query `?api_key=` để tiện test, không khuyến khích
-  dùng ở frontend thật). Thiếu `API_KEY` trong `.env` -> server tự chặn
-  hết (fail-closed), không âm thầm mở toang.
-- **CORS siết theo domain** — chỉ domain liệt kê trong `ALLOWED_ORIGINS`
-  (phân tách dấu phẩy) mới gọi được từ trình duyệt. Để trống -> không
-  domain nào gọi được (fail-closed).
-- Đây là mức bảo mật **đơn giản, đủ dùng cho quy mô hiện tại** (team nội
-  bộ ít người) — không phải OAuth2/JWT, không phân quyền theo user. Nâng
-  cấp khi cần nhiều người dùng hơn, xem docstring `api/auth.py`.
+1. **API key tĩnh** (`api/auth.py`) — 1 key dùng chung cho mọi request,
+   gửi qua header `X-API-Key` (hoặc query `?api_key=` để tiện test,
+   không khuyến khích dùng ở frontend thật). Áp dụng cho **toàn bộ**
+   endpoint, kể cả các route chỉ đọc. Thiếu `API_KEY` trong `.env` ->
+   server tự chặn hết (fail-closed), không âm thầm mở toang.
+2. **Đăng nhập JWT từng người** (`api/security.py`, `api/routers/auth.py`,
+   thêm 08/2026) — xác định **AI** đang gọi API, KHÁC lớp API key ở trên
+   (chỉ xác nhận "client này là frontend của mình", không phân biệt
+   người dùng). Chỉ bắt buộc ở các route **ghi** dữ liệu:
+   - `POST /jobs`, `PATCH /jobs/{id}` — cần đăng nhập (`get_current_user`).
+   - `POST /companies` — cần đăng nhập (`get_current_user`).
+   - `POST /crawl` — cần đăng nhập **VÀ** role `admin` (`require_admin`),
+     chặt hơn vì tốn tài nguyên server thật khi chạy crawl.
+
+   Mọi route **đọc** (`GET /jobs`, `GET /companies`, `GET /stats`...) vẫn
+   chỉ cần API key như cũ — không bắt buộc đăng nhập, không phá frontend
+   hiện tại.
+
+   Luồng: `POST /auth/login` (email + password) trả `access_token` (JWT,
+   sống 30 phút) + `refresh_token` (sống dài hơn, xoay vòng) -> gửi kèm
+   `Authorization: Bearer <access_token>` cho các route ghi ở trên ->
+   `POST /auth/refresh` để lấy access token mới khi hết hạn. Tài khoản
+   chỉ được tạo bởi admin qua `POST /auth/users` — không có luồng tự
+   đăng ký công khai.
+
+Mọi thao tác ghi qua JWT được ghi lại vào cột `created_by`/`updated_by`
+của `job_postings`/`companies` (audit trail, xem
+`sql/migration_add_audit_columns.sql`) — job/công ty tạo qua crawl tự
+động (không qua JWT) có `created_by = NULL`.
+
+**CORS siết theo domain** — chỉ domain liệt kê trong `ALLOWED_ORIGINS`
+(phân tách dấu phẩy) mới gọi được từ trình duyệt. Để trống -> không
+domain nào gọi được (fail-closed).
 
 ### Endpoints hiện có
 
 | Method | Path                                                                            | Việc                                                                                                               |
 | ------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/jobs?industry=&province=&level=&work_type=&status=&keyword=&limit=&offset=` | List job, filter + phân trang                                                                                      |
-| GET    | `/jobs/{job_id}`                                                              | Chi tiết 1 job (kèm parsed_content)                                                                               |
-| GET    | `/companies?keyword=&province=&has_social=&limit=&offset=`                    | List công ty, filter + phân trang                                                                                 |
-| GET    | `/companies/{company_id}`                                                     | Chi tiết công ty (kèm danh sách job)                                                                            |
-| POST   | `/crawl`                                                                      | Kích hoạt crawl nền — body`{"source": "topcv", "category": "data-analyst", "pages"?, "max_jobs"?}` (khớp `--pages`/`--max-jobs` ở CLI, xem chi tiết trong `API_README.md`), trả `run_id` ngay |
-| GET    | `/crawl/{run_id}`                                                             | Theo dõi tiến độ/kết quả 1 lượt crawl                                                                       |
-| GET    | `/stats`                                                                      | Tổng job/công ty, tỷ lệ có social, phân bố ngành/nguồn                                                     |
+| GET    | `/jobs?industry=&province=&level=&work_type=&status=&keyword=&limit=&offset=` | List job, filter + phân trang — chỉ cần API key                                                                    |
+| GET    | `/jobs/{job_id}`                                                              | Chi tiết 1 job (kèm parsed_content) — chỉ cần API key                                                             |
+| POST   | `/jobs`                                                                       | Tạo job thủ công (company phải có sẵn) — **cần đăng nhập**, ghi `created_by`                                       |
+| PATCH  | `/jobs/{job_id}`                                                              | Sửa job (đổi trạng thái, lương, ghi chú...) — **cần đăng nhập**, ghi `updated_by`. Dùng `job_status:"CLOSED"` để "xoá mềm" |
+| GET    | `/companies?keyword=&province=&has_social=&limit=&offset=`                    | List công ty, filter + phân trang — chỉ cần API key                                                               |
+| GET    | `/companies/{company_id}`                                                     | Chi tiết công ty (kèm danh sách job) — chỉ cần API key                                                          |
+| POST   | `/companies`                                                                  | Tạo công ty thủ công (tự dùng lại nếu trùng tax_id) — **cần đăng nhập**, ghi `created_by`/`updated_by`             |
+| POST   | `/crawl`                                                                      | Kích hoạt crawl nền — body`{"source": "topcv", "category": "data-analyst", "pages"?, "max_jobs"?}` — **cần đăng nhập + role admin** |
+| GET    | `/crawl/{run_id}`                                                             | Theo dõi tiến độ/kết quả 1 lượt crawl — chỉ cần API key                                                       |
+| GET    | `/stats`                                                                      | Tổng job/công ty, tỷ lệ có social, phân bố ngành/nguồn — chỉ cần API key                                    |
 | GET    | `/sources`                                                                    | Danh sách source/category có sẵn (đọc từ`config.py`) — frontend render dropdown                            |
 | GET    | `/health`                                                                     | Health check đơn giản (vẫn cần API key)                                                                        |
+| POST   | `/auth/login`                                                                 | Đăng nhập, trả `access_token` (30 phút) + `refresh_token`                                                       |
+| POST   | `/auth/refresh`                                                               | Xoay vòng lấy access token mới                                                                                  |
+| POST   | `/auth/logout`                                                                | Thu hồi refresh token hiện tại                                                                                  |
+| GET    | `/auth/me`                                                                    | Thông tin tài khoản đang đăng nhập                                                                              |
+| POST   | `/auth/change-password`                                                      | Tự đổi mật khẩu                                                                                                  |
+| POST   | `/auth/users`                                                                 | Tạo tài khoản mới cho thành viên team — chỉ admin gọi được                                                     |
 
-Đã test thực tế cả 9 endpoint trên local (200 OK, field đúng, join company
-đúng) và trên production (Render) — xem mục Deploy bên dưới.
+Xem chi tiết body/response từng endpoint trong `API_README.md`.
 
 ### Giới hạn đã biết
 
@@ -259,12 +303,14 @@ nguyên tắc an toàn mặc định. Cần xem Swagger lúc dev local: set
   server, không đồng bộ nếu chạy nhiều worker (`--workers > 1`). Đủ dùng ở
   quy mô hiện tại. Nâng cấp sau: Celery + Redis hoặc RQ.
 - **Không giới hạn số crawl chạy song song** — xem cảnh báo race condition
-  ở mục [Crawl job](#crawl-job) bên trên.
-- **Connection Postgres mở/đóng mỗi request**, không dùng pool — đủ cho
-  traffic thấp. Nâng cấp sau: connection pool nếu nhiều người dùng cùng
-  lúc.
-- Chỉ đọc (read-only) — chưa có endpoint sửa `ss_team_notes`,
-  `contact_status`... (dễ thêm sau, tái dùng `db.update_*` có sẵn).
+  ở mục [Crawl job](#crawl-job) bên trên. `require_admin` ở `POST /crawl`
+  giảm rủi ro spam nhưng KHÔNG tự chặn 2 lượt chạy cùng lúc.
+- **`GET /docs`/`/redoc`/`/openapi.json` không đi qua được API key** (giới
+  hạn kỹ thuật FastAPI) — mặc định tắt hẳn, chỉ bật `ENABLE_DOCS=true`
+  lúc dev local.
+- **Auth API key vẫn là 1 khoá dùng chung** ở tầng "máy gọi máy" — muốn
+  biết chính xác người nào gọi thì phải qua JWT (chỉ bắt buộc ở route
+  ghi, xem mục Bảo mật).
 
 ---
 
@@ -343,8 +389,14 @@ lượng ảnh hưởng nhỏ (tại thời điểm phát hiện: 1 bản ghi du
 - **Dữ liệu hiện tại mới chỉ từ 1 lượt crawl, 2 ngành, 2 nguồn** — quy mô
   còn nhỏ so với mục tiêu dự án, cần crawl thêm định kỳ để có dữ liệu đủ
   lớn cho dashboard.
-- **Frontend dashboard chưa làm** — backend đã sẵn sàng (API + auth +
-  deploy), bước tiếp theo là xây frontend gọi vào các endpoint đã có.
+- **Frontend dashboard chưa làm** — backend đã sẵn sàng (API + JWT auth +
+  connection pool + audit trail + deploy), bước tiếp theo là xây frontend
+  gọi vào các endpoint đã có (cần thêm màn hình đăng nhập để dùng được
+  các route ghi, xem mục API layer).
+- **Chưa deploy migration audit trail / pool lên Postgres production** —
+  phải chạy `sql/migration_add_audit_columns.sql` trên DB thật TRƯỚC khi
+  deploy code có `Depends(get_current_user)` ở route ghi, nếu không mọi
+  `POST`/`PATCH /jobs`, `POST /companies` sẽ lỗi 500 (thiếu cột).
 
 ---
 

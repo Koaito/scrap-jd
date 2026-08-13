@@ -11,8 +11,9 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 
-from config import DB_CONFIG
+from config import DB_CONFIG, DB_POOL_MAX, DB_POOL_MIN
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +37,104 @@ def is_valid_uuid(value: Optional[str]) -> bool:
 
 
 def get_connection():
+    """Mở 1 connection Postgres MỚI, ĐỘC LẬP với pool bên dưới — dùng cho
+    CLI/script chạy 1 lần rồi thoát (main.py, enrich_company_web_info.py,
+    get_company_fb_linkedin_link.py, api/crawl_runner.py chạy nền). Các
+    nơi này mở/đóng đúng 1 lần mỗi lần chạy, tần suất thấp -> không cần
+    pool, và code gọi conn.close() trực tiếp (không phải
+    release_connection()) nên KHÔNG được đổi hàm này sang lấy từ pool
+    (nếu đổi, conn.close() ở những nơi đó sẽ đóng vật lý connection mà
+    không trả "chỗ" lại cho pool, làm pool rò rỉ dần tới khi hết
+    maxconn).
+
+    Muốn dùng pool (traffic lặp lại nhiều lần/giây, như API layer) ->
+    dùng get_pooled_connection() + release_connection() bên dưới."""
     conn = psycopg2.connect(**DB_CONFIG)
     conn.autocommit = False
     return conn
+
+
+# ============================================================
+# CONNECTION POOL — dùng riêng cho API layer (thêm 08/2026)
+#
+# api/deps.py:get_db() chạy lại trên MỖI request HTTP -> mở/đóng
+# connection Postgres thật mỗi lần (get_connection() ở trên) tốn round-
+# trip TCP + TLS handshake không cần thiết khi traffic tăng (nhiều
+# người dùng dashboard cùng lúc). psycopg2.pool.ThreadedConnectionPool
+# giữ sẵn 1 nhóm connection mở sẵn, "mượn"/"trả" thay vì mở/đóng thật.
+#
+# ThreadedConnectionPool (không phải SimpleConnectionPool) vì FastAPI
+# chạy route `def` thường trong 1 threadpool riêng (xem docstring
+# api/deps.py) -> nhiều thread có thể gọi getconn()/putconn() đồng
+# thời, cần bản pool an toàn với thread (SimpleConnectionPool không
+# đảm bảo điều này).
+#
+# Khởi tạo LAZY (init_pool() gọi 1 lần lúc app khởi động qua FastAPI
+# lifespan/startup event trong api/app.py) thay vì khởi tạo ngay lúc
+# import module — để main.py/các script CLI import db.py mà KHÔNG cần
+# kết nối DB ngay (vd `python main.py --help`), và để lỗi kết nối DB
+# lúc khởi động API log rõ ràng thay vì crash mù mờ ngay lúc import.
+# ============================================================
+
+_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
+
+
+def init_pool(minconn: int = DB_POOL_MIN, maxconn: int = DB_POOL_MAX) -> None:
+    """Khởi tạo pool 1 LẦN — gọi trong FastAPI startup event
+    (api/app.py). Gọi lại khi pool đã tồn tại là no-op (an toàn nếu lỡ
+    gọi 2 lần, vd test hoặc reload).
+
+    minconn/maxconn: đọc từ config.py (DB_POOL_MIN/DB_POOL_MAX, đọc từ
+    env DB_POOL_MIN/DB_POOL_MAX) — CÂN NHẮC set maxconn thấp hơn giới
+    hạn connection Postgres phía Render/Supabase cho phép (managed
+    Postgres tier free thường giới hạn thấp, vd 20-60 connection), để
+    tránh pool "xin" nhiều hơn DB cho phép -> lỗi connect khi pool cố
+    mở connection thứ maxconn."""
+    global _pool
+    if _pool is not None:
+        logger.warning("init_pool() gọi lại khi pool đã tồn tại — bỏ qua.")
+        return
+    _pool = psycopg2.pool.ThreadedConnectionPool(minconn, maxconn, **DB_CONFIG)
+    logger.info("Đã khởi tạo connection pool (minconn=%s, maxconn=%s).", minconn, maxconn)
+
+
+def get_pooled_connection():
+    """Mượn 1 connection từ pool — dùng trong api/deps.py:get_db().
+    PHẢI trả lại bằng release_connection() (KHÔNG gọi conn.close()
+    trực tiếp, xem lý do trong docstring get_connection() ở trên).
+
+    Raise lỗi rõ ràng nếu gọi trước khi init_pool() chạy (lỗi cấu hình
+    ở api/app.py, không nên xảy ra khi chạy qua uvicorn bình thường)
+    thay vì để AttributeError mù mờ (None.getconn())."""
+    if _pool is None:
+        raise RuntimeError(
+            "Connection pool chưa được khởi tạo — init_pool() phải chạy "
+            "trong FastAPI startup event trước khi có request nào chạm "
+            "get_db(). Kiểm tra lại api/app.py."
+        )
+    conn = _pool.getconn()
+    conn.autocommit = False
+    return conn
+
+
+def release_connection(conn) -> None:
+    """Trả connection về pool — dùng thay cho conn.close() trong
+    api/deps.py:get_db(). An toàn gọi cả khi pool chưa init (no-op),
+    tránh lỗi kép nếu request lỗi ngay từ get_pooled_connection()."""
+    if _pool is None:
+        return
+    _pool.putconn(conn)
+
+
+def close_pool() -> None:
+    """Đóng TOÀN BỘ connection trong pool — gọi trong FastAPI shutdown
+    event (api/app.py), tránh connection bị bỏ "treo" (leak) phía
+    Postgres khi Render restart/deploy lại server."""
+    global _pool
+    if _pool is not None:
+        _pool.closeall()
+        _pool = None
+        logger.info("Đã đóng connection pool.")
 
 
 def apply_schema(conn, schema_path: str = "sql/schema.sql"):
@@ -95,7 +191,8 @@ def find_company_probe(conn, company_name: str):
 
 def get_or_create_company_by_profile(conn, company_name: str,
                                       province_id: Optional[int],
-                                      tax_id: str = "") -> str:
+                                      tax_id: str = "",
+                                      created_by: Optional[str] = None) -> str:
     """Match/tạo công ty — ƯU TIÊN theo tax_id (định danh thật, ổn định),
     fallback theo tên nếu không có tax_id.
 
@@ -130,11 +227,11 @@ def get_or_create_company_by_profile(conn, company_name: str,
 
         cur.execute(
             """
-            INSERT INTO companies (company_name, province_id, tax_id)
-            VALUES (%s, %s, %s)
+            INSERT INTO companies (company_name, province_id, tax_id, created_by)
+            VALUES (%s, %s, %s, %s)
             RETURNING company_id
             """,
-            (company_name, province_id, tax_id or None),
+            (company_name, province_id, tax_id or None, created_by),
         )
         return str(cur.fetchone()[0])
 
@@ -147,11 +244,20 @@ def get_or_create_company(conn, company_name: str, province_id: Optional[int]) -
 
 def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: str = "",
                             industry: str = "", company_size: str = "",
-                            address: str = "", products_services: str = "") -> None:
+                            address: str = "", products_services: str = "",
+                            updated_by: Optional[str] = None) -> None:
     """Cập nhật thêm thông tin công ty (chỉ ghi đè field nào có giá trị mới,
-    không xóa mất dữ liệu cũ nếu lần crawl sau không lấy được field đó)."""
+    không xóa mất dữ liệu cũ nếu lần crawl sau không lấy được field đó).
+
+    updated_by (thêm 08/2026): ss_user_id của người vừa sửa (JWT), CHỈ
+    truyền khi gọi từ route ghi có bắt buộc đăng nhập (POST /companies) —
+    lời gọi từ pipeline crawl (không có user thật) để None, cột
+    updated_by trong DB giữ NULL cho các lần enrich tự động."""
     updates = []
     values = []
+    if updated_by is not None:
+        updates.append("updated_by = %s")
+        values.append(updated_by)
     if tax_id:
         updates.append("tax_id = %s")
         values.append(tax_id)
@@ -451,7 +557,8 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
                 salary_type: str, source_url: str, source_name: str,
                 salary_raw_text: str = "", deadline=None,
                 parsed_content: Optional[dict] = None,
-                raw_jd_content: str = "") -> str:
+                raw_jd_content: str = "",
+                created_by: Optional[str] = None) -> str:
     """Insert 1 job_postings + 1 job_sources_log tương ứng. content_hash được
     trigger Postgres tự tính (xem sql/schema.sql mục 5).
 
@@ -468,14 +575,15 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
             INSERT INTO job_postings (
                 company_id, job_title, matching_industry, level_id, province_id,
                 work_type, currency, salary_min, salary_max, salary_type,
-                job_status, source_url, deadline, parsed_content
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s)
+                job_status, source_url, deadline, parsed_content, created_by
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s)
             RETURNING job_id
             """,
             (company_id, job_title, matching_industry, level_id, province_id,
              work_type, currency, salary_min, salary_max, salary_type, source_url,
              deadline,
-             json.dumps(parsed_content, ensure_ascii=False) if parsed_content else None),
+             json.dumps(parsed_content, ensure_ascii=False) if parsed_content else None,
+             created_by),
         )
         job_id = cur.fetchone()[0]
 
@@ -579,7 +687,8 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
                        salary_min: Optional[int] = None,
                        salary_max: Optional[int] = None,
                        salary_type: str = "NEGOTIABLE",
-                       deadline=None) -> str:
+                       deadline=None,
+                       created_by: Optional[str] = None) -> str:
     """Tạo 1 job NHẬP TAY từ frontend (không qua crawl/adapter). Tái dùng
     thẳng insert_job() đã có sẵn cho pipeline crawl — cùng 1 hàm ghi, chỉ
     khác nguồn gọi tới, tránh viết trùng logic INSERT job_postings +
@@ -630,6 +739,7 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
         source_url=source_url,
         source_name="MANUAL",
         deadline=deadline,
+        created_by=created_by,
     )
 
 
@@ -644,7 +754,8 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
                salary_type: Optional[str] = None,
                deadline=None,
                job_status: Optional[str] = None,
-               ss_team_notes: Optional[str] = None) -> bool:
+               ss_team_notes: Optional[str] = None,
+               updated_by: Optional[str] = None) -> bool:
     """Sửa TỰ DO các field của 1 job đã tồn tại — dùng cho PATCH /jobs/{id}
     phía frontend. KHÔNG phân biệt job crawl hay job nhập tay (team không
     cần phân quyền, mọi người dùng nội bộ ngang quyền — xem quyết định
@@ -668,6 +779,9 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     updates = []
     values = []
 
+    if updated_by is not None:
+        updates.append("updated_by = %s")
+        values.append(updated_by)
     if job_title is not None:
         updates.append("job_title = %s")
         values.append(job_title)
@@ -742,6 +856,7 @@ _JOB_SELECT_COLUMNS = """
         jp.job_id, jp.job_title, jp.matching_industry, jp.work_type,
         jp.currency, jp.salary_min, jp.salary_max, jp.salary_type,
         jp.deadline, jp.job_status, jp.source_url, jp.created_at, jp.updated_at,
+        jp.created_by, jp.updated_by,
         c.company_id, c.company_name,
         l.level_code,
         p.province_name
@@ -833,7 +948,7 @@ def get_job_by_id(conn, job_id: str):
 _COMPANY_SELECT_COLUMNS = """
         c.company_id, c.company_name, c.tax_id, c.website, c.industry,
         c.company_size, c.address, c.fanpage_url, c.linkedin_url,
-        c.created_at, c.updated_at,
+        c.created_at, c.updated_at, c.created_by, c.updated_by,
         p.province_name
 """
 

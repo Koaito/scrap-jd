@@ -159,6 +159,18 @@ DB_CONFIG = {
 }
 
 # ------------------------------------------------------------------
+# Connection pool cho API layer (db.init_pool(), xem db.py) — CHỈ dùng
+# bởi api/app.py lúc startup, KHÔNG ảnh hưởng CLI (main.py vẫn dùng
+# db.get_connection() mở/đóng trực tiếp như cũ).
+#
+# maxconn NÊN thấp hơn giới hạn connection Postgres phía Render/Supabase
+# cho phép (managed Postgres tier free thường giới hạn thấp) — mặc định
+# 20 là ước lượng an toàn cho quy mô team nhỏ, chỉnh qua env nếu cần.
+# ------------------------------------------------------------------
+DB_POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
+DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "20"))
+
+# ------------------------------------------------------------------
 # Enrich API Config
 # ------------------------------------------------------------------
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")

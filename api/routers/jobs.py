@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db as db_module
-from api.deps import get_db
+from api.deps import get_current_user, get_db
 from api.schemas import JobCreate, JobDetailOut, JobUpdate, PaginatedJobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -48,7 +48,11 @@ def get_job(job_id: str, conn=Depends(get_db)):
 
 
 @router.post("", response_model=JobDetailOut, status_code=201)
-def create_job(payload: JobCreate, conn=Depends(get_db)):
+def create_job(
+    payload: JobCreate,
+    conn=Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
     """Tạo 1 job THỦ CÔNG (không qua crawl) — company_id PHẢI đã tồn tại
     trong DB (dùng GET /companies?keyword= để tìm, hoặc POST /companies
     để tạo mới trước nếu công ty chưa có). Route KHÔNG tự tạo company
@@ -61,7 +65,13 @@ def create_job(payload: JobCreate, conn=Depends(get_db)):
 
     IDEMPOTENT: gọi lại nhiều lần với data y hệt (company_id + job_title
     + level_code + province_name giống nhau) sẽ KHÔNG tạo job trùng —
-    trả về đúng job đã có (xem db.create_manual_job())."""
+    trả về đúng job đã có (xem db.create_manual_job()).
+
+    BẮT BUỘC đăng nhập (thêm 08/2026, xem Depends(get_current_user)) —
+    khác các route GET (chỉ cần API_KEY) — để ghi lại job_postings.created_by
+    (audit trail "ai tạo job này"). Vẫn cần header X-API-Key NHƯ CŨ (2
+    lớp xếp chồng, xem docstring api/deps.py), CỘNG THÊM header
+    Authorization: Bearer <access_token> lấy từ POST /auth/login."""
     if not db_module.is_valid_uuid(payload.company_id):
         # BUG ĐÃ VÁ (08/2026, phát hiện qua test thật): trước đây company_id
         # sai định dạng UUID (vd còn sót placeholder mẫu, gõ nhầm) sẽ được
@@ -103,6 +113,7 @@ def create_job(payload: JobCreate, conn=Depends(get_db)):
         salary_max=payload.salary_max,
         salary_type=payload.salary_type,
         deadline=payload.deadline,
+        created_by=user["sub"],
     )
     conn.commit()
 
@@ -111,14 +122,23 @@ def create_job(payload: JobCreate, conn=Depends(get_db)):
 
 
 @router.patch("/{job_id}", response_model=JobDetailOut)
-def patch_job(job_id: str, payload: JobUpdate, conn=Depends(get_db)):
+def patch_job(
+    job_id: str,
+    payload: JobUpdate,
+    conn=Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
     """Sửa TỰ DO các field của 1 job đã tồn tại (crawl hay nhập tay đều
-    được — team không phân quyền, xem API_README.md). Chỉ field có mặt
-    trong body mới bị ghi đè, field không gửi giữ nguyên giá trị cũ.
+    được — team không phân quyền theo route này, chỉ cần đã đăng nhập,
+    xem API_README.md). Chỉ field có mặt trong body mới bị ghi đè,
+    field không gửi giữ nguyên giá trị cũ.
 
     Dùng {"job_status": "CLOSED"} để "xoá mềm" — KHÔNG có endpoint DELETE
     thật, vì job đã xoá thật sẽ bị crawl lại tạo trùng ở lượt crawl sau
-    (get_job_probe_by_source_url() không còn thấy job này nữa)."""
+    (get_job_probe_by_source_url() không còn thấy job này nữa).
+
+    BẮT BUỘC đăng nhập (thêm 08/2026) — giống POST /jobs, ghi lại
+    job_postings.updated_by = người vừa sửa."""
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
 
@@ -145,6 +165,7 @@ def patch_job(job_id: str, payload: JobUpdate, conn=Depends(get_db)):
         deadline=payload.deadline,
         job_status=payload.job_status,
         ss_team_notes=payload.ss_team_notes,
+        updated_by=user["sub"],
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Không tìm thấy job")

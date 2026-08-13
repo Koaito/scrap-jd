@@ -35,6 +35,16 @@ class JobOut(BaseModel):
     province_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    created_by: Optional[str] = Field(
+        default=None,
+        description="ss_user_id người tạo job này qua POST /jobs (JWT bắt buộc từ 08/2026). "
+                    "null = job crawl tự động, không phải người nhập tay.",
+    )
+    updated_by: Optional[str] = Field(
+        default=None,
+        description="ss_user_id người sửa job này GẦN NHẤT qua PATCH /jobs/{id}. "
+                    "null = chưa từng bị sửa qua route có JWT.",
+    )
 
     class Config:
         from_attributes = True
@@ -110,6 +120,16 @@ class CompanyOut(BaseModel):
     province_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
+    created_by: Optional[str] = Field(
+        default=None,
+        description="ss_user_id người tạo company này qua POST /companies. "
+                    "null = company crawl tự động.",
+    )
+    updated_by: Optional[str] = Field(
+        default=None,
+        description="ss_user_id người sửa company này GẦN NHẤT qua POST /companies "
+                    "(trùng tax_id, chỉ vá thêm thông tin).",
+    )
 
     class Config:
         from_attributes = True

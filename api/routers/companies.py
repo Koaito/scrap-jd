@@ -3,7 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db as db_module
-from api.deps import get_db
+from api.deps import get_current_user, get_db
 from api.schemas import CompanyCreate, CompanyDetailOut, CompanyOut, PaginatedCompanies
 
 router = APIRouter(prefix="/companies", tags=["companies"])
@@ -42,7 +42,11 @@ def get_company(company_id: str, conn=Depends(get_db)):
 
 
 @router.post("", response_model=CompanyOut, status_code=201)
-def create_company(payload: CompanyCreate, conn=Depends(get_db)):
+def create_company(
+    payload: CompanyCreate,
+    conn=Depends(get_db),
+    user: dict = Depends(get_current_user),
+):
     """Tạo công ty THỦ CÔNG — dùng trước POST /jobs khi công ty chưa có
     trong DB (GET /companies?keyword= tìm không ra). Nếu tax_id điền vào
     trùng với công ty đã crawl trước đó, tự động DÙNG LẠI company đã có
@@ -50,10 +54,15 @@ def create_company(payload: CompanyCreate, conn=Depends(get_db)):
 
     Trả về company đầy đủ (kể cả khi thực ra là company đã có sẵn từ
     trước do trùng tax_id) — frontend luôn dùng company_id trong response
-    này cho bước tạo job tiếp theo, không giả định trùng ID với request."""
+    này cho bước tạo job tiếp theo, không giả định trùng ID với request.
+
+    BẮT BUỘC đăng nhập (thêm 08/2026, xem Depends(get_current_user)) —
+    ghi lại companies.created_by (nếu company MỚI tạo) và updated_by
+    (kể cả khi trùng company đã có, đang vá thêm thông tin)."""
     province_id = db_module.get_or_create_province(conn, payload.province_name or "")
     company_id = db_module.get_or_create_company_by_profile(
         conn, payload.company_name, province_id, tax_id=payload.tax_id or "",
+        created_by=user["sub"],
     )
     db_module.update_company_profile(
         conn, company_id,
@@ -62,6 +71,7 @@ def create_company(payload: CompanyCreate, conn=Depends(get_db)):
         industry=payload.industry or "",
         company_size=payload.company_size or "",
         address=payload.address or "",
+        updated_by=user["sub"],
     )
     if payload.fanpage_url or payload.linkedin_url:
         db_module.update_company_social_links(

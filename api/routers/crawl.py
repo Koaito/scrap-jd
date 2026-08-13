@@ -1,6 +1,7 @@
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 
 from api import crawl_runner
+from api.deps import require_admin
 from api.schemas import CrawlAccepted, CrawlRequest, CrawlStatusOut
 from config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES
 
@@ -13,7 +14,11 @@ _CATEGORIES_BY_SOURCE = {
 
 
 @router.post("", response_model=CrawlAccepted, status_code=202)
-def trigger_crawl(payload: CrawlRequest, background_tasks: BackgroundTasks):
+def trigger_crawl(
+    payload: CrawlRequest,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_admin),
+):
     """Kích hoạt 1 lượt crawl CHẠY NỀN — trả về run_id ngay, KHÔNG chờ
     crawl xong (crawl thật có thể mất vài phút - vài chục phút). Dùng
     GET /crawl/{run_id} để theo dõi tiến độ.
@@ -21,7 +26,14 @@ def trigger_crawl(payload: CrawlRequest, background_tasks: BackgroundTasks):
     Body hỗ trợ CẢ pages lẫn max_jobs (khớp --pages/--max-jobs ở CLI):
     dùng max_jobs mà bỏ trống pages -> tự nới pages đủ lớn để max_jobs
     là giới hạn thực sự; dùng cả 2 cùng lúc -> dừng ở điều kiện nào tới
-    trước; bỏ trống cả 2 -> dùng DEFAULT_MAX_PAGES như trước giờ."""
+    trước; bỏ trống cả 2 -> dùng DEFAULT_MAX_PAGES như trước giờ.
+
+    BẮT BUỘC đăng nhập VÀ role='admin' (thêm 08/2026, xem
+    Depends(require_admin)) — chặt hơn POST /jobs, POST /companies
+    (chỉ cần đăng nhập, không cần admin), vì kích hoạt crawl tốn tài
+    nguyên server thật (network + CPU parse trong vài phút) nên hạn chế
+    ai cũng bấm được, tránh spam nhiều lượt crawl chạy song song ngoài
+    ý muốn."""
     if payload.source not in crawl_runner._SOURCE_ADAPTERS:
         raise HTTPException(
             status_code=400,
