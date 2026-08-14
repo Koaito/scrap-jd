@@ -25,3 +25,5 @@ Thumbs.db
 
 # Log files (nếu sau này thêm logging ra file)
 *.log
+
+tools/hr_contact_tool.html
