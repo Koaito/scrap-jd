@@ -21,6 +21,15 @@ chặn TRƯỚC khi request chạm tới đây). 2 lớp xếp CHỒNG lên nhau
      nhiều route như GET /jobs vẫn nên dùng được chỉ với API_KEY, không
      bắt buộc đăng nhập cá nhân).
 
+08/2026: `detail` của 2 lỗi 401 trong get_current_user() đổi từ string
+thuần sang dict có thêm `error_code` (`missing_auth_header` khi không
+gửi header Authorization, `token_expired` khi có gửi nhưng token
+invalid/hết hạn) — giữ nguyên `message` = text cũ. Lý do: FE nhận
+status_code=401 y hệt nhau giữa lỗi API_KEY sai (api/auth.py) và lỗi
+JWT ở đây, không có cách phân biệt để tự quyết định retry/redirect
+đúng chỗ (API_KEY sai -> lỗi cấu hình, không tự sửa được; token hết
+hạn -> gọi POST /auth/refresh; thiếu header -> yêu cầu đăng nhập lại).
+
 3 role phân cấp (0 'user' < 1 'ss_team' < 2 'admin', xem ROLE_HIERARCHY)
 thay cho 2 role cũ ('admin'/'member') — require_admin giờ chỉ là alias
 của require_role("admin"), giữ để không phải sửa lại mọi chỗ đã dùng
@@ -71,14 +80,20 @@ def get_current_user(
     if credentials is None:
         raise HTTPException(
             status_code=401,
-            detail="Thiếu header 'Authorization: Bearer <access_token>'.",
+            detail={
+                "error_code": "missing_auth_header",
+                "message": "Thiếu header 'Authorization: Bearer <access_token>'.",
+            },
         )
     payload = security.decode_access_token(credentials.credentials)
     if payload is None:
         raise HTTPException(
             status_code=401,
-            detail="Access token không hợp lệ hoặc đã hết hạn — dùng "
-                   "refresh token qua POST /auth/refresh để lấy token mới.",
+            detail={
+                "error_code": "token_expired",
+                "message": "Access token không hợp lệ hoặc đã hết hạn — dùng "
+                            "refresh token qua POST /auth/refresh để lấy token mới.",
+            },
         )
     return payload
 
