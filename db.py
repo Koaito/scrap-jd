@@ -1073,7 +1073,7 @@ def get_stats_summary(conn) -> dict:
 # KHÁC với API_KEY tĩnh (api/auth.py, dùng chung cho MỌI request kiểu
 # "máy gọi máy") — nhóm hàm dưới đây phục vụ đăng nhập TỪNG NGƯỜI thật
 # qua frontend (JWT access token + refresh token xoay vòng, xem
-# api/security.py). Dùng chung bảng ss_team_members đã có (mở rộng thêm
+# api/security.py). Dùng chung bảng app_users đã có (mở rộng thêm
 # cột qua sql/migration_add_auth.sql) thay vì tạo bảng users riêng — bảng
 # này vốn đã đại diện đúng "người trong team".
 # ============================================================
@@ -1085,7 +1085,7 @@ def get_user_by_email(conn, email: str):
     nếu không tìm thấy. So khớp email KHÔNG phân biệt hoa/thường."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            "SELECT * FROM ss_team_members WHERE lower(email) = lower(%s)",
+            "SELECT * FROM app_users WHERE lower(email) = lower(%s)",
             (email,),
         )
         return cur.fetchone()
@@ -1093,7 +1093,7 @@ def get_user_by_email(conn, email: str):
 
 def get_user_by_id(conn, ss_user_id: str):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("SELECT * FROM ss_team_members WHERE ss_user_id = %s", (ss_user_id,))
+        cur.execute("SELECT * FROM app_users WHERE ss_user_id = %s", (ss_user_id,))
         return cur.fetchone()
 
 
@@ -1111,7 +1111,7 @@ def create_user(conn, *, full_name: str, email: str, password_hash: str,
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO ss_team_members
+            INSERT INTO app_users
                 (full_name, email, role, password_hash, must_change_password, is_active)
             VALUES (%s, %s, %s, %s, %s, true)
             RETURNING ss_user_id
@@ -1128,7 +1128,7 @@ def update_user_password(conn, ss_user_id: str, password_hash: str,
     ngay lần đăng nhập kế tiếp — xem docstring cột trong migration)."""
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE ss_team_members SET password_hash = %s, must_change_password = %s "
+            "UPDATE app_users SET password_hash = %s, must_change_password = %s "
             "WHERE ss_user_id = %s",
             (password_hash, must_change_password, ss_user_id),
         )
@@ -1142,7 +1142,7 @@ def record_failed_login(conn, ss_user_id: str, *, lock_threshold: int, lock_minu
     dùng để trả thông báo phù hợp), False nếu chỉ tăng đếm bình thường."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT failed_login_count FROM ss_team_members WHERE ss_user_id = %s",
+            "SELECT failed_login_count FROM app_users WHERE ss_user_id = %s",
             (ss_user_id,),
         )
         row = cur.fetchone()
@@ -1152,7 +1152,7 @@ def record_failed_login(conn, ss_user_id: str, *, lock_threshold: int, lock_minu
 
         if new_count >= lock_threshold:
             cur.execute(
-                "UPDATE ss_team_members SET failed_login_count = 0, "
+                "UPDATE app_users SET failed_login_count = 0, "
                 "locked_until = now() + (%s || ' minutes')::interval "
                 "WHERE ss_user_id = %s",
                 (lock_minutes, ss_user_id),
@@ -1160,7 +1160,7 @@ def record_failed_login(conn, ss_user_id: str, *, lock_threshold: int, lock_minu
             return True
 
         cur.execute(
-            "UPDATE ss_team_members SET failed_login_count = %s WHERE ss_user_id = %s",
+            "UPDATE app_users SET failed_login_count = %s WHERE ss_user_id = %s",
             (new_count, ss_user_id),
         )
         return False
@@ -1183,7 +1183,7 @@ def reset_failed_login(conn, ss_user_id: str) -> None:
     có), cập nhật last_login_at."""
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE ss_team_members SET failed_login_count = 0, locked_until = NULL, "
+            "UPDATE app_users SET failed_login_count = 0, locked_until = NULL, "
             "last_login_at = now() WHERE ss_user_id = %s",
             (ss_user_id,),
         )
@@ -1249,7 +1249,7 @@ def list_users(conn):
         cur.execute(
             "SELECT ss_user_id, full_name, email, role, is_active, "
             "must_change_password, last_login_at, created_at "
-            "FROM ss_team_members ORDER BY created_at"
+            "FROM app_users ORDER BY created_at"
         )
         return cur.fetchall()
 
@@ -1262,7 +1262,7 @@ def update_user_role(conn, ss_user_id: str, new_role: str) -> bool:
     nghiệp vụ vào tầng DB. Trả False nếu ss_user_id không tồn tại."""
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE ss_team_members SET role = %s WHERE ss_user_id = %s",
+            "UPDATE app_users SET role = %s WHERE ss_user_id = %s",
             (new_role, ss_user_id),
         )
         return cur.rowcount > 0
@@ -1287,7 +1287,7 @@ def create_user_pending_verification(conn, *, full_name: str, email: str,
     with conn.cursor() as cur:
         cur.execute(
             """
-            INSERT INTO ss_team_members
+            INSERT INTO app_users
                 (full_name, email, role, password_hash, must_change_password,
                  is_active, email_verified, email_verify_token, email_verify_expires)
             VALUES (%s, %s, 'user', %s, false, true, false, %s, %s)
@@ -1305,7 +1305,7 @@ def get_user_by_verify_token(conn, verify_token: str):
     nhiệm: hàm này chỉ tra cứu, route quyết định logic nghiệp vụ)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            "SELECT * FROM ss_team_members WHERE email_verify_token = %s",
+            "SELECT * FROM app_users WHERE email_verify_token = %s",
             (verify_token,),
         )
         return cur.fetchone()
@@ -1318,7 +1318,7 @@ def mark_email_verified(conn, ss_user_id: str) -> None:
     token nào còn tồn tại trong DB nữa)."""
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE ss_team_members SET email_verified = true, "
+            "UPDATE app_users SET email_verified = true, "
             "email_verify_token = NULL, email_verify_expires = NULL "
             "WHERE ss_user_id = %s",
             (ss_user_id,),
@@ -1331,7 +1331,7 @@ def set_new_verify_token(conn, ss_user_id: str, verify_token: str, verify_expire
     (nếu còn) bị thay thế hoàn toàn, không dùng lại được nữa."""
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE ss_team_members SET email_verify_token = %s, "
+            "UPDATE app_users SET email_verify_token = %s, "
             "email_verify_expires = %s WHERE ss_user_id = %s",
             (verify_token, verify_expires, ss_user_id),
         )
@@ -1478,7 +1478,7 @@ def list_applications_for_user(conn, ss_user_id: str):
 
 def list_applications_for_job(conn, job_id: str):
     """Ai đã ứng tuyển 1 job — staff (ss_team+) dùng để chủ động gửi hồ
-    sơ cho HR. Join thêm full_name/email từ ss_team_members (bảng dùng
+    sơ cho HR. Join thêm full_name/email từ app_users (bảng dùng
     chung cho mọi role, xem migration_add_role_hierarchy.sql) để staff
     khỏi phải tra riêng."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -1487,7 +1487,7 @@ def list_applications_for_job(conn, job_id: str):
             SELECT a.application_id, a.ss_user_id, a.job_id, a.note, a.applied_at,
                    u.full_name, u.email
             FROM job_applications a
-            JOIN ss_team_members u ON u.ss_user_id = a.ss_user_id
+            JOIN app_users u ON u.ss_user_id = a.ss_user_id
             WHERE a.job_id = %s
             ORDER BY a.applied_at DESC
             """,

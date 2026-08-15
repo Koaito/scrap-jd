@@ -2,19 +2,25 @@
 -- (job_applications) và lưu để xem lại sau (saved_jobs) — 08/2026, xem
 -- lịch sử trao đổi trước khi đọc file này.
 --
--- Cả 2 bảng dùng ss_user_id tham chiếu THẲNG ss_team_members(ss_user_id)
--- — bảng này giờ đại diện chung cho MỌI tài khoản (học viên role='user'
+-- Cả 2 bảng dùng ss_user_id tham chiếu THẲNG app_users(ss_user_id) —
+-- bảng này giờ đại diện chung cho MỌI tài khoản (học viên role='user'
 -- lẫn team SS role='ss_team'/'admin'), không phải bảng riêng cho học
--- viên (xem sql/migration_add_role_hierarchy.sql). ss_user_id ở đây có
--- thể là 1 trong 3 role, nhưng route (api/routers/me.py) chỉ cho phép
--- role='user' trở lên tự thao tác trên chính mình qua get_current_user()
--- — không hạn chế cứng ở tầng DB vì staff cũng có thể cần test/ứng
--- tuyển thử.
+-- viên (xem sql/migration_add_role_hierarchy.sql). Tên bảng đổi từ
+-- ss_team_members -> app_users ở migration_rename_ss_team_members.sql
+-- (đổi tên phản ánh đúng vai trò hiện tại — không còn riêng "team SS"
+-- nữa). ss_user_id ở đây có thể là 1 trong 3 role, nhưng route
+-- (api/routers/me.py) chỉ cho phép role='user' trở lên tự thao tác
+-- trên chính mình qua get_current_user() — không hạn chế cứng ở tầng
+-- DB vì staff cũng có thể cần test/ứng tuyển thử.
 --
 -- An toàn để chạy lại nhiều lần (IF NOT EXISTS ở mọi bước).
 --
--- Cách chạy (SAU migration_add_email_verification.sql):
---   psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_applications_saved_jobs.sql
+-- ⚠️ THỨ TỰ CHẠY: phải chạy SAU migration_rename_ss_team_members.sql
+-- (FK REFERENCES app_users bên dưới sẽ lỗi "relation không tồn tại"
+-- nếu bảng chưa được đổi tên trước đó). Và tất nhiên vẫn sau
+-- migration_add_email_verification.sql như cũ.
+--   psql "$DATABASE_URL" -f sql/migration_rename_ss_team_members.sql
+--   psql "$DATABASE_URL" -f sql/migration_add_applications_saved_jobs.sql
 
 -- ============================================================
 -- 1. job_applications — học viên bấm "Ứng tuyển", staff xem ai đã nộp
@@ -22,7 +28,7 @@
 
 CREATE TABLE IF NOT EXISTS job_applications (
     application_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    ss_user_id        UUID NOT NULL REFERENCES ss_team_members(ss_user_id),
+    ss_user_id        UUID NOT NULL REFERENCES app_users(ss_user_id),
     job_id            UUID NOT NULL REFERENCES job_postings(job_id),
     note              TEXT,
     applied_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -43,7 +49,7 @@ CREATE INDEX IF NOT EXISTS idx_job_applications_job  ON job_applications(job_id)
 
 CREATE TABLE IF NOT EXISTS saved_jobs (
     saved_job_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    ss_user_id         UUID NOT NULL REFERENCES ss_team_members(ss_user_id),
+    ss_user_id         UUID NOT NULL REFERENCES app_users(ss_user_id),
     job_id             UUID NOT NULL REFERENCES job_postings(job_id),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
 

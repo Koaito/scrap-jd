@@ -8,6 +8,10 @@ tức MỌI tài khoản đã đăng nhập đều gọi được (staff test th
 không riêng học viên). ss_user_id lấy từ chính JWT (user["sub"]),
 KHÔNG nhận qua path/body — 1 người chỉ thao tác được trên đơn/bookmark
 của chính mình, không có route nào cho phép truyền ss_user_id tuỳ ý.
+
+Chỉ ứng tuyển được job đang job_status='OPEN' — job đã CLOSED/EXPIRED
+bị chặn 400 ngay ở POST /me/applications (không chặn ở tầng saved-jobs,
+vì lưu job đã đóng để xem lại vẫn hợp lý).
 """
 
 import psycopg2.errors
@@ -33,8 +37,14 @@ def apply_to_job(
 ):
     if not db_module.is_valid_uuid(payload.job_id):
         raise HTTPException(status_code=400, detail=f"job_id '{payload.job_id}' không đúng định dạng UUID.")
-    if db_module.get_job_by_id(conn, payload.job_id) is None:
+    job = db_module.get_job_by_id(conn, payload.job_id)
+    if job is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy job")
+    if job["job_status"] != "OPEN":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job này đang ở trạng thái '{job['job_status']}', không thể ứng tuyển (chỉ nhận job OPEN).",
+        )
 
     try:
         application_id = db_module.create_job_application(

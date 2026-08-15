@@ -26,14 +26,7 @@ NÂNG CẤP SAU (chỉ làm khi thật sự cần, đừng làm sớm):
     danh sách nhiều key (vd API_KEYS="key1:tên1,key2:tên2" trong .env),
     map ngược lại tên người gọi để log/audit.
   - Cần phân quyền (vd chỉ admin được POST /crawl) -> OAuth2 + bảng
-    ss_team_members đã có sẵn trong schema.
-
-08/2026: `detail` của lỗi 401 ở đây đổi từ string thuần sang dict có
-thêm `error_code="invalid_api_key"` (giữ nguyên `message` = text cũ),
-để frontend phân biệt được với 401 do JWT hết hạn/thiếu (xem
-api/deps.py::get_current_user — cùng status_code=401 nhưng khác
-error_code, do 2 lớp auth độc lập xếp chồng lên nhau, xem giải thích ở
-deps.py).
+    app_users đã có sẵn trong schema.
 """
 
 import os
@@ -70,8 +63,5 @@ def require_api_key(
     if not supplied or not secrets.compare_digest(supplied, _API_KEY):
         raise HTTPException(
             status_code=401,
-            detail={
-                "error_code": "invalid_api_key",
-                "message": "Thiếu hoặc sai API key. Gửi kèm header 'X-API-Key'.",
-            },
+            detail="Thiếu hoặc sai API key. Gửi kèm header 'X-API-Key'.",
         )
