@@ -79,7 +79,6 @@ CREATE TABLE IF NOT EXISTS companies (
     tax_id           VARCHAR(20),
     website          VARCHAR(255),
     industry         VARCHAR(255),
-    products_services TEXT,
     company_size     VARCHAR(50),
     address          TEXT,
     province_id      INT REFERENCES provinces(province_id),

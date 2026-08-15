@@ -116,6 +116,7 @@ def create_job(
         salary_max=payload.salary_max,
         salary_type=payload.salary_type,
         deadline=payload.deadline,
+        parsed_content=payload.parsed_content.model_dump(exclude_none=True) if payload.parsed_content else None,
         created_by=user["sub"],
     )
     conn.commit()
@@ -167,6 +168,7 @@ def patch_job(
         salary_max=payload.salary_max,
         salary_type=payload.salary_type,
         deadline=payload.deadline,
+        parsed_content=payload.parsed_content.model_dump(exclude_none=True) if payload.parsed_content else None,
         job_status=payload.job_status,
         ss_team_notes=payload.ss_team_notes,
         updated_by=user["sub"],

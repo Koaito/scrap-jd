@@ -72,6 +72,20 @@ class PaginatedJobs(BaseModel):
 # "công ty đã chọn đúng" và "công ty gõ nhầm tên tạo trùng".
 # ------------------------------------------------------------------
 
+class ParsedContent(BaseModel):
+    """Mô tả JD chi tiết — cùng cấu trúc parsed_content mà pipeline crawl
+    build (xem pipeline._build_parsed_content_and_raw()), giờ mở thêm
+    cho job NHẬP TAY qua JobCreate/JobUpdate (trước 08/2026 chỉ job
+    crawl mới có, job nhập tay để trống — thiếu hẳn mô tả/yêu cầu/quyền
+    lợi/kỹ năng, xem lịch sử trao đổi). Lưu nguyên vào
+    job_postings.parsed_content (JSONB), KHÔNG có cột riêng nào cho
+    từng field — đây là field tự do, không filter/index theo được."""
+    job_description: Optional[str] = None
+    requirements: Optional[str] = None
+    perks: Optional[str] = None
+    required_skills: Optional[list[str]] = None
+
+
 class JobCreate(BaseModel):
     job_title: str = Field(..., min_length=1)
     company_id: str = Field(..., description="company_id đã có trong DB — dùng GET /companies?keyword= để tìm, hoặc POST /companies để tạo mới nếu công ty chưa tồn tại")
@@ -84,6 +98,10 @@ class JobCreate(BaseModel):
     salary_max: Optional[int] = Field(default=None, ge=0)
     salary_type: str = Field(default="NEGOTIABLE", description="RANGE | EXACT | UPTO | STARTING_FROM | NEGOTIABLE | UNPAID")
     deadline: Optional[date] = None
+    parsed_content: Optional[ParsedContent] = Field(
+        default=None,
+        description="Mô tả JD chi tiết (job_description/requirements/perks/required_skills) cho job nhập tay",
+    )
 
 
 class JobUpdate(BaseModel):
@@ -102,6 +120,10 @@ class JobUpdate(BaseModel):
     deadline: Optional[date] = None
     job_status: Optional[str] = Field(default=None, description="OPEN | EXPIRED | CLOSED — dùng CLOSED để 'xoá mềm'")
     ss_team_notes: Optional[str] = None
+    parsed_content: Optional[ParsedContent] = Field(
+        default=None,
+        description="Mô tả JD chi tiết — gửi field này sẽ GHI ĐÈ TOÀN BỘ parsed_content cũ (không merge từng key con)",
+    )
 
 
 # ------------------------------------------------------------------
@@ -137,7 +159,6 @@ class CompanyOut(BaseModel):
 
 
 class CompanyDetailOut(CompanyOut):
-    products_services: Optional[str] = None
     jobs: list[JobOut] = Field(default_factory=list)
 
 
@@ -159,6 +180,33 @@ class CompanyCreate(BaseModel):
     get_or_create_company_by_profile() đã dùng cho pipeline crawl)."""
     company_name: str = Field(..., min_length=1)
     tax_id: Optional[str] = Field(default=None, description="Mã số thuế — nếu điền đúng, tự match với công ty đã crawl trước đó (nếu có), tránh tạo trùng")
+    website: Optional[str] = None
+    industry: Optional[str] = None
+    company_size: Optional[str] = None
+    address: Optional[str] = None
+    province_name: Optional[str] = None
+    fanpage_url: Optional[str] = None
+    linkedin_url: Optional[str] = None
+
+
+class CompanyUpdate(BaseModel):
+    """Sửa TỰ DO mọi field của 1 company đã tồn tại — thêm 08/2026 (xem
+    lịch sử trao đổi: trước đây company chỉ tạo được, không sửa lại
+    được nếu gõ sai/thông tin đổi). Mọi field optional, giống JobUpdate
+    — CHỈ field có mặt trong body mới bị ghi đè, field không gửi giữ
+    nguyên giá trị cũ.
+
+    KHÁC CompanyCreate/POST /companies (vốn dùng
+    db.update_company_profile(), pattern "vá thêm" — chỉ field có giá
+    trị TRUTHY mới ghi đè, gửi "" bị bỏ qua): route PATCH dùng hàm
+    riêng db.patch_company_profile() phân biệt None (không gửi, giữ
+    nguyên) với "" (gửi rỗng có chủ đích, XOÁ giá trị cũ) — đúng ngữ
+    nghĩa PATCH thật sự, tương tự salary_min/salary_max ở JobUpdate.
+
+    KHÔNG có field để xoá công ty (chưa có is_active/soft-delete —
+    xem lịch sử trao đổi, việc này để sau)."""
+    company_name: Optional[str] = Field(default=None, min_length=1)
+    tax_id: Optional[str] = None
     website: Optional[str] = None
     industry: Optional[str] = None
     company_size: Optional[str] = None

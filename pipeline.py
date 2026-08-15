@@ -175,7 +175,6 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
                     industry=profile.get("industry", ""),
                     company_size=profile.get("company_size", ""),
                     address=profile.get("address", ""),
-                    products_services=profile.get("description", ""),
                 )
 
             # 4) Insert (content_hash tự tính bởi trigger Postgres)

@@ -244,7 +244,7 @@ def get_or_create_company(conn, company_name: str, province_id: Optional[int]) -
 
 def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: str = "",
                             industry: str = "", company_size: str = "",
-                            address: str = "", products_services: str = "",
+                            address: str = "",
                             updated_by: Optional[str] = None) -> None:
     """Cập nhật thêm thông tin công ty (chỉ ghi đè field nào có giá trị mới,
     không xóa mất dữ liệu cũ nếu lần crawl sau không lấy được field đó).
@@ -252,7 +252,11 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
     updated_by (thêm 08/2026): ss_user_id của người vừa sửa (JWT), CHỈ
     truyền khi gọi từ route ghi có bắt buộc đăng nhập (POST /companies) —
     lời gọi từ pipeline crawl (không có user thật) để None, cột
-    updated_by trong DB giữ NULL cho các lần enrich tự động."""
+    updated_by trong DB giữ NULL cho các lần enrich tự động.
+
+    products_services ĐÃ BỊ BỎ (08/2026, xem
+    sql/migration_drop_products_services.sql) — không còn field CRM mô
+    tả sản phẩm/dịch vụ nào ở company nữa, công ty chỉ còn hồ sơ thuần."""
     updates = []
     values = []
     if updated_by is not None:
@@ -273,9 +277,6 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
     if address:
         updates.append("address = %s")
         values.append(address)
-    if products_services:
-        updates.append("products_services = %s")
-        values.append(products_services)
 
     if not updates:
         return
@@ -288,7 +289,91 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
         )
 
 
-def find_company_by_tax_id(conn, tax_id: str) -> Optional[str]:
+def patch_company_profile(conn, company_id: str, *,
+                           company_name: Optional[str] = None,
+                           tax_id: Optional[str] = None,
+                           website: Optional[str] = None,
+                           industry: Optional[str] = None,
+                           company_size: Optional[str] = None,
+                           address: Optional[str] = None,
+                           province_id: Optional[int] = None,
+                           fanpage_url: Optional[str] = None,
+                           linkedin_url: Optional[str] = None,
+                           updated_by: Optional[str] = None) -> bool:
+    """Sửa TỰ DO company đã tồn tại — dùng cho PATCH /companies/{id}
+    (thêm 08/2026, xem lịch sử trao đổi). KHÁC update_company_profile()
+    (pattern "vá thêm", chỉ field TRUTHY mới ghi đè, gửi "" bị bỏ qua —
+    vẫn giữ nguyên cho POST /companies + pipeline crawl, KHÔNG đổi):
+    hàm này dùng `is not None` giống update_job(), nên PATCH
+    {"website": ""} XOÁ giá trị cũ thay vì bị bỏ qua — đúng ngữ nghĩa
+    PATCH thật sự.
+
+    province_id: nơi gọi (router) tự resolve qua get_or_create_province()
+    trước khi truyền vào đây (giống pattern level_id/province_id ở
+    update_job()) — hàm này chỉ nhận ID, không tự tra tên tỉnh.
+
+    tax_id có UNIQUE INDEX (uq_companies_tax_id) — nếu trùng company
+    khác, cur.execute sẽ raise psycopg2.errors.UniqueViolation, nơi gọi
+    (router) chịu trách nhiệm bắt lỗi này để trả 409 rõ ràng thay vì để
+    lộ traceback 500 (KHÔNG tự merge như update_company_profile_with_merge()
+    — sửa tay 1 company cụ thể khác với enrich tự động hàng loạt, gộp
+    nhầm ở đây rủi ro hơn).
+
+    Trả False nếu company_id không tồn tại, True nếu update thành công
+    — route dùng để trả 404 đúng lúc."""
+    updates = []
+    values = []
+
+    if updated_by is not None:
+        updates.append("updated_by = %s")
+        values.append(updated_by)
+    if company_name is not None:
+        updates.append("company_name = %s")
+        values.append(company_name)
+    if tax_id is not None:
+        updates.append("tax_id = %s")
+        values.append(tax_id or None)  # "" -> NULL, tránh vi phạm unique index bằng chuỗi rỗng
+    if website is not None:
+        updates.append("website = %s")
+        values.append(website)
+    if industry is not None:
+        updates.append("industry = %s")
+        values.append(industry)
+    if company_size is not None:
+        updates.append("company_size = %s")
+        values.append(company_size)
+    if address is not None:
+        updates.append("address = %s")
+        values.append(address)
+    if province_id is not None:
+        updates.append("province_id = %s")
+        values.append(province_id)
+    if fanpage_url is not None:
+        updates.append("fanpage_url = %s")
+        values.append(fanpage_url)
+    if linkedin_url is not None:
+        updates.append("linkedin_url = %s")
+        values.append(linkedin_url)
+
+    if not updates:
+        return company_exists_by_id(conn, company_id)
+
+    values.append(company_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE companies SET {', '.join(updates)} WHERE company_id = %s",
+            values,
+        )
+        return cur.rowcount > 0
+
+
+def company_exists_by_id(conn, company_id: str) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM companies WHERE company_id = %s", (company_id,))
+        return cur.fetchone() is not None
+
+
+
     """Tra company_id ĐANG CÓ ĐÚNG tax_id này (nếu có). Dùng TRƯỚC khi
     update_company_profile() ghi tax_id mới vào 1 company khác, để phát
     hiện sớm case "2 company_id khác nhau hoá ra cùng 1 pháp nhân thật"
@@ -352,8 +437,7 @@ def merge_companies(conn, source_company_id: str, target_company_id: str) -> Non
 def update_company_profile_with_merge(conn, company_id: str, *, tax_id: str = "",
                                        website: str = "", industry: str = "",
                                        company_size: str = "",
-                                       address: str = "",
-                                       products_services: str = "") -> str:
+                                       address: str = "") -> str:
     """Giống update_company_profile(), nhưng AN TOÀN với trường hợp
     tax_id mới tìm được trùng với 1 company_id KHÁC đã có sẵn — dùng cho
     enrich_company_web_info.py, nơi tax_id đến từ tra cứu web (không
@@ -393,7 +477,6 @@ def update_company_profile_with_merge(conn, company_id: str, *, tax_id: str = ""
         conn, final_company_id,
         tax_id=tax_id, website=website, industry=industry,
         company_size=company_size, address=address,
-        products_services=products_services,
     )
     return final_company_id
 
@@ -688,6 +771,7 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
                        salary_max: Optional[int] = None,
                        salary_type: str = "NEGOTIABLE",
                        deadline=None,
+                       parsed_content: Optional[dict] = None,
                        created_by: Optional[str] = None) -> str:
     """Tạo 1 job NHẬP TAY từ frontend (không qua crawl/adapter). Tái dùng
     thẳng insert_job() đã có sẵn cho pipeline crawl — cùng 1 hàm ghi, chỉ
@@ -709,7 +793,14 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
       link JD gốc thật, nhưng job_sources_log.source_url là NOT NULL về
       mặt logic nghiệp vụ (dùng làm khoá chống trùng cho job crawl) nên
       cần 1 giá trị duy nhất thay vì để trống, tránh nhầm với chuỗi rỗng
-      ở nơi khác trong code đang coi "" là chưa có giá trị."""
+      ở nơi khác trong code đang coi "" là chưa có giá trị.
+
+    parsed_content (thêm 08/2026, xem lịch sử trao đổi): dict
+    {job_description, requirements, perks, required_skills} — trước đây
+    job nhập tay KHÔNG có chỗ lưu mô tả JD chi tiết (chỉ job crawl mới
+    có), giờ mở field này cho cả 2 nguồn, dùng chung 1 cột JSONB
+    job_postings.parsed_content, cùng cấu trúc pipeline crawl đang
+    dùng (xem pipeline._build_parsed_content_and_raw())."""
     existing_job_id = find_manual_job_duplicate(
         conn, company_id=company_id, job_title=job_title,
         level_id=level_id, province_id=province_id,
@@ -739,6 +830,7 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
         source_url=source_url,
         source_name="MANUAL",
         deadline=deadline,
+        parsed_content=parsed_content,
         created_by=created_by,
     )
 
@@ -755,6 +847,7 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
                deadline=None,
                job_status: Optional[str] = None,
                ss_team_notes: Optional[str] = None,
+               parsed_content: Optional[dict] = None,
                updated_by: Optional[str] = None) -> bool:
     """Sửa TỰ DO các field của 1 job đã tồn tại — dùng cho PATCH /jobs/{id}
     phía frontend. KHÔNG phân biệt job crawl hay job nhập tay (team không
@@ -773,6 +866,11 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     hàm update_* khác trong file này vốn coi giá trị rỗng/None là "bỏ
     qua", ở đây cần phân biệt rõ hơn vì lương là field có thể cố ý set
     về rỗng.
+
+    parsed_content (thêm 08/2026): gửi dict {job_description, requirements,
+    perks, required_skills} sẽ GHI ĐÈ TOÀN BỘ giá trị cũ (không merge
+    từng key con — client tự gộp với giá trị cũ nếu chỉ muốn sửa 1 phần,
+    lấy giá trị cũ qua GET /jobs/{id} trước khi PATCH).
 
     Trả False nếu job_id không tồn tại (không có gì để update), True nếu
     đã update thành công — route dùng giá trị này để trả 404 đúng lúc."""
@@ -818,6 +916,9 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     if ss_team_notes is not None:
         updates.append("ss_team_notes = %s")
         values.append(ss_team_notes)
+    if parsed_content is not None:
+        updates.append("parsed_content = %s")
+        values.append(json.dumps(parsed_content, ensure_ascii=False))
 
     if not updates:
         return job_exists_by_id(conn, job_id)
@@ -1005,11 +1106,12 @@ def list_companies(conn, *, keyword: Optional[str] = None,
 
 
 def get_company_by_id(conn, company_id: str):
-    """Trả 1 dict company đầy đủ (kèm products_services) hoặc None —
-    dùng cho GET /companies/{company_id}."""
+    """Trả 1 dict company đầy đủ hoặc None — dùng cho GET
+    /companies/{company_id}. KHÔNG còn products_services (08/2026, xem
+    sql/migration_drop_products_services.sql)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            f"SELECT {_COMPANY_SELECT_COLUMNS}, c.products_services "
+            f"SELECT {_COMPANY_SELECT_COLUMNS} "
             f"{_COMPANY_FROM_JOINS} "
             f"WHERE c.company_id = %s",
             (company_id,),
@@ -1494,6 +1596,25 @@ def list_applications_for_job(conn, job_id: str):
             (job_id,),
         )
         return cur.fetchall()
+
+
+def delete_job_application(conn, *, ss_user_id: str, job_id: str) -> bool:
+    """Huỷ ứng tuyển — DELETE thật (08/2026, đổi ý so với thiết kế ban
+    đầu coi ứng tuyển là "sự kiện lịch sử không sửa/xoá" — xem lịch sử
+    trao đổi: học viên cần rút lại được nếu bấm nhầm/đổi ý). Không cần
+    is_active/soft-delete kiểu company_contacts — application không có
+    giá trị tra cứu lịch sử như HR contact, xoá thật đơn giản hơn và
+    học viên có thể ứng tuyển lại (uq_job_applications_user_job không
+    còn chặn vì record cũ đã mất).
+
+    Trả False nếu chưa từng ứng tuyển job này (không có gì để xoá) — route
+    dùng để trả 404 đúng lúc."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "DELETE FROM job_applications WHERE ss_user_id = %s AND job_id = %s",
+            (ss_user_id, job_id),
+        )
+        return cur.rowcount > 0
 
 
 # ------------------------------------------------------------------

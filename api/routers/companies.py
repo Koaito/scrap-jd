@@ -1,10 +1,11 @@
+import psycopg2.errors
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db as db_module
 from api.deps import get_db, require_role
-from api.schemas import CompanyCreate, CompanyDetailOut, CompanyOut, PaginatedCompanies
+from api.schemas import CompanyCreate, CompanyDetailOut, CompanyOut, CompanyUpdate, PaginatedCompanies
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
@@ -84,3 +85,57 @@ def create_company(
 
     row = db_module.get_company_by_id(conn, company_id)
     return row
+
+
+@router.patch("/{company_id}", response_model=CompanyDetailOut)
+def patch_company(
+    company_id: str,
+    payload: CompanyUpdate,
+    conn=Depends(get_db),
+    user: dict = Depends(require_role("ss_team")),
+):
+    """Sửa TỰ DO các field của 1 company đã tồn tại (thêm 08/2026, xem
+    lịch sử trao đổi). Chỉ field có mặt trong body mới bị ghi đè, field
+    không gửi giữ nguyên giá trị cũ — giống PATCH /jobs/{id}.
+
+    KHÔNG có endpoint DELETE — company chưa có is_active/soft-delete
+    (việc này để sau, xem lịch sử trao đổi).
+
+    BẮT BUỘC đăng nhập VÀ role 'ss_team' trở lên, giống POST /companies —
+    ghi lại companies.updated_by = người vừa sửa."""
+    if not db_module.is_valid_uuid(company_id):
+        raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
+
+    province_id = (
+        db_module.get_or_create_province(conn, payload.province_name)
+        if payload.province_name is not None else None
+    )
+
+    try:
+        updated = db_module.patch_company_profile(
+            conn, company_id,
+            company_name=payload.company_name,
+            tax_id=payload.tax_id,
+            website=payload.website,
+            industry=payload.industry,
+            company_size=payload.company_size,
+            address=payload.address,
+            province_id=province_id,
+            fanpage_url=payload.fanpage_url,
+            linkedin_url=payload.linkedin_url,
+            updated_by=user["sub"],
+        )
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=f"Mã số thuế '{payload.tax_id}' đã được dùng bởi công ty khác.",
+        )
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
+    conn.commit()
+
+    row = db_module.get_company_by_id(conn, company_id)
+    jobs = db_module.get_jobs_by_company_id(conn, company_id)
+    return {**row, "jobs": jobs}

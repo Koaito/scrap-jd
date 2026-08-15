@@ -67,6 +67,26 @@ def list_my_applications(
     return db_module.list_applications_for_user(conn, user["sub"])
 
 
+@router.delete("/applications/{job_id}", status_code=204)
+def withdraw_application(
+    job_id: str,
+    user: dict = Depends(require_role("user")),
+    conn=Depends(get_db),
+):
+    """Huỷ ứng tuyển (thêm 08/2026, xem db.delete_job_application()) —
+    học viên chỉ huỷ được đơn của CHÍNH mình (ss_user_id lấy từ JWT,
+    không nhận qua path/body, giống mọi route khác trong file này).
+    Huỷ xong có thể POST /me/applications lại nếu muốn ứng tuyển lại."""
+    if not db_module.is_valid_uuid(job_id):
+        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+
+    deleted = db_module.delete_job_application(conn, ss_user_id=user["sub"], job_id=job_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Bạn chưa ứng tuyển job này")
+    conn.commit()
+    return None
+
+
 @router.post("/saved-jobs", response_model=SavedJobOut, status_code=201)
 def save_job(
     payload: SavedJobCreate,
