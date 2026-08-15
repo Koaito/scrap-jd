@@ -86,19 +86,31 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
    ```
    Kỳ vọng: `✅ Đã tạo/cập nhật schema trong database.`
 
-   > DB tạo từ bản cũ (thiếu `tax_id`, `work_type`/`deadline`, hoặc chưa
-   > có lớp auth): chạy thêm `sql/migration_*.sql` tương ứng — xem
-   > comment đầu mỗi file để biết chạy khi nào. **Nếu bật JWT**, 4 file
-   > sau bắt buộc chạy đúng thứ tự (migration sau phụ thuộc migration
-   > trước):
+   > DB tạo từ bản cũ (trước khi có lớp auth/audit/role/đăng ký/quên mật
+   > khẩu/đổi tên bảng/ứng tuyển/lưu job) cần chạy thêm `sql/migration_*.sql`
+   > — xem comment đầu mỗi file để biết chi tiết. Repo hiện có **12 file**
+   > migration; chạy **đúng thứ tự sau** (migration sau phụ thuộc bảng/cột
+   > migration trước tạo ra):
    > ```bash
    > psql -U postgres -d "..." -f sql/migration_add_auth.sql
    > psql -U postgres -d "..." -f sql/migration_add_audit_columns.sql
    > psql -U postgres -d "..." -f sql/migration_add_role_hierarchy.sql
    > psql -U postgres -d "..." -f sql/migration_add_email_verification.sql
+   > psql -U postgres -d "..." -f sql/migration_rename_ss_team_members.sql
+   > psql -U postgres -d "..." -f sql/migration_add_applications_saved_jobs.sql
+   > psql -U postgres -d "..." -f sql/migration_add_phone_track.sql
+   > psql -U postgres -d "..." -f sql/migration_add_password_reset.sql
+   > psql -U postgres -d "..." -f sql/migration_drop_products_services.sql
+   > psql -U postgres -d "..." -f sql/migration_add_tax_id.sql
+   > psql -U postgres -d "..." -f sql/migration_add_work_type_deadline.sql
+   > psql -U postgres -d "..." -f sql/migration_update_provinces_2025.sql
    > ```
-   > Thiếu 1 trong 4 file làm `POST`/`PATCH /jobs`, `POST /companies`,
-   > CRUD `/companies/{id}/contacts` hoặc `POST /auth/register` lỗi 500.
+   > Thiếu bất kỳ file nào ở trên có thể làm `POST`/`PATCH /jobs`,
+   > `POST /companies`, CRUD `/companies/{id}/contacts`,
+   > `POST /auth/register`, đăng nhập, quên mật khẩu, ứng tuyển, hoặc lưu
+   > job lỗi 500 — tuỳ file nào bị thiếu. DB tạo mới hoàn toàn từ
+   > `sql/schema.sql` (bước 4 ở trên) đã có sẵn đầy đủ, **không cần** chạy
+   > lại các migration này.
 
 5. **Test** (không cần DB/internet):
    ```bash

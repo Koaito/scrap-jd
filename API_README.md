@@ -121,34 +121,41 @@ public. Xem chi tiết trong docstring `api/app.py`.
 `API_BASE_URL`, `DB_POOL_MIN`/`DB_POOL_MAX`, Tavily/Gemini key). URL
 public: `https://scrap-jd-api.onrender.com`.
 
-**Trước khi deploy bản có JWT/phân quyền/đăng ký này**, phải chạy trên
-Postgres thật **đúng thứ tự** (migration sau phụ thuộc bảng/cột migration
-trước):
+**Trước khi deploy bản có JWT/phân quyền/đăng ký/ứng tuyển/lưu job này**,
+phải chạy trên Postgres thật **đúng thứ tự sau** (migration sau phụ
+thuộc bảng/cột migration trước tạo ra) — repo hiện có **12 file**
+migration, không chỉ 4:
 
 ```bash
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_auth.sql
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_audit_columns.sql
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_role_hierarchy.sql
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_email_verification.sql
+psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_rename_ss_team_members.sql
+psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_applications_saved_jobs.sql
+psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_phone_track.sql
+psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_password_reset.sql
+psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_drop_products_services.sql
+psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_tax_id.sql
+psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_work_type_deadline.sql
+psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_update_provinces_2025.sql
 ```
 
-Deploy code trước khi chạy đủ 4 migration → `POST`/`PATCH /jobs`,
-`POST /companies`, CRUD `/companies/{id}/contacts`, hoặc
-`POST /auth/register` sẽ lỗi 500 (bảng/cột liên quan chưa tồn tại).
+Deploy code trước khi chạy đủ 12 migration → `POST`/`PATCH /jobs`,
+`POST /companies`, CRUD `/companies/{id}/contacts`, `POST /auth/register`,
+đăng nhập, quên mật khẩu, ứng tuyển, hoặc lưu job sẽ lỗi 500 (bảng/cột
+liên quan chưa tồn tại). DB tạo mới hoàn toàn từ `sql/schema.sql` đã có
+sẵn đầy đủ, **không cần** chạy lại các migration này.
 
 Khi làm frontend và deploy lên Vercel: quay lại Render, sửa
 `ALLOWED_ORIGINS` cho khớp domain Vercel thật, KHÔNG quên bước này
 (thiếu → frontend gọi API bị chặn bởi CORS dù key đúng).
 
-> ⚠️ **Trạng thái hiện tại:** `ALLOWED_ORIGINS` trên Render vẫn đang trỏ
-> domain placeholder/localhost — **chưa** có domain frontend thật nào
-> được thêm vào. Test API bằng Postman/curl/Swagger (`ENABLE_DOCS=true`)
-> không bị ảnh hưởng vì CORS chỉ áp dụng cho request gửi từ trình duyệt
-> (có `Origin` header). Nhưng ngay khi frontend deploy lên domain thật
-> (Vercel hoặc bất kỳ đâu) và bắt đầu gọi API từ code chạy trên trình
-> duyệt, MỌI request sẽ bị chặn bởi CORS cho tới khi domain đó được thêm
-> vào `ALLOWED_ORIGINS` trên Render — báo lại domain thật ngay khi có để
-> cập nhật kịp thời, tránh nhầm tưởng lỗi auth/API key.
+Frontend production (`Koaito/mindx-jobs`, deploy Vercel) đã trỏ đúng
+domain trong `ALLOWED_ORIGINS` trên Render — xem README repo đó, mục
+"Deploy production (Vercel)". Nếu domain Vercel đổi (redeploy sang URL
+preview mới, custom domain mới...), cập nhật lại `ALLOWED_ORIGINS` trên
+Render theo đúng quy trình ở trên.
 
 ## Cấu trúc
 

@@ -64,14 +64,92 @@ CREATE TABLE IF NOT EXISTS levels (
 -- 2. BẢNG NGHIỆP VỤ (UUID PK)
 -- ============================================================
 
-CREATE TABLE IF NOT EXISTS ss_team_members (
+-- Đổi tên từ ss_team_members -> app_users (08/2026, xem
+-- migration_rename_ss_team_members.sql) — bảng này KHÔNG còn chỉ chứa
+-- team SS, mà dùng CHUNG cho mọi tài khoản trong hệ thống: học viên
+-- (role='user'), team SS (role='ss_team'), quản trị (role='admin').
+-- Cột ss_user_id GIỮ NGUYÊN tên cũ dù bảng đã đổi tên (xem lý do trong
+-- migration_rename_ss_team_members.sql — đổi sẽ kéo theo sửa hàng trăm
+-- chỗ, rủi ro cao hơn lợi ích).
+CREATE TABLE IF NOT EXISTS app_users (
     ss_user_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     full_name       VARCHAR(255) NOT NULL,
     email           VARCHAR(255) NOT NULL UNIQUE,
-    role            VARCHAR(50),
-    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at      TIMESTAMP NOT NULL DEFAULT now()
+
+    -- role: 3 giá trị phân cấp (xem migration_add_role_hierarchy.sql):
+    --   'user'    — học viên, chỉ xem/lọc job, không thấy HR contact.
+    --   'ss_team' — CRUD job/company/contact, xem danh sách tài khoản.
+    --   'admin'   — như ss_team + trigger crawl + đổi role user khác.
+    role                    VARCHAR(50) NOT NULL DEFAULT 'user',
+    is_active               BOOLEAN NOT NULL DEFAULT TRUE,
+
+    -- Đăng nhập từng người qua JWT (xem migration_add_auth.sql) —
+    -- KHÁC với API_KEY tĩnh dùng chung cho client kiểu máy gọi máy.
+    password_hash           TEXT,
+    must_change_password    BOOLEAN NOT NULL DEFAULT true,
+    failed_login_count      INT NOT NULL DEFAULT 0,
+    locked_until             TIMESTAMPTZ,
+    last_login_at             TIMESTAMPTZ,
+
+    -- Đăng ký công khai + xác thực email qua Resend (xem
+    -- migration_add_email_verification.sql).
+    email_verified           BOOLEAN NOT NULL DEFAULT false,
+    email_verify_token        VARCHAR(255),
+    email_verify_expires        TIMESTAMPTZ,
+
+    -- Quên mật khẩu (xem migration_add_password_reset.sql) — mirror
+    -- cơ chế email_verify_token, thời hạn ngắn hơn (1h thay vì 24h).
+    password_reset_token          VARCHAR(255),
+    password_reset_expires          TIMESTAMPTZ,
+
+    -- Số điện thoại + định hướng ngành học viên (xem
+    -- migration_add_phone_track.sql) — nhập ở form /register frontend,
+    -- dùng cho team SS liên hệ trực tiếp + giới thiệu job phù hợp.
+    phone                             VARCHAR(30),
+    track                               VARCHAR(100),
+
+    created_at      TIMESTAMP NOT NULL DEFAULT now(),
+
+    CONSTRAINT chk_ss_team_members_role
+        CHECK (role IN ('user', 'ss_team', 'admin'))
 );
+
+-- Tra token xác thực email khi user bấm link trong email.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ss_team_members_email_verify_token
+    ON app_users(email_verify_token)
+    WHERE email_verify_token IS NOT NULL;
+
+-- Tra token đặt lại mật khẩu khi user bấm link "quên mật khẩu".
+CREATE INDEX IF NOT EXISTS idx_app_users_password_reset_token
+    ON app_users(password_reset_token)
+    WHERE password_reset_token IS NOT NULL;
+
+-- Refresh token — hỗ trợ xoay vòng (rotation) + phát hiện tái sử dụng
+-- token đã bị thu hồi (dấu hiệu token bị đánh cắp). Xem
+-- migration_add_auth.sql.
+CREATE TABLE IF NOT EXISTS auth_refresh_tokens (
+    refresh_token_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ss_user_id          UUID NOT NULL REFERENCES app_users(ss_user_id),
+
+    -- KHÔNG lưu refresh token thô — chỉ lưu SHA-256 hex (64 ký tự).
+    token_hash          VARCHAR(64) NOT NULL UNIQUE,
+
+    expires_at           TIMESTAMPTZ NOT NULL,
+    revoked_at            TIMESTAMPTZ,
+
+    -- Token cũ bị revoke khi xoay vòng, trỏ sang token mới. Nếu token
+    -- cũ đã revoke bị dùng lại -> dấu hiệu bị đánh cắp -> thu hồi toàn
+    -- bộ token của user này.
+    replaced_by_token_id  UUID REFERENCES auth_refresh_tokens(refresh_token_id),
+
+    user_agent             TEXT,
+    ip_address               VARCHAR(45),  -- đủ cho IPv6
+
+    created_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_refresh_tokens_user   ON auth_refresh_tokens(ss_user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_refresh_tokens_expiry ON auth_refresh_tokens(expires_at);
 
 CREATE TABLE IF NOT EXISTS companies (
     company_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -85,7 +163,11 @@ CREATE TABLE IF NOT EXISTS companies (
     fanpage_url      VARCHAR(255),
     linkedin_url     VARCHAR(255),
     created_at       TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at       TIMESTAMP NOT NULL DEFAULT now()
+    updated_at       TIMESTAMP NOT NULL DEFAULT now(),
+
+    -- Audit trail "ai tạo/sửa" (xem migration_add_audit_columns.sql).
+    created_by       UUID REFERENCES app_users(ss_user_id),
+    updated_by       UUID REFERENCES app_users(ss_user_id)
 );
 
 -- Mã số thuế là định danh doanh nghiệp thật, ổn định theo pháp luật VN —
@@ -117,6 +199,11 @@ CREATE TABLE IF NOT EXISTS job_postings (
     created_at        TIMESTAMP NOT NULL DEFAULT now(),
     updated_at        TIMESTAMP NOT NULL DEFAULT now(),
 
+    -- Audit trail "ai tạo/sửa" (xem migration_add_audit_columns.sql).
+    -- NULL = job tạo qua crawl pipeline tự động, không phải lỗi.
+    created_by        UUID REFERENCES app_users(ss_user_id),
+    updated_by        UUID REFERENCES app_users(ss_user_id),
+
     CONSTRAINT chk_salary_range CHECK (
         salary_min IS NULL OR salary_max IS NULL OR salary_min <= salary_max
     )
@@ -132,12 +219,22 @@ CREATE TABLE IF NOT EXISTS company_contacts (
     phone_number      VARCHAR(50),
     found_source      VARCHAR(100),
     collected_date    DATE,
-    assigned_ss_user  UUID REFERENCES ss_team_members(ss_user_id),
+    assigned_ss_user  UUID REFERENCES app_users(ss_user_id),
     last_contacted_date DATE,
     contact_status    contact_status_enum NOT NULL DEFAULT 'UNCONTACTED',
     created_at        TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at        TIMESTAMP NOT NULL DEFAULT now()
+    updated_at        TIMESTAMP NOT NULL DEFAULT now(),
+
+    -- Soft-delete — xoá qua API là UPDATE is_active=false, KHÔNG DELETE
+    -- thật, giữ lại lịch sử liên hệ (xem migration_add_role_hierarchy.sql).
+    is_active         BOOLEAN NOT NULL DEFAULT true,
+
+    -- Audit trail "ai tạo/sửa".
+    created_by        UUID REFERENCES app_users(ss_user_id),
+    updated_by        UUID REFERENCES app_users(ss_user_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_company_contacts_is_active ON company_contacts(is_active);
 
 CREATE TABLE IF NOT EXISTS job_sources_log (
     log_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -165,7 +262,7 @@ CREATE TABLE IF NOT EXISTS job_contact_links (
 CREATE TABLE IF NOT EXISTS job_contact_interactions (
     interaction_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     link_id           UUID NOT NULL REFERENCES job_contact_links(link_id),
-    assigned_ss_user  UUID REFERENCES ss_team_members(ss_user_id),
+    assigned_ss_user  UUID REFERENCES app_users(ss_user_id),
     interaction_type  VARCHAR(50),
     interaction_status interaction_status_enum,
     note              TEXT,
@@ -173,11 +270,47 @@ CREATE TABLE IF NOT EXISTS job_contact_interactions (
 );
 
 -- ============================================================
+-- 2b. TƯƠNG TÁC CỦA HỌC VIÊN VỚI JOB (role='user')
+-- Xem migration_add_applications_saved_jobs.sql.
+-- ============================================================
+
+-- job_applications — học viên bấm "Ứng tuyển", staff xem ai đã nộp.
+CREATE TABLE IF NOT EXISTS job_applications (
+    application_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ss_user_id        UUID NOT NULL REFERENCES app_users(ss_user_id),
+    job_id            UUID NOT NULL REFERENCES job_postings(job_id),
+    note              TEXT,
+    applied_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    -- 1 học viên chỉ ứng tuyển 1 job đúng 1 lần.
+    CONSTRAINT uq_job_applications_user_job UNIQUE (ss_user_id, job_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_applications_user ON job_applications(ss_user_id);
+CREATE INDEX IF NOT EXISTS idx_job_applications_job  ON job_applications(job_id);
+
+-- saved_jobs — bookmark riêng tư, KHÁC ứng tuyển (danh sách cá nhân,
+-- không staff nào cần thấy học viên đã lưu job gì).
+CREATE TABLE IF NOT EXISTS saved_jobs (
+    saved_job_id      UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ss_user_id         UUID NOT NULL REFERENCES app_users(ss_user_id),
+    job_id             UUID NOT NULL REFERENCES job_postings(job_id),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT uq_saved_jobs_user_job UNIQUE (ss_user_id, job_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_saved_jobs_user ON saved_jobs(ss_user_id);
+CREATE INDEX IF NOT EXISTS idx_saved_jobs_job  ON saved_jobs(job_id);
+
+-- ============================================================
 -- 3. INDEXES
 -- ============================================================
 
 CREATE INDEX IF NOT EXISTS idx_companies_province        ON companies(province_id);
+CREATE INDEX IF NOT EXISTS idx_companies_created_by       ON companies(created_by);
 CREATE INDEX IF NOT EXISTS idx_job_postings_company       ON job_postings(company_id);
+CREATE INDEX IF NOT EXISTS idx_job_postings_created_by    ON job_postings(created_by);
 CREATE INDEX IF NOT EXISTS idx_job_postings_level         ON job_postings(level_id);
 CREATE INDEX IF NOT EXISTS idx_job_postings_province      ON job_postings(province_id);
 CREATE INDEX IF NOT EXISTS idx_job_postings_status        ON job_postings(job_status);
