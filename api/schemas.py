@@ -397,9 +397,18 @@ class ResendVerificationRequest(BaseModel):
     email: str = Field(..., min_length=1)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: str = Field(..., min_length=1)
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str = Field(..., min_length=1)
+    new_password: str = Field(..., min_length=8)
+
+
 class MessageOut(BaseModel):
     """Response chung cho các action chỉ cần xác nhận đã thực hiện,
-    không có dữ liệu cụ thể để trả (resend-verification...)."""
+    không có dữ liệu cụ thể để trả (resend-verification, forgot-password...)."""
     message: str
 
 

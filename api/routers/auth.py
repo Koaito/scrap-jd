@@ -25,11 +25,12 @@ from fastapi.responses import HTMLResponse
 import db as db_module
 from api import security
 from api.deps import get_db, get_current_user, require_admin, require_role
-from api.email_service import send_verification_email
+from api.email_service import send_verification_email, send_password_reset_email
 from api.schemas import (
-    AccessTokenOut, ChangePasswordRequest, LoginRequest, MessageOut,
-    RefreshRequest, RegisterOut, RegisterRequest, ResendVerificationRequest,
-    TokenPairOut, UserCreateByAdmin, UserCreatedOut, UserOut, UserRoleUpdate,
+    AccessTokenOut, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest,
+    MessageOut, RefreshRequest, RegisterOut, RegisterRequest, ResendVerificationRequest,
+    ResetPasswordRequest, TokenPairOut, UserCreateByAdmin, UserCreatedOut, UserOut,
+    UserRoleUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -56,6 +57,13 @@ public_router = APIRouter(prefix="/auth", tags=["auth"])
 # khoản CHƯA xác thực quá lâu trong DB. Hết hạn thì gọi POST
 # /auth/resend-verification xin token mới, không cần đăng ký lại.
 EMAIL_VERIFY_EXPIRE_HOURS = 24
+
+# Link reset mật khẩu hết hạn sau 1h — ngắn hơn hẳn link xác thực email
+# (24h) vì reset mật khẩu là thao tác nhạy cảm hơn (ai có link = đổi
+# được mật khẩu người khác nếu email bị lộ), không cần cho nhiều thời
+# gian như link xác thực đăng ký (chỉ xác nhận sở hữu email, không đổi
+# được gì). Hết hạn thì gọi lại POST /auth/forgot-password xin link mới.
+PASSWORD_RESET_EXPIRE_HOURS = 1
 
 
 def _generate_verify_token() -> str:
@@ -474,3 +482,74 @@ def resend_verification(payload: ResendVerificationRequest, conn=Depends(get_db)
     )
 
     return MessageOut(message=_GENERIC_MSG)
+
+
+# ------------------------------------------------------------------
+# Quên mật khẩu (thêm 08/2026, xem sql/migration_add_password_reset.sql,
+# api/email_service.py) — 2 route công khai, KHÔNG cần JWT (đúng bản
+# chất: user quên mật khẩu thì KHÔNG login được để lấy JWT trước).
+# ------------------------------------------------------------------
+
+@public_router.post("/forgot-password", response_model=MessageOut)
+def forgot_password(payload: ForgotPasswordRequest, conn=Depends(get_db)):
+    """Xin link đặt lại mật khẩu — LUÔN trả cùng 1 message dù email có
+    tồn tại hay không (giống hệt nguyên tắc resend_verification() ở
+    trên — chống dò email hàng loạt: kẻ tấn công không phân biệt được
+    'email không tồn tại' với 'email tồn tại, email đã gửi' qua response).
+
+    KHÔNG chặn nếu tài khoản chưa xác thực email (khác login() cấm đăng
+    nhập trước khi verify) — quên mật khẩu và chưa-xác-thực-email là 2
+    vấn đề độc lập, user vẫn nên đặt lại mật khẩu được dù tài khoản
+    chưa verify (họ vẫn cần link xác thực RIÊNG nếu muốn login sau đó,
+    nhưng không có lý do gì chặn họ đổi mật khẩu trước)."""
+    _GENERIC_MSG = (
+        "Nếu email này có tài khoản, một email đặt lại mật khẩu đã "
+        "được gửi tới đó."
+    )
+
+    user = db_module.get_user_by_email(conn, payload.email)
+    if user is None:
+        return MessageOut(message=_GENERIC_MSG)
+
+    reset_token = _generate_verify_token()  # cùng cơ chế sinh token (secrets.token_urlsafe), khác tên biến cho rõ ngữ cảnh
+    reset_expires = datetime.now(timezone.utc) + timedelta(hours=PASSWORD_RESET_EXPIRE_HOURS)
+
+    db_module.set_password_reset_token(conn, str(user["ss_user_id"]), reset_token, reset_expires)
+    conn.commit()
+
+    send_password_reset_email(
+        to_email=user["email"],
+        full_name=user["full_name"],
+        reset_token=reset_token,
+    )
+
+    return MessageOut(message=_GENERIC_MSG)
+
+
+@public_router.post("/reset-password", response_model=MessageOut)
+def reset_password(payload: ResetPasswordRequest, conn=Depends(get_db)):
+    """Đặt mật khẩu mới bằng token nhận từ email — token dùng ĐÚNG 1 LẦN
+    (xoá ngay sau khi dùng, xem db.reset_password_with_token()).
+
+    Sau khi đổi thành công, THU HỒI TOÀN BỘ refresh token hiện có của
+    user (revoke_all_refresh_tokens_for_user) — nếu lý do quên mật khẩu
+    là bị lộ mật khẩu/máy bị chiếm quyền, phiên đăng nhập cũ (nếu kẻ tấn
+    công đang có access/refresh token còn hạn) sẽ bị đá ra ngay, không
+    đợi access token 30 phút tự hết hạn."""
+    user = db_module.get_user_by_reset_token(conn, payload.token)
+    if user is None:
+        raise HTTPException(status_code=400, detail="Link đặt lại mật khẩu không hợp lệ hoặc đã được dùng.")
+
+    expires_at = user["password_reset_expires"]
+    if expires_at is not None:
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        if expires_at <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=400, detail="Link đặt lại mật khẩu đã hết hạn — gọi lại POST /auth/forgot-password để xin link mới.")
+
+    ss_user_id = str(user["ss_user_id"])
+    db_module.reset_password_with_token(conn, ss_user_id, security.hash_password(payload.new_password))
+    db_module.revoke_all_refresh_tokens_for_user(conn, ss_user_id)
+    conn.commit()
+
+    return MessageOut(message="Đặt lại mật khẩu thành công — vui lòng đăng nhập lại bằng mật khẩu mới.")

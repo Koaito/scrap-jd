@@ -1663,3 +1663,51 @@ def delete_saved_job(conn, *, ss_user_id: str, job_id: str) -> bool:
             (ss_user_id, job_id),
         )
         return cur.rowcount > 0
+
+
+# ------------------------------------------------------------------
+# Quên mật khẩu — thêm 08/2026, mirror ĐÚNG cơ chế
+# get_user_by_verify_token/mark_email_verified/set_new_verify_token ở
+# trên (email xác thực đăng ký), chỉ khác tên cột. Xem
+# sql/migration_add_password_reset.sql.
+# ------------------------------------------------------------------
+
+def set_password_reset_token(conn, ss_user_id: str, reset_token: str, reset_expires) -> None:
+    """Ghi token reset mật khẩu — gọi bởi POST /auth/forgot-password.
+    Ghi ĐÈ token cũ nếu có (user xin gửi lại nhiều lần), token cũ (nếu
+    còn) hết hiệu lực ngay vì không còn tồn tại trong DB để đối chiếu."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app_users SET password_reset_token = %s, "
+            "password_reset_expires = %s WHERE ss_user_id = %s",
+            (reset_token, reset_expires, ss_user_id),
+        )
+
+
+def get_user_by_reset_token(conn, reset_token: str):
+    """Trả dict user (đủ field, kể cả password_reset_expires) hoặc None
+    nếu token không tồn tại — KHÔNG tự kiểm tra hết hạn ở đây, route tự
+    so sánh password_reset_expires với thời gian hiện tại (tách trách
+    nhiệm, giống get_user_by_verify_token())."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM app_users WHERE password_reset_token = %s",
+            (reset_token,),
+        )
+        return cur.fetchone()
+
+
+def reset_password_with_token(conn, ss_user_id: str, password_hash: str) -> None:
+    """Ghi mật khẩu MỚI + XOÁ token reset (đặt NULL) trong CÙNG 1 câu
+    UPDATE — token chỉ dùng được ĐÚNG 1 LẦN, xoá ngay sau khi dùng để
+    không ai reset lại lần 2 bằng link cũ. must_change_password=false
+    (khác update_user_password() mặc định — ở đây user VỪA TỰ CHỌN mật
+    khẩu mới thật sự qua link email, không phải mật khẩu tạm admin sinh
+    hộ, nên không cần ép đổi lại lần nữa)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app_users SET password_hash = %s, must_change_password = false, "
+            "password_reset_token = NULL, password_reset_expires = NULL "
+            "WHERE ss_user_id = %s",
+            (password_hash, ss_user_id),
+        )
