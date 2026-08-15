@@ -26,11 +26,29 @@ def _build_parsed_content_and_raw(job_detail: dict):
     if not job_detail:
         return None, ""
 
+    # Dedupe required_skills — nghi do artifact khi parse DOM (TopCV có
+    # thể render lặp khối "Kỹ năng cần có", hoặc API VietnamWorks trả kèm
+    # trùng phần tử). Dedupe ở đây (dùng chung cho mọi adapter) thay vì
+    # sửa riêng từng adapter — an toàn hơn, không phụ thuộc nguồn dữ liệu
+    # cụ thể nào. Giữ đúng thứ tự xuất hiện đầu tiên (không dùng set() vì
+    # không đảm bảo thứ tự, và so khớp không phân biệt hoa/thường + khoảng
+    # trắng thừa để bắt cả case trùng do khác biệt viết hoa nhỏ).
+    raw_skills = job_detail.get("required_skills", []) or []
+    seen = set()
+    deduped_skills = []
+    for skill in raw_skills:
+        if not isinstance(skill, str):
+            continue
+        key = skill.strip().lower()
+        if key and key not in seen:
+            seen.add(key)
+            deduped_skills.append(skill.strip())
+
     parsed_content = {
         "job_description": job_detail.get("job_description", ""),
         "requirements": job_detail.get("requirements", ""),
         "perks": job_detail.get("perks", ""),
-        "required_skills": job_detail.get("required_skills", []),
+        "required_skills": deduped_skills,
     }
     # Không có gì đáng lưu -> coi như rỗng, tránh insert 1 JSONB toàn chuỗi rỗng
     if not any(parsed_content.values()):

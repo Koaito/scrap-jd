@@ -380,26 +380,28 @@ nhau cho cùng đơn vị VNĐ — `"15tr-30tr ₫/tháng"` (có hậu tố "tr"
 `"12,000-30,000 ₫/tháng"` (đã ở đơn vị nghìn đồng, không hậu tố) — nhân
 cứng 1 kiểu khiến case thứ 2 lệch 1000 lần. Đã sửa bằng cách suy luận hệ
 số nhân theo **độ lớn của chính con số** — xem docstring
-`_vnd_multiplier()` trong `normalize.py`. **Chỉ áp dụng cho job crawl mới
-sau này** — job cũ trong DB (kể cả bản ghi lỗi) vẫn chưa được vá lại,
-chưa có script tự động, cần soát tay bằng SQL nếu cần.
+`_vnd_multiplier()` trong `normalize.py`. Job cũ bị lệch đơn vị trong DB
+đã được vá lại (lọc lại từ DB mới) — không còn tồn đọng.
+
+### Bug đã sửa: `required_skills` bị lặp phần tử (08/2026)
+
+4 job có danh sách kỹ năng bị lặp phần tử trong `parsed_content`, nghi do
+artifact khi parse DOM (TopCV) hoặc dữ liệu API trả kèm trùng (VietnamWorks).
+Đã sửa bằng cách dedupe tại `pipeline._build_parsed_content_and_raw()` —
+dùng chung cho mọi adapter, so khớp không phân biệt hoa/thường + khoảng
+trắng thừa, giữ đúng thứ tự xuất hiện đầu tiên. Chỉ áp dụng cho job crawl
+mới sau này — job cũ trong DB (nếu còn) cần soát tay bằng SQL nếu cần.
 
 ### Việc còn tồn đọng
 
 - **Chưa sửa lỗi trùng job do race condition** khi crawl song song (xem
   [Crawl job](#crawl-job)).
-- **4 job có `required_skills` bị lặp phần tử** trong `parsed_content`
-  (nghi do artifact khi parse DOM), chưa dedupe ở tầng
-  `normalize`/`pipeline`.
 - **`company_size` (61%), `address` (46%), `linkedin_url` (28%) còn
   thiếu nhiều** — chạy thêm `get_company_fb_linkedin_link.py` /
   `enrich_company_web_info.py` để vá, hoặc chấp nhận vì nguồn crawl
   không phải lúc nào cũng có sẵn field này.
 - **Dữ liệu mới từ 1 lượt crawl, 6 ngành, 2 nguồn** — cần crawl thêm
   định kỳ để có dữ liệu đủ lớn cho dashboard.
-- **Job listing/company listing ở frontend chưa lưu lại link JD gốc khi
-  học viên bấm vào**, và giao diện quản lý staff còn vài chỗ cần dọn —
-  xem `mindx-jobs` repo để biết chi tiết việc còn lại phía frontend.
 
 ---
 

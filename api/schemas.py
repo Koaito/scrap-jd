@@ -376,6 +376,15 @@ class UserRoleUpdate(BaseModel):
     role: str = Field(..., description="user | ss_team | admin")
 
 
+class UserActiveStatusUpdate(BaseModel):
+    """Body cho PATCH /auth/users/{id}/active-status (admin-only).
+    Khoá VĨNH VIỄN 1 tài khoản (is_active=false) — KHÁC locked_until (khoá
+    TẠM THỜI tự hết hạn do sai mật khẩu nhiều lần, xem
+    sql/migration_add_auth.sql). Dùng khi 1 người rời nhóm/vi phạm và cần
+    chặn đăng nhập ngay lập tức, không chờ tự hết hạn."""
+    is_active: bool = Field(..., description="true = kích hoạt lại, false = vô hiệu hoá")
+
+
 # ------------------------------------------------------------------
 # Đăng ký công khai + xác thực email (thêm 08/2026, xem
 # sql/migration_add_email_verification.sql, api/email_service.py) —

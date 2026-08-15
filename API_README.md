@@ -75,7 +75,7 @@ so khớp đúng 1 chuỗi):
 |---|---|---|
 | `user` | 0 | Chỉ các route `GET` đọc dữ liệu — mặc định khi tự đăng ký |
 | `ss_team` | 1 | + `POST`/`PATCH /jobs`, `POST /companies`, CRUD `/companies/{id}/contacts`, `GET /auth/users` |
-| `admin` | 2 | + `POST /crawl`, `POST /auth/users`, `PATCH /auth/users/{id}/role` |
+| `admin` | 2 | + `POST /crawl`, `POST /auth/users`, `PATCH /auth/users/{id}/role`, `PATCH /auth/users/{id}/active-status` |
 
 Nâng `user` lên `ss_team` phải nhờ admin gọi `PATCH
 /auth/users/{id}/role` — không có cách tự nâng. Admin **không tự đổi
@@ -92,7 +92,7 @@ duy nhất.
 | `GET/POST /companies/{id}/contacts`, `PATCH/DELETE .../contacts/{cid}` | Đăng nhập + role `ss_team` trở lên |
 | `GET /auth/users` | Đăng nhập + role `ss_team` trở lên |
 | `POST /crawl` | Đăng nhập + role `admin` |
-| `POST /auth/users`, `PATCH /auth/users/{id}/role` | Đăng nhập + role `admin` |
+| `POST /auth/users`, `PATCH /auth/users/{id}/role`, `PATCH /auth/users/{id}/active-status` | Đăng nhập + role `admin` |
 | Mọi route `GET` khác (`/jobs`, `/companies`, `/stats`...) | Chỉ cần API key (lớp 1), KHÔNG bắt buộc đăng nhập |
 
 Chọn `role admin` riêng cho `POST /crawl` (chặt hơn `POST /jobs`) vì
@@ -208,6 +208,7 @@ api/
 | POST | `/auth/users` | Admin tạo hộ tài khoản mới, chọn được role | API key + JWT (admin) |
 | GET | `/auth/users` | Danh sách toàn bộ tài khoản | API key + JWT (ss_team+) |
 | PATCH | `/auth/users/{id}/role` | Đổi role tài khoản khác (không tự đổi role chính mình) | API key + JWT (admin) |
+| PATCH | `/auth/users/{id}/active-status` | Khoá/mở khoá vĩnh viễn tài khoản khác (không tự khoá chính mình) | API key + JWT (admin) |
 
 "API key" = mọi request đều cần header `X-API-Key: <giá trị API_KEY>`.
 "JWT" = cần thêm header `Authorization: Bearer <access_token>` (lấy từ
@@ -373,6 +374,22 @@ qua `POST /auth/register` chưa bấm link trong email).
 `role` phải là 1 trong `user`/`ss_team`/`admin`. Trả `400` nếu
 `{id}` trùng chính admin đang gọi request (chặn tự đổi role bản thân).
 
+### `PATCH /auth/users/{id}/active-status` — khoá/mở khoá tài khoản (admin-only)
+
+```json
+{"is_active": false}
+```
+
+Khoá **vĩnh viễn** 1 tài khoản (chặn đăng nhập ngay từ lần login/refresh
+token kế tiếp) — KHÁC `locked_until` (khoá tạm thời, tự hết hạn do sai
+mật khẩu nhiều lần liên tiếp). Trả `400` nếu `{id}` trùng chính admin
+đang gọi request (chặn tự khoá bản thân). Đặt lại `{"is_active": true}`
+để mở khoá.
+
+Lưu ý: vô hiệu hoá **không** revoke JWT access token đang có hiệu lực —
+token cũ (tối đa 30 phút) vẫn dùng được tới khi hết hạn tự nhiên, chỉ
+chặn được từ lần login/refresh tiếp theo.
+
 ## Phân quyền — role hierarchy
 
 Thêm 08/2026 cùng lúc với `POST /auth/register` (xem
@@ -394,8 +411,9 @@ token mới mang đúng role hiện tại.
 
 Thêm 08/2026 cùng với việc bắt buộc JWT ở route ghi. `job_postings`,
 `companies`, và `company_contacts` (thêm cùng lúc với role hierarchy) có
-2 cột `created_by`/`updated_by` (UUID, tham chiếu
-`ss_team_members.ss_user_id`), trả về trong response của
+2 cột `created_by`/`updated_by` (UUID, tham chiếu `app_users.ss_user_id`
+— bảng đổi tên từ `ss_team_members`, xem
+`sql/migration_rename_ss_team_members.sql`), trả về trong response của
 `GET`/`POST`/`PATCH` tương ứng.
 
 - Job/công ty tạo qua **crawl tự động** (`main.py`, không qua JWT) →

@@ -1381,6 +1381,26 @@ def update_user_role(conn, ss_user_id: str, new_role: str) -> bool:
         return cur.rowcount > 0
 
 
+def update_user_active_status(conn, ss_user_id: str, is_active: bool) -> bool:
+    """Khoá/mở khoá VĨNH VIỄN 1 tài khoản — CHỈ gọi từ route admin-only
+    (PATCH /auth/users/{id}/active-status). Route tự chặn admin tự khoá
+    CHÍNH MÌNH TRƯỚC KHI gọi hàm này, cùng nguyên tắc với
+    update_user_role() ở trên. Trả False nếu ss_user_id không tồn tại.
+
+    Vô hiệu hoá KHÔNG revoke refresh token đang có — access token cũ
+    (JWT, tối đa 30 phút) vẫn dùng được tới khi hết hạn tự nhiên, nhưng
+    request refresh token tiếp theo sẽ bị chặn vì login()/refresh() đều
+    kiểm tra is_active (xem api/routers/auth.py). Chấp nhận độ trễ tối
+    đa 30 phút này — revoke JWT đang active cần thêm cơ chế blacklist,
+    không cần thiết ở quy mô team nhỏ."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app_users SET is_active = %s WHERE ss_user_id = %s",
+            (is_active, ss_user_id),
+        )
+        return cur.rowcount > 0
+
+
 # ------------------------------------------------------------------
 # Đăng ký công khai + xác thực email (thêm 08/2026, xem
 # sql/migration_add_email_verification.sql) — KHÁC create_user() ở
