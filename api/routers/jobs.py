@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db as db_module
 from api.deps import get_db, require_role
-from api.schemas import JobCreate, JobDetailOut, JobUpdate, PaginatedJobs
+from api.schemas import JobApplicantOut, JobCreate, JobDetailOut, JobUpdate, PaginatedJobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -177,3 +177,21 @@ def patch_job(
 
     row = db_module.get_job_by_id(conn, job_id)
     return row
+
+
+@router.get("/{job_id}/applications", response_model=list[JobApplicantOut])
+def list_job_applications(
+    job_id: str,
+    user: dict = Depends(require_role("ss_team")),
+    conn=Depends(get_db),
+):
+    """Ai đã ứng tuyển job này — role 'ss_team' trở lên (giống contacts,
+    thông tin full_name/email người ứng tuyển được coi là nhạy cảm
+    tương tự HR contact, 'user' không thấy được đơn của người khác, chỉ
+    thấy đơn của chính mình qua GET /me/applications)."""
+    if not db_module.is_valid_uuid(job_id):
+        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+    if db_module.get_job_by_id(conn, job_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy job")
+
+    return db_module.list_applications_for_job(conn, job_id)

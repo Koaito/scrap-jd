@@ -171,7 +171,8 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
 - `--source`: `topcv` (mặc định) hoặc `vietnamworks`.
 - `--category`: ngành muốn crawl. Xem danh sách có sẵn trong `config.py`
   (`TOPCV_CATEGORIES` / `VIETNAMWORKS_CATEGORIES`). Hiện có: `data-analyst`,
-  `data-engineer`, `software-engineering`.
+  `data-engineer`, `data-scientist`, `software-engineering`,
+  `business-analyst`, `ui-ux-design`.
 - `--pages`: số trang tối đa. Bắt đầu với số nhỏ (2-3) để test. 1 trang
   TopCV ~20-25 job, 1 trang VietnamWorks ~50 job.
 - `--max-jobs`: giới hạn TỔNG SỐ JD sẽ crawl, dừng ngay khi đủ — không cần
@@ -195,9 +196,13 @@ Mỗi lần crawl, hệ thống tự động:
 
 **⚠️ Chưa an toàn khi chạy song song 2 lượt crawl cùng lúc** (vd vừa chạy
 CLI vừa gọi `POST /crawl`, hoặc bấm crawl 2 lần liên tiếp trước khi lượt
-đầu kịp `commit()`) — có thể tạo ra 2 job trùng `source_url` do race
-condition ở bước "check trùng rồi mới insert" trong `pipeline.py`. Đã gặp
-thực tế 1 lần (2 job cùng link, timestamp cách nhau vài giây). Cách xử lý
+đầu kịp `commit()`) — có thể tạo ra job trùng do race condition ở bước
+"check trùng rồi mới insert" trong `pipeline.py`. Đã gặp thực tế 2 lần,
+2 kiểu biểu hiện khác nhau: (1) 2 job cùng `source_url`, timestamp cách
+nhau vài giây; (2) 2 job **khác** `source_url` nhưng cùng `content_hash`
+(cùng nội dung JD, đăng lại dưới 2 link khác nhau — case "Fullstack
+Developer" x2, cách nhau ~11 giây, xem mục
+[Tình trạng dữ liệu](#tình-trạng-dữ-liệu)). Cách xử lý
 tạm thời: chỉ chạy 1 lượt crawl tại 1 thời điểm; soát dọn bằng
 `v_duplicate_job_candidates` (xem mục Xem kết quả) nếu nghi trùng. Nâng
 cấp đúng cần thêm advisory lock theo `source_url` hoặc unique constraint ở
@@ -410,23 +415,31 @@ Backend đã deploy thật, public trên internet:
 
 ## Tình trạng dữ liệu
 
-Snapshot tại thời điểm viết (176 job / 122 công ty, crawl 2 ngành *Data
-Analysis* + *Data Engineer* trên cả 2 nguồn):
+Snapshot tại thời điểm viết (183 job / 134 công ty, crawl **6 ngành** — *Data
+Analyst*, *Data Engineer*, *Data Scientist*, *Software Engineering*,
+*Business Analysis*, *UI/UX Design* — trên cả 2 nguồn):
 
 | Field                                                          | Độ phủ |
 | -------------------------------------------------------------- | --------- |
-| `job_postings.work_type` / `deadline` / `parsed_content` | 97%       |
-| `job_postings.salary_min` (không tính "Thoả thuận")      | 31%       |
-| `companies.tax_id`                                           | 98%       |
-| `companies.website`                                          | 86%       |
-| `companies.industry`                                         | 81%       |
-| `companies.fanpage_url`                                      | 57%       |
-| `companies.company_size`                                     | 56%       |
-| `companies.address`                                          | 44%       |
-| `companies.linkedin_url`                                     | 31%       |
+| `job_postings.work_type` / `deadline` / `parsed_content` | ~97%      |
+| `job_postings.salary_min` (không tính "Thoả thuận")      | 29%       |
+| `companies.tax_id`                                           | 96%       |
+| `companies.website`                                          | 73%       |
+| `companies.industry`                                         | 80%       |
+| `companies.company_size`                                     | 61%       |
+| `companies.fanpage_url`                                      | 41%       |
+| `companies.address`                                          | 46%       |
+| `companies.linkedin_url`                                     | 28%       |
 
-Không có job hay công ty nào trùng lặp thật (0 `content_hash` trùng, 0
-`tax_id` trùng, 0 `source_url` trùng) tại thời điểm snapshot này.
+Phân bố job theo ngành hiện tại: Code 38, UI/UX Design 39, Data Engineer 35,
+Business Analysis 31, Data Scientist 20, Data Analysis 20.
+
+**Đã phát hiện 1 cặp job trùng nội dung thật** (0 `tax_id` trùng, 0
+`source_url` trùng, nhưng 1 cặp `content_hash` trùng — 2 job "Fullstack
+Developer" cùng nội dung, 2 `source_url` khác nhau, tạo cách nhau ~11 giây)
+— đúng như cảnh báo race condition ở mục [Crawl job](#crawl-job), giờ có
+bằng chứng thực tế thay vì chỉ là rủi ro lý thuyết. Soát bằng
+`v_duplicate_job_candidates`, chưa dọn tay.
 
 ### Bug đã sửa: sai đơn vị lương VietnamWorks (08/2026)
 
@@ -452,15 +465,15 @@ lượng ảnh hưởng nhỏ (tại thời điểm phát hiện: 1 bản ghi du
 
 - **Chưa sửa lỗi trùng job do race condition** (xem cảnh báo ở mục Crawl
   job) — mới phát hiện, chưa vá.
-- **9 job có `required_skills` bị lặp phần tử** trong `parsed_content` (vd
+- **4 job có `required_skills` bị lặp phần tử** trong `parsed_content` (vd
   cùng 1 kỹ năng xuất hiện 2-3 lần) — nghi do artifact khi parse DOM, chưa
   dedupe ở tầng `normalize`/`pipeline`.
-- **Company_size (56%), address (44%), linkedin_url (31%) còn thiếu
+- **Company_size (61%), address (46%), linkedin_url (28%) còn thiếu
   nhiều** — chạy thêm `get_company_fb_linkedin_link.py` /
   `enrich_company_web_info.py` để vá, hoặc chấp nhận vì nguồn gốc không
   luôn có sẵn field này (vd VietnamWorks không hiển thị mã số thuế công
   ty trên trang profile).
-- **Dữ liệu hiện tại mới chỉ từ 1 lượt crawl, 2 ngành, 2 nguồn** — quy mô
+- **Dữ liệu hiện tại mới chỉ từ 1 lượt crawl, 6 ngành, 2 nguồn** — quy mô
   còn nhỏ so với mục tiêu dự án, cần crawl thêm định kỳ để có dữ liệu đủ
   lớn cho dashboard.
 - **Frontend dashboard chưa làm** — backend đã sẵn sàng (API + JWT auth +

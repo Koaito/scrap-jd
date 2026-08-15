@@ -57,7 +57,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import db as db_module
 from api.auth import require_api_key
-from api.routers import auth, companies, contacts, crawl, jobs, meta
+from api.routers import auth, companies, contacts, crawl, jobs, me, meta
 
 logging.basicConfig(
     level=logging.INFO,
@@ -130,6 +130,7 @@ app.include_router(contacts.router, dependencies=_require_key)
 app.include_router(crawl.router, dependencies=_require_key)
 app.include_router(meta.router, dependencies=_require_key)
 app.include_router(auth.router, dependencies=_require_key)
+app.include_router(me.router, dependencies=_require_key)
 
 # auth.public_router: register/verify-email/resend-verification — CỐ Ý
 # KHÔNG kèm dependencies=_require_key (xem docstring đầu file).

@@ -402,3 +402,60 @@ class CompanyContactUpdate(BaseModel):
         None, description="UNCONTACTED | EMAIL_SENT | RESPONDED | IN_PARTNERSHIP"
     )
     last_contacted_date: Optional[date] = None
+
+
+# ------------------------------------------------------------------
+# Job applications + saved jobs — thêm 08/2026, xem db.py mục cùng tên
+# ------------------------------------------------------------------
+
+class JobApplicationCreate(BaseModel):
+    job_id: str
+    note: Optional[str] = None
+
+
+class JobApplicationOut(BaseModel):
+    application_id: str
+    ss_user_id: str
+    job_id: str
+    note: Optional[str] = None
+    applied_at: datetime
+    job_title: str
+    job_status: Optional[str] = None
+    company_name: str
+
+    class Config:
+        from_attributes = True
+
+
+class JobApplicantOut(BaseModel):
+    """Dùng cho GET /jobs/{job_id}/applications (staff xem ai đã ứng
+    tuyển) — khác JobApplicationOut (dùng cho GET /me/applications,
+    học viên xem đơn của chính mình): ở đây cần full_name/email người
+    ứng tuyển thay vì thông tin job (staff đã biết job nào rồi)."""
+    application_id: str
+    ss_user_id: str
+    job_id: str
+    note: Optional[str] = None
+    applied_at: datetime
+    full_name: str
+    email: str
+
+    class Config:
+        from_attributes = True
+
+
+class SavedJobCreate(BaseModel):
+    job_id: str
+
+
+class SavedJobOut(BaseModel):
+    saved_job_id: str
+    ss_user_id: str
+    job_id: str
+    created_at: datetime
+    job_title: str
+    job_status: Optional[str] = None
+    company_name: str
+
+    class Config:
+        from_attributes = True
