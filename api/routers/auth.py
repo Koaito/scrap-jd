@@ -401,6 +401,8 @@ def register(payload: RegisterRequest, conn=Depends(get_db)):
         password_hash=security.hash_password(payload.password),
         verify_token=verify_token,
         verify_expires=verify_expires,
+        phone=payload.phone,
+        track=payload.track,
     )
     conn.commit()
 

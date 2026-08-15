@@ -11,7 +11,8 @@ router = APIRouter(tags=["meta"])
 @router.get("/stats", response_model=StatsOut)
 def get_stats(conn=Depends(get_db)):
     """Số liệu tổng quan cho dashboard — tổng job, tổng công ty, tỷ lệ
-    đã có social, phân bố theo ngành/nguồn."""
+    đã có social, phân bố theo ngành/nguồn, tổng đơn ứng tuyển (thêm
+    08/2026)."""
     return db_module.get_stats_summary(conn)
 
 

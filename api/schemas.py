@@ -11,7 +11,7 @@ mục đích khác nhau, gộp chung sẽ rối khi 1 bên cần đổi mà bên
 from datetime import date, datetime
 from typing import Optional
 import re
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 # ------------------------------------------------------------------
@@ -236,6 +236,9 @@ class StatsOut(BaseModel):
     companies_with_social: int
     by_industry: list[IndustryCount]
     by_source: list[SourceCount]
+    # Thêm 08/2026 — tổng số job_applications toàn hệ thống (không phân
+    # biệt job/user), dùng cho dashboard frontend. Xem db.get_stats_summary().
+    total_applications: int
 
 
 # ------------------------------------------------------------------
@@ -327,6 +330,24 @@ class UserOut(BaseModel):
     must_change_password: bool
     last_login_at: Optional[datetime] = None
     created_at: datetime
+    # Thêm 08/2026 (xem sql/migration_add_phone_track.sql) — CHỈ có ý
+    # nghĩa với role='user' (học viên); chỉ POST /auth/register (luôn
+    # role='user') mới ghi được 2 field này, POST /auth/users (admin
+    # tạo ss_team/admin) dùng schema UserCreateByAdmin không có phone/
+    # track nên staff luôn NULL sẵn ở DB — nhưng vẫn ép rõ ràng ở đây
+    # (model_validator bên dưới) thay vì trông chờ NULL tình cờ, để
+    # không lộ "field thừa luôn null" ra response của staff, và để
+    # đúng ngay cả nếu sau này có ai lỡ ghi giá trị vào 2 cột này cho
+    # 1 tài khoản staff (sửa tay DB, hoặc route khác sau này).
+    phone: Optional[str] = None
+    track: Optional[str] = None
+
+    @model_validator(mode="after")
+    def _hide_phone_track_for_staff(self):
+        if self.role != "user":
+            self.phone = None
+            self.track = None
+        return self
 
     class Config:
         from_attributes = True
@@ -371,6 +392,11 @@ class RegisterRequest(BaseModel):
     full_name: str = Field(..., min_length=1)
     email: str = Field(..., min_length=1)
     password: str = Field(..., min_length=8)
+    # Thêm 08/2026 (xem sql/migration_add_phone_track.sql) — trước đó
+    # frontend đã gửi 2 field này lên nhưng bị Pydantic âm thầm bỏ qua
+    # vì không khai báo ở đây, không phải vì cố tình optional-và-bỏ-qua.
+    phone: Optional[str] = Field(default=None, max_length=30)
+    track: Optional[str] = Field(default=None, max_length=100)
 
     class Config:
         str_strip_whitespace = True  # tự trim khoảng trắng thừa TRƯỚC khi validate email/full_name
@@ -487,8 +513,11 @@ class JobApplicationOut(BaseModel):
 class JobApplicantOut(BaseModel):
     """Dùng cho GET /jobs/{job_id}/applications (staff xem ai đã ứng
     tuyển) — khác JobApplicationOut (dùng cho GET /me/applications,
-    học viên xem đơn của chính mình): ở đây cần full_name/email người
-    ứng tuyển thay vì thông tin job (staff đã biết job nào rồi)."""
+    học viên xem đơn của chính mình): ở đây cần full_name/email/phone
+    người ứng tuyển thay vì thông tin job (staff đã biết job nào rồi).
+    phone thêm 08/2026 (xem sql/migration_add_phone_track.sql) — đúng
+    mục đích ban đầu của cột này: để staff liên hệ trực tiếp, không chỉ
+    qua email."""
     application_id: str
     ss_user_id: str
     job_id: str
@@ -496,6 +525,7 @@ class JobApplicantOut(BaseModel):
     applied_at: datetime
     full_name: str
     email: str
+    phone: Optional[str] = None
 
     class Config:
         from_attributes = True

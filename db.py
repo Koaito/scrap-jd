@@ -1160,12 +1160,21 @@ def get_stats_summary(conn) -> dict:
         )
         by_source = cur.fetchall()
 
+        # Thêm 08/2026 — dashboard frontend cần tổng số đơn ứng tuyển
+        # toàn hệ thống, trước đây không có cách nào lấy được ngoại trừ
+        # cộng dồn list_applications_for_job() cho từng job (tốn N lượt
+        # gọi API). Đếm thẳng 1 lần ở đây rẻ hơn nhiều so với thêm 1
+        # endpoint /stats/applications riêng.
+        cur.execute("SELECT count(*) AS n FROM job_applications")
+        total_applications = cur.fetchone()["n"]
+
     return {
         "total_jobs": total_jobs,
         "total_companies": total_companies,
         "companies_with_social": companies_with_social,
         "by_industry": by_industry,
         "by_source": by_source,
+        "total_applications": total_applications,
     }
 
 
@@ -1346,11 +1355,13 @@ def revoke_all_refresh_tokens_for_user(conn, ss_user_id: str) -> int:
 def list_users(conn):
     """Danh sách thành viên team (không lộ password_hash) — ss_team trở
     lên xem được (GET /auth/users, thêm 08/2026), dùng cho trang quản lý
-    user phía frontend."""
+    user phía frontend. phone/track thêm vào SELECT 08/2026 (xem
+    migration_add_phone_track.sql) để khớp UserOut mới, không bắt buộc
+    frontend phải dùng ngay."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "SELECT ss_user_id, full_name, email, role, is_active, "
-            "must_change_password, last_login_at, created_at "
+            "must_change_password, last_login_at, created_at, phone, track "
             "FROM app_users ORDER BY created_at"
         )
         return cur.fetchall()
@@ -1379,23 +1390,29 @@ def update_user_role(conn, ss_user_id: str, new_role: str) -> bool:
 
 def create_user_pending_verification(conn, *, full_name: str, email: str,
                                       password_hash: str, verify_token: str,
-                                      verify_expires) -> str:
+                                      verify_expires,
+                                      phone: Optional[str] = None,
+                                      track: Optional[str] = None) -> str:
     """Tạo tài khoản role='user' CHƯA xác thực — KHÁC create_user() ở
     chỗ must_change_password=False (mật khẩu do CHÍNH người dùng tự đặt
     lúc đăng ký, không phải mật khẩu tạm admin sinh hộ, không cần ép đổi
     lại) và có thêm email_verify_token/expires. is_active vẫn true ngay
     từ đầu (is_active là cờ RIÊNG cho admin khoá tài khoản, KHÁC
-    email_verified — 2 khái niệm độc lập, xem docstring migration)."""
+    email_verified — 2 khái niệm độc lập, xem docstring migration).
+
+    phone/track: thêm 08/2026 (xem sql/migration_add_phone_track.sql) —
+    trước đó frontend đã gửi 2 field này lên nhưng không có chỗ lưu."""
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO app_users
                 (full_name, email, role, password_hash, must_change_password,
-                 is_active, email_verified, email_verify_token, email_verify_expires)
-            VALUES (%s, %s, 'user', %s, false, true, false, %s, %s)
+                 is_active, email_verified, email_verify_token, email_verify_expires,
+                 phone, track)
+            VALUES (%s, %s, 'user', %s, false, true, false, %s, %s, %s, %s)
             RETURNING ss_user_id
             """,
-            (full_name, email, password_hash, verify_token, verify_expires),
+            (full_name, email, password_hash, verify_token, verify_expires, phone, track),
         )
         return str(cur.fetchone()[0])
 
@@ -1580,14 +1597,16 @@ def list_applications_for_user(conn, ss_user_id: str):
 
 def list_applications_for_job(conn, job_id: str):
     """Ai đã ứng tuyển 1 job — staff (ss_team+) dùng để chủ động gửi hồ
-    sơ cho HR. Join thêm full_name/email từ app_users (bảng dùng
+    sơ cho HR. Join thêm full_name/email/phone từ app_users (bảng dùng
     chung cho mọi role, xem migration_add_role_hierarchy.sql) để staff
-    khỏi phải tra riêng."""
+    khỏi phải tra riêng. phone thêm 08/2026 (xem
+    migration_add_phone_track.sql) — có thể NULL nếu học viên đăng ký
+    trước khi cột này tồn tại, hoặc bỏ trống lúc đăng ký (không bắt buộc)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
             SELECT a.application_id, a.ss_user_id, a.job_id, a.note, a.applied_at,
-                   u.full_name, u.email
+                   u.full_name, u.email, u.phone
             FROM job_applications a
             JOIN app_users u ON u.ss_user_id = a.ss_user_id
             WHERE a.job_id = %s
