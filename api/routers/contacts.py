@@ -125,3 +125,45 @@ def delete_contact(
     db_module.soft_delete_company_contact(conn, contact_id, updated_by=user["sub"])
     conn.commit()
     return None
+
+
+@router.delete("/{contact_id}/hard", status_code=204)
+def hard_delete_contact(
+    company_id: str,
+    contact_id: str,
+    user: dict = Depends(require_role("ss_team")),
+    conn=Depends(get_db),
+):
+    """Xoá THẬT — chỉ dùng làm bước 2, sau khi contact ĐÃ soft-delete
+    (is_active=false) qua DELETE /{contact_id} ở trên (thiết kế 2 bước,
+    xem lịch sử trao đổi 08/2026): staff xoá mềm trước để xác nhận,
+    route này chỉ để dọn hẳn contact rác/trùng/nhập nhầm không còn cần
+    giữ lịch sử — KHÔNG dùng để xoá nhanh 1 bước như DELETE thường.
+
+    409 nếu contact CHƯA soft-delete (is_active vẫn true) — ép staff đi
+    đúng luồng 2 bước qua UI, tránh xoá cứng nhầm 1 phát mất luôn dữ
+    liệu không có đường lấy lại.
+
+    409 nếu contact đang có job_contact_links (đã từng gắn với job cụ
+    thể) — xoá thật sẽ mất lịch sử liên hệ theo job đó / vỡ FK, xem
+    docstring ContactHasLinksError ở db.py. Trường hợp này contact vẫn
+    giữ nguyên trạng thái xoá mềm sau khi gọi route này."""
+    if not db_module.is_valid_uuid(contact_id):
+        raise HTTPException(status_code=400, detail=f"contact_id '{contact_id}' không đúng định dạng UUID.")
+
+    existing = db_module.get_company_contact_by_id(conn, contact_id)
+    if existing is None or str(existing["company_id"]) != company_id:
+        raise HTTPException(status_code=404, detail="Không tìm thấy contact thuộc công ty này")
+
+    if existing["is_active"]:
+        raise HTTPException(
+            status_code=409,
+            detail="Contact vẫn đang active — cần xoá mềm (DELETE /companies/{company_id}/contacts/{contact_id}) trước khi xoá cứng.",
+        )
+
+    try:
+        db_module.hard_delete_company_contact(conn, contact_id)
+    except db_module.ContactHasLinksError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    conn.commit()
+    return None

@@ -1613,6 +1613,52 @@ def soft_delete_company_contact(conn, contact_id: str, updated_by: str) -> bool:
         return cur.rowcount > 0
 
 
+class ContactHasLinksError(Exception):
+    """Contact đang có job_contact_links (đã từng gắn với job cụ thể,
+    vd qua job_contact_interactions ghi log liên hệ) — không cho hard
+    delete để tránh vỡ FK (job_contact_links.contact_id KHÔNG có ON
+    DELETE CASCADE) hoặc mất lịch sử liên hệ theo từng job nếu cố
+    cascade xuống. Nơi gọi (router) bắt exception này để trả lỗi rõ
+    ràng cho staff, thay vì để lộ ra IntegrityError thô từ Postgres."""
+
+
+def hard_delete_company_contact(conn, contact_id: str) -> bool:
+    """Xoá THẬT — chỉ dùng làm bước 2 sau khi contact đã soft-delete
+    (is_active=false), theo đúng thiết kế 2 bước đã quyết định (xem
+    lịch sử trao đổi 08/2026): staff xoá mềm trước để xác nhận, xoá
+    cứng chỉ để dọn hẳn contact rác/trùng/nhập nhầm không còn cần giữ
+    lịch sử nữa — KHÔNG dùng để xoá nhanh 1 bước như soft-delete.
+
+    Chặn (raise ContactHasLinksError) nếu contact còn job_contact_links
+    — nghĩa là đã từng được gắn với ít nhất 1 job cụ thể (có thể kèm
+    log tương tác ở job_contact_interactions) — xoá thật sẽ mất lịch sử
+    liên hệ theo job đó, hoặc vỡ FK nếu Postgres chặn. Trường hợp này
+    contact vẫn ở trạng thái xoá mềm (không đổi gì), staff cần tự xử lý
+    job_contact_links liên quan trước nếu thực sự muốn xoá hẳn.
+
+    KHÔNG tự kiểm tra is_active — nơi gọi (router) chịu trách nhiệm xác
+    nhận contact đã soft-delete trước khi gọi hàm này (theo đúng luồng
+    2 bước qua UI), hàm này chỉ lo phần DELETE + kiểm tra FK.
+
+    Trả True nếu có xoá (rowcount > 0), False nếu contact_id không tồn
+    tại (đã bị xoá trước đó / gõ sai id)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM job_contact_links WHERE contact_id = %s LIMIT 1",
+            (contact_id,),
+        )
+        if cur.fetchone() is not None:
+            raise ContactHasLinksError(
+                f"Contact {contact_id} đang có liên kết với job (job_contact_links) — "
+                "không thể xoá cứng, sẽ mất lịch sử liên hệ theo job đó."
+            )
+        cur.execute(
+            "DELETE FROM company_contacts WHERE contact_id = %s",
+            (contact_id,),
+        )
+        return cur.rowcount > 0
+
+
 # ------------------------------------------------------------------
 # Job applications — học viên (role='user') ứng tuyển job, staff xem ai
 # đã nộp (08/2026, xem sql/migration_add_applications_saved_jobs.sql).
