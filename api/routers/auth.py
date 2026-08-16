@@ -29,8 +29,8 @@ from api.email_service import send_verification_email, send_password_reset_email
 from api.schemas import (
     AccessTokenOut, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest,
     MessageOut, RefreshRequest, RegisterOut, RegisterRequest, ResendVerificationRequest,
-    ResetPasswordRequest, TokenPairOut, UserCreateByAdmin, UserCreatedOut, UserOut,
-    UserRoleUpdate,
+    ResetPasswordRequest, TokenPairOut, UserActiveStatusUpdate, UserCreateByAdmin,
+    UserCreatedOut, UserOut, UserRoleUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -371,6 +371,39 @@ def update_user_role(
 # 3 route dưới đây KHÔNG cần JWT/API_KEY-per-user, ai cũng gọi được
 # (đúng ý nghĩa "đăng ký công khai").
 # ------------------------------------------------------------------
+
+@router.patch("/users/{ss_user_id}/active-status", response_model=UserOut)
+def update_user_active_status(
+    ss_user_id: str,
+    payload: UserActiveStatusUpdate,
+    admin: dict = Depends(require_admin),
+    conn=Depends(get_db),
+):
+    """CHỈ admin gọi được. Khoá/mở khoá VĨNH VIỄN 1 tài khoản khác —
+    CHẶN admin tự khoá CHÍNH MÌNH (cùng lý do với update_user_role() ở
+    trên — tránh tự khoá mình khỏi hệ thống do bấm nhầm, đặc biệt nguy
+    hiểm hơn tự đổi role vì is_active=false chặn đăng nhập hoàn toàn,
+    không có role nào cứu được).
+
+    Dùng khi 1 người rời nhóm/vi phạm cần chặn đăng nhập ngay — KHÁC
+    locked_until (khoá TẠM THỜI, tự hết hạn do sai mật khẩu liên tiếp,
+    xem db.record_failed_login()). Vô hiệu hoá không revoke JWT access
+    token đang có hiệu lực (tối đa 30 phút) — xem docstring
+    db.update_user_active_status()."""
+    if ss_user_id == admin["sub"]:
+        raise HTTPException(
+            status_code=400,
+            detail="Không thể tự vô hiệu hoá/kích hoạt chính mình — nhờ "
+                   "admin khác thực hiện thao tác này.",
+        )
+
+    updated = db_module.update_user_active_status(conn, ss_user_id, payload.is_active)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+    conn.commit()
+
+    return db_module.get_user_by_id(conn, ss_user_id)
+
 
 @public_router.post("/register", response_model=RegisterOut, status_code=201)
 def register(payload: RegisterRequest, conn=Depends(get_db)):
