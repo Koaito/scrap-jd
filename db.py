@@ -244,7 +244,7 @@ def get_or_create_company(conn, company_name: str, province_id: Optional[int]) -
 
 def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: str = "",
                             industry: str = "", company_size: str = "",
-                            address: str = "",
+                            address: str = "", partnership_potential: str = "",
                             updated_by: Optional[str] = None) -> None:
     """Cập nhật thêm thông tin công ty (chỉ ghi đè field nào có giá trị mới,
     không xóa mất dữ liệu cũ nếu lần crawl sau không lấy được field đó).
@@ -253,6 +253,13 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
     truyền khi gọi từ route ghi có bắt buộc đăng nhập (POST /companies) —
     lời gọi từ pipeline crawl (không có user thật) để None, cột
     updated_by trong DB giữ NULL cho các lần enrich tự động.
+
+    partnership_potential (thêm 08/2026, xem
+    sql/migration_add_partnership_potential.sql): staff tự chấm tay
+    (HIGH/MEDIUM/LOW/UNVERIFIED), pipeline crawl KHÔNG gán field này —
+    "" (mặc định) bị bỏ qua giống mọi field khác trong hàm này, cột DB
+    tự giữ UNVERIFIED cho công ty mới/crawl tự động cho tới khi staff
+    chủ động đánh giá qua PATCH /companies/{id}.
 
     products_services ĐÃ BỊ BỎ (08/2026, xem
     sql/migration_drop_products_services.sql) — không còn field CRM mô
@@ -277,6 +284,9 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
     if address:
         updates.append("address = %s")
         values.append(address)
+    if partnership_potential:
+        updates.append("partnership_potential = %s")
+        values.append(partnership_potential)
 
     if not updates:
         return
@@ -299,6 +309,7 @@ def patch_company_profile(conn, company_id: str, *,
                            province_id: Optional[int] = None,
                            fanpage_url: Optional[str] = None,
                            linkedin_url: Optional[str] = None,
+                           partnership_potential: Optional[str] = None,
                            updated_by: Optional[str] = None) -> bool:
     """Sửa TỰ DO company đã tồn tại — dùng cho PATCH /companies/{id}
     (thêm 08/2026, xem lịch sử trao đổi). KHÁC update_company_profile()
@@ -307,6 +318,10 @@ def patch_company_profile(conn, company_id: str, *,
     hàm này dùng `is not None` giống update_job(), nên PATCH
     {"website": ""} XOÁ giá trị cũ thay vì bị bỏ qua — đúng ngữ nghĩa
     PATCH thật sự.
+
+    partnership_potential: đây là kênh chính để staff chấm/sửa đánh giá
+    tiềm năng hợp tác (HIGH/MEDIUM/LOW/UNVERIFIED) — validation giá trị
+    hợp lệ do Pydantic enum ở CompanyUpdate lo, hàm này chỉ ghi thẳng.
 
     province_id: nơi gọi (router) tự resolve qua get_or_create_province()
     trước khi truyền vào đây (giống pattern level_id/province_id ở
@@ -354,6 +369,9 @@ def patch_company_profile(conn, company_id: str, *,
     if linkedin_url is not None:
         updates.append("linkedin_url = %s")
         values.append(linkedin_url)
+    if partnership_potential is not None:
+        updates.append("partnership_potential = %s")
+        values.append(partnership_potential)
 
     if not updates:
         return company_exists_by_id(conn, company_id)
@@ -1072,6 +1090,7 @@ def get_job_by_id(conn, job_id: str):
 _COMPANY_SELECT_COLUMNS = """
         c.company_id, c.company_name, c.tax_id, c.website, c.industry,
         c.company_size, c.address, c.fanpage_url, c.linkedin_url,
+        c.partnership_potential,
         c.created_at, c.updated_at, c.created_by, c.updated_by,
         p.province_name
 """

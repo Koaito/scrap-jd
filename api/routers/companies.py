@@ -73,6 +73,7 @@ def create_company(
         industry=payload.industry or "",
         company_size=payload.company_size or "",
         address=payload.address or "",
+        partnership_potential=payload.partnership_potential or "",
         updated_by=user["sub"],
     )
     if payload.fanpage_url or payload.linkedin_url:
@@ -123,6 +124,7 @@ def patch_company(
             province_id=province_id,
             fanpage_url=payload.fanpage_url,
             linkedin_url=payload.linkedin_url,
+            partnership_potential=payload.partnership_potential,
             updated_by=user["sub"],
         )
     except psycopg2.errors.UniqueViolation:

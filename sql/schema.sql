@@ -44,6 +44,19 @@ DO $$ BEGIN
     );
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+-- Đánh giá tiềm năng hợp tác của công ty — staff tự chấm tay qua UI
+-- add/edit company, không có rule tự động gán. UNVERIFIED = mặc định,
+-- nghĩa là "chưa đánh giá" (không phải "tiềm năng thấp"). Khác với
+-- contact_status_enum ở trên: contact_status theo dõi tiến độ LIÊN HỆ
+-- (đã gửi mail/đã phản hồi/đang hợp tác), còn cột này là nhận định
+-- CHỦ QUAN của staff về mức độ đáng hợp tác của công ty, độc lập với
+-- việc đã liên hệ hay chưa.
+DO $$ BEGIN
+    CREATE TYPE partnership_potential_enum AS ENUM (
+        'HIGH', 'MEDIUM', 'LOW', 'UNVERIFIED'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 -- ============================================================
 -- 1. BẢNG LOOKUP TĨNH (SERIAL INT PK)
 -- ============================================================
@@ -162,6 +175,11 @@ CREATE TABLE IF NOT EXISTS companies (
     province_id      INT REFERENCES provinces(province_id),
     fanpage_url      VARCHAR(255),
     linkedin_url     VARCHAR(255),
+
+    -- Đánh giá tiềm năng hợp tác, staff chấm tay qua UI
+    -- (xem migration_add_partnership_potential.sql).
+    partnership_potential partnership_potential_enum NOT NULL DEFAULT 'UNVERIFIED',
+
     created_at       TIMESTAMP NOT NULL DEFAULT now(),
     updated_at       TIMESTAMP NOT NULL DEFAULT now(),
 
@@ -309,6 +327,7 @@ CREATE INDEX IF NOT EXISTS idx_saved_jobs_job  ON saved_jobs(job_id);
 
 CREATE INDEX IF NOT EXISTS idx_companies_province        ON companies(province_id);
 CREATE INDEX IF NOT EXISTS idx_companies_created_by       ON companies(created_by);
+CREATE INDEX IF NOT EXISTS idx_companies_partnership_potential ON companies(partnership_potential);
 CREATE INDEX IF NOT EXISTS idx_job_postings_company       ON job_postings(company_id);
 CREATE INDEX IF NOT EXISTS idx_job_postings_created_by    ON job_postings(created_by);
 CREATE INDEX IF NOT EXISTS idx_job_postings_level         ON job_postings(level_id);

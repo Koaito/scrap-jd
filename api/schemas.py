@@ -140,6 +140,13 @@ class CompanyOut(BaseModel):
     address: Optional[str] = None
     fanpage_url: Optional[str] = None
     linkedin_url: Optional[str] = None
+    partnership_potential: str = Field(
+        default="UNVERIFIED",
+        description="HIGH | MEDIUM | LOW | UNVERIFIED — staff tự chấm tay qua "
+                    "PATCH /companies/{id}, không có rule tự động gán. "
+                    "UNVERIFIED = mặc định, nghĩa là 'chưa đánh giá', KHÔNG "
+                    "phải 'tiềm năng thấp'.",
+    )
     province_name: Optional[str] = None
     created_at: datetime
     updated_at: datetime
@@ -187,6 +194,11 @@ class CompanyCreate(BaseModel):
     province_name: Optional[str] = None
     fanpage_url: Optional[str] = None
     linkedin_url: Optional[str] = None
+    partnership_potential: Optional[str] = Field(
+        default=None,
+        description="HIGH | MEDIUM | LOW | UNVERIFIED — bỏ trống sẽ giữ mặc "
+                    "định UNVERIFIED của DB (chưa đánh giá).",
+    )
 
 
 class CompanyUpdate(BaseModel):
@@ -214,6 +226,11 @@ class CompanyUpdate(BaseModel):
     province_name: Optional[str] = None
     fanpage_url: Optional[str] = None
     linkedin_url: Optional[str] = None
+    partnership_potential: Optional[str] = Field(
+        default=None,
+        description="HIGH | MEDIUM | LOW | UNVERIFIED — gửi field này để "
+                    "staff cập nhật lại đánh giá tiềm năng hợp tác.",
+    )
 
 
 # ------------------------------------------------------------------
