@@ -185,6 +185,23 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
                 conn, company_name, province_id, tax_id=profile.get("tax_id", "")
             )
 
+            # LUÔN ghi lại source_profile_url khi có raw.company_url, KỂ
+            # CẢ KHI probe_needs_enrichment() ở trên trả False (công ty đã
+            # đủ 4 field, không cần fetch_company_profile() lần này) — xem
+            # docstring update_company_profile() mục "source_profile_url"
+            # để biết lý do: đây là "địa chỉ để backfill sau này", không
+            # phải nội dung cần đủ/thiếu, nên tách hẳn khỏi điều kiện
+            # if profile (vốn chỉ true khi VỪA enrich xong 4 field kia).
+            # Thiếu bước này thì công ty đã "đủ" từ sớm (crawl trước khi
+            # có cột này, hoặc crawl trước khi sửa parser Brand Pro) sẽ
+            # KHÔNG BAO GIỜ có source_profile_url dù job vẫn đang active
+            # -> mất luôn khả năng backfill dù đang có sẵn URL đúng ngay
+            # trong tay ở request này.
+            if raw.company_url:
+                db.update_company_profile(
+                    conn, company_id, source_profile_url=raw.company_url,
+                )
+
             if profile:
                 db.update_company_profile(
                     conn, company_id,

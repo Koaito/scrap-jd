@@ -178,7 +178,14 @@ def find_company_probe(conn, company_name: str):
     chưa có công ty này.
 
     ĐỔI (08/2026, thêm VietnamWorks): bỏ tax_id ra khỏi probe này — xem
-    lý do chi tiết trong probe_needs_enrichment() bên dưới."""
+    lý do chi tiết trong probe_needs_enrichment() bên dưới.
+
+    KHÔNG select source_profile_url ở đây dù bảng đã có cột này (xem
+    migration_add_source_profile_url.sql) — probe này chỉ quyết định có
+    cần enrich hay không dựa trên 4 field NỘI DUNG (website/industry/
+    company_size/address), source_profile_url chỉ là "địa chỉ để tra lại",
+    không phải nội dung cần đủ/thiếu, nên không đưa vào điều kiện của
+    probe_needs_enrichment()."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT company_id, website, industry, company_size, address "
@@ -245,6 +252,7 @@ def get_or_create_company(conn, company_name: str, province_id: Optional[int]) -
 def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: str = "",
                             industry: str = "", company_size: str = "",
                             address: str = "", partnership_potential: str = "",
+                            source_profile_url: str = "",
                             updated_by: Optional[str] = None) -> None:
     """Cập nhật thêm thông tin công ty (chỉ ghi đè field nào có giá trị mới,
     không xóa mất dữ liệu cũ nếu lần crawl sau không lấy được field đó).
@@ -260,6 +268,17 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
     "" (mặc định) bị bỏ qua giống mọi field khác trong hàm này, cột DB
     tự giữ UNVERIFIED cho công ty mới/crawl tự động cho tới khi staff
     chủ động đánh giá qua PATCH /companies/{id}.
+
+    source_profile_url (thêm 08/2026, xem
+    sql/migration_add_source_profile_url.sql): URL trang hồ sơ công ty
+    trên nguồn crawl gốc (TopCV/VietnamWorks) — LUÔN ghi lại mỗi khi
+    pipeline.py thấy company_url mới cho công ty này, KỂ CẢ KHI
+    probe_needs_enrichment() trả False (4 field nội dung đã đủ) — khác
+    với các field kia (chỉ ghi khi "có giá trị mới VÀ field cũ rỗng/muốn
+    đè"), source_profile_url nên LUÔN được cập nhật thành URL MỚI NHẤT
+    thấy được, vì URL trang công ty có thể đổi qua thời gian (đổi slug,
+    đổi từ /cong-ty/ sang /brand/ khi công ty mua gói Pro...) — giữ URL
+    cũ có thể đã chết trong khi lẽ ra có URL mới hơn để backfill.
 
     products_services ĐÃ BỊ BỎ (08/2026, xem
     sql/migration_drop_products_services.sql) — không còn field CRM mô
@@ -287,6 +306,9 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
     if partnership_potential:
         updates.append("partnership_potential = %s")
         values.append(partnership_potential)
+    if source_profile_url:
+        updates.append("source_profile_url = %s")
+        values.append(source_profile_url)
 
     if not updates:
         return
@@ -741,6 +763,41 @@ def get_companies_needing_web_lookup(conn):
             FROM companies
             WHERE (website IS NULL OR website = '')
                OR (tax_id IS NULL OR tax_id = '')
+            ORDER BY company_name
+            """
+        )
+        return cur.fetchall()
+
+
+def get_companies_needing_profile_backfill(conn):
+    """Lấy công ty ĐÃ CÓ source_profile_url (xem
+    sql/migration_add_source_profile_url.sql) nhưng vẫn còn thiếu ít
+    nhất 1 trong 4 field industry/company_size/address/website — tập
+    company mà backfill_company_profiles.py (script RIÊNG, gọi thẳng lại
+    fetch_company_profile() trên URL đã lưu, KHÔNG qua Tavily/Gemini) có
+    thể vá lại.
+
+    KHÁC get_companies_needing_web_lookup() ở trên (dùng cho
+    enrich_company_web_info.py, nguồn Tavily/Gemini, chỉ vá website/
+    tax_id): hàm này ưu tiên dùng TRƯỚC vì chính xác hơn hẳn (đọc thẳng
+    trang gốc, không qua search+LLM suy luận) và vá được CẢ 4 field —
+    chỉ những công ty KHÔNG có source_profile_url (vd tạo tay, hoặc
+    crawl từ nguồn không hỗ trợ fetch_company_profile) mới cần tới
+    enrich_company_web_info.py.
+
+    Trả về list[(company_id, company_name, source_profile_url)]."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT company_id, company_name, source_profile_url
+            FROM companies
+            WHERE source_profile_url IS NOT NULL AND source_profile_url != ''
+              AND (
+                    (industry IS NULL OR industry = '')
+                 OR (company_size IS NULL OR company_size = '')
+                 OR (address IS NULL OR address = '')
+                 OR (website IS NULL OR website = '')
+              )
             ORDER BY company_name
             """
         )

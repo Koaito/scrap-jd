@@ -401,8 +401,24 @@ class TopCVAdapter(BaseAdapter):
         # LOẠI TRỪ THẲNG link hỗ trợ Zalo cố định này nếu lỡ lọt qua (vd
         # trang không có <h1>, hoặc TopCV đổi vị trí widget hỗ trợ) — thà
         # để trống còn hơn lưu sai dữ liệu vào cột website.
+        # Trang Brand Pro (vd /brand/tuyendungvietabank?id=...) có nhiều
+        # section xen giữa <h1> và khối "Liên hệ" (Video, Hình ảnh, Sản
+        # phẩm/dịch vụ, Giải thưởng...) — quét "mọi link sau <h1>" như
+        # trang thường sẽ đi qua rất nhiều link không liên quan (Google
+        # Maps embed, link blog TopCV, ảnh...) TRƯỚC khi tới link website
+        # thật, dễ bắt nhầm. Nếu trang có heading "Liên hệ" (chỉ Brand Pro
+        # mới có, trang thường không có mục này) -> ưu tiên quét link
+        # NGAY SAU heading đó trước, phạm vi hẹp hơn nên chính xác hơn hẳn.
+        contact_heading = soup.find(
+            lambda tag: tag.name in ("h2", "h3") and tag.get_text(strip=True) == "Liên hệ"
+        )
         h1 = soup.find("h1")
-        anchors_after_h1 = h1.find_all_next("a", href=True) if h1 else soup.find_all("a", href=True)
+        if contact_heading:
+            anchors_after_h1 = contact_heading.find_all_next("a", href=True)
+        elif h1:
+            anchors_after_h1 = h1.find_all_next("a", href=True)
+        else:
+            anchors_after_h1 = soup.find_all("a", href=True)
         for a in anchors_after_h1:
             href = a.get("href", "").strip()
             if not href.startswith("http"):
@@ -439,7 +455,15 @@ class TopCVAdapter(BaseAdapter):
         result["industry"] = self._extract_after_label(
             page_text, "Lĩnh vực hoạt động", multi_line=True
         )
-        result["address"] = self._extract_after_label(page_text, "Địa điểm công ty")
+        # Trang Brand Pro (vd /brand/tuyendungvietabank?id=...) dùng label
+        # KHÁC cho cùng 1 field so với trang company profile thường:
+        # "Địa chỉ trụ sở chính" thay vì "Địa điểm công ty" -> thử cả 2,
+        # lấy label nào ra kết quả trước (xác nhận bằng HTML thật 08/2026,
+        # trang VietABank Brand Pro).
+        result["address"] = (
+            self._extract_after_label(page_text, "Địa điểm công ty")
+            or self._extract_after_label(page_text, "Địa chỉ trụ sở chính")
+        )
 
         # "Giới thiệu công ty" -> lấy đoạn text ngay sau heading này
         intro_idx = page_text.find("Giới thiệu công ty")
@@ -463,7 +487,13 @@ class TopCVAdapter(BaseAdapter):
     # tránh nuốt luôn cả nhãn tiếp theo vào giá trị.
     _KNOWN_LABELS = [
         "Mã số thuế", "Quy mô", "Lĩnh vực hoạt động", "Lĩnh vực chính",
-        "Địa điểm công ty", "Giới thiệu công ty",
+        "Địa điểm công ty", "Địa chỉ trụ sở chính", "Giới thiệu công ty",
+        # Label RIÊNG của trang Brand Pro, không có ở trang company profile
+        # thường -> thêm vào đây để "Lĩnh vực hoạt động" (multi_line=True)
+        # dừng đúng chỗ, không nuốt nhầm "Năm thành lập"/"Độ tuổi trung
+        # bình" (2 dòng số liệu chen giữa "Mã số thuế" và "Quy mô" chỉ có
+        # ở trang Brand Pro, xác nhận bằng HTML thật 08/2026, VietABank).
+        "Năm thành lập", "Độ tuổi trung bình",
     ]
 
     # ------------------------------------------------------------------
@@ -613,6 +643,13 @@ class TopCVAdapter(BaseAdapter):
         "linkedin.com", "threads.com", "facebook.com", "tiktok.com",
         "youtube.com", "twitter.com", "x.com", "instagram.com",
         "zalo.me", "itunes.apple.com", "apps.apple.com", "play.google.com",
+        # Bổ sung sau khi debug trang Brand Pro (vd VietABank, 08/2026):
+        # trang này chèn thêm Google Maps embed + link "Tìm hiểu thêm" trỏ
+        # sang blog.topcv.vn (domain phụ KHÁC "topcv" nên lọt qua check
+        # netloc chứa "topcv" ở trên) TRƯỚC vị trí link website thật trong
+        # thứ tự tài liệu -> nếu không loại trừ, code bắt nhầm 1 trong 2
+        # link này làm real_website thay vì link thật ở khối "Liên hệ".
+        "google.com", "maps.google.com", "blog.topcv.vn",
     )
 
     @classmethod

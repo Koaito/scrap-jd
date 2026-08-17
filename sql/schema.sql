@@ -176,6 +176,12 @@ CREATE TABLE IF NOT EXISTS companies (
     fanpage_url      VARCHAR(255),
     linkedin_url     VARCHAR(255),
 
+    -- URL trang hồ sơ công ty trên nguồn crawl gốc (TopCV/VietnamWorks) —
+    -- xem sql/migration_add_source_profile_url.sql để biết lý do cần cột
+    -- này (backfill lại industry/company_size/address/website sau này mà
+    -- không phụ thuộc công ty còn job đang active trên listing hay không).
+    source_profile_url VARCHAR(500),
+
     -- Đánh giá tiềm năng hợp tác, staff chấm tay qua UI
     -- (xem migration_add_partnership_potential.sql).
     partnership_potential partnership_potential_enum NOT NULL DEFAULT 'UNVERIFIED',
