@@ -20,12 +20,12 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import RedirectResponse
 
 import db as db_module
 from api import security
 from api.deps import get_db, get_current_user, require_admin, require_role
-from api.email_service import send_verification_email, send_password_reset_email
+from api.email_service import FRONTEND_BASE_URL, send_verification_email, send_password_reset_email
 from api.rate_limit import limiter
 from api.schemas import (
     AccessTokenOut, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest,
@@ -452,44 +452,32 @@ def register(payload: RegisterRequest, request: Request, conn=Depends(get_db)):
     return RegisterOut(ss_user_id=ss_user_id, email=payload.email)
 
 
-@public_router.get("/verify-email", response_class=HTMLResponse)
+@public_router.get("/verify-email")
 def verify_email(token: str, conn=Depends(get_db)):
     """Endpoint người dùng BẤM TỪ EMAIL (không phải gọi qua code/frontend
-    — xem api/email_service.py dựng link này), nên trả HTML tĩnh đơn
-    giản thay vì JSON (frontend CHƯA xong lúc code phần này — xem lịch
-    sử trao đổi). Khi có frontend thật, đổi route này sang redirect(302)
-    tới URL frontend — KHÔNG cần sửa gì phần logic verify bên dưới, chỉ
-    đổi câu return cuối cùng."""
+    — xem api/email_service.py dựng link này). Route này KHÔNG tự vẽ
+    giao diện — chỉ xử lý token rồi redirect(302) NGAY về trang
+    /verify-email của FRONTEND (mindx-jobs, xem FRONTEND_BASE_URL trong
+    api/email_service.py — dùng chung biến với link reset mật khẩu) kèm
+    ?status=success|expired|invalid, để frontend tự hiển thị đúng theme
+    của site (trước đây trả HTML tĩnh viết tay ở chính route này — bỏ
+    từ lúc frontend đã có trang riêng, xem lịch sử trao đổi 08/2026)."""
     user = db_module.get_user_by_verify_token(conn, token)
 
     if user is None:
-        return HTMLResponse(
-            "<h2>Liên kết xác thực không hợp lệ</h2>"
-            "<p>Liên kết đã được dùng trước đó hoặc không đúng — thử "
-            "đăng ký lại hoặc xin gửi lại email xác thực.</p>",
-            status_code=400,
-        )
+        return RedirectResponse(f"{FRONTEND_BASE_URL}/verify-email?status=invalid", status_code=302)
 
     expires_at = user["email_verify_expires"]
     if expires_at is not None:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if expires_at <= datetime.now(timezone.utc):
-            return HTMLResponse(
-                "<h2>Liên kết xác thực đã hết hạn</h2>"
-                "<p>Gọi POST /auth/resend-verification để nhận email "
-                "xác thực mới.</p>",
-                status_code=400,
-            )
+            return RedirectResponse(f"{FRONTEND_BASE_URL}/verify-email?status=expired", status_code=302)
 
     db_module.mark_email_verified(conn, str(user["ss_user_id"]))
     conn.commit()
 
-    return HTMLResponse(
-        "<h2>✅ Xác thực thành công</h2>"
-        "<p>Tài khoản của bạn đã được xác thực — bây giờ có thể đăng "
-        "nhập.</p>"
-    )
+    return RedirectResponse(f"{FRONTEND_BASE_URL}/verify-email?status=success", status_code=302)
 
 
 @public_router.post("/resend-verification", response_model=MessageOut)
