@@ -536,6 +536,21 @@ def merge_companies(conn, source_company_id: str, target_company_id: str) -> Non
         )
 
 
+def find_company_by_tax_id(conn, tax_id: str) -> Optional[str]:
+    """Tìm company_id đã có SẴN đúng tax_id này, None nếu chưa có công ty
+    nào — tax_id có UNIQUE INDEX (uq_companies_tax_id, xem sql/schema.sql)
+    nên tối đa 1 kết quả khớp. Cùng logic tra cứu tax_id đã dùng inline
+    trong get_or_create_company_by_profile() (bước 1), tách riêng ra đây
+    để update_company_profile_with_merge() (enrich_company_web_info.py)
+    dùng lại được mà không phải chép lại query."""
+    if not tax_id:
+        return None
+    with conn.cursor() as cur:
+        cur.execute("SELECT company_id FROM companies WHERE tax_id = %s", (tax_id,))
+        row = cur.fetchone()
+        return str(row[0]) if row else None
+
+
 def update_company_profile_with_merge(conn, company_id: str, *, tax_id: str = "",
                                        website: str = "", industry: str = "",
                                        company_size: str = "",
