@@ -1659,6 +1659,53 @@ def list_company_contacts(conn, company_id: str, *, include_inactive: bool = Fal
         return cur.fetchall()
 
 
+def list_all_contacts(
+    conn,
+    *,
+    include_inactive: bool = False,
+    contact_status: Optional[str] = None,
+    company_id: Optional[str] = None,
+    search: Optional[str] = None,
+):
+    """Danh sách contact GỘP TẤT CẢ công ty (khác list_company_contacts()
+    chỉ trả theo 1 company_id) — dùng cho trang "Danh sách contact" tổng
+    hợp (GET /contacts). JOIN sang companies để trả kèm company_name vì
+    company_contacts không tự có tên công ty.
+
+    Filter đều optional, kết hợp AND với nhau:
+    - contact_status: khớp đúng 1 trong 4 giá trị enum
+    - company_id: chỉ contact thuộc đúng công ty này
+    - search: khớp theo contact_name (ILIKE, không phân biệt hoa/thường,
+      khớp 1 phần) — company_name lọc riêng qua company_id vì chọn theo
+      dropdown công ty chính xác hơn search text tự do.
+    """
+    query = (
+        "SELECT cc.*, c.company_name "
+        "FROM company_contacts cc "
+        "JOIN companies c ON c.company_id = cc.company_id "
+        "WHERE 1=1"
+    )
+    params: list = []
+
+    if not include_inactive:
+        query += " AND cc.is_active = true"
+    if contact_status:
+        query += " AND cc.contact_status = %s"
+        params.append(contact_status)
+    if company_id:
+        query += " AND cc.company_id = %s"
+        params.append(company_id)
+    if search:
+        query += " AND cc.contact_name ILIKE %s"
+        params.append(f"%{search}%")
+
+    query += " ORDER BY cc.created_at DESC"
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query, params)
+        return cur.fetchall()
+
+
 def get_company_contact_by_id(conn, contact_id: str):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM company_contacts WHERE contact_id = %s", (contact_id,))

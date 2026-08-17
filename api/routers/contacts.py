@@ -13,11 +13,60 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db as db_module
 from api.deps import get_db, require_role
-from api.schemas import CompanyContactCreate, CompanyContactOut, CompanyContactUpdate
+from api.schemas import (
+    CompanyContactCreate,
+    CompanyContactOut,
+    CompanyContactUpdate,
+    CompanyContactWithCompanyOut,
+)
 
 router = APIRouter(prefix="/companies/{company_id}/contacts", tags=["contacts"])
 
+# Router riêng, KHÔNG có company_id trong prefix — cho GET /contacts (danh
+# sách gộp mọi công ty). Tách router thay vì nhét route "" trần vào router
+# trên vì FastAPI/APIRouter gắn prefix cố định cho toàn bộ router đó, không
+# thể có 1 route trong cùng router "thoát" khỏi {company_id} trong path.
+all_contacts_router = APIRouter(prefix="/contacts", tags=["contacts"])
+
 _VALID_CONTACT_STATUS = {"UNCONTACTED", "EMAIL_SENT", "RESPONDED", "IN_PARTNERSHIP"}
+
+
+@all_contacts_router.get("", response_model=list[CompanyContactWithCompanyOut])
+def list_all_contacts(
+    include_inactive: bool = Query(
+        False, description="true = xem cả contact đã xoá mềm (lịch sử liên hệ cũ)"
+    ),
+    contact_status: str | None = Query(
+        None, description="Lọc theo trạng thái: UNCONTACTED | EMAIL_SENT | RESPONDED | IN_PARTNERSHIP"
+    ),
+    company_id: str | None = Query(None, description="Lọc theo 1 công ty cụ thể"),
+    search: str | None = Query(None, description="Tìm theo tên contact (khớp 1 phần, không phân biệt hoa/thường)"),
+    user: dict = Depends(require_role("ss_team")),
+    conn=Depends(get_db),
+):
+    """Danh sách contact GỘP TẤT CẢ công ty, kèm company_name — dùng cho
+    trang "Danh sách contact" tổng hợp ở frontend. Cùng require_role
+    ("ss_team") như mọi route contact khác trong file này vì đây vẫn là
+    dữ liệu nhạy cảm (email/SĐT cá nhân)."""
+    if contact_status is not None and contact_status not in _VALID_CONTACT_STATUS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"contact_status '{contact_status}' không hợp lệ — "
+                   f"có sẵn: {sorted(_VALID_CONTACT_STATUS)}",
+        )
+    if company_id is not None:
+        if not db_module.is_valid_uuid(company_id):
+            raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
+        if db_module.get_company_by_id(conn, company_id) is None:
+            raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
+
+    return db_module.list_all_contacts(
+        conn,
+        include_inactive=include_inactive,
+        contact_status=contact_status,
+        company_id=company_id,
+        search=search,
+    )
 
 
 @router.get("", response_model=list[CompanyContactOut])

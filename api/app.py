@@ -146,6 +146,7 @@ _require_key = [Depends(require_api_key)]
 app.include_router(jobs.router, dependencies=_require_key)
 app.include_router(companies.router, dependencies=_require_key)
 app.include_router(contacts.router, dependencies=_require_key)
+app.include_router(contacts.all_contacts_router, dependencies=_require_key)
 app.include_router(crawl.router, dependencies=_require_key)
 app.include_router(meta.router, dependencies=_require_key)
 app.include_router(auth.router, dependencies=_require_key)

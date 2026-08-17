@@ -490,6 +490,15 @@ class CompanyContactOut(BaseModel):
         from_attributes = True
 
 
+class CompanyContactWithCompanyOut(CompanyContactOut):
+    """Giống CompanyContactOut, thêm company_name — dùng cho GET /contacts
+    (danh sách gộp mọi công ty, xem api/routers/contacts.py::list_all_contacts),
+    vì CompanyContactOut không có tên công ty (route cũ GET
+    /companies/{company_id}/contacts đã biết company_id sẵn từ path nên
+    không cần)."""
+    company_name: str
+
+
 class CompanyContactCreate(BaseModel):
     contact_name: str = Field(..., min_length=1)
     job_title: Optional[str] = None
