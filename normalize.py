@@ -6,9 +6,12 @@ Module CHUẨN HÓA — phần "dùng chung" của pipeline, không quan tâm d�
 
 import re
 import hashlib
+import logging
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -49,12 +52,39 @@ def normalize_salary(salary_text: str) -> NormalizedSalary:
     toàn bộ chuỗi — an toàn với mọi case cũ vì lương thật luôn nằm trong
     khoảng vài trăm nghìn - vài trăm triệu đồng, không có chuyện 1 số vừa
     hợp lệ ở nghĩa "triệu" vừa hợp lệ ở nghĩa "nghìn đồng" cùng lúc.
-    """
+
+    BUG THẬT KHÁC ĐÃ SỬA (08/2026, phát hiện qua đối chiếu dữ liệu thật
+    khác đã crawl — job có prettySalary = "$ 13tr-15tr /tháng"): code cũ
+    coi CÓ "$" BẤT KỲ ĐÂU trong chuỗi là USD tuyệt đối, rồi giữ nguyên số
+    đọc được không nhân gì (numbers=13, 15 -> lưu thẳng 13-15 USD/tháng —
+    vô lý, không ai trả lương 13 đô/tháng). Thực tế hậu tố "tr" đi kèm
+    ngay sau số là tín hiệu VNĐ RÕ RÀNG HƠN dấu "$" đứng riêng lẻ (nhiều
+    khả năng "$" ở đây là ký hiệu hiển thị lẫn/sai phía VietnamWorks, số
+    thật vẫn là 13-15 TRIỆU đồng/tháng). Sửa bằng cách: nếu chuỗi có dấu
+    hiệu "tr"/"triệu" gắn với số (vd "13tr") -> ưu tiên coi là VNĐ, BỎ
+    QUA dấu "$", dù "$" có xuất hiện trong chuỗi. Chỉ coi là USD khi CÓ
+    "$"/"usd" VÀ KHÔNG có tín hiệu "tr"/"triệu" nào — khớp đúng mọi case
+    USD thật đã xác nhận (vd "$ 1,000-1,800 /tháng" không có "tr" nên vẫn
+    đúng là USD như cũ)."""
     text = (salary_text or "").strip()
     if not text or "thoả thuận" in text.lower() or "thỏa thuận" in text.lower():
         return NormalizedSalary("VNĐ", None, None, "NEGOTIABLE")
 
-    is_usd = "usd" in text.lower() or "$" in text
+    lowered = text.lower()
+
+    # "tr" phải ĐI NGAY SAU 1 CHỮ SỐ mới tính là hậu tố "triệu" (vd
+    # "13tr") — tránh khớp nhầm nếu chữ "tr" xuất hiện tình cờ ở chỗ khác
+    # trong text (chưa gặp thực tế nhưng phòng hờ, \b đảm bảo không dính
+    # vào giữa 1 từ dài hơn như "training").
+    _has_million_marker = bool(re.search(r"\d\s*tr\b", lowered)) or "triệu" in lowered
+    _has_dollar_sign = "usd" in lowered or "$" in text
+    is_usd = _has_dollar_sign and not _has_million_marker
+    if _has_dollar_sign and _has_million_marker:
+        logger.warning(
+            "normalize_salary(): text=%r vừa có dấu '$'/'usd' vừa có hậu "
+            "tố 'tr'/'triệu' -> ưu tiên coi là VNĐ (bỏ qua '$'), khả năng "
+            "cao nguồn hiển thị lẫn/sai ký hiệu tiền tệ.", text,
+        )
 
     # Bỏ hết ký tự không phải số / dấu chấm phẩy để tách các con số
     numbers = [
@@ -63,8 +93,6 @@ def normalize_salary(salary_text: str) -> NormalizedSalary:
     numbers = [n for n in numbers if n is not None]
 
     currency = "USD" if is_usd else "VNĐ"
-
-    lowered = text.lower()
 
     if not numbers:
         return NormalizedSalary(currency, None, None, "NEGOTIABLE")

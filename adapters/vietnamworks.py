@@ -495,22 +495,83 @@ class VietnamWorksAdapter(BaseAdapter):
             return pretty
         return ""
 
-    @staticmethod
-    def _extract_province_text(job: dict) -> str:
-        """CHƯA XÁC NHẬN cấu trúc thật của workingLocations/address bằng
-        dữ liệu mẫu -> thử vài dạng phổ biến, không crash nếu sai."""
+    # Giới hạn "trông giống tên tỉnh thật" — mọi tên tỉnh VN hợp lệ (kể cả
+    # dạng ghép "Bà Rịa - Vũng Tàu") đều: không chứa chữ số, không chứa
+    # dấu phẩy (địa chỉ cụ thể mới có, vd "89 Láng Hạ, Quận Đống Đa..."),
+    # và không dài quá mức (tên tỉnh dài nhất hiện có trong DB ~20 ký tự,
+    # 40 đã dư sức an toàn). Dùng để CHẶN _extract_province_text() lỡ lấy
+    # nhầm tên phòng ban/địa chỉ chi tiết làm "tỉnh" (xem BUG THẬT bên
+    # dưới) thay vì lấy đại bất cứ chuỗi nào field trả về.
+    _MAX_PROVINCE_LEN = 40
+
+    @classmethod
+    def _looks_like_province_name(cls, value: str) -> bool:
+        """True nếu `value` trông hợp lý là tên tỉnh/thành, False nếu
+        nhiều khả năng là địa chỉ/tên phòng ban lẫn vào (xem
+        _extract_province_text())."""
+        if not value or len(value) > cls._MAX_PROVINCE_LEN:
+            return False
+        if "," in value or any(ch.isdigit() for ch in value):
+            return False
+        return True
+
+    @classmethod
+    def _extract_province_text(cls, job: dict) -> str:
+        """XÁC NHẬN (08/2026) workingLocations là list[dict] (xem docstring
+        đầu file) -> vấn đề còn lại KHÔNG phải cấu trúc, mà là field nào
+        trong dict đó thật sự chứa tên tỉnh sạch — thử lần lượt 4 key
+        theo độ tin cậy giảm dần.
+
+        BUG THẬT ĐÃ SỬA (08/2026, phát hiện qua đối chiếu dữ liệu thật đã
+        crawl — job "Chuyên Viên Chính/Chuyên Viên Cao Cấp Bán Hàng Trực
+        Tiếp Hà Nội/HCM"): field "cityNameVI"/"cityName"/"provinceName"
+        đều rỗng ở job này -> code CŨ rơi xuống field "name" (yếu nhất,
+        không đảm bảo là tên tỉnh), và field "name" ở job này lại chứa
+        NGUYÊN 1 CHUỖI ĐỊA CHỈ + TÊN PHÒNG BAN: "Khối Quản Trị Nguồn Nhân
+        Lực - 89 Láng Hạ, Quận Đống Đa, Hà Nội" -> chuỗi này bị lưu thẳng
+        làm "tên tỉnh" vào DB (get_or_create_province() tự tạo dòng mới
+        nếu không khớp tên có sẵn -> tạo ra 1 "tỉnh" rác, không có cảnh
+        báo gì). Sửa bằng cách CHỈ CHẤP NHẬN giá trị "trông giống tên
+        tỉnh thật" (_looks_like_province_name() — không số, không dấu
+        phẩy, không quá dài) trước khi trả về; nếu MỌI field (kể cả
+        "name" lẫn "address") đều không hợp lệ -> trả "" (rỗng), để
+        get_or_create_province() tự map về "Khác" (dòng có sẵn, an toàn)
+        thay vì tạo dòng rác mới."""
         locations = job.get("workingLocations")
         if isinstance(locations, list) and locations:
             first = locations[0]
             if isinstance(first, dict):
                 for key in ("cityNameVI", "cityName", "provinceName", "name"):
-                    if first.get(key):
-                        return str(first[key]).strip()
+                    candidate = str(first.get(key) or "").strip()
+                    if not candidate:
+                        continue
+                    if cls._looks_like_province_name(candidate):
+                        if key == "name":
+                            # "name" là field yếu nhất trong 4 field (không
+                            # có gì đảm bảo nó luôn là tên tỉnh, chỉ là
+                            # PHÙ HỢP FORMAT tỉnh ở lần này) -> log để dev
+                            # để ý, khác im lặng hoàn toàn như code cũ.
+                            logger.warning(
+                                "_extract_province_text(): phải dùng field "
+                                "'name' (yếu nhất, các field ưu tiên hơn "
+                                "đều rỗng) cho job -> lấy được %r. Nên xem "
+                                "lại nếu thấy lặp lại nhiều.", candidate,
+                            )
+                        return candidate
+                    logger.warning(
+                        "_extract_province_text(): field '%s' = %r KHÔNG "
+                        "giống tên tỉnh thật (có số/dấu phẩy/quá dài) -> "
+                        "bỏ qua, thử field tiếp theo.", key, candidate,
+                    )
             elif isinstance(first, str):
-                return first.strip()
+                candidate = first.strip()
+                if cls._looks_like_province_name(candidate):
+                    return candidate
         address = job.get("address")
         if isinstance(address, str) and address.strip():
-            return address.strip()
+            candidate = address.strip()
+            if cls._looks_like_province_name(candidate):
+                return candidate
         return ""
 
     @staticmethod
