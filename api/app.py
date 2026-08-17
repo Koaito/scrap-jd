@@ -54,9 +54,13 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 import db as db_module
 from api.auth import require_api_key
+from api.rate_limit import limiter
 from api.routers import auth, companies, contacts, crawl, jobs, me, meta
 
 logging.basicConfig(
@@ -100,6 +104,21 @@ app = FastAPI(
     redoc_url="/redoc" if _docs_enabled else None,
     openapi_url="/openapi.json" if _docs_enabled else None,
 )
+
+# Rate limiting (xem docstring đầy đủ ở api/rate_limit.py) — chỉ áp
+# dụng thật sự cho 4 route trong auth.public_router có gắn decorator
+# @limiter.limit(...) (api/routers/auth.py), KHÔNG tự động áp cho mọi
+# route. 3 dòng dưới đây là phần "lắp" bắt buộc của slowapi:
+#   - app.state.limiter: nơi decorator @limiter.limit(...) tra cứu
+#     ngược lại limiter instance lúc request tới.
+#   - exception_handler: bắt RateLimitExceeded, trả về response 429
+#     kèm header Retry-After (hành vi mặc định của slowapi).
+#   - SlowAPIMiddleware: BẮT BUỘC phải có, thiếu middleware này thì
+#     decorator @limiter.limit(...) không chạy dù đã khai báo state +
+#     exception handler ở trên (lỗi hay gặp khi tích hợp slowapi).
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_middleware(SlowAPIMiddleware)
 
 # CORS: chỉ cho phép domain khai báo trong ALLOWED_ORIGINS (.env) gọi API
 # này từ trình duyệt. Ví dụ .env:

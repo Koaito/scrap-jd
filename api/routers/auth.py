@@ -26,6 +26,7 @@ import db as db_module
 from api import security
 from api.deps import get_db, get_current_user, require_admin, require_role
 from api.email_service import send_verification_email, send_password_reset_email
+from api.rate_limit import limiter
 from api.schemas import (
     AccessTokenOut, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest,
     MessageOut, RefreshRequest, RegisterOut, RegisterRequest, ResendVerificationRequest,
@@ -406,7 +407,10 @@ def update_user_active_status(
 
 
 @public_router.post("/register", response_model=RegisterOut, status_code=201)
-def register(payload: RegisterRequest, conn=Depends(get_db)):
+# 5 lần/giờ/IP — đủ cho người dùng thật đăng ký lại nếu gõ sai vài lần,
+# chặn được script tạo tài khoản rác hàng loạt (xem api/rate_limit.py).
+@limiter.limit("5/hour")
+def register(payload: RegisterRequest, request: Request, conn=Depends(get_db)):
     """Tự đăng ký — luôn tạo role='user' (thấp nhất, xem
     api.deps.ROLE_HIERARCHY), KHÔNG cho tự chọn role qua request (khác
     POST /auth/users admin-only có thể chọn role). Muốn lên 'ss_team'
@@ -489,7 +493,10 @@ def verify_email(token: str, conn=Depends(get_db)):
 
 
 @public_router.post("/resend-verification", response_model=MessageOut)
-def resend_verification(payload: ResendVerificationRequest, conn=Depends(get_db)):
+# 3 lần/giờ/IP — thấp hơn register vì route này trigger gửi email ngay
+# lập tức mỗi lần gọi, dễ bị lợi dụng "bomb" email tới 1 địa chỉ.
+@limiter.limit("3/hour")
+def resend_verification(payload: ResendVerificationRequest, request: Request, conn=Depends(get_db)):
     """Xin gửi lại email xác thực — dùng khi token cũ hết hạn (24h) hoặc
     email thất lạc. LUÔN trả cùng 1 message dù email có tồn tại hay
     không, và dù tài khoản đã verify từ trước hay chưa (giống nguyên tắc
@@ -526,7 +533,10 @@ def resend_verification(payload: ResendVerificationRequest, conn=Depends(get_db)
 # ------------------------------------------------------------------
 
 @public_router.post("/forgot-password", response_model=MessageOut)
-def forgot_password(payload: ForgotPasswordRequest, conn=Depends(get_db)):
+# 3 lần/giờ/IP — cùng lý do resend_verification() ở trên (gửi email
+# thật mỗi lần gọi, cùng nguy cơ bị lợi dụng "bomb" email).
+@limiter.limit("3/hour")
+def forgot_password(payload: ForgotPasswordRequest, request: Request, conn=Depends(get_db)):
     """Xin link đặt lại mật khẩu — LUÔN trả cùng 1 message dù email có
     tồn tại hay không (giống hệt nguyên tắc resend_verification() ở
     trên — chống dò email hàng loạt: kẻ tấn công không phân biệt được
@@ -562,7 +572,11 @@ def forgot_password(payload: ForgotPasswordRequest, conn=Depends(get_db)):
 
 
 @public_router.post("/reset-password", response_model=MessageOut)
-def reset_password(payload: ResetPasswordRequest, conn=Depends(get_db)):
+# 10 lần/giờ/IP — cao hơn 2 route trên vì không gửi email, chỉ là lớp
+# phòng thủ thêm chống dò token (token 32 byte urlsafe gần như không
+# thể đoán được trong phạm vi 10 lần, xem docstring api/rate_limit.py).
+@limiter.limit("10/hour")
+def reset_password(payload: ResetPasswordRequest, request: Request, conn=Depends(get_db)):
     """Đặt mật khẩu mới bằng token nhận từ email — token dùng ĐÚNG 1 LẦN
     (xoá ngay sau khi dùng, xem db.reset_password_with_token()).
 

@@ -29,3 +29,8 @@ pyjwt>=2.9.0
 # sql/migration_add_email_verification.sql. Không cần nếu tắt hẳn luồng
 # đăng ký công khai (chỉ dùng POST /auth/users admin tạo hộ).
 resend>=2.36.0
+
+# Dùng cho rate limiting 4 route công khai (api/rate_limit.py,
+# api/routers/auth.py: register/resend-verification/forgot-password/
+# reset-password) — thêm 08/2026. Không cần nếu chỉ dùng CLI main.py.
+slowapi>=0.1.9
