@@ -11,6 +11,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from adapters.topcv import TopCVAdapter
 import normalize
+from province_alias import resolve_province_alias
 
 FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixture_topcv_listing.html")
 JOB_DETAIL_FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixture_topcv_job_detail.html")
@@ -139,11 +140,78 @@ def test_normalize_work_type() -> bool:
     return ok
 
 
+def test_clean_company_name() -> bool:
+    """Test clean_company_name() — cắt URL dính đuôi tên công ty (bug thật
+    phát hiện qua đối chiếu dữ liệu đã crawl, 08/2026: company_id
+    42df93a8-ba25-4ae6-8246-885441b16099 -> "Bắc Á Bank -
+    Https://tuyendung.baca-Bank.vn/"; 49ae404e-52a9-4f47-9eb5-d9b02cc3a028
+    -> "VPBank - Https://tuyendung.vpbank.com.vn/"), đồng thời không cắt
+    nhầm tên công ty hợp lệ không chứa URL."""
+    print("--- Test clean_company_name() ---")
+    ok = True
+
+    cases = [
+        ("Bắc Á Bank - Https://tuyendung.baca-Bank.vn/", "Bắc Á Bank"),
+        ("VPBank - Https://tuyendung.vpbank.com.vn/", "VPBank"),
+        ("Some Co | https://example.com", "Some Co"),
+        ("Some Co https://example.com", "Some Co"),
+        ("  FPT   Software  ", "FPT Software"),   # dư khoảng trắng, không có URL
+        ("Procter & Gamble", "Procter & Gamble"),  # không có URL, giữ nguyên
+        ("", ""),
+        (None, ""),
+    ]
+
+    for input_text, expected in cases:
+        result = normalize.clean_company_name(input_text)
+        print(f"  clean_company_name({input_text!r}) = {result!r}")
+        if result != expected:
+            ok = False
+            print(f"  !! SAI, kỳ vọng {expected!r} !!")
+
+    print()
+    return ok
+
+
+def test_resolve_province_alias() -> bool:
+    """Test resolve_province_alias() — quy đổi tên tỉnh CŨ (trước sáp
+    nhập 07/2025) sang tên tỉnh MỚI, dùng khi doanh nghiệp đăng tin vẫn
+    ghi địa chỉ theo tỉnh cũ (chưa cập nhật theo địa giới hành chính
+    mới)."""
+    print("--- Test resolve_province_alias() ---")
+    ok = True
+
+    cases = [
+        ("Bình Dương", "Hồ Chí Minh"),      # tỉnh cũ, đã sáp nhập
+        ("Hòa Bình", "Phú Thọ"),             # tỉnh cũ, đã sáp nhập
+        ("Bắc Giang", "Bắc Ninh"),           # tỉnh cũ, đã sáp nhập
+        ("TP. Hồ Chí Minh", "Hồ Chí Minh"),  # tên mới, có tiền tố "TP."
+        ("Hồ Chí Minh", "Hồ Chí Minh"),      # tên mới, tự map về chính nó
+        ("Hà Nội", "Hà Nội"),                # tỉnh giữ nguyên (không sáp nhập)
+        ("Khác", "Khác"),
+        ("Remote", "Remote"),
+        ("", ""),
+        (None, ""),
+        ("Xyz Không Tồn Tại", ""),           # tên lạ -> không nhận diện được
+    ]
+
+    for input_text, expected in cases:
+        result = resolve_province_alias(input_text)
+        print(f"  resolve_province_alias({input_text!r}) = {result!r}")
+        if result != expected:
+            ok = False
+            print(f"  !! SAI, kỳ vọng {expected!r} !!")
+
+    print()
+    return ok
+
+
 def main():
     ok = True
     ok = test_listing_and_normalize() and ok
     ok = test_job_full_detail() and ok
     ok = test_normalize_work_type() and ok
+    ok = test_clean_company_name() and ok
+    ok = test_resolve_province_alias() and ok
 
     print("=" * 50)
     print("KẾT QUẢ: " + ("✅ PASS" if ok else "❌ FAIL"))

@@ -215,8 +215,29 @@ def compute_content_hash(company_name: str, job_title: str, level_code: str, pro
     return hashlib.sha256(key.encode("utf-8")).hexdigest()
 
 
+# Khớp 1 URL dính liền vào ĐUÔI company_name, kèm dấu phân cách phía
+# trước nó (nếu có) — vd "Bắc Á Bank - https://tuyendung.baca-bank.vn/"
+# hay "VPBank - https://tuyendung.vpbank.com.vn/" (2 case thật đã phát
+# hiện qua đối chiếu dữ liệu đã crawl, 08/2026: companyName trả về từ
+# nguồn (field thô của công ty/nhà tuyển dụng, KHÔNG phải bug ở
+# get_or_create_province() vừa sửa) tự dính thêm URL trang tuyển dụng
+# riêng của công ty vào ngay sau tên, coi như 1 phần "tên hiển thị").
+# \s*[-–|]?\s* phía trước: dấu gạch ngang thường/dài hoặc "|" tuỳ chọn,
+# neo ở CUỐI CHUỖI ($) để không cắt nhầm URL nằm giữa tên công ty thật
+# (chưa gặp thực tế nhưng an toàn hơn nếu có).
+_TRAILING_URL_RE = re.compile(
+    r"\s*[-–|]?\s*https?://\S+/?\s*$", re.IGNORECASE
+)
+
+
 def clean_company_name(name: str) -> str:
-    return re.sub(r"\s+", " ", (name or "").strip())
+    text = re.sub(r"\s+", " ", (name or "").strip())
+    # Cắt URL dính đuôi (xem docstring _TRAILING_URL_RE) trước khi trả về.
+    # sub() ở đây an toàn: KHÔNG khớp giữa chuỗi vì regex neo cuối ($),
+    # tên công ty thật không chứa "http://"/"https://" nên không có case
+    # false-positive nào bị cắt nhầm.
+    text = _TRAILING_URL_RE.sub("", text).strip()
+    return text
 
 
 def normalize_deadline(deadline_text: str) -> Optional[date]:
