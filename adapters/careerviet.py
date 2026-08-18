@@ -57,14 +57,13 @@ job_id=35C82AC4, fetch 08/2026):
      này dùng (/vi/tim-viec-lam/..., /viec-lam/...-k-vi.html,
      /vi/nha-tuyen-dung/...) — được phép crawl với UA hiện tại
      (impersonate="chrome124", không tự nhận là bot).
-   - Phân trang "?page=N": ĐÃ XÁC NHẬN KHÔNG hoạt động — page 2 trả về
-     HTML y hệt page 1 (đã so sánh trực tiếp response thật, không chỉ
-     suy đoán qua nhánh "0 URL mới" như trước). fetch_jobs() vẫn dừng
-     AN TOÀN nhờ nhánh so sánh seen_urls có sẵn (không lặp vô ích),
-     nhưng để khỏi tốn 1 request page-2 vô nghĩa mỗi lần crawl, đã đổi
-     max_pages mặc định xuống 1 (xem _build_page_url() và fetch_jobs()
-     bên dưới) — CHƯA tìm ra cơ chế phân trang thật (có thể AJAX/param
-     khác), để lại TODO này cho Phần 3 nếu sau này cần lấy hơn 1 trang.
+   - Phân trang: "?page=N" (suy đoán ban đầu) ĐÃ XÁC NHẬN SAI — page 2
+     trả về HTML y hệt page 1. ĐÃ TÌM RA pattern thật (08/2026, người
+     dùng tự bắt được qua URL thanh địa chỉ khi bấm nút số trang trên
+     web thật): ".../viec-lam/<keyword>-k-trang-{N}-vi.html" (trang 1
+     vẫn dùng base_url không có "trang", đã test đúng từ đầu) — xem
+     _build_page_url() đã sửa lại theo pattern này. max_pages mặc định
+     đưa trở lại 3 (như thiết kế ban đầu, không cần hạ xuống 1 nữa).
    - Category "business-analyst" và "data-analyst": ĐÃ fetch thử thật,
      ra đúng job theo ngành — không còn là suy đoán.
    - Trang công ty (/vi/nha-tuyen-dung/<slug>.<id>.html): ĐÃ có mẫu
@@ -203,7 +202,7 @@ class CareerVietAdapter(BaseAdapter):
     # ------------------------------------------------------------------
     # Public API (bắt buộc theo BaseAdapter)
     # ------------------------------------------------------------------
-    def fetch_jobs(self, category_key: str, max_pages: int = 1) -> Iterator[RawJobRecord]:
+    def fetch_jobs(self, category_key: str, max_pages: int = 3) -> Iterator[RawJobRecord]:
         if category_key not in CAREERVIET_CATEGORIES:
             raise ValueError(
                 f"Category '{category_key}' chưa khai báo trong "
@@ -228,21 +227,14 @@ class CareerVietAdapter(BaseAdapter):
             job_urls = self._extract_job_detail_urls(html)
             new_urls = [u for u in job_urls if u not in seen_urls]
             if not new_urls:
-                # Hoặc trang thật sự hết job, HOẶC (trường hợp đã XÁC
-                # NHẬN THẬT xảy ra, xem docstring đầu file mục "ĐÃ XÁC
-                # NHẬN") pagination "?page=N" không hoạt động -> page N
-                # trả y hệt page 1 -> toàn bộ URL đã seen. Dừng an toàn
-                # ở cả 2 trường hợp, không lặp vô ích. max_pages mặc
-                # định đã hạ xuống 1 để tránh tốn request page-2 biết
-                # trước là vô nghĩa; caller vẫn có thể truyền max_pages
-                # cao hơn (an toàn, chỉ dừng sớm ở đây) một khi tìm ra
-                # cơ chế phân trang thật.
-                logger.info(
-                    "Trang %d không có job URL mới -> dừng phân trang "
-                    "(hết job, hoặc pagination \"?page=N\" không hoạt "
-                    "động — xem docstring đầu file).",
-                    page,
-                )
+                # Bình thường là trang thật sự đã hết job. Pattern phân
+                # trang thật (".../k-trang-{N}-vi.html", xem
+                # _build_page_url()) ĐÃ XÁC NHẬN hoạt động (08/2026),
+                # khác hẳn "?page=N" đoán sai trước đó -> nhánh này giờ
+                # hiếm khi bị kích hoạt do lỗi pattern, chủ yếu là tín
+                # hiệu hết job thật. Vẫn giữ làm lưới an toàn cuối nếu
+                # 1 category cụ thể nào đó có hành vi khác thường.
+                logger.info("Trang %d không có job URL mới -> dừng phân trang.", page)
                 break
 
             new_count = 0
@@ -417,17 +409,36 @@ class CareerVietAdapter(BaseAdapter):
     # ------------------------------------------------------------------
     @staticmethod
     def _build_page_url(base_url: str, page: int) -> str:
-        """ĐÃ XÁC NHẬN "?page=N" KHÔNG hoạt động (page 2 trả y hệt page
-        1 — xem docstring đầu file mục "ĐÃ XÁC NHẬN"). Giữ nguyên hàm
-        này (chưa xoá) vì fetch_jobs() mặc định max_pages=1 nên nhánh
-        page > 1 hiếm khi chạy tới trong thực tế, nhưng nếu caller tự
-        truyền max_pages > 1 thì vẫn dừng AN TOÀN nhờ nhánh 0-URL-mới ở
-        fetch_jobs() — không lặp vô ích, chỉ không lấy thêm được job
-        nào ngoài trang 1 cho tới khi tìm ra cơ chế phân trang thật."""
+        """ĐÃ SỬA (08/2026) — pattern phân trang thật do người dùng tự
+        bắt được qua URL thanh địa chỉ khi bấm nút số trang trên web
+        thật (KHÔNG phải "?page=N" như suy đoán/xác nhận sai trước đó):
+            .../viec-lam/<keyword>-k-vi.html            (trang 1, base)
+            .../viec-lam/<keyword>-k-trang-2-vi.html    (trang 2)
+            .../viec-lam/<keyword>-k-trang-3-vi.html    (trang 3)
+        -> chèn "trang-{page}-" vào giữa "-k-" và "vi.html" cho page > 1,
+        giữ nguyên base_url cho page 1 (đã test thật, không cần đổi).
+        CareerViet nhận keyword thường hay hoa cũng ra job giống nhau
+        (đã thấy path viết hoa "Business-Analyst" trên UI thật nhưng
+        cat['keyword'] trong config.py để thường "business-analyst") —
+        web server không phân biệt hoa/thường ở path này, chưa gặp lỗi
+        nào do casing, không cần .title()/.capitalize() gì thêm.
+        CHƯA re-test lại job thực tế trang 2/3 có KHÁC trang 1 hay
+        không sau khi đổi pattern này (trước đó chỉ test sai pattern
+        "?page=N") — nhánh dừng vòng lặp khi 0 URL mới ở fetch_jobs()
+        vẫn là lưới an toàn cuối nếu pattern này vẫn có vấn đề gì khác."""
         if page <= 1:
             return base_url
-        sep = "&" if "?" in base_url else "?"
-        return f"{base_url}{sep}page={page}"
+        if base_url.endswith("-k-vi.html"):
+            return base_url[: -len("-k-vi.html")] + f"-k-trang-{page}-vi.html"
+        # Fallback nếu base_url không đúng đuôi kỳ vọng (không nên xảy
+        # ra với search_url build từ fetch_jobs(), nhưng phòng hờ thay
+        # vì crash im lặng) — giữ hành vi cũ, an toàn nhờ lưới 0-URL-mới.
+        logger.warning(
+            "base_url %r không đúng đuôi '-k-vi.html' kỳ vọng -> không "
+            "build được URL trang %d theo pattern mới, dùng base_url "
+            "nguyên bản (có thể trả về trùng trang 1).", base_url, page,
+        )
+        return base_url
 
     @staticmethod
     def _extract_job_detail_urls(html: str) -> list:
