@@ -37,7 +37,16 @@ Kết luận Discovery (xác nhận qua DevTools + cURL thật của user, 08/20
      mẫu chỉ là tracking, không cần thiết để trang load đúng.
   2. typeWorkingId: chỉ xác nhận chắc chắn 1=Toàn thời gian, 3=Thực tập.
      Mẫu mới nhất có 1 job với giá trị 0 (rỗng/không set) -> để None là
-     đúng (không đoán 0 = FULL_TIME). 2, 4, 5... vẫn chưa có đối chiếu.
+     đúng (không đoán 0 = FULL_TIME).
+     CẬP NHẬT (08/2026): người dùng tự tay mở 4 job VietnamWorks có
+     typeWorkingId KHÔNG PHẢI 1/3/0 (đúng 4 job trước đó bị work_type =
+     NULL trong DB) và xác nhận CẢ 4/4 job đều hiển thị "Loại hình làm
+     việc: Khác" trên trang thật -> đủ căn cứ để mọi typeWorkingId khác
+     0/1/3 (số cụ thể là bao nhiêu KHÔNG quan trọng, vì UI luôn hiển thị
+     "Khác" cho mọi trường hợp không phải 3 loại chính) fallback về
+     "Khác" (-> OTHER qua normalize._WORK_TYPE_MAP đã có sẵn key "khác",
+     không cần sửa normalize.py) thay vì để trống. Xem
+     _work_type_text_from_id().
   3. expiredOn: XÁC NHẬN có giá trị thật ở toàn bộ 50/50 job (không rỗng),
      đúng định dạng ISO 8601 có timezone, vd "2026-08-13T23:59:59+07:00"
      -> _format_deadline() đã parse đúng nhánh "%Y-%m-%dT%H:%M:%S" (dùng
@@ -103,6 +112,21 @@ _TYPE_WORKING_ID_MAP = {
     1: "Toàn thời gian",
     3: "Thực tập",
 }
+
+
+def _work_type_text_from_id(type_working_id) -> str:
+    """0 hoặc None -> "" (VNW thật sự chưa set, đã xác nhận từ trước —
+    giữ nguyên hành vi cũ, KHÔNG suy đoán 0 = FULL_TIME).
+    1, 3 -> map trực tiếp (đã xác nhận chắc chắn).
+    Mọi giá trị khác -> "Khác" (xác nhận bằng đối chiếu thật 08/2026,
+    xem ghi chú Discovery đầu file — không cần biết số cụ thể là bao
+    nhiêu vì UI VietnamWorks luôn hiển thị "Khác" cho các trường hợp
+    này, không phải 1 nhãn cụ thể khác)."""
+    if type_working_id in _TYPE_WORKING_ID_MAP:
+        return _TYPE_WORKING_ID_MAP[type_working_id]
+    if not type_working_id:  # None hoặc 0
+        return ""
+    return "Khác"
 
 # Bảng chuyển ký tự có dấu tiếng Việt -> không dấu, dùng cho
 # _slugify_company_name(). Liệt kê thủ công (không phụ thuộc thư viện
@@ -340,7 +364,7 @@ class VietnamWorksAdapter(BaseAdapter):
 
         salary_text = self._extract_salary_text(job)
         province_text = self._extract_province_text(job)
-        work_type_text = _TYPE_WORKING_ID_MAP.get(job.get("typeWorkingId"), "")
+        work_type_text = _work_type_text_from_id(job.get("typeWorkingId"))
         deadline_text = self._format_deadline(job.get("expiredOn"))
 
         # experience_text: XÁC NHẬN bằng dữ liệu thật (08/2026) — VNW CÓ
