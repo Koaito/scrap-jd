@@ -82,6 +82,14 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
     ngoài internet. Không cần sửa gì trong adapter."""
     stats = {
         "fetched": 0, "inserted": 0, "skipped_duplicate": 0,
+        # Trùng theo (company_id, job_title, level_id, province_id) —
+        # KHÁC "skipped_duplicate" ở trên (vốn là trùng theo source_url).
+        # Trường hợp này là tin ĐĂNG LẠI dưới URL mới (vd TopCV cấp
+        # job_id mới mỗi lần nhà tuyển dụng "làm mới" tin) nhưng nội
+        # dung/vị trí thực chất là 1 job — tách riêng để audit dễ hơn,
+        # không lẫn với trùng source_url thông thường (xem
+        # find_manual_job_duplicate() trong db.py).
+        "skipped_duplicate_repost": 0,
         "updated_existing": 0, "skipped_fetch_failed": 0, "errors": 0,
     }
 
@@ -211,6 +219,40 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
                     company_size=profile.get("company_size", ""),
                     address=profile.get("address", ""),
                 )
+
+            # 3c) Chống trùng kiểu "đăng lại dưới URL khác" — job_probe ở
+            # bước (1) chỉ bắt được trùng THEO source_url, không bắt được
+            # trường hợp TopCV/VietnamWorks cấp source_url MỚI cho job đã
+            # đăng trước đó (cùng company + title + level + province,
+            # thường do nhà tuyển dụng "làm mới" tin để đẩy lên top tìm
+            # kiếm — đã xác nhận thực tế 08/2026, 2 tin "Fullstack
+            # Developer" cùng công ty, cùng nội dung, khác job_id/URL,
+            # đăng cách nhau ~1 phút). Dùng lại find_manual_job_duplicate()
+            # (vốn viết cho luồng nhập tay ở POST /jobs) vì cùng bộ khoá
+            # (company_id, job_title, level_id, province_id) với
+            # generate_job_hash() -> tái dùng được, không cần viết hàm
+            # match riêng cho crawl.
+            #
+            # QUYẾT ĐỊNH: nếu trùng -> BỎ QUA insert hoàn toàn (không tạo
+            # job_postings/job_sources_log mới), KHÔNG cố gắng "vá" job cũ
+            # bằng dữ liệu job mới lần này (khác với nhánh job_probe ở bước
+            # 1) — vì đây có thể là job MỚI HƠN thật sự (job cũ đã
+            # deadline, được đăng lại với nội dung/deadline mới), nhưng để
+            # tránh làm phức tạp thêm 1 khái niệm "vá theo repost" trong
+            # lần sửa này, ưu tiên đơn giản: chỉ chặn insert trùng, xử lý
+            # cập nhật nội dung job cũ (nếu cần) để làm riêng sau.
+            duplicate_job_id = db.find_manual_job_duplicate(
+                conn, company_id=company_id, job_title=raw.job_title,
+                level_id=level_id, province_id=province_id,
+            )
+            if duplicate_job_id is not None:
+                stats["skipped_duplicate_repost"] += 1
+                logger.info(
+                    "Bỏ qua job đăng lại (trùng company/title/level/province "
+                    "với job_id=%s, khác source_url): %s @ %s",
+                    duplicate_job_id, raw.job_title, raw.source_url,
+                )
+                continue
 
             # 4) Insert (content_hash tự tính bởi trigger Postgres)
             db.insert_job(
