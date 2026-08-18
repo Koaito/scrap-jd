@@ -18,9 +18,11 @@ import sys
 import db
 from adapters.topcv import TopCVAdapter
 from adapters.vietnamworks import VietnamWorksAdapter
+from adapters.careerviet import CareerVietAdapter
 from pipeline import run_pipeline
 from config import (
-    TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
+    TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, CAREERVIET_CATEGORIES,
+    DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
 )
 
 # Đăng ký nguồn crawl ở đây — thêm nguồn mới sau này (ITviec...) chỉ cần
@@ -28,6 +30,7 @@ from config import (
 SOURCES = {
     "topcv": {"adapter_cls": TopCVAdapter, "categories": TOPCV_CATEGORIES},
     "vietnamworks": {"adapter_cls": VietnamWorksAdapter, "categories": VIETNAMWORKS_CATEGORIES},
+    "careerviet": {"adapter_cls": CareerVietAdapter, "categories": CAREERVIET_CATEGORIES},
 }
 DEFAULT_SOURCE = "topcv"
 
