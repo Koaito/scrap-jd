@@ -192,15 +192,25 @@ api/
 | POST | `/companies/{company_id}/contacts` | Thêm liên hệ HR | API key + JWT (ss_team+) |
 | PATCH | `/companies/{company_id}/contacts/{contact_id}` | Sửa liên hệ HR (chỉ field gửi lên bị ghi đè) | API key + JWT (ss_team+) |
 | DELETE | `/companies/{company_id}/contacts/{contact_id}` | Xoá mềm (`is_active=false`, giữ lịch sử) | API key + JWT (ss_team+) |
+| DELETE | `/companies/{company_id}/contacts/{contact_id}/hard` | Xoá THẬT, không thể khôi phục — `409` nếu contact còn `job_contact_links` (đang gắn với 1 job cụ thể) | API key + JWT (ss_team+) |
+| GET | `/jobs/{job_id}/applications` | Ai đã ứng tuyển job này (full_name/email/phone) | API key + JWT (ss_team+) |
+| POST | `/me/applications` | Học viên ứng tuyển 1 job — `409` nếu đã ứng tuyển, `400` nếu job không `OPEN` | API key + JWT |
+| GET | `/me/applications` | Danh sách job mình đã ứng tuyển | API key + JWT |
+| DELETE | `/me/applications/{job_id}` | Huỷ ứng tuyển | API key + JWT |
+| POST | `/me/saved-jobs` | Lưu 1 job — `409` nếu đã lưu | API key + JWT |
+| GET | `/me/saved-jobs` | Danh sách job đã lưu | API key + JWT |
+| DELETE | `/me/saved-jobs/{job_id}` | Bỏ lưu job | API key + JWT |
 | POST | `/crawl` | Kích hoạt crawl nền — body `{"source", "category", "pages"?, "max_jobs"?}`, trả `run_id` ngay | API key + JWT (admin) |
 | GET | `/crawl/{run_id}` | Theo dõi tiến độ/kết quả 1 lượt crawl | API key |
-| GET | `/stats` | Tổng job/công ty, tỷ lệ có social, phân bố ngành/nguồn | API key |
+| GET | `/stats` | Tổng job/công ty/đơn ứng tuyển (`total_applications`), tỷ lệ có social, phân bố ngành/nguồn | API key |
 | GET | `/sources` | Danh sách source/category có sẵn (đọc từ `config.py`) — frontend render dropdown | API key |
 | GET | `/health` | Health check | API key |
-| POST | `/auth/register` | Tự đăng ký (luôn role `user`), gửi email xác thực | **KHÔNG cần API key** (public_router) |
+| POST | `/auth/register` | Tự đăng ký (phone/track cho học viên, luôn role `user`), gửi email xác thực | **KHÔNG cần API key** (public_router) |
 | GET | `/auth/verify-email?token=` | Kích hoạt tài khoản — bấm từ link trong email, trả HTML | **KHÔNG cần API key** (public_router) |
 | POST | `/auth/resend-verification` | Xin gửi lại email xác thực | **KHÔNG cần API key** (public_router) |
-| POST | `/auth/login` | Đăng nhập, trả `access_token` + `refresh_token`. Chặn nếu email chưa xác thực | API key |
+| POST | `/auth/forgot-password` | Xin link đặt lại mật khẩu qua email — luôn trả message chung chung dù email tồn tại hay không | API key |
+| POST | `/auth/reset-password` | Đặt mật khẩu mới bằng token từ email (sống 1 giờ, dùng 1 lần), thu hồi toàn bộ refresh token cũ | API key |
+| POST | `/auth/login` | Đăng nhập, trả `access_token` + `refresh_token`. Chặn nếu email chưa xác thực, chặn 403 nếu tài khoản bị khoá (vô hiệu hoá hoặc khoá tạm do sai mật khẩu 5 lần liên tiếp) | API key |
 | POST | `/auth/refresh` | Xoay vòng lấy access token mới | API key |
 | POST | `/auth/logout` | Thu hồi refresh token hiện tại | API key |
 | GET | `/auth/me` | Thông tin tài khoản đang đăng nhập | API key + JWT |
@@ -240,6 +250,7 @@ server không kiểm tra, nhưng không cần thiết).
   "salary_min": 15000000,
   "salary_max": 25000000,
   "salary_type": "RANGE",
+  "salary_period": "MONTH",
   "deadline": "2026-12-31"
 }
 ```
@@ -250,12 +261,33 @@ có) — route KHÔNG tự tạo company kèm job, tránh nhập nhằng giữa 
 lần với data y hệt (cùng company_id + job_title + level_code +
 province_name) sẽ KHÔNG tạo job trùng — trả về job đã có.
 
+`salary_period` (thêm 08/2026, xem `sql/migration_add_salary_period.sql`):
+`"MONTH"` (mặc định) | `"YEAR"`. **Job nhập tay KHÔNG tự suy luận được
+field này** như job crawl (`normalize_salary()` chỉ chạy cho pipeline
+crawl, đọc trực tiếp text "/năm" trong JD gốc — job nhập tay ở đây
+không có text gốc để đọc, staff tự gõ sẵn số) — nếu nhập lương NĂM,
+**phải tự truyền `"salary_period": "YEAR"`**, nếu không hệ thống mặc
+định hiểu là lương/tháng (`salary_min`/`salary_max` LÀ mức lương năm
+nhưng bị hiển thị như đang là lương tháng).
+
+⚠️ **Frontend `mindx-jobs` (`/jobs/add`, `/jobs/<id>/edit`) hiện CHƯA có
+ô nhập `salary_period` trên form** — staff gọi thẳng API (Swagger/Postman/
+curl) mới set được field này; nhập qua form web sẽ luôn lưu `MONTH`. Đây
+là giới hạn đã biết, chưa nằm trong phạm vi bản vá backend này — xem
+`checklist-test-mindx-jobs.md` mục liên quan.
+
 ### `PATCH /jobs/{job_id}` — sửa job
 
 Chỉ gửi field muốn sửa, field không gửi giữ nguyên. Ví dụ "xoá mềm":
 
 ```json
 {"job_status": "CLOSED"}
+```
+
+Ví dụ sửa lại lương đã nhập nhầm chu kỳ:
+
+```json
+{"salary_period": "YEAR"}
 ```
 
 Không có endpoint DELETE thật — job xoá thật sẽ bị crawl lại tạo trùng ở
@@ -466,6 +498,11 @@ pool, vì tần suất chạy thấp (1 lần/script), không cần thiết.
 - **Thiếu `RESEND_API_KEY` không làm sập `POST /auth/register`** — tài
   khoản vẫn tạo thành công, chỉ email không gửi được (log lỗi, xem
   `api/email_service.py`).
+- **Frontend `mindx-jobs` chưa có ô nhập `salary_period` trên form
+  `/jobs/add`/`/jobs/<id>/edit`** — job nhập tay lương NĂM qua web sẽ
+  luôn lưu mặc định `MONTH`, chỉ set đúng được qua gọi thẳng API (xem
+  mục `POST /jobs` phía trên). Đây là việc frontend làm sau, không nằm
+  trong bản vá backend này.
 
 ## Việc CHƯA làm (để team quyết định có cần không)
 
@@ -475,4 +512,10 @@ pool, vì tần suất chạy thấp (1 lần/script), không cần thiết.
 - Trang xác nhận `GET /auth/verify-email` hiện trả HTML tĩnh đơn giản
   (frontend chưa có lúc code) — khi có frontend thật, nên đổi sang
   redirect về 1 URL frontend cụ thể.
-- Frontend — chưa bắt đầu.
+- Frontend `mindx-jobs` — ô nhập `salary_period` (xem Giới hạn đã biết ở
+  trên).
+- `PATCH /jobs/{job_id}` không tự "vá" `source_url`/nội dung job cũ khi
+  pipeline crawl phát hiện đây là bản "đăng lại" (repost) của job đã có
+  — hiện chỉ chặn insert job mới, giữ nguyên `source_url` của job cũ
+  (xem README mục "Bug đã sửa: job trùng nội dung do đăng lại"). Muốn tự
+  động cập nhật `source_url` theo lượt repost mới nhất là việc làm thêm.

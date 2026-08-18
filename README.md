@@ -21,8 +21,12 @@ tuyển + số điện thoại liên hệ, CRUD liên hệ HR có soft-delete, a
 
 Xem tình trạng dữ liệu thật và các hạn chế đang biết ở cuối file.
 
-Ngoài pipeline crawl chính còn có 2 script độc lập, chạy khi cần:
+Ngoài pipeline crawl chính còn có 3 script độc lập, chạy khi cần:
 
+- `check_expired_source_jobs.py` — re-check job đang `OPEN` xem còn tồn
+  tại thật ở nguồn (TopCV/VietnamWorks) không, tự chuyển `EXPIRED` nếu
+  nguồn đã xoá tin. **Nên chạy định kỳ sau mỗi đợt crawl** (xem mục
+  riêng bên dưới).
 - `get_company_fb_linkedin_link.py` — điền `fanpage_url`/`linkedin_url`
   bằng cách crawl website riêng của từng công ty.
 - `enrich_company_web_info.py` — vá thêm `website`/`tax_id` cho công ty
@@ -38,6 +42,7 @@ normalize.py                     <- dùng chung: parse lương, suy luận level
 db.py                            <- dùng chung: mọi thao tác PostgreSQL
 pipeline.py                      <- nối adapter -> normalize -> db
 main.py                          <- CLI chạy crawl
+check_expired_source_jobs.py     <- script riêng: re-check job OPEN còn sống ở nguồn không
 get_company_fb_linkedin_link.py  <- script riêng: fanpage/LinkedIn
 enrich_company_web_info.py       <- script riêng: website/tax_id qua Tavily + Gemini
 api/                              <- lớp API FastAPI (xem mục API layer bên dưới)
@@ -88,7 +93,7 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
 
    > DB tạo từ bản cũ (trước khi có lớp auth/audit/role/đăng ký/quên mật
    > khẩu/đổi tên bảng/ứng tuyển/lưu job) cần chạy thêm `sql/migration_*.sql`
-   > — xem comment đầu mỗi file để biết chi tiết. Repo hiện có **12 file**
+   > — xem comment đầu mỗi file để biết chi tiết. Repo hiện có **13 file**
    > migration; chạy **đúng thứ tự sau** (migration sau phụ thuộc bảng/cột
    > migration trước tạo ra):
    > ```bash
@@ -104,13 +109,19 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
    > psql -U postgres -d "..." -f sql/migration_add_tax_id.sql
    > psql -U postgres -d "..." -f sql/migration_add_work_type_deadline.sql
    > psql -U postgres -d "..." -f sql/migration_update_provinces_2025.sql
+   > psql -U postgres -d "..." -f sql/migration_add_salary_period.sql
    > ```
    > Thiếu bất kỳ file nào ở trên có thể làm `POST`/`PATCH /jobs`,
    > `POST /companies`, CRUD `/companies/{id}/contacts`,
    > `POST /auth/register`, đăng nhập, quên mật khẩu, ứng tuyển, hoặc lưu
-   > job lỗi 500 — tuỳ file nào bị thiếu. DB tạo mới hoàn toàn từ
-   > `sql/schema.sql` (bước 4 ở trên) đã có sẵn đầy đủ, **không cần** chạy
-   > lại các migration này.
+   > job lỗi 500 — tuỳ file nào bị thiếu. Riêng thiếu
+   > `migration_add_salary_period.sql`: **mọi lượt crawl lẫn `POST`/`PATCH
+   > /jobs` sẽ lỗi 500 ngay lập tức** ("column salary_period does not
+   > exist") — `insert_job()`/`create_manual_job()` luôn ghi cột này
+   > không điều kiện (không có nhánh fallback nếu cột chưa tồn tại), khác
+   > các migration khác ở trên vốn chỉ lỗi khi đụng đúng tính năng liên
+   > quan. DB tạo mới hoàn toàn từ `sql/schema.sql` (bước 4 ở trên) đã có
+   > sẵn đầy đủ, **không cần** chạy lại các migration này.
 
 5. **Test** (không cần DB/internet):
    ```bash
@@ -151,16 +162,26 @@ Mỗi lần crawl, hệ thống tự động:
   thiếu field.
 - Match công ty **ưu tiên theo mã số thuế** — 2 job cùng công ty nhưng
   tên viết khác nhau vẫn nhận ra là 1, không tạo trùng.
+- **Phát hiện job "đăng lại" (repost) dưới `source_url` khác** — nếu job
+  mới crawl trùng `company_id` + `job_title` + `level_id` + `province_id`
+  với 1 job đã có (cùng bộ khoá `generate_job_hash()` dùng để tính
+  `content_hash`), **bỏ qua, không insert job mới** — xem [Bug đã sửa:
+  job trùng nội dung do đăng lại](#bug-đã-sửa-job-trùng-nội-dung-do-đăng-lại-repost-082026).
+- Chuẩn hoá đúng **chu kỳ trả lương** (tháng/năm) từ text gốc thay vì mặc
+  định mọi mức lương là lương/tháng — xem [Bug đã sửa: lương "/năm" bị
+  hiểu nhầm thành lương/tháng](#bug-đã-sửa-lương-năm-bị-hiểu-nhầm-thành-lươngtháng-082026).
 
-**⚠️ Chưa an toàn khi chạy song song 2 lượt crawl cùng lúc** (vd vừa CLI
-vừa `POST /crawl`, hoặc bấm crawl 2 lần liên tiếp trước khi lượt đầu kịp
-`commit()`) — có thể tạo job trùng do race condition ở bước "check trùng
-rồi mới insert" trong `pipeline.py`. Đã gặp thực tế 2 kiểu: (1) 2 job
-cùng `source_url`; (2) 2 job khác `source_url` nhưng cùng `content_hash`
-(case "Fullstack Developer" x2, cách nhau ~11 giây — xem [Tình trạng dữ
-liệu](#tình-trạng-dữ-liệu)). Tạm thời: chỉ chạy 1 lượt crawl/lúc, soát
-bằng `v_duplicate_job_candidates` nếu nghi trùng. Fix đúng cần advisory
-lock theo `source_url` hoặc unique constraint DB — chưa làm.
+**⚠️ Vẫn chưa an toàn khi chạy song song 2 lượt crawl CÙNG LÚC** (vd vừa
+CLI vừa `POST /crawl`, hoặc bấm crawl 2 lần liên tiếp trước khi lượt đầu
+kịp `commit()`) — đây là **race condition thuần tuý** (2 request đọc DB
+"chưa có job này" cùng lúc, trước khi bên nào kịp ghi), **khác hẳn** bug
+repost ở trên (2 lượt crawl *tuần tự*, không chạy chồng nhau, nhưng
+TopCV cấp `source_url` mới cho cùng 1 tin đăng lại — bug này **đã fix**,
+xem mục Bug đã sửa). Race condition vẫn có thể tạo job trùng ở bước
+"check trùng rồi mới insert" trong `pipeline.py` nếu 2 tiến trình chạy
+đúng lúc chồng lên nhau. Tạm thời: chỉ chạy 1 lượt crawl/lúc, soát bằng
+`v_duplicate_job_candidates` nếu nghi trùng. Fix đúng cần advisory lock
+theo `source_url` hoặc unique constraint DB — chưa làm.
 
 ## Xem kết quả
 
@@ -171,7 +192,7 @@ python main.py stats
 Hoặc trực tiếp bằng `psql`:
 
 ```sql
-SELECT job_title, company_id, salary_min, salary_max, salary_type
+SELECT job_title, company_id, salary_min, salary_max, salary_type, salary_period
 FROM job_postings ORDER BY created_at DESC LIMIT 10;
 
 SELECT company_name, tax_id, website, company_size, industry
@@ -182,6 +203,62 @@ SELECT matching_industry, count(*) FROM job_postings GROUP BY matching_industry;
 -- Soát job nghi trùng (khác link nguồn nhưng cùng nội dung)
 SELECT * FROM v_duplicate_job_candidates;
 ```
+
+---
+
+## `check_expired_source_jobs.py` — theo dõi job hết hạn thật ngoài nguồn
+
+**Nên chạy sau mỗi đợt crawl** (hoặc định kỳ, vd cron hằng ngày). Script
+này **KHÔNG nằm trong pipeline crawl chính** — chạy riêng, tách biệt.
+
+**Vấn đề nó giải quyết:** JD trên TopCV/VietnamWorks bị nhà tuyển dụng
+xoá sau 1 thời gian (hết nhu cầu tuyển, đủ hồ sơ...), nhưng DB của
+mình không có gì tự động phát hiện — job vẫn hiện `OPEN` mãi dù link
+nguồn đã chết. Học viên bấm "Xem JD gốc" sẽ ra trang lỗi/404, và job
+vẫn hiện như đang tuyển dù thực ra không còn nữa.
+
+**Cách chạy:**
+
+```bash
+# Xem thử job nào SẼ bị đánh EXPIRED, KHÔNG ghi gì vào DB — chạy trước tiên
+python check_expired_source_jobs.py --dry-run
+
+# Chạy thật (ghi vào DB)
+python check_expired_source_jobs.py
+
+# Chỉ check deadline quá hạn, KHÔNG fetch mạng tới source_url — nhanh hơn
+# nhiều, phù hợp chạy thường xuyên hơn
+python check_expired_source_jobs.py --check-deadline
+
+# Giới hạn số job xử lý — dùng để test thử trước khi chạy full
+python check_expired_source_jobs.py --limit 20
+```
+
+**Nguyên tắc "thà thiếu còn hơn sai"** — chỉ tự động chuyển `EXPIRED`
+khi tín hiệu **không mơ hồ**:
+
+- `source_url` trả về HTTP 404 hoặc 410 (Gone) → `EXPIRED`. Đây là tín
+  hiệu rõ ràng nhất: server nguồn xác nhận URL không còn tồn tại.
+- Deadline job đã qua (khi chạy `--check-deadline` hoặc mặc định) →
+  `EXPIRED`.
+
+Mọi trường hợp khác (200 nhưng redirect sang trang khác/trang chủ,
+timeout, lỗi mạng, 403 bị chặn bot, 5xx server nguồn tạm lỗi...) —
+**không** kết luận, không đụng vào `job_status`, chỉ đếm vào
+`cần_kiểm_tra_tay` để người xem log tự kiểm tra tay nếu muốn. Lý do:
+TopCV/VietnamWorks có thể trả 200 kèm redirect về trang chủ khi job hết
+hạn — tự ý đoán dấu hiệu này dễ bắt nhầm job **thật** (site bảo trì,
+đổi giao diện, chặn bot bằng challenge page) thành `EXPIRED`.
+
+**Vì sao dùng `EXPIRED` chứ không phải `CLOSED`:** 2 status khác nghĩa
+trong hệ thống — `CLOSED` dành cho quyết định **chủ động** của team SS
+(nút "Xoá" job ở frontend), `EXPIRED` dành cho job **tự nhiên hết hiệu
+lực**, không do ai quyết định. Dùng đúng status để sau này lọc/báo cáo
+phân biệt được lý do đóng job.
+
+Kết quả in ra cuối mỗi lần chạy: số job đã kiểm tra, số `EXPIRED` do
+deadline, số `EXPIRED` do nguồn trả 404/410, số vẫn còn sống, và số cần
+kiểm tra tay.
 
 ---
 
@@ -266,6 +343,17 @@ chưa xác thực email — quên mật khẩu và chưa-verify là 2 vấn đ�
 khẩu là bị lộ mật khẩu, phiên đăng nhập cũ bị đá ra ngay, không đợi
 access token 30 phút tự hết hạn). Token sai/hết hạn → `400`.
 
+### Khoá tạm tài khoản do đăng nhập sai nhiều lần (rate-limit)
+
+`POST /auth/login` tự đếm số lần sai mật khẩu liên tiếp
+(`failed_login_count`) — **sai đủ 5 lần** thì khoá tạm tài khoản đó
+**15 phút** (`locked_until`, xem `api/security.py`:
+`FAILED_LOGIN_LOCK_THRESHOLD`/`FAILED_LOGIN_LOCK_MINUTES`), trả `403`
+kèm thông báo rõ ràng. Đăng nhập đúng mật khẩu bất kỳ lúc nào (kể cả
+trước khi chạm ngưỡng) tự reset bộ đếm về 0. Khoá này **khác**
+`is_active=false` (vô hiệu hoá vĩnh viễn do admin) — tự hết hạn sau 15
+phút, không cần admin can thiệp.
+
 ### Endpoints hiện có
 
 | Method | Path                                                                            | Việc                                                                                                               |
@@ -283,6 +371,7 @@ access token 30 phút tự hết hạn). Token sai/hết hạn → `400`.
 | POST   | `/companies/{company_id}/contacts`                                            | Thêm liên hệ HR — **role ss_team+**                                                                              |
 | PATCH  | `/companies/{company_id}/contacts/{contact_id}`                               | Sửa liên hệ HR — **role ss_team+**                                                                                |
 | DELETE | `/companies/{company_id}/contacts/{contact_id}`                               | Xoá mềm liên hệ HR (`is_active=false`, giữ lịch sử) — **role ss_team+**                                          |
+| DELETE | `/companies/{company_id}/contacts/{contact_id}/hard`                          | Xoá THẬT liên hệ HR — **role ss_team+**, `409` nếu contact còn `job_contact_links` (đang gắn với 1 job cụ thể)     |
 | POST   | `/me/applications`                                                            | Học viên ứng tuyển 1 job — 409 nếu đã ứng tuyển, 400 nếu job không `OPEN`                                          |
 | GET    | `/me/applications`                                                            | Danh sách job mình đã ứng tuyển                                                                                    |
 | DELETE | `/me/applications/{job_id}`                                                   | Huỷ ứng tuyển                                                                                                      |
@@ -307,6 +396,7 @@ access token 30 phút tự hết hạn). Token sai/hết hạn → `400`.
 | POST   | `/auth/users`                                                                 | Admin tạo hộ tài khoản mới (chọn được role) — **role admin**                                                    |
 | GET    | `/auth/users`                                                                 | Danh sách toàn bộ tài khoản — **role ss_team+**                                                                  |
 | PATCH  | `/auth/users/{id}/role`                                                      | Đổi role tài khoản khác (không tự đổi role chính mình) — **role admin**                                          |
+| PATCH  | `/auth/users/{id}/active-status`                                             | Vô hiệu hoá/kích hoạt lại tài khoản khác (không tự khoá chính mình) — **role admin**. Không revoke JWT access token đang có hiệu lực ngay lập tức (tối đa ~30 phút), chỉ chặn lần login/refresh tiếp theo |
 
 Xem chi tiết body/response từng endpoint trong `API_README.md`. Tài
 khoản `ss_team`/`admin` **luôn ẩn** `phone`/`track` trong mọi response —
@@ -368,9 +458,14 @@ Business Analysis 31, Data Scientist 20, Data Analysis 20.
 
 **Đã phát hiện 1 cặp job trùng nội dung thật** (0 `tax_id` trùng, 0
 `source_url` trùng, nhưng 1 cặp `content_hash` trùng — 2 job "Fullstack
-Developer" cùng nội dung, tạo cách nhau ~11 giây) — đúng cảnh báo race
-condition ở [Crawl job](#crawl-job). Soát bằng `v_duplicate_job_candidates`,
-chưa dọn tay.
+Developer" cùng nội dung, tạo cách nhau ~11 giây). ⚠️ Đây là **snapshot dữ
+liệu cũ** chụp TRƯỚC khi vá bug repost bên dưới — cặp job này **chưa được
+dọn tay** (soát bằng `v_duplicate_job_candidates`), nhưng nguyên nhân sinh
+ra nó (TopCV cấp `source_url` mới khi đăng lại cùng tin) **đã được chặn ở
+code từ giờ trở đi** — xem [Bug đã sửa: job trùng nội dung do đăng lại
+(repost)](#bug-đã-sửa-job-trùng-nội-dung-do-đăng-lại-repost-082026). Không
+nên hiểu nhầm là bug này vẫn còn nguyên, chỉ là dữ liệu CŨ sinh ra trước
+bản vá vẫn còn tồn tại tới khi dọn tay.
 
 ### Bug đã sửa: sai đơn vị lương VietnamWorks (08/2026)
 
@@ -392,10 +487,104 @@ dùng chung cho mọi adapter, so khớp không phân biệt hoa/thường + kho
 trắng thừa, giữ đúng thứ tự xuất hiện đầu tiên. Chỉ áp dụng cho job crawl
 mới sau này — job cũ trong DB (nếu còn) cần soát tay bằng SQL nếu cần.
 
+### Bug đã sửa: lương "/năm" bị hiểu nhầm thành lương/tháng (08/2026)
+
+`normalize_salary()` trước đây chỉ trích số ra khỏi text lương rồi suy
+luận **đơn vị tiền tệ** (triệu/nghìn đồng) theo độ lớn con số, hoàn toàn
+không đọc **chu kỳ trả lương** ("/tháng" hay "/năm") trong text gốc —
+mọi mức lương crawl được mặc định coi là lương/tháng. 2 job thật ("iOS
+Developer", "Vendor Development") có raw text `"200tr-500tr ₫/năm"` bị
+lưu `salary_min`/`salary_max` y hệt như lương/tháng (sai lệch 12 lần).
+
+Đã sửa bằng cách thêm cột **`salary_period`** (`MONTH`/`YEAR`, xem
+`sql/migration_add_salary_period.sql`) và detect tín hiệu "/năm"/"annual"/
+"per year"/"yearly" trong text gốc — xem `_YEARLY_SALARY_MARKER` trong
+`normalize.py`. **Quyết định thiết kế:** `salary_min`/`salary_max` GIỮ
+NGUYÊN con số gốc theo đúng chu kỳ đã detect, KHÔNG tự chia 12 để quy
+đổi ra "tháng tương đương" (tránh mất độ chính xác, tránh áp đặt giả
+định quy đổi khi ghi vào DB — xem docstring `_YEARLY_SALARY_MARKER` để
+biết lý do đầy đủ). 2 record sai đã biết (iOS Dev, Vendor Development)
+**chưa được backfill lại** — vẫn cần soát tay hoặc chạy script backfill
+riêng (đọc `salary_raw_content` đã lưu sẵn trong `job_sources_log`) nếu
+muốn sửa 2 record cũ này.
+
+Job nhập tay qua `POST`/`PATCH /jobs` cũng đã hỗ trợ field `salary_period`
+(mặc định `MONTH`) — xem `API_README.md`.
+
+### Bug đã sửa: 4 job TopCV "Brand Pro" bị null toàn bộ nội dung (08/2026)
+
+4 job có URL dạng `topcv.vn/brand/<company>/tuyen-dung/...` (trang "Brand
+Pro" — gói trả phí cho nhà tuyển dụng) bị lưu `job_description`/
+`requirements`/`perks`/`required_skills` **rỗng hoàn toàn**, dù HTML fetch
+thành công (không phải lỗi mạng/bị chặn). Nguyên nhân: `fetch_job_full_detail()`
+trong `adapters/topcv.py` chỉ khớp selector class CSS của trang **thường**
+— trang Brand Pro dùng template hoàn toàn khác, không tag nào khớp — code
+trả về dict "rỗng-nhưng-không-None" nên job vẫn bị insert với field NULL
+âm thầm.
+
+Đã sửa bằng fallback: khi selector class CSS không tìm được nội dung, thử
+lại bằng cách quét theo **text heading** (giống cách `fetch_company_profile()`
+đã xử lý cho trang Brand Pro trước đó) — heading Brand Pro có khác biệt
+nhỏ so với trang thường (vd "Quyền lợi được hưởng" thay vì "Quyền lợi ứng
+viên"), đã xác nhận bằng HTML thật từ 2 job Brand Pro (HappyMoney "Business
+Analyst" + 1 job khác). Khi CẢ 2 cách đều không ra nội dung, log cảnh báo
+riêng "template mismatch" thay vì âm thầm lưu NULL, để dev biết ngay cần
+vá selector mới thay vì tự audit CSV. 4 job cũ **chưa được re-crawl lại**
+— cần chạy lại crawl cho 4 job này (hoặc đợi lượt crawl định kỳ tiếp theo
+tự vá qua nhánh "vá job cũ còn thiếu field", xem [Crawl job](#crawl-job)).
+
+### Bug đã sửa: VietnamWorks `typeWorkingId` lạ bị hiểu sai (08/2026)
+
+`typeWorkingId` (field số nguyên VietnamWorks trả về) chỉ được xác nhận
+chắc chắn 2 giá trị: `1` = Toàn thời gian, `3` = Thực tập — các giá trị
+khác trước đây bị map sai/để trống. Đối chiếu thực tế: 4 job có
+`typeWorkingId` không phải `1`/`3`/`0` đều hiện đúng "Hình thức làm việc:
+Khác" trên trang thật. Đã sửa: mọi `typeWorkingId` không khớp 2 giá trị
+đã xác nhận → fallback về `"Khác"` (map sang `OTHER` qua
+`normalize._WORK_TYPE_MAP` sẵn có) thay vì đoán bừa hoặc bỏ trống — xem
+`_work_type_text_from_id()` trong `adapters/vietnamworks.py`.
+
+### Bug đã sửa: job trùng nội dung do đăng lại (repost) (08/2026)
+
+Cơ chế chống trùng của pipeline trước đây chỉ so khớp theo `source_url`
+**chính xác từng ký tự**. TopCV/VietnamWorks gán `source_url`/job ID
+**mới** mỗi khi nhà tuyển dụng "làm mới" tin đăng để đẩy lên top tìm
+kiếm (rất phổ biến) — dù nội dung JD giống hệt job cũ, hệ thống coi là 2
+job riêng biệt và insert cả hai (case thật: 2 job "Fullstack Developer"
+cùng công ty, cùng nội dung, khác `source_url`, đăng cách nhau ~1 phút —
+xem [Tình trạng dữ liệu](#tình-trạng-dữ-liệu)).
+
+Đã sửa: sau khi resolve được `company_id`/`level_id`/`province_id` của
+job mới, kiểm tra xem đã có job nào cùng bộ khoá này (khớp đúng công
+thức `generate_job_hash()` mà trigger Postgres dùng để tính
+`content_hash`) chưa — nếu có, **bỏ qua hoàn toàn, không insert job
+mới** (đếm vào `stats["skipped_duplicate_repost"]`). Tái dùng thẳng
+`db.find_manual_job_duplicate()` (viết ban đầu cho luồng nhập tay) vì
+cùng bộ khoá so khớp.
+
+**Quyết định thiết kế (đơn giản hoá so với đề xuất ban đầu):** chỉ CHẶN
+insert trùng, **chưa** tự động "vá" job cũ bằng nội dung/deadline mới từ
+lượt crawl phát hiện repost này (khác nhánh "vá job cũ còn thiếu field"
+ở bước chống trùng theo `source_url`) — vì lượt đăng lại có thể đi kèm
+nội dung/deadline mới hơn thật sự, nhưng gộp 2 luồng "vá theo repost" và
+"vá theo thiếu field" cùng lúc sẽ phức tạp hơn cần thiết cho lần sửa
+này. Nếu cần cập nhật `source_url`/nội dung job cũ theo lượt repost mới
+nhất, đây là việc làm thêm sau, chưa nằm trong bản vá này.
+
 ### Việc còn tồn đọng
 
-- **Chưa sửa lỗi trùng job do race condition** khi crawl song song (xem
-  [Crawl job](#crawl-job)).
+- **Chưa sửa lỗi trùng job do race condition THUẬT SỰ** (2 lượt crawl
+  chạy chồng lên nhau cùng lúc) khi crawl song song (xem [Crawl
+  job](#crawl-job)) — KHÁC bug repost (2 lượt tuần tự, khác
+  `source_url`) đã fix, xem mục Bug đã sửa ở trên.
+- 2 record lương sai đã biết (iOS Dev, Vendor Development — xem [Bug đã
+  sửa: lương "/năm"](#bug-đã-sửa-lương-năm-bị-hiểu-nhầm-thành-lươngtháng-082026))
+  và 4 job TopCV Brand Pro null nội dung (xem [Bug đã sửa: Brand
+  Pro](#bug-đã-sửa-4-job-topcv-brand-pro-bị-null-toàn-bộ-nội-dung-082026))
+  **chưa được backfill/re-crawl lại** — code đã vá, nhưng data cũ trong
+  DB vẫn cần dọn tay riêng.
+- 1 cặp job "Fullstack Developer" trùng nội dung (case repost cũ, xem
+  [Tình trạng dữ liệu](#tình-trạng-dữ-liệu)) **chưa được dọn tay**.
 - **`company_size` (61%), `address` (46%), `linkedin_url` (28%) còn
   thiếu nhiều** — chạy thêm `get_company_fb_linkedin_link.py` /
   `enrich_company_web_info.py` để vá, hoặc chấp nhận vì nguồn crawl

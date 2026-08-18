@@ -27,6 +27,12 @@ class JobOut(BaseModel):
     salary_min: Optional[int] = None
     salary_max: Optional[int] = None
     salary_type: Optional[str] = None
+    salary_period: Optional[str] = Field(
+        default=None,
+        description="MONTH | YEAR — chu kỳ trả lương của salary_min/salary_max. "
+                    "Job cũ crawl trước 08/2026 (trước khi có cột này) mặc định "
+                    "'MONTH' ở tầng DB, không phải giá trị đã xác nhận thật.",
+    )
     deadline: Optional[date] = None
     job_status: Optional[str] = None
     source_url: Optional[str] = None
@@ -97,6 +103,13 @@ class JobCreate(BaseModel):
     salary_min: Optional[int] = Field(default=None, ge=0)
     salary_max: Optional[int] = Field(default=None, ge=0)
     salary_type: str = Field(default="NEGOTIABLE", description="RANGE | EXACT | UPTO | STARTING_FROM | NEGOTIABLE | UNPAID")
+    salary_period: str = Field(
+        default="MONTH",
+        description="MONTH | YEAR — chu kỳ trả lương của salary_min/salary_max. "
+                    "Job nhập tay KHÔNG qua normalize_salary() nên KHÔNG tự suy "
+                    "luận được từ text — nếu nhập lương NĂM, phải tự truyền "
+                    "'YEAR', không thì mặc định hiểu nhầm là lương/tháng.",
+    )
     deadline: Optional[date] = None
     parsed_content: Optional[ParsedContent] = Field(
         default=None,
@@ -117,6 +130,7 @@ class JobUpdate(BaseModel):
     salary_min: Optional[int] = Field(default=None, ge=0)
     salary_max: Optional[int] = Field(default=None, ge=0)
     salary_type: Optional[str] = Field(default=None, description="RANGE | EXACT | UPTO | STARTING_FROM | NEGOTIABLE | UNPAID")
+    salary_period: Optional[str] = Field(default=None, description="MONTH | YEAR — không gửi thì giữ nguyên giá trị cũ")
     deadline: Optional[date] = None
     job_status: Optional[str] = Field(default=None, description="OPEN | EXPIRED | CLOSED — dùng CLOSED để 'xoá mềm'")
     ss_team_notes: Optional[str] = None

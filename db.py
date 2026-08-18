@@ -950,6 +950,7 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
                        salary_min: Optional[int] = None,
                        salary_max: Optional[int] = None,
                        salary_type: str = "NEGOTIABLE",
+                       salary_period: str = "MONTH",
                        deadline=None,
                        parsed_content: Optional[dict] = None,
                        created_by: Optional[str] = None) -> str:
@@ -980,7 +981,14 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
     job nhập tay KHÔNG có chỗ lưu mô tả JD chi tiết (chỉ job crawl mới
     có), giờ mở field này cho cả 2 nguồn, dùng chung 1 cột JSONB
     job_postings.parsed_content, cùng cấu trúc pipeline crawl đang
-    dùng (xem pipeline._build_parsed_content_and_raw())."""
+    dùng (xem pipeline._build_parsed_content_and_raw()).
+
+    salary_period (thêm 08/2026, xem sql/migration_add_salary_period.sql):
+    "MONTH" | "YEAR" — mặc định "MONTH". Job nhập tay KHÔNG qua
+    normalize_salary() (staff tự gõ salary_min/max sẵn số VNĐ/USD), nên
+    KHÔNG tự suy luận được period từ text như job crawl — staff phải tự
+    chọn đúng "YEAR" qua API nếu nhập lương năm, nếu không sẽ mặc định
+    hiểu là lương/tháng (giữ nguyên hành vi trước khi có cột này)."""
     existing_job_id = find_manual_job_duplicate(
         conn, company_id=company_id, job_title=job_title,
         level_id=level_id, province_id=province_id,
@@ -1007,6 +1015,7 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
         salary_min=salary_min,
         salary_max=salary_max,
         salary_type=salary_type,
+        salary_period=salary_period,
         source_url=source_url,
         source_name="MANUAL",
         deadline=deadline,
@@ -1024,6 +1033,7 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
                salary_min: Optional[int] = None,
                salary_max: Optional[int] = None,
                salary_type: Optional[str] = None,
+               salary_period: Optional[str] = None,
                deadline=None,
                job_status: Optional[str] = None,
                ss_team_notes: Optional[str] = None,
@@ -1051,6 +1061,11 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     perks, required_skills} sẽ GHI ĐÈ TOÀN BỘ giá trị cũ (không merge
     từng key con — client tự gộp với giá trị cũ nếu chỉ muốn sửa 1 phần,
     lấy giá trị cũ qua GET /jobs/{id} trước khi PATCH).
+
+    salary_period (thêm 08/2026): "MONTH" | "YEAR" — dùng pattern optional
+    thường (bỏ qua nếu None) giống salary_type, KHÔNG dùng cờ has_* như
+    salary_min/max, vì đây là enum chữ chứ không phải số — không có
+    trường hợp "0 khác None" cần phân biệt ở đây.
 
     Trả False nếu job_id không tồn tại (không có gì để update), True nếu
     đã update thành công — route dùng giá trị này để trả 404 đúng lúc."""
@@ -1087,6 +1102,9 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     if salary_type is not None:
         updates.append("salary_type = %s")
         values.append(salary_type)
+    if salary_period is not None:
+        updates.append("salary_period = %s")
+        values.append(salary_period)
     if deadline is not None:
         updates.append("deadline = %s")
         values.append(deadline)
@@ -1135,7 +1153,7 @@ def job_exists_by_id(conn, job_id: str) -> bool:
 
 _JOB_SELECT_COLUMNS = """
         jp.job_id, jp.job_title, jp.matching_industry, jp.work_type,
-        jp.currency, jp.salary_min, jp.salary_max, jp.salary_type,
+        jp.currency, jp.salary_min, jp.salary_max, jp.salary_type, jp.salary_period,
         jp.deadline, jp.job_status, jp.source_url, jp.created_at, jp.updated_at,
         jp.created_by, jp.updated_by,
         c.company_id, c.company_name,
