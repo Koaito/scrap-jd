@@ -15,6 +15,14 @@ from province_alias import resolve_province_alias
 
 FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixture_topcv_listing.html")
 JOB_DETAIL_FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixture_topcv_job_detail.html")
+# Trang "/brand/<company>/tuyen-dung/..." (Brand Pro) — template HTML
+# khác hẳn trang thường, xem docstring fetch_job_full_detail() trong
+# adapters/topcv.py mục "BUG ĐÃ SỬA". File fixture lấy từ view-source
+# thật (08/2026, job "Business Analyst" @ HappyMoney, chỉ đoạn nội dung
+# chính, không phải HTML nguyên trang).
+JOB_DETAIL_BRAND_PRO_FIXTURE_PATH = os.path.join(
+    os.path.dirname(__file__), "fixture_topcv_job_detail_brandpro.html"
+)
 
 
 def test_listing_and_normalize() -> bool:
@@ -105,6 +113,114 @@ def test_job_full_detail() -> bool:
     if normalize.normalize_deadline("không có ngày") is not None:
         ok = False
         print("  !! normalize_deadline(text lạ) phải trả None !!")
+
+    print()
+    return ok
+
+
+def test_job_full_detail_brand_pro() -> bool:
+    """Test fetch_job_full_detail() cho template Brand Pro
+    ("/brand/<company>/tuyen-dung/..."), KHÁC hẳn trang thường ở test
+    test_job_full_detail() phía trên — regression test cho bug đã sửa
+    08/2026 (4 job Brand Pro bị lưu parsed_content/deadline = NULL vì
+    parser cũ chỉ nhận diện template trang thường)."""
+    print("--- Test fetch_job_full_detail() [Brand Pro] ---")
+    ok = True
+
+    with open(JOB_DETAIL_BRAND_PRO_FIXTURE_PATH, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    adapter = TopCVAdapter()
+    adapter._fetch_html = lambda url: html  # tránh gọi internet thật khi test
+
+    detail = adapter.fetch_job_full_detail(
+        "https://www.topcv.vn/brand/happymoney/tuyen-dung/business-analyst-j2166715.html"
+    )
+    print(f"  work_type       : {detail.get('work_type')!r}")
+    print(f"  deadline_text   : {detail.get('deadline_text')!r}")
+    print(f"  job_description : {detail.get('job_description')[:60]!r}...")
+    print(f"  requirements    : {detail.get('requirements')[:60]!r}...")
+    print(f"  perks           : {detail.get('perks')[:60]!r}...")
+    print(f"  required_skills : {detail.get('required_skills')!r}")
+
+    checks = [
+        # Brand Pro KHÔNG có khối "Thông tin chung"/work_type -> "" là
+        # ĐÚNG (khác với NULL do lỗi parse), không phải bug.
+        # ĐÃ SỬA LẠI: work_type Brand Pro KHÔNG rỗng — kết luận "trang
+        # không có field này" trước đó là SAI (xem docstring
+        # fetch_job_full_detail() mục "Loại hình làm việc"). Field này
+        # tồn tại thật, nằm trong khối sidebar riêng
+        # "premium-job-general-information", khác hẳn khối JD chính.
+        (detail.get("work_type") == "Toàn thời gian", "work_type parse SAI (khối premium-job-general-information)"),
+        (detail.get("deadline_text") == "05/09/2026", "deadline_text parse SAI (class riêng Brand Pro)"),
+        ("Tiếp nhận" in detail.get("job_description", ""), "job_description rỗng/SAI"),
+        ("Business Analyst" in detail.get("requirements", ""), "requirements rỗng/SAI"),
+        # Brand Pro dùng heading "Quyền lợi được hưởng", KHÁC "Quyền lợi
+        # ứng viên" của trang thường -> đây là phần dễ tái phát bug nhất
+        # nếu ai đó sau này sửa lại điều kiện match heading.
+        ("Mức lương" in detail.get("perks", ""), "perks rỗng/SAI (heading 'Quyền lợi được hưởng' không khớp)"),
+        # Brand Pro không có tag "Kỹ năng cần có" rời -> [] là ĐÚNG.
+        (detail.get("required_skills") == [], "required_skills phải rỗng ở Brand Pro"),
+    ]
+    for passed, msg in checks:
+        if not passed:
+            ok = False
+            print(f"  !! {msg} !!")
+
+    parsed_deadline = normalize.normalize_deadline(detail.get("deadline_text", ""))
+    print(f"  normalize_deadline -> {parsed_deadline}")
+    if parsed_deadline != date(2026, 9, 5):
+        ok = False
+        print("  !! normalize_deadline SAI !!")
+
+    parsed_work_type = normalize.normalize_work_type(detail.get("work_type", ""))
+    print(f"  normalize_work_type -> {parsed_work_type}")
+    if parsed_work_type != "FULL_TIME":
+        ok = False
+        print("  !! normalize_work_type SAI (kiểm tra có bắt nhầm 'Hình thức làm việc' / Onsite-Remote không) !!")
+
+    print()
+    return ok
+
+
+def test_normalize_salary_period() -> bool:
+    """Test normalize_salary() — nhận diện chu kỳ lương (MONTH mặc định
+    vs YEAR khi text gốc có "/năm" hoặc biến thể tiếng Anh).
+
+    Bug thật đã sửa (08/2026): text "200tr-500tr ₫/năm" bị lưu salary_min/
+    max y hệt lương/tháng (200,000,000-500,000,000) vì code cũ hoàn toàn
+    không đọc chu kỳ. Case đầu tiên dưới đây tái hiện đúng bug đó."""
+    print("--- Test normalize_salary() salary_period ---")
+    ok = True
+
+    cases = [
+        # (input, salary_min kỳ vọng, salary_max kỳ vọng, salary_period kỳ vọng)
+        ("200tr-500tr ₫/năm", 200_000_000, 500_000_000, "YEAR"),
+        ("10 - 30 triệu", 10_000_000, 30_000_000, "MONTH"),          # không có chu kỳ -> mặc định MONTH
+        ("15tr-30tr ₫/tháng", 15_000_000, 30_000_000, "MONTH"),
+        ("Từ 300 triệu/năm", 300_000_000, None, "YEAR"),
+        ("Tới 600 triệu / năm", None, 600_000_000, "YEAR"),
+        ("$ 50,000 annual", 50_000, 50_000, "YEAR"),                  # biến thể tiếng Anh
+        ("Thoả thuận", None, None, "MONTH"),                          # rỗng -> mặc định MONTH, không crash
+        # salary_text luôn được adapter tách riêng qua regex lương
+        # chuyên biệt (SALARY_PATTERN ở topcv.py, JOB_SALARY_TEXT_KEYS ở
+        # vietnamworks.py), không lẫn câu mô tả nhiều số khác trong thực
+        # tế -> không cần (và không nên) cố xử lý case nhiều số lẫn lộn
+        # kiểu "X năm ... Y triệu" ở tầng normalize_salary() này.
+        ("15tr/năm (thử việc)", 15_000_000, 15_000_000, "YEAR"),
+    ]
+
+    for input_text, exp_min, exp_max, exp_period in cases:
+        result = normalize.normalize_salary(input_text)
+        print(
+            f"  normalize_salary({input_text!r}) = "
+            f"min={result.salary_min} max={result.salary_max} period={result.salary_period}"
+        )
+        if (result.salary_min, result.salary_max, result.salary_period) != (exp_min, exp_max, exp_period):
+            ok = False
+            print(
+                f"  !! SAI, kỳ vọng min={exp_min} max={exp_max} period={exp_period} !!"
+            )
 
     print()
     return ok
@@ -209,6 +325,8 @@ def main():
     ok = True
     ok = test_listing_and_normalize() and ok
     ok = test_job_full_detail() and ok
+    ok = test_job_full_detail_brand_pro() and ok
+    ok = test_normalize_salary_period() and ok
     ok = test_normalize_work_type() and ok
     ok = test_clean_company_name() and ok
     ok = test_resolve_province_alias() and ok

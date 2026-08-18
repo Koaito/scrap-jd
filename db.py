@@ -781,6 +781,7 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
                 salary_raw_text: str = "", deadline=None,
                 parsed_content: Optional[dict] = None,
                 raw_jd_content: str = "",
+                salary_period: str = "MONTH",
                 created_by: Optional[str] = None) -> str:
     """Insert 1 job_postings + 1 job_sources_log tương ứng. content_hash được
     trigger Postgres tự tính (xem sql/schema.sql mục 5).
@@ -791,20 +792,24 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
     raw_jd_content: text đã tách theo heading (KHÔNG phải HTML thô — HTML
     thô có nhiều rác kỹ thuật như SVG/class không có giá trị tra cứu lại)
     -> lưu vào job_sources_log.raw_jd_content, làm bằng chứng gốc để đối
-    chiếu khi parsed_content bị lệch."""
+    chiếu khi parsed_content bị lệch.
+    salary_period: "MONTH" | "YEAR" — chu kỳ trả lương của salary_min/max
+    (xem normalize.NormalizedSalary.salary_period + sql/migration_add_
+    salary_period.sql). Mặc định "MONTH" khớp hành vi cũ."""
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO job_postings (
                 company_id, job_title, matching_industry, level_id, province_id,
                 work_type, currency, salary_min, salary_max, salary_type,
-                job_status, source_url, deadline, parsed_content, created_by
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s)
+                salary_period, job_status, source_url, deadline, parsed_content,
+                created_by
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s)
             RETURNING job_id
             """,
             (company_id, job_title, matching_industry, level_id, province_id,
-             work_type, currency, salary_min, salary_max, salary_type, source_url,
-             deadline,
+             work_type, currency, salary_min, salary_max, salary_type, salary_period,
+             source_url, deadline,
              json.dumps(parsed_content, ensure_ascii=False) if parsed_content else None,
              created_by),
         )

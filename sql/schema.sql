@@ -15,6 +15,14 @@ DO $$ BEGIN
     );
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
+-- Chu kỳ trả lương của salary_min/salary_max (xem
+-- sql/migration_add_salary_period.sql để biết lý do tách riêng, không tự
+-- quy đổi ra "tháng tương đương"). Mặc định MONTH khớp hành vi
+-- normalize_salary() khi text gốc không có tín hiệu chu kỳ rõ ràng.
+DO $$ BEGIN
+    CREATE TYPE salary_period_enum AS ENUM ('MONTH', 'YEAR');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
 DO $$ BEGIN
     CREATE TYPE job_status_enum AS ENUM (
         'OPEN', 'EXPIRED', 'CLOSED'
@@ -215,6 +223,7 @@ CREATE TABLE IF NOT EXISTS job_postings (
     salary_min        BIGINT,
     salary_max        BIGINT,
     salary_type       salary_type_enum,
+    salary_period     salary_period_enum NOT NULL DEFAULT 'MONTH',
     deadline          DATE,
     job_status        job_status_enum NOT NULL DEFAULT 'OPEN',
     ss_team_notes     TEXT,

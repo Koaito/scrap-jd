@@ -20,13 +20,47 @@ class NormalizedSalary:
     salary_min: Optional[int]
     salary_max: Optional[int]
     salary_type: str         # khớp salary_type_enum trong schema
+    salary_period: str = "MONTH"  # "MONTH" | "YEAR" — khớp salary_period_enum
+
+
+# Tín hiệu nhận biết lương NĂM trong text gốc (khác lương/tháng, vốn là
+# mặc định). Chỉ bắt "năm" khi đi NGAY SAU dấu "/" (khớp đúng cách nguồn
+# ghi chu kỳ trả lương, vd "₫/năm", "/ năm") — CỐ Ý không bắt chữ "năm"
+# đứng lẻ trong text, vì "năm" còn xuất hiện trong ngữ cảnh khác không
+# liên quan chu kỳ lương (vd "3 năm kinh nghiệm" nếu lỡ lẫn vào cùng
+# chuỗi) -> bắt lẻ dễ nhận nhầm dương tính giả. Kèm biến thể tiếng Anh
+# "annual"/"per year"/"yearly" hay gặp ở job cấp cao/nước ngoài, các biến
+# thể này không có nguy cơ đụng "years of experience" vì luôn đi thành
+# cụm cố định.
+#
+# BUG ĐÃ SỬA (08/2026, phát hiện qua audit thủ công 2 job "iOS Developer"
+# và "Vendor Development" bị lưu salary_min/max SAI GẤP 12 LẦN): code cũ
+# hoàn toàn không đọc chu kỳ trả lương trong text gốc, mặc định MỌI mức
+# lương crawl được là lương/tháng. Text "200tr-500tr ₫/năm" (rõ ràng là
+# lương NĂM) bị parse y hệt "200tr-500tr ₫/tháng" -> lưu thẳng
+# 200,000,000-500,000,000 vào salary_min/max như thể đó là mức lương
+# THÁNG, trong khi thực tế đây là mức lương CẢ NĂM.
+#
+# QUYẾT ĐỊNH THIẾT KẾ: salary_min/salary_max GIỮ NGUYÊN con số gốc theo
+# đúng chu kỳ đã detect (không tự chia 12 để quy ra "tháng tương
+# đương") — salary_period cho biết con số đó đang ở chu kỳ nào. Lý do:
+# (1) chia 12 tạo số lẻ không khớp salary_raw_content gốc, khó đối chiếu
+# khi audit; (2) "quy đổi tương đương" là 1 phép biến đổi có giả định
+# (job ghi "300tr/năm" có thể đã gồm thưởng/lương tháng 13, không chắc
+# chia đều 12 tháng là đúng) nên để tầng hiển thị/lọc tự quyết định cách
+# quy đổi khi cần, thay vì áp đặt sẵn lúc ghi vào DB. Xem
+# sql/migration_add_salary_period.sql.
+_YEARLY_SALARY_MARKER = re.compile(
+    r"/\s*n[ăa]m\b|\bannual(?:ly)?\b|\bper\s*year\b|\byearly\b",
+    re.IGNORECASE,
+)
 
 
 def normalize_salary(salary_text: str) -> NormalizedSalary:
     """
     Parse text lương thô (TopCV hoặc VietnamWorks) thành dữ liệu có cấu trúc.
 
-    Ví dụ input -> output:
+    Ví dụ input -> output (salary_period mặc định MONTH trừ khi ghi khác):
       "Thoả thuận"              -> NEGOTIABLE, (None, None)
       "10 - 30 triệu"           -> RANGE, (10_000_000, 30_000_000), VNĐ
       "Tới 3,000 USD"           -> UPTO, (None, 3000), USD
@@ -35,6 +69,9 @@ def normalize_salary(salary_text: str) -> NormalizedSalary:
       "15tr-30tr ₫/tháng"       -> RANGE, (15_000_000, 30_000_000), VNĐ  (VietnamWorks)
       "12,000-30,000 ₫/tháng"   -> RANGE, (12_000_000, 30_000_000), VNĐ  (VietnamWorks, xem BUG bên dưới)
       "$ 3,000-5,000 /tháng"    -> RANGE, (3_000, 5_000), USD          (VietnamWorks)
+      "200tr-500tr ₫/năm"       -> RANGE, (200_000_000, 500_000_000), VNĐ, period=YEAR
+                                   (số GIỮ NGUYÊN theo chu kỳ năm, KHÔNG chia 12 —
+                                    xem docstring _YEARLY_SALARY_MARKER)
       ""                        -> NEGOTIABLE, (None, None)  (mặc định an toàn)
 
     BUG ĐÃ SỬA (08/2026, phát hiện qua đối chiếu dữ liệu thật đã crawl):
@@ -68,7 +105,7 @@ def normalize_salary(salary_text: str) -> NormalizedSalary:
     đúng là USD như cũ)."""
     text = (salary_text or "").strip()
     if not text or "thoả thuận" in text.lower() or "thỏa thuận" in text.lower():
-        return NormalizedSalary("VNĐ", None, None, "NEGOTIABLE")
+        return NormalizedSalary("VNĐ", None, None, "NEGOTIABLE", "MONTH")
 
     lowered = text.lower()
 
@@ -86,6 +123,11 @@ def normalize_salary(salary_text: str) -> NormalizedSalary:
             "cao nguồn hiển thị lẫn/sai ký hiệu tiền tệ.", text,
         )
 
+    # Chu kỳ trả lương — xem docstring _YEARLY_SALARY_MARKER. Mặc định
+    # "MONTH" khi text không có tín hiệu "/năm"/"annual"/... rõ ràng
+    # (khớp hành vi cũ, vì đa số job crawl được ghi lương/tháng).
+    salary_period = "YEAR" if _YEARLY_SALARY_MARKER.search(lowered) else "MONTH"
+
     # Bỏ hết ký tự không phải số / dấu chấm phẩy để tách các con số
     numbers = [
         _parse_number(n) for n in re.findall(r"[\d][\d.,]*", text)
@@ -95,7 +137,7 @@ def normalize_salary(salary_text: str) -> NormalizedSalary:
     currency = "USD" if is_usd else "VNĐ"
 
     if not numbers:
-        return NormalizedSalary(currency, None, None, "NEGOTIABLE")
+        return NormalizedSalary(currency, None, None, "NEGOTIABLE", salary_period)
 
     def _scale(n: float) -> int:
         """Quy đổi 1 số thô -> đơn vị đồng thật. USD không quy đổi gì cả
@@ -107,19 +149,21 @@ def normalize_salary(salary_text: str) -> NormalizedSalary:
 
     if ("tới" in lowered or "toi " in lowered or lowered.startswith("upto")
             or "up to" in lowered):
-        return NormalizedSalary(currency, None, _scale(numbers[0]), "UPTO")
+        return NormalizedSalary(currency, None, _scale(numbers[0]), "UPTO", salary_period)
 
     if "từ" in lowered or lowered.startswith("tu "):
-        return NormalizedSalary(currency, _scale(numbers[0]), None, "STARTING_FROM")
+        return NormalizedSalary(
+            currency, _scale(numbers[0]), None, "STARTING_FROM", salary_period
+        )
 
     if len(numbers) >= 2:
         lo, hi = _scale(numbers[0]), _scale(numbers[1])
         if lo > hi:
             lo, hi = hi, lo
-        return NormalizedSalary(currency, lo, hi, "RANGE")
+        return NormalizedSalary(currency, lo, hi, "RANGE", salary_period)
 
     val = _scale(numbers[0])
-    return NormalizedSalary(currency, val, val, "EXACT")
+    return NormalizedSalary(currency, val, val, "EXACT", salary_period)
 
 
 def _vnd_multiplier(number: float) -> int:

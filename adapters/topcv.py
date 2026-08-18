@@ -527,6 +527,58 @@ class TopCVAdapter(BaseAdapter):
     # UI thu gọn bằng CSS — đã xác nhận bằng view-source thật: toàn bộ
     # nội dung đã nằm sẵn trong HTML server trả về, không cần xử lý gì
     # thêm để lấy phần "bị ẩn".
+    #
+    # BUG ĐÃ SỬA (08/2026, phát hiện qua audit dữ liệu thật — 4 job dạng
+    # URL "/brand/<company>/tuyen-dung/..." bị lưu parsed_content/
+    # work_type/deadline = NULL toàn bộ dù _fetch_html() lấy HTML thành
+    # công): trang Brand Pro dùng TEMPLATE HOÀN TOÀN KHÁC trang thường,
+    # KHÔNG có class "box-job-information-detail-item" nào cả -> vòng lặp
+    # find_all() ở trên luôn rỗng, deadline_box cũng luôn None -> mọi
+    # field trả về "" một cách im lặng (không phải fetch lỗi, HTML fetch
+    # OK, chỉ là selector sai template).
+    #
+    # Xác nhận bằng HTML thật lấy qua view-source (không phải DevTools)
+    # từ 2 job Brand Pro thật (08/2026, HappyMoney "Business Analyst" +
+    # Elcom "Geospatial Data Engineer"):
+    #   <div class="premium-job-description__box ...">
+    #       <h2 class="premium-job-description__box--title">
+    #           <heading text>
+    #       </h2>
+    #       <div class="premium-job-description__box--content">...</div>
+    #   </div>
+    # Heading text ở Brand Pro có 1 điểm khác trang thường: "Quyền lợi
+    # được hưởng" (Brand Pro) thay vì "Quyền lợi ứng viên" (trang thường)
+    # -> phải match CẢ 2 cách viết cho field "perks", nếu không sẽ lại
+    # bỏ sót y hệt kiểu bug này.
+    #
+    # Deadline ở Brand Pro nằm trong
+    #   <div class="job-detail__info--deadline">
+    #       Hạn nộp hồ sơ:
+    #       <div class="job-detail__info--deadline-date">dd/mm/yyyy</div>
+    #       ...
+    #   </div>
+    # KHÔNG dùng class "date"/"box-applied-cv" như trang thường -> bám
+    # thêm class "job-detail__info--deadline-date" làm phương án dự
+    # phòng, thử SAU khi đã thử cách cũ (trang thường ưu tiên trước vì
+    # đã xác nhận nhiều lần, tránh đảo thứ tự làm hỏng case cũ).
+    #
+    # "Loại hình làm việc" — ĐÃ TỪNG KẾT LUẬN SAI (sửa lại 08/2026): lúc
+    # đầu tưởng trang Brand Pro không có field này (không thấy class
+    # "box-job-information-general-info-list__item" của trang thường) và
+    # kết luận vội để work_type = "" là đúng bản chất trang. Sau khi có
+    # thêm HTML thật (view-source, khối "Thông tin chung" nằm ở sidebar
+    # phải trang, KHÔNG nằm cùng khối JD chính) mới xác nhận field NÀY
+    # VẪN CÓ, chỉ là nằm trong 1 khối class khác hẳn:
+    # "premium-job-general-information" (không phải
+    # "premium-job-description__box") — xem nhánh xử lý work_type riêng
+    # trong fetch_job_full_detail() bên dưới. Bài học: "không tìm thấy
+    # class cũ" không đồng nghĩa "trang không có field đó" — cần xác nhận
+    # bằng HTML thật trước khi kết luận 1 field là "rỗng đúng bản chất".
+    #
+    # "Kỹ năng cần có" (tag rời): đã xác nhận bằng HTML thật, trang Brand
+    # Pro KHÔNG có khối "required-tag" nào trong toàn trang -> để [] là
+    # ĐÚNG với trang Brand Pro (khác với "chưa parse được"), không cố
+    # suy luận thêm.
     # ------------------------------------------------------------------
     def fetch_job_full_detail(self, source_url: str) -> Optional[dict]:
         """Trả về dict CHỈ KHI fetch HTML thành công — dict khi đó vẫn có
@@ -558,6 +610,7 @@ class TopCVAdapter(BaseAdapter):
         soup = BeautifulSoup(html, "html.parser")
 
         # --- 3 khối nội dung lớn: Mô tả công việc / Yêu cầu ứng viên / Quyền lợi ---
+        # Thử template trang thường TRƯỚC (đã xác nhận nhiều lần).
         for block in soup.find_all("div", class_="box-job-information-detail-item"):
             heading = block.find("h2", class_="box-job-information-detail-item__title--title")
             if not heading:
@@ -588,9 +641,63 @@ class TopCVAdapter(BaseAdapter):
                     if title_el.get_text(strip=True) == "Loại hình làm việc":
                         result["work_type"] = desc_el.get_text(strip=True)
 
+        # --- Fallback template Brand Pro (chỉ chạy khi template trang
+        # thường ở trên không tìm thấy gì — tránh chạy thừa/gộp nhầm dữ
+        # liệu nếu 1 trang nào đó lỡ có cả 2 loại class do TopCV đổi giao
+        # diện giữa chừng) ---
+        if not any([result["job_description"], result["requirements"], result["perks"]]):
+            for block in soup.find_all("div", class_="premium-job-description__box"):
+                heading = block.find("h2", class_="premium-job-description__box--title")
+                if not heading:
+                    continue
+                heading_text = heading.get_text(strip=True)
+                content_div = block.find("div", class_="premium-job-description__box--content")
+                content = content_div.get_text("\n", strip=True) if content_div else ""
+
+                if heading_text == "Mô tả công việc":
+                    result["job_description"] = content
+                elif heading_text == "Yêu cầu ứng viên":
+                    result["requirements"] = content
+                elif heading_text in ("Quyền lợi ứng viên", "Quyền lợi được hưởng"):
+                    result["perks"] = content
+                # work_type Brand Pro KHÔNG nằm trong khối
+                # "premium-job-description__box" này — xem nhánh riêng
+                # bên dưới (premium-job-general-information).
+
+        # work_type Brand Pro — nằm trong 1 khối SIDEBAR HOÀN TOÀN RIÊNG
+        # ("premium-job-general-information"), KHÁC khối JD chính
+        # ("premium-job-description__box") ở trên. Đây là chỗ đã từng
+        # kết luận SAI (đã sửa 08/2026): lúc đầu tưởng Brand Pro không có
+        # field "Loại hình làm việc" nên để work_type = "" mặc định, sau
+        # xác nhận lại bằng HTML thật (view-source) thì field NÀY VẪN CÓ,
+        # chỉ là nằm ở vị trí khác hẳn trang thường.
+        #
+        # BẪY cần tránh: có 1 field khác tên rất giống —
+        # "Hình thức làm việc" (nghĩa là Onsite/Remote/Hybrid, vd "Làm
+        # việc tại văn phòng / Onsite") — nằm ngay sát bên trong CÙNG 1
+        # khối, dùng đúng cấu trúc HTML lặp lại (label/value row) như
+        # "Loại hình làm việc" (nghĩa là Toàn thời gian/Bán thời gian).
+        # Nếu match lỏng tay (vd contains thay vì so khớp chính xác từng
+        # ký tự) sẽ dễ lấy nhầm giá trị "Onsite" gán vào work_type.
+        # Chỉ xử lý nếu chưa lấy được work_type từ template trang thường
+        # ở trên (tránh ghi đè nếu 1 trang lỡ có cả 2 loại class).
+        if not result["work_type"]:
+            general_info = soup.find("div", class_="premium-job-general-information")
+            if general_info:
+                for row in general_info.find_all(
+                    "div", class_="premium-job-general-information__content--row"
+                ):
+                    label_el = row.find("div", class_="general-information-data__label")
+                    value_el = row.find("div", class_="general-information-data__value")
+                    if not label_el or not value_el:
+                        continue
+                    if label_el.get_text(strip=True) == "Loại hình làm việc":
+                        result["work_type"] = value_el.get_text(strip=True)
+
         # --- Kỹ năng cần có: lấy trực tiếp từ tag TopCV, không suy luận ---
         # (chỉ dùng khi TopCV có sẵn tag này; nếu không có thì để rỗng —
-        # không đáng để thêm 1 tầng suy luận/AI chỉ để lấp đầy field này)
+        # không đáng để thêm 1 tầng suy luận/AI chỉ để lấp đầy field này.
+        # Brand Pro không có khối này -> tự động để rỗng, đúng thực tế).
         for tag in soup.find_all("div", class_="required-tag"):
             title_el = tag.find("h3", class_="required-tag__content--title")
             if title_el and title_el.get_text(strip=True) == "Kỹ năng cần có":
@@ -600,12 +707,17 @@ class TopCVAdapter(BaseAdapter):
                         s.strip() for s in desc_el.get_text(strip=True).split(",") if s.strip()
                     ]
 
-        # --- Hạn ứng tuyển: bám thẳng span.date trong box-applied-cv ---
+        # --- Hạn ứng tuyển: bám thẳng span.date trong box-applied-cv
+        # (trang thường) trước, sau đó thử class riêng của Brand Pro. ---
         deadline_box = soup.find("div", class_="box-applied-cv")
         if deadline_box:
             date_span = deadline_box.find("span", class_="date")
             if date_span:
                 result["deadline_text"] = date_span.get_text(strip=True)
+        if not result["deadline_text"]:
+            brand_pro_date = soup.find("div", class_="job-detail__info--deadline-date")
+            if brand_pro_date:
+                result["deadline_text"] = brand_pro_date.get_text(strip=True)
 
         return result
 
