@@ -83,6 +83,52 @@ VIETNAMWORKS_CATEGORIES = {
     },
 }
 
+# ------------------------------------------------------------------
+# CareerViet.vn — danh sách category khớp key 1:1 với TOPCV_CATEGORIES /
+# VIETNAMWORKS_CATEGORIES. "keyword" dùng để build URL search dạng
+# https://careerviet.vn/viec-lam/<keyword>-k-vi.html (đã xác nhận hoạt
+# động thật với keyword="vinfast" và keyword="data-engineer", xem
+# adapters/careerviet.py). CÁC KEYWORD CÒN LẠI (data-analyst,
+# data-scientist, software-engineer, business-analyst, ui-ux-design)
+# CHƯA được fetch thử thật trong phiên làm việc này -> để nguyên slug
+# suy luận theo cùng pattern, cần tự kiểm tra lại 1 lần bằng browser/
+# curl trước khi tin tưởng ra job đúng ngành trước khi chạy crawl thật
+# (xem TODO trong docstring đầu file careerviet.py, mục Phần 1 Discovery
+# còn dang dở).
+# ------------------------------------------------------------------
+CAREERVIET_CATEGORIES = {
+    "data-analyst": {
+        "label": "Data Analyst",
+        "keyword": "data-analyst",
+        "matching_industry": "Data Analysis",
+    },
+    "data-engineer": {
+        "label": "Data Engineer",
+        "keyword": "data-engineer",
+        "matching_industry": "Data Engineer",
+    },
+    "data-scientist": {
+        "label": "Data Scientist",
+        "keyword": "data-scientist",
+        "matching_industry": "Data Scientist",
+    },
+    "software-engineering": {
+        "label": "Software Engineering",
+        "keyword": "software-engineer",
+        "matching_industry": "Code",
+    },
+    "business-analyst": {
+        "label": "Business Analysis",
+        "keyword": "business-analyst",
+        "matching_industry": "Business Analysis",
+    },
+    "ui-ux-design": {
+        "label": "UI/UX Design",
+        "keyword": "ui-ux-design",
+        "matching_industry": "UI/UX Design",
+    },
+}
+
 # API search job của VietnamWorks
 VNW_SEARCH_URL = "https://ms.vietnamworks.com/job-search/v1.0/search"
 VNW_HITS_PER_PAGE = 50
