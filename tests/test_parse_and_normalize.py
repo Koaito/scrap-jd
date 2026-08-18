@@ -10,11 +10,15 @@ from datetime import date
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from adapters.topcv import TopCVAdapter
+from adapters.careerviet import CareerVietAdapter
 import normalize
 from province_alias import resolve_province_alias
 
 FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixture_topcv_listing.html")
 JOB_DETAIL_FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixture_topcv_job_detail.html")
+CAREERVIET_COMPANY_FIXTURE_PATH = os.path.join(
+    os.path.dirname(__file__), "fixture_careerviet_company_profile.html"
+)
 
 
 def test_listing_and_normalize() -> bool:
@@ -258,6 +262,59 @@ def test_resolve_province_alias() -> bool:
     return ok
 
 
+def test_careerviet_company_profile() -> bool:
+    """Test CareerVietAdapter.fetch_company_profile() bằng mẫu HTML thật
+    (fixture_careerviet_company_profile.html, trang công ty FPT Long
+    Châu, fetch 08/2026 — xem docstring fetch_company_profile() để biết
+    cấu trúc DOM thật đang bám vào)."""
+    print("--- Test CareerVietAdapter.fetch_company_profile() ---")
+    ok = True
+
+    with open(CAREERVIET_COMPANY_FIXTURE_PATH, "r", encoding="utf-8") as f:
+        html = f.read()
+
+    adapter = CareerVietAdapter.__new__(CareerVietAdapter)  # bỏ qua __init__, không cần session
+    adapter._fetch_html = lambda url: html  # tránh gọi internet thật khi test
+
+    result = adapter.fetch_company_profile(
+        "https://careerviet.vn/vi/nha-tuyen-dung/fake.html"
+    )
+    print(f"  address       : {result.get('address')!r}")
+    print(f"  company_size  : {result.get('company_size')!r}")
+    print(f"  real_website  : {result.get('real_website')!r}")
+    print(f"  industry      : {result.get('industry')!r}")
+    print(f"  tax_id        : {result.get('tax_id')!r}")
+    print(f"  description   : {result.get('description')[:60]!r}...")
+
+    checks = [
+        (
+            result.get("address")
+            == "379-381 Hai Bà Trưng, Phường Võ Thị Sáu, Quận 3, Thành phố Hồ Chí Minh",
+            "address parse SAI",
+        ),
+        (result.get("company_size") == "10.000-19.999", "company_size parse SAI"),
+        (result.get("real_website") == "https://tuyendung.frt.vn/", "real_website parse SAI"),
+        ("Long Châu" in result.get("description", ""), "description rỗng/SAI"),
+        # Mẫu thật KHÔNG có nhãn "Lĩnh vực hoạt động"/"Mã số thuế" -> phải
+        # rỗng "" (an toàn), KHÔNG được bịa dữ liệu.
+        (result.get("industry") == "", "industry phải rỗng khi mẫu không có nhãn này"),
+        (result.get("tax_id") == "", "tax_id phải rỗng khi mẫu không có nhãn này"),
+    ]
+    for passed, msg in checks:
+        if not passed:
+            ok = False
+            print(f"  !! {msg} !!")
+
+    # company_url rỗng -> trả dict rỗng an toàn, không crash / không fetch
+    empty = adapter.fetch_company_profile("")
+    if any(v for v in empty.values()):
+        ok = False
+        print("  !! fetch_company_profile('') phải trả toàn bộ field rỗng !!")
+
+    print()
+    return ok
+
+
 def main():
     ok = True
     ok = test_listing_and_normalize() and ok
@@ -266,6 +323,7 @@ def main():
     ok = test_normalize_work_type() and ok
     ok = test_clean_company_name() and ok
     ok = test_resolve_province_alias() and ok
+    ok = test_careerviet_company_profile() and ok
 
     print("=" * 50)
     print("KẾT QUẢ: " + ("✅ PASS" if ok else "❌ FAIL"))

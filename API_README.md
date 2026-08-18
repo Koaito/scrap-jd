@@ -270,11 +270,11 @@ không có text gốc để đọc, staff tự gõ sẵn số) — nếu nhập 
 định hiểu là lương/tháng (`salary_min`/`salary_max` LÀ mức lương năm
 nhưng bị hiển thị như đang là lương tháng).
 
-⚠️ **Frontend `mindx-jobs` (`/jobs/add`, `/jobs/<id>/edit`) hiện CHƯA có
-ô nhập `salary_period` trên form** — staff gọi thẳng API (Swagger/Postman/
-curl) mới set được field này; nhập qua form web sẽ luôn lưu `MONTH`. Đây
-là giới hạn đã biết, chưa nằm trong phạm vi bản vá backend này — xem
-`checklist-test-mindx-jobs.md` mục liên quan.
+⚠️ **~~Frontend `mindx-jobs` chưa có ô nhập `salary_period` trên form~~ —
+đã fix (08/2026):** `/jobs/add` và `/jobs/<id>/edit` giờ có ô "Chu kỳ trả
+lương" (Tháng/Năm) ngay sau "Loại lương" (xem repo `mindx-jobs`
+`templates/add_job.html` + `crawler_client.py`). Mặc định "Tháng" khi
+tạo job mới, khớp hành vi trước khi có field này.
 
 ### `PATCH /jobs/{job_id}` — sửa job
 
@@ -498,11 +498,6 @@ pool, vì tần suất chạy thấp (1 lần/script), không cần thiết.
 - **Thiếu `RESEND_API_KEY` không làm sập `POST /auth/register`** — tài
   khoản vẫn tạo thành công, chỉ email không gửi được (log lỗi, xem
   `api/email_service.py`).
-- **Frontend `mindx-jobs` chưa có ô nhập `salary_period` trên form
-  `/jobs/add`/`/jobs/<id>/edit`** — job nhập tay lương NĂM qua web sẽ
-  luôn lưu mặc định `MONTH`, chỉ set đúng được qua gọi thẳng API (xem
-  mục `POST /jobs` phía trên). Đây là việc frontend làm sau, không nằm
-  trong bản vá backend này.
 
 ## Việc CHƯA làm (để team quyết định có cần không)
 
@@ -512,8 +507,6 @@ pool, vì tần suất chạy thấp (1 lần/script), không cần thiết.
 - Trang xác nhận `GET /auth/verify-email` hiện trả HTML tĩnh đơn giản
   (frontend chưa có lúc code) — khi có frontend thật, nên đổi sang
   redirect về 1 URL frontend cụ thể.
-- Frontend `mindx-jobs` — ô nhập `salary_period` (xem Giới hạn đã biết ở
-  trên).
 - `PATCH /jobs/{job_id}` không tự "vá" `source_url`/nội dung job cũ khi
   pipeline crawl phát hiện đây là bản "đăng lại" (repost) của job đã có
   — hiện chỉ chặn insert job mới, giữ nguyên `source_url` của job cũ

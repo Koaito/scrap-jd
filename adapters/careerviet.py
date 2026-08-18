@@ -48,29 +48,49 @@ job_id=35C82AC4, fetch 08/2026):
    request KHÔNG đổi, chỉ đổi THỨ TỰ (fetch sớm hơn + cache lại, xem
    _detail_cache bên dưới, giống pattern VietnamWorksAdapter đã dùng).
 
-3. CHƯA XÁC NHẬN (để nguyên TODO, không giả vờ chắc chắn):
-   - Tham số phân trang thật của trang search (thử "?page=N", CHƯA
-     kiểm chứng bằng response thật — xem _build_page_url()). Nếu
-     CareerViet không hỗ trợ kiểu này, page 2 sẽ trả y hệt page 1 ->
-     toàn bộ job_url đã seen -> fetch_jobs() tự dừng an toàn (không
-     crawl lặp vô ích), nhưng cũng đồng nghĩa KHÔNG lấy được thêm job
-     nào ngoài trang 1 -> cần xác nhận lại bằng crawl thật trước khi
-     tin tưởng max_pages > 1 có tác dụng.
-   - Slug "keyword" cho 5/6 category trong CAREERVIET_CATEGORIES
-     (config.py) — chỉ "vinfast" (test công ty) và "data-engineer" đã
-     được fetch thử thật; các keyword còn lại suy luận theo cùng
-     pattern, CẦN kiểm tra lại bằng browser/curl trước khi chạy thật.
-   - robots.txt của careerviet.vn — chưa xác nhận được nội dung qua
-     tool search (khác hẳn vieclamit.careerbuilder.vn đã biết bị
-     chặn). BẮT BUỘC tự kiểm tra "curl https://careerviet.vn/robots.txt"
-     (hoặc urllib.robotparser) trước khi chạy crawl thật ở quy mô lớn.
-   - Trang công ty (/vi/nha-tuyen-dung/<slug>.<id>.html) — CHƯA có mẫu
-     HTML thật (view-source) trong phiên này, chỉ có ảnh chụp mô tả
-     field trong chat trước (địa chỉ, quy mô, website thật). Hàm
-     fetch_company_profile() bên dưới viết PHÒNG THỦ bằng cách dò label
-     trong text toàn trang (giống cách VietnamWorksAdapter làm khi
-     chưa có class CSS chắc chắn) — CẦN xác nhận lại field/label đúng
-     bằng HTML thật trước khi tin tưởng dữ liệu ra.
+3. CẬP NHẬT 08/2026 — đã kiểm chứng thêm bằng dữ liệu/response thật
+   (robots.txt + so2.txt trang công ty + so sánh page 1 vs page 2 +
+   2/5 category còn lại):
+
+   ĐÃ XÁC NHẬN (không còn là suy đoán):
+   - robots.txt của careerviet.vn: KHÔNG chặn cả 3 loại path adapter
+     này dùng (/vi/tim-viec-lam/..., /viec-lam/...-k-vi.html,
+     /vi/nha-tuyen-dung/...) — được phép crawl với UA hiện tại
+     (impersonate="chrome124", không tự nhận là bot).
+   - Phân trang "?page=N": ĐÃ XÁC NHẬN KHÔNG hoạt động — page 2 trả về
+     HTML y hệt page 1 (đã so sánh trực tiếp response thật, không chỉ
+     suy đoán qua nhánh "0 URL mới" như trước). fetch_jobs() vẫn dừng
+     AN TOÀN nhờ nhánh so sánh seen_urls có sẵn (không lặp vô ích),
+     nhưng để khỏi tốn 1 request page-2 vô nghĩa mỗi lần crawl, đã đổi
+     max_pages mặc định xuống 1 (xem _build_page_url() và fetch_jobs()
+     bên dưới) — CHƯA tìm ra cơ chế phân trang thật (có thể AJAX/param
+     khác), để lại TODO này cho Phần 3 nếu sau này cần lấy hơn 1 trang.
+   - Category "business-analyst" và "data-analyst": ĐÃ fetch thử thật,
+     ra đúng job theo ngành — không còn là suy đoán.
+   - Trang công ty (/vi/nha-tuyen-dung/<slug>.<id>.html): ĐÃ có mẫu
+     HTML thật (so2.txt, trang FPT Long Châu) — fetch_company_profile()
+     bên dưới viết lại BÁM ĐÚNG cấu trúc DOM thật thay vì dò label
+     trong toàn bộ page_text như bản cũ (xem docstring của hàm đó).
+
+   ĐÃ XÁC NHẬN THÊM (loại bỏ):
+   - Category "ui-ux-design": tự kiểm tra thật bằng
+     https://careerviet.vn/viec-lam/ui-ux-design-k-vi.html -> keyword
+     KHÔNG tồn tại trên CareerViet (không phải ra job linh tinh, mà
+     không có kết quả). ĐÃ XOÁ khỏi CAREERVIET_CATEGORIES (config.py) —
+     CareerViet chỉ còn 5/6 category so với TopCV/VietnamWorks.
+   - "Lĩnh vực hoạt động"/"Mã số thuế" không hiện trên trang công ty
+     CareerViet (đã xác nhận, không phải do thiếu mẫu) -> KHÔNG PHẢI
+     thiếu sót của fetch_company_profile(). Có script backend riêng
+     (enrich_company_web_info.py, chạy sau pipeline, không thuộc file
+     này) lo việc tra cứu/vá thêm tax_id qua web search + Gemini, nên
+     2 field "" ở đây là ĐÚNG Ý ĐỒ, không cần adapter tự đoán mò.
+
+   ĐÃ XÁC NHẬN THÊM: "data-scientist" và "software-engineer" — tự kiểm
+   tra thật, ra đúng job theo ngành. Vậy TOÀN BỘ 5/5 category còn lại
+   trong CAREERVIET_CATEGORIES (config.py) đã xác nhận đúng, không còn
+   category nào ở trạng thái suy đoán.
+
+   CÒN LẠI, CHƯA XÁC NHẬN (để nguyên TODO):
    - Có phải MỌI job đều có đủ validThrough/monthsOfExperience trong
      JSON-LD hay không (chỉ mới xác nhận 1 mẫu) — code đã viết fallback
      an toàn (để rỗng "" nếu thiếu) nên không crash, nhưng độ đầy đủ
@@ -183,7 +203,7 @@ class CareerVietAdapter(BaseAdapter):
     # ------------------------------------------------------------------
     # Public API (bắt buộc theo BaseAdapter)
     # ------------------------------------------------------------------
-    def fetch_jobs(self, category_key: str, max_pages: int = 3) -> Iterator[RawJobRecord]:
+    def fetch_jobs(self, category_key: str, max_pages: int = 1) -> Iterator[RawJobRecord]:
         if category_key not in CAREERVIET_CATEGORIES:
             raise ValueError(
                 f"Category '{category_key}' chưa khai báo trong "
@@ -208,14 +228,19 @@ class CareerVietAdapter(BaseAdapter):
             job_urls = self._extract_job_detail_urls(html)
             new_urls = [u for u in job_urls if u not in seen_urls]
             if not new_urls:
-                # Hoặc trang thật sự hết job, HOẶC pagination "?page=N"
-                # chưa được xác nhận hoạt động (page N trả y hệt page 1
-                # -> toàn bộ URL đã seen) -- xem TODO ở docstring đầu
-                # file. Dừng an toàn ở cả 2 trường hợp, không lặp vô ích.
+                # Hoặc trang thật sự hết job, HOẶC (trường hợp đã XÁC
+                # NHẬN THẬT xảy ra, xem docstring đầu file mục "ĐÃ XÁC
+                # NHẬN") pagination "?page=N" không hoạt động -> page N
+                # trả y hệt page 1 -> toàn bộ URL đã seen. Dừng an toàn
+                # ở cả 2 trường hợp, không lặp vô ích. max_pages mặc
+                # định đã hạ xuống 1 để tránh tốn request page-2 biết
+                # trước là vô nghĩa; caller vẫn có thể truyền max_pages
+                # cao hơn (an toàn, chỉ dừng sớm ở đây) một khi tìm ra
+                # cơ chế phân trang thật.
                 logger.info(
                     "Trang %d không có job URL mới -> dừng phân trang "
-                    "(có thể do hết job, hoặc pagination chưa xác nhận "
-                    "hoạt động, xem TODO đầu file).",
+                    "(hết job, hoặc pagination \"?page=N\" không hoạt "
+                    "động — xem docstring đầu file).",
                     page,
                 )
                 break
@@ -250,14 +275,48 @@ class CareerVietAdapter(BaseAdapter):
         return detail
 
     def fetch_company_profile(self, company_url: str) -> dict:
-        """CHƯA có mẫu HTML thật (view-source) của trang
-        /vi/nha-tuyen-dung/<slug>.<id>.html trong phiên này — chỉ có mô
-        tả field qua ảnh chụp ở chat trước (địa chỉ, quy mô công ty,
-        website thật, loại hình hoạt động). Viết PHÒNG THỦ bằng cách dò
-        label trong text toàn trang (giống _extract_after_label() của
-        VietnamWorksAdapter khi chưa chắc chắn class CSS) thay vì bám
-        selector cụ thể có thể sai hoàn toàn. CẦN xác nhận lại bằng HTML
-        thật trước khi tin tưởng dữ liệu trả về ở đây."""
+        """Viết lại 08/2026 dựa trên mẫu HTML thật (so2.txt, trang công
+        ty "CÔNG TY CỔ PHẦN DƯỢC PHẨM FPT LONG CHÂU", fetch qua
+        company_url lấy từ JSON-LD của 1 job JD thật) — thay THẲNG cho
+        bản cũ (dò label trong page_text toàn trang, PHÒNG THỦ vì chưa
+        có mẫu thật). Cấu trúc DOM thật của trang
+        /vi/nha-tuyen-dung/<slug>.<id>.html:
+
+            div.company-info .info .content
+                h1.name                     tên công ty (không cần lấy
+                                             lại ở đây, đã có company_name
+                                             từ JSON-LD job JD)
+                <strong>Địa điểm</strong>
+                <p>...</p>                  -> địa chỉ, <p> LIỀN SAU <strong>
+                <hr/>
+                <strong>Thông tin công ty</strong>
+                <ul>                        -> <ul> LIỀN SAU <strong> khác
+                    <li><span class="mdi .../> Nhãn:Giá trị</li>
+                    ...
+                </ul>
+            div.intro-section-1 .box-text .main-text p  -> mô tả công ty
+                (nhiều đoạn nối bằng <br/><br/>, không có <p> riêng từng
+                đoạn — lấy get_text(" ") rồi collapse whitespace, giống
+                cách VietnamWorksAdapter ghép description).
+
+        Mẫu thật chỉ có đúng 3 <li> trong "Thông tin công ty": "Quy mô
+        công ty", "Loại hình hoạt động", "Website" — KHÔNG có "Lĩnh vực
+        hoạt động"/"Mã số thuế" (khác giả định của bản cũ, ĐÃ XÁC NHẬN
+        CareerViet không hiển thị 2 field này ở trang công ty, không
+        phải do thiếu mẫu). Parse TỔNG QUÁT mọi <li> dạng "Nhãn:Giá trị"
+        (tách theo dấu ":" đầu tiên) thay vì hard-code đúng 3 nhãn đã
+        thấy, để tự bắt thêm nếu CareerViet sau này đổi UI thêm nhãn.
+        "Loại hình hoạt động" (VD "Cổ phần") không map vào field nào có
+        sẵn trong RawJobRecord/company profile hiện tại -> bị bỏ qua có
+        chủ đích (không phải thiếu sót), chỉ giữ lại nếu sau này thêm
+        field tương ứng.
+
+        "industry"/"tax_id" rỗng "" ở đây là ĐÚNG Ý ĐỒ, không phải bug:
+        script backend riêng enrich_company_web_info.py (không thuộc
+        file này, chạy sau pipeline) đã lo việc tra cứu/vá thêm tax_id
+        qua web search + Gemini cho MỌI nguồn (TopCV/VNW/CareerViet như
+        nhau), không cần adapter tự đoán mò trên trang JD.
+        """
         result = {
             "tax_id": "",
             "real_website": "",
@@ -274,30 +333,46 @@ class CareerVietAdapter(BaseAdapter):
             return result
 
         soup = BeautifulSoup(html, "html.parser")
-        page_text = soup.get_text("\n", strip=True)
+        content = soup.find("div", class_="content")
+        if content is None:
+            logger.warning(
+                "Trang công ty %s không có div.company-info .content -> "
+                "có thể CareerViet đã đổi cấu trúc trang công ty (khác "
+                "mẫu so2.txt), cần lấy view-source mới để sửa lại "
+                "fetch_company_profile().",
+                company_url,
+            )
+            return result
 
-        result["address"] = self._extract_after_label(page_text, "Địa chỉ")
-        result["company_size"] = self._extract_after_label(page_text, "Quy mô công ty")
-        if not result["company_size"]:
-            result["company_size"] = self._extract_after_label(page_text, "Quy mô")
-        result["industry"] = self._extract_after_label(page_text, "Lĩnh vực hoạt động")
-        if not result["industry"]:
-            result["industry"] = self._extract_after_label(page_text, "Lĩnh vực")
-        result["tax_id"] = self._extract_after_label(page_text, "Mã số thuế")
+        labels: dict = {}
+        for strong in content.find_all("strong"):
+            label = _clean(strong.get_text())
+            sib = strong.find_next_sibling()
+            if sib is None:
+                continue
+            if label == "Địa điểm" and sib.name == "p":
+                result["address"] = _clean(sib.get_text())
+            elif sib.name == "ul":
+                for li in sib.find_all("li"):
+                    text = _clean(li.get_text())
+                    if ":" not in text:
+                        continue
+                    key, _, value = text.partition(":")
+                    key, value = key.strip(), value.strip()
+                    if key and value and key not in labels:
+                        labels[key] = value
 
-        # Website thật: ưu tiên <a> có rel="nofollow"/target="_blank" trỏ
-        # ra ngoài domain careerviet.vn, nằm gần label "Website" — CHƯA
-        # xác nhận cấu trúc thật, nên fallback thêm kiểu "Website: http://..."
-        # lẫn trong text (giống VietnamWorks) để tăng cơ hội bắt được.
-        m = re.search(r"Website:?\s*(https?://\S+)", page_text)
-        if m:
-            result["real_website"] = m.group(1).rstrip(".,;")
-        else:
-            for a in soup.find_all("a", href=True):
-                href = a["href"]
-                if href.startswith("http") and "careerviet.vn" not in href:
-                    result["real_website"] = href
-                    break
+        result["company_size"] = labels.get("Quy mô công ty") or labels.get("Quy mô", "")
+        result["industry"] = labels.get("Lĩnh vực hoạt động") or labels.get("Lĩnh vực", "")
+        result["tax_id"] = labels.get("Mã số thuế", "")
+
+        website = labels.get("Website", "")
+        if website.startswith("http"):
+            result["real_website"] = website
+
+        desc_p = soup.select_one("div.intro-section-1 .box-text .main-text p")
+        if desc_p:
+            result["description"] = _clean(desc_p.get_text(" "))
 
         return result
 
@@ -342,10 +417,13 @@ class CareerVietAdapter(BaseAdapter):
     # ------------------------------------------------------------------
     @staticmethod
     def _build_page_url(base_url: str, page: int) -> str:
-        """TODO CHƯA XÁC NHẬN bằng response thật (xem docstring đầu
-        file) — thử kiểu "?page=N" theo suy đoán từ pattern URL đã thấy
-        ("-k-vi.html" không có sẵn query string). An toàn nếu sai: xem
-        nhánh dừng vòng lặp ở fetch_jobs() khi 0 URL mới."""
+        """ĐÃ XÁC NHẬN "?page=N" KHÔNG hoạt động (page 2 trả y hệt page
+        1 — xem docstring đầu file mục "ĐÃ XÁC NHẬN"). Giữ nguyên hàm
+        này (chưa xoá) vì fetch_jobs() mặc định max_pages=1 nên nhánh
+        page > 1 hiếm khi chạy tới trong thực tế, nhưng nếu caller tự
+        truyền max_pages > 1 thì vẫn dừng AN TOÀN nhờ nhánh 0-URL-mới ở
+        fetch_jobs() — không lặp vô ích, chỉ không lấy thêm được job
+        nào ngoài trang 1 cho tới khi tìm ra cơ chế phân trang thật."""
         if page <= 1:
             return base_url
         sep = "&" if "?" in base_url else "?"
@@ -621,21 +699,6 @@ class CareerVietAdapter(BaseAdapter):
             text = re.sub(r"^Tuyển dụng\s+", "", text)
             text = re.sub(r"\s+tại\s+.+$", "", text)
             return text.strip()
-        return ""
-
-    # ------------------------------------------------------------------
-    # Company profile helper (dò label trong text — xem TODO ở
-    # fetch_company_profile())
-    # ------------------------------------------------------------------
-    @staticmethod
-    def _extract_after_label(page_text: str, label: str) -> str:
-        lines = page_text.split("\n")
-        for i, line in enumerate(lines):
-            if line.strip() == label:
-                for nxt in lines[i + 1: i + 4]:
-                    nxt_clean = nxt.strip()
-                    if nxt_clean and nxt_clean != label:
-                        return nxt_clean
         return ""
 
 
