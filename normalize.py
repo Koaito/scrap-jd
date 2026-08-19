@@ -284,6 +284,46 @@ def clean_company_name(name: str) -> str:
     return text
 
 
+# Nhà tuyển dụng ẨN DANH — thêm 08/2026, phát hiện qua đối chiếu dữ liệu
+# thật: 1 số tin đăng trên TopCV/VietnamWorks/CareerViet không tiết lộ
+# tên công ty thật, site tự điền 1 placeholder thay thế (case thật đã
+# gặp: "Vietnamworks' Client"). Nếu để lọt, get_or_create_company_by_profile()
+# sẽ tạo hẳn 1 "công ty" rác trong DB, không map được tới công ty thật
+# nào cả — vô dụng cho mục đích tìm HR contact/công ty đối tác.
+#
+# 2 nhóm pattern:
+#  - Tên chính 3 site nguồn (topcv/vietnamworks/careerviet) xuất hiện
+#    NGAY TRONG tên công ty — dấu hiệu gần như chắc chắn đây là
+#    placeholder của site, vì công ty thật không có lý do gì đặt tên
+#    trùng/chứa tên 1 nền tảng tuyển dụng khác.
+#  - Từ khóa ẩn danh chung, không gắn riêng site nào (le "Client",
+#    "Confidential", "Ẩn danh", "giấu tên", "bảo mật thông tin") — để
+#    bắt cả case CareerViet/TopCV không lặp lại đúng tên site trong
+#    placeholder của họ.
+#
+# Dùng \b (word boundary) cho "client"/"confidential" để tránh khớp nhầm
+# giữa 1 từ dài hơn tình cờ chứa chuỗi con đó (dù hiếm với tên công ty
+# tiếng Việt, vẫn an toàn hơn không có).
+_ANONYMOUS_EMPLOYER_RE = re.compile(
+    r"topcv|vietnamworks|careerviet"
+    r"|\bclient\b|\bconfidential\b"
+    r"|ẩn danh|giấu tên|bảo mật thông tin",
+    re.IGNORECASE,
+)
+
+
+def is_anonymous_employer_name(company_name: str) -> bool:
+    """True nếu company_name khớp 1 trong các pattern nhà tuyển dụng ẩn
+    danh (xem _ANONYMOUS_EMPLOYER_RE) — dùng ở pipeline.py để BỎ QUA
+    hẳn job này (không tạo company/job mới), tránh rác kiểu "Vietnamworks'
+    Client" lọt vào bảng companies.
+
+    Chỉ áp dụng cho job MỚI (pipeline.py check trước khi
+    get_or_create_company_by_profile()) — KHÔNG tự động xoá dữ liệu cũ
+    đã lỡ insert từ trước, việc đó xử lý thủ công riêng."""
+    return bool(_ANONYMOUS_EMPLOYER_RE.search(company_name or ""))
+
+
 def normalize_deadline(deadline_text: str) -> Optional[date]:
     """Parse text hạn ứng tuyển thô của TopCV (dạng "30/08/2026") thành
     date object khớp kiểu cột `deadline DATE` trong schema.sql.

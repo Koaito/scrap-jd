@@ -137,6 +137,7 @@ def cmd_crawl(args):
         print(f"Bỏ qua (đã tồn tại)  : {stats['skipped_duplicate']}")
         print(f"Đã vá job cũ (work_type/deadline): {stats.get('updated_existing', 0)}")
         print(f"Bỏ qua (fetch chi tiết thất bại)  : {stats.get('skipped_fetch_failed', 0)}")
+        print(f"Bỏ qua (nhà tuyển dụng ẩn danh)   : {stats.get('skipped_anonymous_employer', 0)}")
         print(f"Lỗi                  : {stats['errors']}")
         print(f"Tổng job trong DB hiện tại: {db.count_jobs(conn)}")
     finally:

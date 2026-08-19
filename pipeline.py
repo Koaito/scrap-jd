@@ -91,6 +91,11 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
         # find_manual_job_duplicate() trong db.py).
         "skipped_duplicate_repost": 0,
         "updated_existing": 0, "skipped_fetch_failed": 0, "errors": 0,
+        # Thêm 08/2026 — job có company_name khớp
+        # normalize.is_anonymous_employer_name() (vd "Vietnamworks'
+        # Client"), bỏ hẳn không insert. Xem docstring hàm đó trong
+        # normalize.py để biết đầy đủ pattern.
+        "skipped_anonymous_employer": 0,
     }
 
     for raw in adapter.fetch_jobs(category_key, max_pages):
@@ -144,6 +149,19 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             salary = normalize.normalize_salary(raw.salary_text)
             level_code = normalize.infer_level(raw.experience_text, raw.job_title)
             company_name = normalize.clean_company_name(raw.company_name)
+
+            # 2a) Nhà tuyển dụng ẨN DANH (site tự điền placeholder thay
+            # tên công ty thật, vd "Vietnamworks' Client") — bỏ hẳn job
+            # này TRƯỚC khi fetch_job_full_detail() (đỡ tốn 1 request
+            # thật ra ngoài cho job chắc chắn sẽ bị vứt), không tạo
+            # company/job rác. Xem normalize.is_anonymous_employer_name().
+            if normalize.is_anonymous_employer_name(company_name):
+                stats["skipped_anonymous_employer"] += 1
+                logger.info(
+                    "Bỏ qua job (nhà tuyển dụng ẩn danh, company_name='%s'): %s @ %s",
+                    company_name, raw.job_title, raw.source_url,
+                )
+                continue
 
             # 2b) Crawl sâu vào trang chi tiết JD để lấy work_type/deadline
             # + nội dung mô tả đầy đủ (job_description/requirements/perks/
