@@ -93,7 +93,7 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
 
    > DB tạo từ bản cũ (trước khi có lớp auth/audit/role/đăng ký/quên mật
    > khẩu/đổi tên bảng/ứng tuyển/lưu job) cần chạy thêm `sql/migration_*.sql`
-   > — xem comment đầu mỗi file để biết chi tiết. Repo hiện có **13 file**
+   > — xem comment đầu mỗi file để biết chi tiết. Repo hiện có **12 file**
    > migration; chạy **đúng thứ tự sau** (migration sau phụ thuộc bảng/cột
    > migration trước tạo ra):
    > ```bash
@@ -105,7 +105,6 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
    > psql -U postgres -d "..." -f sql/migration_add_applications_saved_jobs.sql
    > psql -U postgres -d "..." -f sql/migration_add_phone_track.sql
    > psql -U postgres -d "..." -f sql/migration_add_password_reset.sql
-   > psql -U postgres -d "..." -f sql/migration_drop_products_services.sql
    > psql -U postgres -d "..." -f sql/migration_add_tax_id.sql
    > psql -U postgres -d "..." -f sql/migration_add_work_type_deadline.sql
    > psql -U postgres -d "..." -f sql/migration_update_provinces_2025.sql

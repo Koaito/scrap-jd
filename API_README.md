@@ -123,7 +123,7 @@ public: `https://scrap-jd-api.onrender.com`.
 
 **Trước khi deploy bản có JWT/phân quyền/đăng ký/ứng tuyển/lưu job này**,
 phải chạy trên Postgres thật **đúng thứ tự sau** (migration sau phụ
-thuộc bảng/cột migration trước tạo ra) — repo hiện có **12 file**
+thuộc bảng/cột migration trước tạo ra) — repo hiện có **11 file**
 migration, không chỉ 4:
 
 ```bash
@@ -135,13 +135,12 @@ psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_applications_saved_jobs.sql
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_phone_track.sql
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_password_reset.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_drop_products_services.sql
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_tax_id.sql
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_work_type_deadline.sql
 psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_update_provinces_2025.sql
 ```
 
-Deploy code trước khi chạy đủ 12 migration → `POST`/`PATCH /jobs`,
+Deploy code trước khi chạy đủ 11 migration → `POST`/`PATCH /jobs`,
 `POST /companies`, CRUD `/companies/{id}/contacts`, `POST /auth/register`,
 đăng nhập, quên mật khẩu, ứng tuyển, hoặc lưu job sẽ lỗi 500 (bảng/cột
 liên quan chưa tồn tại). DB tạo mới hoàn toàn từ `sql/schema.sql` đã có

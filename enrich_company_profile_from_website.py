@@ -8,7 +8,7 @@ THÊM 08/2026: cùng lần gọi Gemini đó, vá LUÔN products_services (sản
 phẩm/dịch vụ chính) nếu model tự tin — "nhặt kèm" giống đúng tinh thần
 backfill_company_profiles.py (không quét riêng DB cho field này, chỉ vá
 khi đằng nào cũng đang xử lý company đó cho industry). LƯU Ý: điều kiện
-chọn company để chạy (get_companies_needing_industry_from_website(),
+chọn company để chạy (get_companies_needing_profile_from_website(),
 xem db.py) VẪN CHỈ xét industry rỗng — company đã có industry nhưng
 thiếu products_services sẽ KHÔNG được chọn lại qua script này, giống hệt
 giới hạn đã biết của backfill_company_profiles.py với field này.
@@ -52,8 +52,8 @@ get_company_fb_linkedin_link.py — nhưng KHÔNG import chéo từ file đó
 cần cho MỤC ĐÍCH KHÁC (lấy text mô tả, không phải tìm link social).
 
 Cách chạy:
-    python enrich_company_industry_from_website.py
-    python enrich_company_industry_from_website.py --limit 50   # test thử ít công ty trước
+    python enrich_company_profile_from_website.py
+    python enrich_company_profile_from_website.py --limit 50   # test thử ít công ty trước
 """
 
 import argparse
@@ -280,7 +280,7 @@ def run(limit: Optional[int] = None) -> dict:
     conn = db.get_connection()
     last_gemini_call = None
     try:
-        companies = db.get_companies_needing_industry_from_website(conn)
+        companies = db.get_companies_needing_profile_from_website(conn)
         if limit:
             companies = companies[:limit]
 

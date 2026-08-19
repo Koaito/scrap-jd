@@ -608,9 +608,9 @@ def update_company_profile_with_merge(conn, company_id: str, *, tax_id: str = ""
     return final_company_id
 
 
-def get_companies_needing_industry_from_website(conn):
+def get_companies_needing_profile_from_website(conn):
     """Lấy công ty ĐÃ CÓ website nhưng còn thiếu industry — tập company
-    mà enrich_company_industry_from_website.py (script mới, 08/2026) có
+    mà enrich_company_profile_from_website.py (script mới, 08/2026) có
     thể vá được bằng cách đọc trang chủ/giới thiệu của chính website đó
     + Gemini phân loại, KHÔNG cần Tavily (rẻ hơn enrich_company_web_info.py).
 
