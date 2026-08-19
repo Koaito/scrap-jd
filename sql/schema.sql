@@ -184,6 +184,15 @@ CREATE TABLE IF NOT EXISTS companies (
     fanpage_url      VARCHAR(255),
     linkedin_url     VARCHAR(255),
 
+    -- Mô tả ngắn sản phẩm/dịch vụ chính công ty cung cấp — do pipeline
+    -- crawl (fetch_company_profile()) hoặc enrich_company_profile_from_
+    -- website.py (Gemini, đọc website riêng công ty) ghi vào, KHÔNG có
+    -- form nhập tay nào gửi field này. Cột này bị bỏ sót khỏi schema gốc
+    -- dù code đã ghi vào từ trước 08/2026 — thêm lại vào đây để DB mới
+    -- tạo từ schema.sql không thiếu cột (trước đó chỉ tồn tại nếu DB đã
+    -- được ALTER TABLE tay ngoài luồng migration).
+    products_services TEXT,
+
     -- URL trang hồ sơ công ty trên nguồn crawl gốc (TopCV/VietnamWorks) —
     -- xem sql/migration_add_source_profile_url.sql để biết lý do cần cột
     -- này (backfill lại industry/company_size/address/website sau này mà

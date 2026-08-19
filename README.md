@@ -1,51 +1,101 @@
 # Job Crawler — Student Success
 
-Crawler job từ **TopCV** và **VietnamWorks** (6 ngành: Data Analyst, Data
-Engineer, Data Scientist, Software Engineering, Business Analysis, UI/UX
-Design), chuẩn hóa dữ liệu, crawl sâu hồ sơ công ty (website, mã số thuế,
-quy mô, lĩnh vực, địa chỉ), lưu vào PostgreSQL — expose ra ngoài qua 1 lớp
-**API FastAPI có auth**, có **frontend dashboard** riêng gọi vào API này.
-
-**Trạng thái (08/2026):** cả backend lẫn frontend đã lên production.
+Crawler job từ **TopCV**, **VietnamWorks**, **CareerViet** (6 ngành: Data
+Analyst, Data Engineer, Data Scientist, Software Engineering, Business
+Analysis, UI/UX Design), chuẩn hoá dữ liệu, crawl sâu hồ sơ công ty
+(website, mã số thuế, quy mô, lĩnh vực, địa chỉ), lưu vào PostgreSQL —
+expose ra ngoài qua 1 lớp **API FastAPI có auth**, có **frontend
+dashboard** riêng gọi vào API này.
 
 - **Backend** (repo này) — pipeline crawl + API, deploy trên Render:
   `https://scrap-jd-api.onrender.com`
 - **Frontend** (repo `mindx-jobs`) — deploy trên Vercel, gọi API qua JWT.
-  `ALLOWED_ORIGINS` trên Render đã trỏ đúng domain Vercel thật.
 
-Tính năng chính: bảo mật 3 lớp (API key dùng chung + JWT từng người +
-phân quyền `user`/`ss_team`/`admin`), đăng ký công khai có xác thực email,
-quên/đặt lại mật khẩu, học viên ứng tuyển/lưu job, staff xem ai đã ứng
-tuyển + số điện thoại liên hệ, CRUD liên hệ HR có soft-delete, audit trail
-(ai tạo/sửa job, công ty, contact), connection pool Postgres.
+Chi tiết API (endpoint, body, auth) xem `API_README.md`. File này tập
+trung vào pipeline crawl + các script bổ trợ + quy trình vận hành.
 
-Xem tình trạng dữ liệu thật và các hạn chế đang biết ở cuối file.
+## Mục lục
 
-Ngoài pipeline crawl chính còn có 3 script độc lập, chạy khi cần:
+- [Quy trình đầu-cuối](#quy-trình-đầu-cuối)
+- [Kiến trúc](#kiến-trúc)
+- [Cài đặt](#cài-đặt)
+- [1. Crawl job](#1-crawl-job)
+- [2. Vá hồ sơ công ty](#2-vá-hồ-sơ-công-ty)
+- [3. Dọn job hết hạn](#3-dọn-job-hết-hạn)
+- [Xem kết quả](#xem-kết-quả)
+- [Thêm ngành / nguồn crawl mới](#thêm-ngành--nguồn-crawl-mới)
+- [Debug khi nguồn crawl đổi giao diện](#debug-khi-nguồn-crawl-đổi-giao-diện)
+- [Deploy production](#deploy-production)
+- [Tình trạng dữ liệu & giới hạn đã biết](#tình-trạng-dữ-liệu--giới-hạn-đã-biết)
+- [Lịch sử bug đã sửa](#lịch-sử-bug-đã-sửa)
 
-- `check_expired_source_jobs.py` — re-check job đang `OPEN` xem còn tồn
-  tại thật ở nguồn (TopCV/VietnamWorks) không, tự chuyển `EXPIRED` nếu
-  nguồn đã xoá tin. **Nên chạy định kỳ sau mỗi đợt crawl** (xem mục
-  riêng bên dưới).
-- `get_company_fb_linkedin_link.py` — điền `fanpage_url`/`linkedin_url`
-  bằng cách crawl website riêng của từng công ty.
-- `enrich_company_web_info.py` — vá thêm `website`/`tax_id` cho công ty
-  còn thiếu, bằng Tavily search + Gemini trích xuất.
+---
+
+## Quy trình đầu-cuối
+
+Thứ tự chạy thực tế, từ DB trống tới dữ liệu đầy đủ sẵn sàng cho dashboard:
+
+```bash
+# 0. Chỉ 1 lần lúc khởi tạo
+python main.py init-db
+python main.py create-admin --email admin@congty.vn --name "Nguyễn Văn A"
+
+# 1. Crawl job — chạy cho từng nguồn/ngành cần, lặp lại định kỳ
+python main.py crawl --source topcv --category data-analyst --pages 3
+python main.py crawl --source vietnamworks --category data-engineer --pages 5
+python main.py crawl --source careerviet --category business-analyst --pages 3
+
+# 2. Vá hồ sơ công ty còn thiếu field — chạy SAU crawl, theo đúng thứ tự dưới
+#    (script sau chỉ xử lý công ty script trước không vá được)
+python backfill_company_profiles.py
+python enrich_company_profile_from_website.py
+python enrich_company_web_info.py
+python get_company_fb_linkedin_link.py
+
+# 3. Dọn job hết hạn — chạy định kỳ (cron hằng ngày là hợp lý)
+python check_expired_source_jobs.py --dry-run   # xem thử trước
+python check_expired_source_jobs.py              # chạy thật
+```
+
+Bước 1 và bước 2 độc lập với nhau về mặt kỹ thuật (không script nào chặn
+script nào chạy trước), nhưng **chạy bước 2 sau bước 1** thì hiệu quả hơn
+— công ty vừa crawl xong luôn có `source_profile_url`, giúp
+`backfill_company_profiles.py` (rẻ nhất, đọc lại đúng trang gốc) xử lý
+được nhiều nhất trước khi phải tới các script tốn tài nguyên hơn.
+
+Lý do có 4 script riêng ở bước 2 thay vì gộp làm 1 — mỗi script nhắm 1
+nguồn dữ liệu khác nhau, ưu tiên **rẻ + chính xác trước**:
+
+| Thứ tự | Script | Vá field | Đọc từ đâu | Chi phí |
+|---|---|---|---|---|
+| 1 | `backfill_company_profiles.py` | `industry`, `company_size`, `address`, `website` (+ `products_services` nhặt kèm) | `source_profile_url` đã lưu (đúng trang TopCV/VietnamWorks/CareerViet gốc) | Miễn phí — chỉ tốn thời gian chờ |
+| 2 | `enrich_company_profile_from_website.py` | `industry`, `products_services` | `companies.website` + Gemini phân loại | Rẻ (1 lần gọi Gemini/công ty, không Tavily) |
+| 3 | `enrich_company_web_info.py` | `website`, `tax_id` | Tavily search (2 query/công ty) + Gemini trích xuất | Tốn nhất — chỉ nên chạy cho công ty không có `source_profile_url` |
+| 4 | `get_company_fb_linkedin_link.py` | `fanpage_url`, `linkedin_url` | `companies.website` (crawl HTML thô) | Miễn phí, giới hạn với site SPA/React |
+
+Mỗi script chỉ chọn công ty **còn thiếu đúng field nó vá được** — chạy
+lại nhiều lần an toàn, không tốn thêm gì cho công ty đã đủ dữ liệu.
+
+---
 
 ## Kiến trúc
 
 ```
 config.py                        <- ngành/category muốn crawl, delay, model AI...
 models.py                        <- RawJobRecord: khuôn dữ liệu chung mọi adapter phải trả về
-adapters/                        <- topcv.py, vietnamworks.py (implement BaseAdapter)
+adapters/                        <- topcv.py, vietnamworks.py, careerviet.py (implement BaseAdapter)
 normalize.py                     <- dùng chung: parse lương, suy luận level, deadline, work_type
 db.py                            <- dùng chung: mọi thao tác PostgreSQL
 pipeline.py                      <- nối adapter -> normalize -> db
 main.py                          <- CLI chạy crawl
-check_expired_source_jobs.py     <- script riêng: re-check job OPEN còn sống ở nguồn không
-get_company_fb_linkedin_link.py  <- script riêng: fanpage/LinkedIn
-enrich_company_web_info.py       <- script riêng: website/tax_id qua Tavily + Gemini
-api/                              <- lớp API FastAPI (xem mục API layer bên dưới)
+
+backfill_company_profiles.py             <- script riêng: vá profile công ty qua source_profile_url đã lưu
+enrich_company_profile_from_website.py   <- script riêng: vá industry/products_services qua website + Gemini
+enrich_company_web_info.py               <- script riêng: vá website/tax_id qua Tavily + Gemini
+get_company_fb_linkedin_link.py          <- script riêng: vá fanpage/LinkedIn qua website
+check_expired_source_jobs.py             <- script riêng: re-check job OPEN còn sống ở nguồn không
+
+api/                              <- lớp API FastAPI (chi tiết xem API_README.md)
   app.py                          <- entry point, đăng ký auth + CORS + router + lifespan
   auth.py                         <- API key tĩnh, áp dụng cho toàn bộ endpoint
   security.py                     <- băm mật khẩu, ký/verify JWT access + refresh token
@@ -54,9 +104,10 @@ api/                              <- lớp API FastAPI (xem mục API layer bên
   schemas.py                      <- Pydantic models (request/response JSON)
   crawl_runner.py                 <- chạy pipeline crawl ở nền, theo dõi qua run_id
   routers/                        <- jobs.py, companies.py, contacts.py, crawl.py, meta.py, auth.py, me.py
+
 sql/schema.sql                   <- schema PostgreSQL đầy đủ (chạy 1 lần cho DB mới)
 sql/migration_*.sql              <- vá DB cũ đã tạo trước khi có tính năng mới
-tests/                           <- test parser + logic, không cần DB/internet
+tests/                            <- test parser + logic, không cần DB/internet
 ```
 
 Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implement
@@ -79,12 +130,12 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
    pip install -r requirements.txt
    ```
 3. **Cấu hình `.env`**: `cp .env.example .env`, sửa `PGPASSWORD`.
-   - Chạy `enrich_company_web_info.py`: thêm `TAVILY_API_KEY`,
-     `GEMINI_API_KEY` (xem [mục riêng](#enrich_company_web_infopy---vá-websitetax_id)).
+   - Chạy `enrich_company_profile_from_website.py` hoặc
+     `enrich_company_web_info.py`: cần `GEMINI_API_KEY`. Riêng
+     `enrich_company_web_info.py` cần thêm `TAVILY_API_KEY`.
    - Chạy **API layer**: bắt buộc `API_KEY`, `ALLOWED_ORIGINS`,
-     `JWT_SECRET_KEY` (xem [mục API layer](#api-layer-fastapi)). Bật đăng
-     ký công khai + quên mật khẩu qua email thật: thêm
-     `RESEND_API_KEY`/`EMAIL_FROM`/`API_BASE_URL`.
+     `JWT_SECRET_KEY` (xem `API_README.md`). Bật đăng ký công khai + quên
+     mật khẩu qua email thật: thêm `RESEND_API_KEY`/`EMAIL_FROM`/`API_BASE_URL`.
 4. **Tạo bảng**:
    ```bash
    python main.py init-db
@@ -92,10 +143,10 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
    Kỳ vọng: `✅ Đã tạo/cập nhật schema trong database.`
 
    > DB tạo từ bản cũ (trước khi có lớp auth/audit/role/đăng ký/quên mật
-   > khẩu/đổi tên bảng/ứng tuyển/lưu job) cần chạy thêm `sql/migration_*.sql`
-   > — xem comment đầu mỗi file để biết chi tiết. Repo hiện có **12 file**
-   > migration; chạy **đúng thứ tự sau** (migration sau phụ thuộc bảng/cột
-   > migration trước tạo ra):
+   > khẩu/đổi tên bảng/ứng tuyển/lưu job/products_services) cần chạy thêm
+   > `sql/migration_*.sql` — xem comment đầu mỗi file để biết chi tiết.
+   > Chạy **đúng thứ tự sau** (migration sau phụ thuộc bảng/cột migration
+   > trước tạo ra):
    > ```bash
    > psql -U postgres -d "..." -f sql/migration_add_auth.sql
    > psql -U postgres -d "..." -f sql/migration_add_audit_columns.sql
@@ -109,18 +160,22 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
    > psql -U postgres -d "..." -f sql/migration_add_work_type_deadline.sql
    > psql -U postgres -d "..." -f sql/migration_update_provinces_2025.sql
    > psql -U postgres -d "..." -f sql/migration_add_salary_period.sql
+   > psql -U postgres -d "..." -f sql/migration_add_products_services.sql
    > ```
    > Thiếu bất kỳ file nào ở trên có thể làm `POST`/`PATCH /jobs`,
    > `POST /companies`, CRUD `/companies/{id}/contacts`,
-   > `POST /auth/register`, đăng nhập, quên mật khẩu, ứng tuyển, hoặc lưu
-   > job lỗi 500 — tuỳ file nào bị thiếu. Riêng thiếu
-   > `migration_add_salary_period.sql`: **mọi lượt crawl lẫn `POST`/`PATCH
-   > /jobs` sẽ lỗi 500 ngay lập tức** ("column salary_period does not
-   > exist") — `insert_job()`/`create_manual_job()` luôn ghi cột này
-   > không điều kiện (không có nhánh fallback nếu cột chưa tồn tại), khác
-   > các migration khác ở trên vốn chỉ lỗi khi đụng đúng tính năng liên
-   > quan. DB tạo mới hoàn toàn từ `sql/schema.sql` (bước 4 ở trên) đã có
-   > sẵn đầy đủ, **không cần** chạy lại các migration này.
+   > `POST /auth/register`, đăng nhập, quên mật khẩu, ứng tuyển, lưu job,
+   > hoặc crawl/enrich lỗi 500 — tuỳ file nào bị thiếu. Riêng thiếu
+   > `migration_add_salary_period.sql` hoặc `migration_add_products_services.sql`:
+   > **crawl lỗi 500 ngay lập tức** (`insert_job()`/`update_company_profile()`
+   > luôn ghi 2 cột này không điều kiện, không có nhánh fallback). DB tạo
+   > mới hoàn toàn từ `sql/schema.sql` (bước 4 ở trên) đã có sẵn đầy đủ,
+   > **không cần** chạy lại các migration này.
+   >
+   > ⚠️ **KHÔNG chạy `sql/migration_drop_products_services.sql`** — file
+   > này còn trên đĩa như lịch sử, nhưng chạy nó sẽ `DROP COLUMN`
+   > đúng cột `products_services` mà pipeline/enrich đang chủ động ghi
+   > vào, gây lỗi 500 ngay khi crawl.
 
 5. **Test** (không cần DB/internet):
    ```bash
@@ -131,22 +186,24 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
 
 ---
 
-## Crawl job
+## 1. Crawl job
 
 ```bash
 python main.py crawl --source topcv --category data-analyst --pages 3
 python main.py crawl --source vietnamworks --category data-engineer --pages 3
+python main.py crawl --source careerviet --category business-analyst --pages 3
 
 # Giới hạn theo SỐ LƯỢNG JD thay vì theo trang (tiện lấy mẫu nhỏ để test):
 python main.py crawl --source topcv --category data-analyst --max-jobs 20
 ```
 
-- `--source`: `topcv` (mặc định) hoặc `vietnamworks`.
+- `--source`: `topcv` (mặc định), `vietnamworks`, hoặc `careerviet`.
 - `--category`: xem danh sách trong `config.py` (`TOPCV_CATEGORIES` /
-  `VIETNAMWORKS_CATEGORIES`). Hiện có: `data-analyst`, `data-engineer`,
-  `data-scientist`, `software-engineering`, `business-analyst`,
-  `ui-ux-design`.
-- `--pages`: số trang tối đa. 1 trang TopCV ~20-25 job, VietnamWorks ~50 job.
+  `VIETNAMWORKS_CATEGORIES` / `CAREERVIET_CATEGORIES`). Hiện có:
+  `data-analyst`, `data-engineer`, `data-scientist`,
+  `software-engineering`, `business-analyst`, `ui-ux-design`.
+- `--pages`: số trang tối đa. 1 trang TopCV ~20-25 job, VietnamWorks
+  ~50 job.
 - `--max-jobs`: giới hạn TỔNG SỐ JD, dừng ngay khi đủ — không cần đợi hết
   `--pages`. Dùng riêng thì tự nới `--pages` đủ lớn; dùng cùng lúc cả 2 cờ
   thì dừng ở điều kiện nào tới trước.
@@ -155,32 +212,128 @@ Mỗi lần crawl, hệ thống tự động:
 
 - Bỏ qua job đã crawl trước đó (theo link JD gốc), nhưng **vẫn vá thêm**
   `work_type`/`deadline`/nội dung JD nếu trước đó còn thiếu.
+- Bỏ qua job của nhà tuyển dụng ẩn danh (vd "Vietnamworks' Client").
 - Crawl sâu trang chi tiết job (work_type, hạn ứng tuyển, mô tả, yêu cầu,
   quyền lợi, kỹ năng) và trang hồ sơ công ty (website, mã số thuế, quy
-  mô, lĩnh vực, địa chỉ) — công ty chỉ crawl sâu lần đầu gặp hoặc khi còn
-  thiếu field.
+  mô, lĩnh vực, địa chỉ, mô tả sản phẩm/dịch vụ) — công ty chỉ crawl sâu
+  lần đầu gặp hoặc khi còn thiếu field, và luôn ghi lại
+  `source_profile_url` để các script vá ở bước 2 dùng lại sau này.
 - Match công ty **ưu tiên theo mã số thuế** — 2 job cùng công ty nhưng
   tên viết khác nhau vẫn nhận ra là 1, không tạo trùng.
-- **Phát hiện job "đăng lại" (repost) dưới `source_url` khác** — nếu job
-  mới crawl trùng `company_id` + `job_title` + `level_id` + `province_id`
-  với 1 job đã có (cùng bộ khoá `generate_job_hash()` dùng để tính
-  `content_hash`), **bỏ qua, không insert job mới** — xem [Bug đã sửa:
-  job trùng nội dung do đăng lại](#bug-đã-sửa-job-trùng-nội-dung-do-đăng-lại-repost-082026).
-- Chuẩn hoá đúng **chu kỳ trả lương** (tháng/năm) từ text gốc thay vì mặc
-  định mọi mức lương là lương/tháng — xem [Bug đã sửa: lương "/năm" bị
-  hiểu nhầm thành lương/tháng](#bug-đã-sửa-lương-năm-bị-hiểu-nhầm-thành-lươngtháng-082026).
+- Phát hiện job "đăng lại" (repost) dưới `source_url` khác — nếu job mới
+  crawl trùng `company_id` + `job_title` + `level_id` + `province_id` với
+  job đã có, **bỏ qua, không insert job mới**.
+- Chuẩn hoá đúng chu kỳ trả lương (tháng/năm) từ text gốc.
 
-**⚠️ Vẫn chưa an toàn khi chạy song song 2 lượt crawl CÙNG LÚC** (vd vừa
-CLI vừa `POST /crawl`, hoặc bấm crawl 2 lần liên tiếp trước khi lượt đầu
-kịp `commit()`) — đây là **race condition thuần tuý** (2 request đọc DB
-"chưa có job này" cùng lúc, trước khi bên nào kịp ghi), **khác hẳn** bug
-repost ở trên (2 lượt crawl *tuần tự*, không chạy chồng nhau, nhưng
-TopCV cấp `source_url` mới cho cùng 1 tin đăng lại — bug này **đã fix**,
-xem mục Bug đã sửa). Race condition vẫn có thể tạo job trùng ở bước
-"check trùng rồi mới insert" trong `pipeline.py` nếu 2 tiến trình chạy
-đúng lúc chồng lên nhau. Tạm thời: chỉ chạy 1 lượt crawl/lúc, soát bằng
-`v_duplicate_job_candidates` nếu nghi trùng. Fix đúng cần advisory lock
-theo `source_url` hoặc unique constraint DB — chưa làm.
+**⚠️ Chưa an toàn khi chạy song song 2 lượt crawl CÙNG LÚC** (race
+condition thuần tuý — 2 request đọc DB "chưa có job này" cùng lúc, trước
+khi bên nào kịp ghi). Tạm thời: chỉ chạy 1 lượt crawl/lúc, soát bằng
+`v_duplicate_job_candidates` nếu nghi trùng.
+
+---
+
+## 2. Vá hồ sơ công ty
+
+4 script độc lập, không nằm trong pipeline crawl chính, chạy khi cần —
+xem bảng so sánh ở [Quy trình đầu-cuối](#quy-trình-đầu-cuối).
+
+### `backfill_company_profiles.py`
+
+```bash
+python backfill_company_profiles.py --limit 10   # test thử ít công ty
+python backfill_company_profiles.py               # chạy full
+```
+
+Vá `industry`/`company_size`/`address`/`website` (+ `products_services`
+nhặt kèm) cho công ty **đã có** `source_profile_url` nhưng còn thiếu ít
+nhất 1 trong 4 field đầu, bằng cách gọi lại `fetch_company_profile()`
+trên đúng URL đã lưu. Miễn phí, không tốn Tavily/Gemini — ưu tiên dùng
+trước các script còn lại vì chính xác hơn hẳn (đọc thẳng trang gốc, không
+qua search + LLM suy luận).
+
+### `enrich_company_profile_from_website.py`
+
+```bash
+python enrich_company_profile_from_website.py --limit 50   # test thử ít công ty
+python enrich_company_profile_from_website.py               # chạy full
+```
+
+Vá `industry`/`products_services` cho công ty **đã có `website`** nhưng
+còn thiếu 1 trong 2 field, bằng cách đọc thẳng trang chủ/giới thiệu của
+chính website đó rồi nhờ Gemini phân loại — không cần Tavily, rẻ hơn
+`enrich_company_web_info.py`. Đặc biệt cần cho công ty nguồn CareerViet
+(trang công ty CareerViet không hiển thị `industry`, nên
+`backfill_company_profiles.py` không vá được field này cho nhóm công ty
+đó). Điều kiện chọn công ty là OR: thiếu `industry` HOẶC thiếu
+`products_services` đều được chọn lại.
+
+### `enrich_company_web_info.py`
+
+```bash
+python enrich_company_web_info.py --limit 10   # test thử ít công ty
+python enrich_company_web_info.py               # chạy full
+```
+
+Vá `website`/`tax_id` cho công ty còn thiếu, bằng Tavily search (2 query
+riêng biệt/công ty) + Gemini trích xuất ra JSON, confidence tách riêng
+từng field. Chỉ lưu kết quả tin cậy `high`/`medium`, `tax_id` đúng định
+dạng mã số doanh nghiệp VN, `website` không thuộc mạng xã hội/trang
+tuyển dụng/trang tra MST. `tax_id` trùng công ty khác đã có trong DB →
+tự động gộp (chuyển job/contact sang công ty gốc, xoá công ty trùng).
+
+Tốn nhất trong 4 script (Tavily credit + Gemini quota) — chỉ nên chạy
+cho công ty **không có** `source_profile_url` nào (tạo tay qua
+`POST /companies`, hoặc crawl từ nguồn không hỗ trợ
+`fetch_company_profile`). Cần `TAVILY_API_KEY` (free tier tại
+https://tavily.com) và `GEMINI_API_KEY` (https://aistudio.google.com)
+trong `.env`.
+
+### `get_company_fb_linkedin_link.py`
+
+```bash
+python get_company_fb_linkedin_link.py --limit 10   # test thử ít công ty
+python get_company_fb_linkedin_link.py               # chạy full
+```
+
+Vá `fanpage_url`/`linkedin_url` cho công ty **đã có `website`**, bằng
+cách vào thẳng website tìm link Facebook/LinkedIn thật (không đoán mò
+qua Google — tránh bắt nhầm trang công ty khác trùng tên). Không có
+website hoặc không có link social → để trống, không cố tìm cách khác.
+
+**Giới hạn đã biết:** fetch HTML thô, không chạy JavaScript — website
+dạng SPA/CSR (React/Next.js/Vue...) render link social bằng JS sau khi
+tải trang sẽ không tìm thấy gì dù link thật sự tồn tại khi mở bằng trình
+duyệt.
+
+---
+
+## 3. Dọn job hết hạn
+
+**`check_expired_source_jobs.py`** — nên chạy sau mỗi đợt crawl (hoặc
+định kỳ, vd cron hằng ngày). JD trên nguồn bị nhà tuyển dụng xoá sau 1
+thời gian, nhưng DB không tự phát hiện — job vẫn hiện `OPEN` mãi dù link
+nguồn đã chết.
+
+```bash
+python check_expired_source_jobs.py --dry-run        # xem thử, KHÔNG ghi DB
+python check_expired_source_jobs.py                    # chạy thật
+python check_expired_source_jobs.py --check-deadline  # chỉ check deadline, không fetch mạng — nhanh hơn
+python check_expired_source_jobs.py --limit 20         # giới hạn số job xử lý, test trước
+```
+
+**Nguyên tắc "thà thiếu còn hơn sai"** — chỉ tự động chuyển `EXPIRED` khi
+tín hiệu không mơ hồ:
+
+- `source_url` trả về HTTP 404/410 (Gone) → `EXPIRED`.
+- Deadline job đã qua (mặc định hoặc `--check-deadline`) → `EXPIRED`.
+
+Mọi trường hợp khác (200 kèm redirect, timeout, 403 bị chặn bot, 5xx tạm
+lỗi...) — **không** kết luận, đếm vào `cần_kiểm_tra_tay` để soát thủ
+công. Dùng `EXPIRED` (job tự nhiên hết hiệu lực) chứ không phải `CLOSED`
+(team SS chủ động đóng qua frontend) — 2 status khác nghĩa, để sau này
+lọc/báo cáo phân biệt được lý do đóng job.
+
+---
 
 ## Xem kết quả
 
@@ -205,439 +358,10 @@ SELECT * FROM v_duplicate_job_candidates;
 
 ---
 
-## `check_expired_source_jobs.py` — theo dõi job hết hạn thật ngoài nguồn
+## Thêm ngành / nguồn crawl mới
 
-**Nên chạy sau mỗi đợt crawl** (hoặc định kỳ, vd cron hằng ngày). Script
-này **KHÔNG nằm trong pipeline crawl chính** — chạy riêng, tách biệt.
-
-**Vấn đề nó giải quyết:** JD trên TopCV/VietnamWorks bị nhà tuyển dụng
-xoá sau 1 thời gian (hết nhu cầu tuyển, đủ hồ sơ...), nhưng DB của
-mình không có gì tự động phát hiện — job vẫn hiện `OPEN` mãi dù link
-nguồn đã chết. Học viên bấm "Xem JD gốc" sẽ ra trang lỗi/404, và job
-vẫn hiện như đang tuyển dù thực ra không còn nữa.
-
-**Cách chạy:**
-
-```bash
-# Xem thử job nào SẼ bị đánh EXPIRED, KHÔNG ghi gì vào DB — chạy trước tiên
-python check_expired_source_jobs.py --dry-run
-
-# Chạy thật (ghi vào DB)
-python check_expired_source_jobs.py
-
-# Chỉ check deadline quá hạn, KHÔNG fetch mạng tới source_url — nhanh hơn
-# nhiều, phù hợp chạy thường xuyên hơn
-python check_expired_source_jobs.py --check-deadline
-
-# Giới hạn số job xử lý — dùng để test thử trước khi chạy full
-python check_expired_source_jobs.py --limit 20
-```
-
-**Nguyên tắc "thà thiếu còn hơn sai"** — chỉ tự động chuyển `EXPIRED`
-khi tín hiệu **không mơ hồ**:
-
-- `source_url` trả về HTTP 404 hoặc 410 (Gone) → `EXPIRED`. Đây là tín
-  hiệu rõ ràng nhất: server nguồn xác nhận URL không còn tồn tại.
-- Deadline job đã qua (khi chạy `--check-deadline` hoặc mặc định) →
-  `EXPIRED`.
-
-Mọi trường hợp khác (200 nhưng redirect sang trang khác/trang chủ,
-timeout, lỗi mạng, 403 bị chặn bot, 5xx server nguồn tạm lỗi...) —
-**không** kết luận, không đụng vào `job_status`, chỉ đếm vào
-`cần_kiểm_tra_tay` để người xem log tự kiểm tra tay nếu muốn. Lý do:
-TopCV/VietnamWorks có thể trả 200 kèm redirect về trang chủ khi job hết
-hạn — tự ý đoán dấu hiệu này dễ bắt nhầm job **thật** (site bảo trì,
-đổi giao diện, chặn bot bằng challenge page) thành `EXPIRED`.
-
-**Vì sao dùng `EXPIRED` chứ không phải `CLOSED`:** 2 status khác nghĩa
-trong hệ thống — `CLOSED` dành cho quyết định **chủ động** của team SS
-(nút "Xoá" job ở frontend), `EXPIRED` dành cho job **tự nhiên hết hiệu
-lực**, không do ai quyết định. Dùng đúng status để sau này lọc/báo cáo
-phân biệt được lý do đóng job.
-
-Kết quả in ra cuối mỗi lần chạy: số job đã kiểm tra, số `EXPIRED` do
-deadline, số `EXPIRED` do nguồn trả 404/410, số vẫn còn sống, và số cần
-kiểm tra tay.
-
----
-
-## API layer (FastAPI)
-
-Lớp API bọc ngoài codebase crawler — không sửa gì `main.py` (CLI crawl cũ
-vẫn chạy y hệt), chỉ thêm nhóm hàm query mới cuối `db.py`.
-
-### Chạy local
-
-```bash
-uvicorn api.app:app --reload --port 8000
-```
-
-Mọi request cần header `X-API-Key: <API_KEY trong .env>`, kể cả `/health`
-(sai/thiếu key → `401`). Swagger (`/docs`)/ReDoc (`/redoc`) **mặc định
-tắt** (không đi qua được lớp kiểm tra key) — bật lúc dev bằng
-`ENABLE_DOCS=true` trong `.env`, không bật trên môi trường public.
-
-### Bảo mật — 3 lớp xếp chồng
-
-1. **API key tĩnh** (`api/auth.py`) — 1 key dùng chung, gửi qua header
-   `X-API-Key` (hoặc `?api_key=` để test). Áp dụng toàn bộ endpoint kể cả
-   route chỉ đọc. Thiếu `API_KEY` trong `.env` → server tự chặn hết
-   (fail-closed).
-2. **Đăng nhập JWT từng người** (`api/security.py`,
-   `api/routers/auth.py`) — xác định AI đang gọi, khác lớp API key (chỉ
-   xác nhận "đúng client của mình"). `POST /auth/login` → `access_token`
-   (30 phút) + `refresh_token` (xoay vòng) → gửi
-   `Authorization: Bearer <access_token>` cho route cần đăng nhập →
-   `POST /auth/refresh` khi hết hạn.
-3. **Phân quyền 3 cấp** (`ROLE_HIERARCHY`/`require_role()` trong
-   `api/deps.py`) — cấp cao thoả mọi route yêu cầu cấp thấp hơn:
-
-   | Role | Được làm |
-   |---|---|
-   | `user` | Xem/lọc job, ứng tuyển/lưu job của chính mình (`/me/*`) — mặc định khi tự đăng ký |
-   | `ss_team` | + tạo/sửa job/company, CRUD liên hệ HR, xem ai đã ứng tuyển 1 job, xem danh sách tài khoản |
-   | `admin` | + trigger crawl, tạo tài khoản hộ, đổi role người khác |
-
-   Tạo tài khoản: **tự đăng ký** (`POST /auth/register`, luôn role
-   `user`, phải xác thực email) hoặc **admin tạo hộ** (`POST
-   /auth/users`, chọn role bất kỳ). Nâng role phải nhờ admin gọi `PATCH
-   /auth/users/{id}/role`.
-
-Mọi thao tác ghi qua JWT ghi vào `created_by`/`updated_by` của
-`job_postings`/`companies`/`company_contacts` (audit trail) — job/công
-ty tạo qua crawl tự động có `created_by = NULL`.
-
-**CORS siết theo domain** — chỉ domain trong `ALLOWED_ORIGINS` (phân
-tách dấu phẩy) gọi được từ trình duyệt. Để trống → không domain nào gọi
-được (fail-closed).
-
-### Đăng ký công khai + xác thực email
-
-Ai cũng gọi được `POST /auth/register` — route này cùng `verify-email`
-và `resend-verification` **KHÔNG cần** `X-API-Key` (khác mọi route khác,
-vì link xác thực được bấm thẳng từ trình duyệt, không tự gắn header
-được). Luôn tạo role `user`, `email_verified=false`. Server gửi email
-xác thực qua **Resend** từ domain riêng `no-reply@scrapjd.xyz`. `POST
-/auth/login` chặn nếu email chưa xác thực. Link hết hạn 24h, gửi lại qua
-`POST /auth/resend-verification`.
-
-Resend lỗi (rate-limit, mạng chập chờn) → tài khoản **vẫn tạo thành
-công**, không mất dữ liệu, gọi lại `resend-verification` sau là được.
-
-Bắt buộc `RESEND_API_KEY` để gửi email thật (thiếu → log lỗi, tài khoản
-vẫn tạo nhưng email không tới). `API_BASE_URL` phải trỏ đúng domain API
-thật (vd `https://scrap-jd-api.onrender.com`, không có `/docs` hay `/`
-cuối) để link trong email đúng.
-
-### Quên / đặt lại mật khẩu
-
-`POST /auth/forgot-password` (email) → **luôn** trả cùng 1 message chung
-chung dù email có tồn tại hay không (chống dò email hàng loạt, giống cơ
-chế `resend-verification`) → nếu email tồn tại, gửi link đặt lại qua
-Resend, token sống **1 giờ**, dùng đúng 1 lần. Không chặn nếu tài khoản
-chưa xác thực email — quên mật khẩu và chưa-verify là 2 vấn đề độc lập.
-
-`POST /auth/reset-password` (token + mật khẩu mới) → đổi mật khẩu, sau
-đó **thu hồi toàn bộ refresh token cũ** của user (nếu lý do quên mật
-khẩu là bị lộ mật khẩu, phiên đăng nhập cũ bị đá ra ngay, không đợi
-access token 30 phút tự hết hạn). Token sai/hết hạn → `400`.
-
-### Khoá tạm tài khoản do đăng nhập sai nhiều lần (rate-limit)
-
-`POST /auth/login` tự đếm số lần sai mật khẩu liên tiếp
-(`failed_login_count`) — **sai đủ 5 lần** thì khoá tạm tài khoản đó
-**15 phút** (`locked_until`, xem `api/security.py`:
-`FAILED_LOGIN_LOCK_THRESHOLD`/`FAILED_LOGIN_LOCK_MINUTES`), trả `403`
-kèm thông báo rõ ràng. Đăng nhập đúng mật khẩu bất kỳ lúc nào (kể cả
-trước khi chạm ngưỡng) tự reset bộ đếm về 0. Khoá này **khác**
-`is_active=false` (vô hiệu hoá vĩnh viễn do admin) — tự hết hạn sau 15
-phút, không cần admin can thiệp.
-
-### Endpoints hiện có
-
-| Method | Path                                                                            | Việc                                                                                                               |
-| ------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| GET    | `/jobs?industry=&province=&level=&work_type=&status=&keyword=&limit=&offset=` | List job, filter + phân trang — chỉ cần API key                                                                    |
-| GET    | `/jobs/{job_id}`                                                              | Chi tiết 1 job (kèm parsed_content) — chỉ cần API key                                                             |
-| POST   | `/jobs`                                                                       | Tạo job thủ công (company phải có sẵn) — **role ss_team+**, ghi `created_by`                                       |
-| PATCH  | `/jobs/{job_id}`                                                              | Sửa job (trạng thái, lương, ghi chú...) — **role ss_team+**. Dùng `job_status:"CLOSED"` để "xoá mềm"               |
-| GET    | `/jobs/{job_id}/applications`                                                 | Ai đã ứng tuyển job này (full_name/email/phone) — **role ss_team+**                                               |
-| GET    | `/companies?keyword=&province=&has_social=&limit=&offset=`                    | List công ty, filter + phân trang — chỉ cần API key                                                               |
-| GET    | `/companies/{company_id}`                                                     | Chi tiết công ty (kèm danh sách job) — chỉ cần API key                                                          |
-| POST   | `/companies`                                                                  | Tạo công ty thủ công (tự dùng lại nếu trùng tax_id) — **role ss_team+**                                            |
-| PATCH  | `/companies/{company_id}`                                                     | Sửa tự do field công ty đã có (chỉ field gửi lên bị ghi đè) — **role ss_team+**                                    |
-| GET    | `/companies/{company_id}/contacts?include_inactive=`                          | List liên hệ HR của 1 công ty — **role ss_team+**                                                                |
-| POST   | `/companies/{company_id}/contacts`                                            | Thêm liên hệ HR — **role ss_team+**                                                                              |
-| PATCH  | `/companies/{company_id}/contacts/{contact_id}`                               | Sửa liên hệ HR — **role ss_team+**                                                                                |
-| DELETE | `/companies/{company_id}/contacts/{contact_id}`                               | Xoá mềm liên hệ HR (`is_active=false`, giữ lịch sử) — **role ss_team+**                                          |
-| DELETE | `/companies/{company_id}/contacts/{contact_id}/hard`                          | Xoá THẬT liên hệ HR — **role ss_team+**, `409` nếu contact còn `job_contact_links` (đang gắn với 1 job cụ thể)     |
-| POST   | `/me/applications`                                                            | Học viên ứng tuyển 1 job — 409 nếu đã ứng tuyển, 400 nếu job không `OPEN`                                          |
-| GET    | `/me/applications`                                                            | Danh sách job mình đã ứng tuyển                                                                                    |
-| DELETE | `/me/applications/{job_id}`                                                   | Huỷ ứng tuyển                                                                                                      |
-| POST   | `/me/saved-jobs`                                                              | Lưu 1 job — 409 nếu đã lưu                                                                                          |
-| GET    | `/me/saved-jobs`                                                              | Danh sách job đã lưu                                                                                                |
-| DELETE | `/me/saved-jobs/{job_id}`                                                     | Bỏ lưu job                                                                                                           |
-| POST   | `/crawl`                                                                      | Kích hoạt crawl nền — body `{"source", "category", "pages"?, "max_jobs"?}` — **role admin**                        |
-| GET    | `/crawl/{run_id}`                                                             | Theo dõi tiến độ/kết quả 1 lượt crawl — chỉ cần API key                                                       |
-| GET    | `/stats`                                                                      | Tổng job/công ty/đơn ứng tuyển (`total_applications`), tỷ lệ có social, phân bố ngành/nguồn — chỉ cần API key |
-| GET    | `/sources`                                                                    | Danh sách source/category có sẵn — frontend render dropdown                                                    |
-| GET    | `/health`                                                                     | Health check (vẫn cần API key)                                                                                  |
-| POST   | `/auth/register`                                                              | Tự đăng ký (phone/track cho học viên, luôn role `user`), gửi email xác thực — không cần đăng nhập trước           |
-| GET    | `/auth/verify-email?token=`                                                   | Bấm từ link trong email, kích hoạt tài khoản vừa đăng ký                                                        |
-| POST   | `/auth/resend-verification`                                                  | Xin gửi lại email xác thực nếu token cũ hết hạn/thất lạc                                                        |
-| POST   | `/auth/forgot-password`                                                      | Xin link đặt lại mật khẩu qua email — luôn trả message chung chung                                                |
-| POST   | `/auth/reset-password`                                                       | Đặt mật khẩu mới bằng token từ email, thu hồi toàn bộ refresh token cũ                                            |
-| POST   | `/auth/login`                                                                 | Đăng nhập, trả `access_token` (30 phút) + `refresh_token`. Chặn nếu email chưa xác thực                        |
-| POST   | `/auth/refresh`                                                               | Xoay vòng lấy access token mới                                                                                  |
-| POST   | `/auth/logout`                                                                | Thu hồi refresh token hiện tại                                                                                  |
-| GET    | `/auth/me`                                                                    | Thông tin tài khoản đang đăng nhập                                                                              |
-| POST   | `/auth/change-password`                                                      | Tự đổi mật khẩu                                                                                                  |
-| POST   | `/auth/users`                                                                 | Admin tạo hộ tài khoản mới (chọn được role) — **role admin**                                                    |
-| GET    | `/auth/users`                                                                 | Danh sách toàn bộ tài khoản — **role ss_team+**                                                                  |
-| PATCH  | `/auth/users/{id}/role`                                                      | Đổi role tài khoản khác (không tự đổi role chính mình) — **role admin**                                          |
-| PATCH  | `/auth/users/{id}/active-status`                                             | Vô hiệu hoá/kích hoạt lại tài khoản khác (không tự khoá chính mình) — **role admin**. Không revoke JWT access token đang có hiệu lực ngay lập tức (tối đa ~30 phút), chỉ chặn lần login/refresh tiếp theo |
-
-Xem chi tiết body/response từng endpoint trong `API_README.md`. Tài
-khoản `ss_team`/`admin` **luôn ẩn** `phone`/`track` trong mọi response —
-2 field này chỉ có ý nghĩa với học viên (`user`).
-
-### Giới hạn đã biết
-
-- **Trạng thái crawl (`POST /crawl`) lưu trong RAM**, mất khi restart
-  server, không đồng bộ nếu chạy nhiều worker. Đủ dùng ở quy mô hiện
-  tại. Nâng cấp sau: Celery + Redis hoặc RQ.
-- **Không giới hạn crawl chạy song song** — xem cảnh báo race condition
-  ở [Crawl job](#crawl-job). `require_admin` giảm rủi ro spam nhưng
-  KHÔNG tự chặn 2 lượt chạy cùng lúc.
-- **`GET /docs`/`/redoc`/`/openapi.json` không đi qua được API key**
-  (giới hạn kỹ thuật FastAPI) — mặc định tắt, chỉ bật `ENABLE_DOCS=true`
-  lúc dev local.
-- **Auth API key vẫn là 1 khoá dùng chung** ở tầng "máy gọi máy" — muốn
-  biết chính xác người nào gọi phải qua JWT (bắt buộc ở route ghi/route
-  xem thông tin nhạy cảm).
-- **`RESEND_API_KEY` chưa cấu hình → email (xác thực lẫn quên mật khẩu)
-  không gửi được**, nhưng thao tác vẫn thành công trong DB (không mất
-  dữ liệu).
-
----
-
-## Deploy production
-
-- **Backend**: Render Web Service, build từ repo này (`Koaito/scrap-jd`,
-  GitHub private). 10 biến môi trường (Postgres, `API_KEY`,
-  `ALLOWED_ORIGINS`, `JWT_SECRET_KEY`, Resend/Tavily/Gemini key...) cấu
-  hình trực tiếp trên Render — **không phải** qua `.env` (file đó chỉ
-  dùng local, `.gitignore` đã chặn commit). URL public:
-  `https://scrap-jd-api.onrender.com`.
-- **Frontend**: repo `mindx-jobs` (Flask), deploy trên Vercel, gọi API
-  qua `Authorization: Bearer` (JWT). `ALLOWED_ORIGINS` trên Render đã
-  cập nhật đúng domain Vercel — không còn bị CORS chặn.
-
----
-
-## Tình trạng dữ liệu
-
-Snapshot tại thời điểm viết (183 job / 134 công ty, crawl **6 ngành**
-trên cả 2 nguồn):
-
-| Field                                                          | Độ phủ |
-| -------------------------------------------------------------- | --------- |
-| `job_postings.work_type` / `deadline` / `parsed_content` | ~97%      |
-| `job_postings.salary_min` (không tính "Thoả thuận")      | 29%       |
-| `companies.tax_id`                                           | 96%       |
-| `companies.website`                                          | 73%       |
-| `companies.industry`                                         | 80%       |
-| `companies.company_size`                                     | 61%       |
-| `companies.fanpage_url`                                      | 41%       |
-| `companies.address`                                          | 46%       |
-| `companies.linkedin_url`                                     | 28%       |
-
-Phân bố job theo ngành: Code 38, UI/UX Design 39, Data Engineer 35,
-Business Analysis 31, Data Scientist 20, Data Analysis 20.
-
-**Đã phát hiện 1 cặp job trùng nội dung thật** (0 `tax_id` trùng, 0
-`source_url` trùng, nhưng 1 cặp `content_hash` trùng — 2 job "Fullstack
-Developer" cùng nội dung, tạo cách nhau ~11 giây). ⚠️ Đây là **snapshot dữ
-liệu cũ** chụp TRƯỚC khi vá bug repost bên dưới — cặp job này **chưa được
-dọn tay** (soát bằng `v_duplicate_job_candidates`), nhưng nguyên nhân sinh
-ra nó (TopCV cấp `source_url` mới khi đăng lại cùng tin) **đã được chặn ở
-code từ giờ trở đi** — xem [Bug đã sửa: job trùng nội dung do đăng lại
-(repost)](#bug-đã-sửa-job-trùng-nội-dung-do-đăng-lại-repost-082026). Không
-nên hiểu nhầm là bug này vẫn còn nguyên, chỉ là dữ liệu CŨ sinh ra trước
-bản vá vẫn còn tồn tại tới khi dọn tay.
-
-### Bug đã sửa: sai đơn vị lương VietnamWorks (08/2026)
-
-`normalize_salary()` trước đây luôn nhân số VNĐ với 1.000.000 (giả định
-mọi số ở đơn vị "triệu"). VietnamWorks có 2 định dạng `prettySalary` khác
-nhau cho cùng đơn vị VNĐ — `"15tr-30tr ₫/tháng"` (có hậu tố "tr") và
-`"12,000-30,000 ₫/tháng"` (đã ở đơn vị nghìn đồng, không hậu tố) — nhân
-cứng 1 kiểu khiến case thứ 2 lệch 1000 lần. Đã sửa bằng cách suy luận hệ
-số nhân theo **độ lớn của chính con số** — xem docstring
-`_vnd_multiplier()` trong `normalize.py`. Job cũ bị lệch đơn vị trong DB
-đã được vá lại (lọc lại từ DB mới) — không còn tồn đọng.
-
-### Bug đã sửa: `required_skills` bị lặp phần tử (08/2026)
-
-4 job có danh sách kỹ năng bị lặp phần tử trong `parsed_content`, nghi do
-artifact khi parse DOM (TopCV) hoặc dữ liệu API trả kèm trùng (VietnamWorks).
-Đã sửa bằng cách dedupe tại `pipeline._build_parsed_content_and_raw()` —
-dùng chung cho mọi adapter, so khớp không phân biệt hoa/thường + khoảng
-trắng thừa, giữ đúng thứ tự xuất hiện đầu tiên. Chỉ áp dụng cho job crawl
-mới sau này — job cũ trong DB (nếu còn) cần soát tay bằng SQL nếu cần.
-
-### Bug đã sửa: lương "/năm" bị hiểu nhầm thành lương/tháng (08/2026)
-
-`normalize_salary()` trước đây chỉ trích số ra khỏi text lương rồi suy
-luận **đơn vị tiền tệ** (triệu/nghìn đồng) theo độ lớn con số, hoàn toàn
-không đọc **chu kỳ trả lương** ("/tháng" hay "/năm") trong text gốc —
-mọi mức lương crawl được mặc định coi là lương/tháng. 2 job thật ("iOS
-Developer", "Vendor Development") có raw text `"200tr-500tr ₫/năm"` bị
-lưu `salary_min`/`salary_max` y hệt như lương/tháng (sai lệch 12 lần).
-
-Đã sửa bằng cách thêm cột **`salary_period`** (`MONTH`/`YEAR`, xem
-`sql/migration_add_salary_period.sql`) và detect tín hiệu "/năm"/"annual"/
-"per year"/"yearly" trong text gốc — xem `_YEARLY_SALARY_MARKER` trong
-`normalize.py`. **Quyết định thiết kế:** `salary_min`/`salary_max` GIỮ
-NGUYÊN con số gốc theo đúng chu kỳ đã detect, KHÔNG tự chia 12 để quy
-đổi ra "tháng tương đương" (tránh mất độ chính xác, tránh áp đặt giả
-định quy đổi khi ghi vào DB — xem docstring `_YEARLY_SALARY_MARKER` để
-biết lý do đầy đủ). 2 record sai đã biết (iOS Dev, Vendor Development)
-**chưa được backfill lại** — vẫn cần soát tay hoặc chạy script backfill
-riêng (đọc `salary_raw_content` đã lưu sẵn trong `job_sources_log`) nếu
-muốn sửa 2 record cũ này.
-
-Job nhập tay qua `POST`/`PATCH /jobs` cũng đã hỗ trợ field `salary_period`
-(mặc định `MONTH`) — xem `API_README.md`.
-
-### Bug đã sửa: 4 job TopCV "Brand Pro" bị null toàn bộ nội dung (08/2026)
-
-4 job có URL dạng `topcv.vn/brand/<company>/tuyen-dung/...` (trang "Brand
-Pro" — gói trả phí cho nhà tuyển dụng) bị lưu `job_description`/
-`requirements`/`perks`/`required_skills` **rỗng hoàn toàn**, dù HTML fetch
-thành công (không phải lỗi mạng/bị chặn). Nguyên nhân: `fetch_job_full_detail()`
-trong `adapters/topcv.py` chỉ khớp selector class CSS của trang **thường**
-— trang Brand Pro dùng template hoàn toàn khác, không tag nào khớp — code
-trả về dict "rỗng-nhưng-không-None" nên job vẫn bị insert với field NULL
-âm thầm.
-
-Đã sửa bằng fallback: khi selector class CSS không tìm được nội dung, thử
-lại bằng cách quét theo **text heading** (giống cách `fetch_company_profile()`
-đã xử lý cho trang Brand Pro trước đó) — heading Brand Pro có khác biệt
-nhỏ so với trang thường (vd "Quyền lợi được hưởng" thay vì "Quyền lợi ứng
-viên"), đã xác nhận bằng HTML thật từ 2 job Brand Pro (HappyMoney "Business
-Analyst" + 1 job khác). Khi CẢ 2 cách đều không ra nội dung, log cảnh báo
-riêng "template mismatch" thay vì âm thầm lưu NULL, để dev biết ngay cần
-vá selector mới thay vì tự audit CSV. 4 job cũ **chưa được re-crawl lại**
-— cần chạy lại crawl cho 4 job này (hoặc đợi lượt crawl định kỳ tiếp theo
-tự vá qua nhánh "vá job cũ còn thiếu field", xem [Crawl job](#crawl-job)).
-
-### Bug đã sửa: VietnamWorks `typeWorkingId` lạ bị hiểu sai (08/2026)
-
-`typeWorkingId` (field số nguyên VietnamWorks trả về) chỉ được xác nhận
-chắc chắn 2 giá trị: `1` = Toàn thời gian, `3` = Thực tập — các giá trị
-khác trước đây bị map sai/để trống. Đối chiếu thực tế: 4 job có
-`typeWorkingId` không phải `1`/`3`/`0` đều hiện đúng "Hình thức làm việc:
-Khác" trên trang thật. Đã sửa: mọi `typeWorkingId` không khớp 2 giá trị
-đã xác nhận → fallback về `"Khác"` (map sang `OTHER` qua
-`normalize._WORK_TYPE_MAP` sẵn có) thay vì đoán bừa hoặc bỏ trống — xem
-`_work_type_text_from_id()` trong `adapters/vietnamworks.py`.
-
-### Bug đã sửa: job trùng nội dung do đăng lại (repost) (08/2026)
-
-Cơ chế chống trùng của pipeline trước đây chỉ so khớp theo `source_url`
-**chính xác từng ký tự**. TopCV/VietnamWorks gán `source_url`/job ID
-**mới** mỗi khi nhà tuyển dụng "làm mới" tin đăng để đẩy lên top tìm
-kiếm (rất phổ biến) — dù nội dung JD giống hệt job cũ, hệ thống coi là 2
-job riêng biệt và insert cả hai (case thật: 2 job "Fullstack Developer"
-cùng công ty, cùng nội dung, khác `source_url`, đăng cách nhau ~1 phút —
-xem [Tình trạng dữ liệu](#tình-trạng-dữ-liệu)).
-
-Đã sửa: sau khi resolve được `company_id`/`level_id`/`province_id` của
-job mới, kiểm tra xem đã có job nào cùng bộ khoá này (khớp đúng công
-thức `generate_job_hash()` mà trigger Postgres dùng để tính
-`content_hash`) chưa — nếu có, **bỏ qua hoàn toàn, không insert job
-mới** (đếm vào `stats["skipped_duplicate_repost"]`). Tái dùng thẳng
-`db.find_manual_job_duplicate()` (viết ban đầu cho luồng nhập tay) vì
-cùng bộ khoá so khớp.
-
-**Quyết định thiết kế (đơn giản hoá so với đề xuất ban đầu):** chỉ CHẶN
-insert trùng, **chưa** tự động "vá" job cũ bằng nội dung/deadline mới từ
-lượt crawl phát hiện repost này (khác nhánh "vá job cũ còn thiếu field"
-ở bước chống trùng theo `source_url`) — vì lượt đăng lại có thể đi kèm
-nội dung/deadline mới hơn thật sự, nhưng gộp 2 luồng "vá theo repost" và
-"vá theo thiếu field" cùng lúc sẽ phức tạp hơn cần thiết cho lần sửa
-này. Nếu cần cập nhật `source_url`/nội dung job cũ theo lượt repost mới
-nhất, đây là việc làm thêm sau, chưa nằm trong bản vá này.
-
-### Việc còn tồn đọng
-
-- **Chưa sửa lỗi trùng job do race condition THUẬT SỰ** (2 lượt crawl
-  chạy chồng lên nhau cùng lúc) khi crawl song song (xem [Crawl
-  job](#crawl-job)) — KHÁC bug repost (2 lượt tuần tự, khác
-  `source_url`) đã fix, xem mục Bug đã sửa ở trên.
-- 2 record lương sai đã biết (iOS Dev, Vendor Development — xem [Bug đã
-  sửa: lương "/năm"](#bug-đã-sửa-lương-năm-bị-hiểu-nhầm-thành-lươngtháng-082026))
-  và 4 job TopCV Brand Pro null nội dung (xem [Bug đã sửa: Brand
-  Pro](#bug-đã-sửa-4-job-topcv-brand-pro-bị-null-toàn-bộ-nội-dung-082026))
-  **chưa được backfill/re-crawl lại** — code đã vá, nhưng data cũ trong
-  DB vẫn cần dọn tay riêng.
-- 1 cặp job "Fullstack Developer" trùng nội dung (case repost cũ, xem
-  [Tình trạng dữ liệu](#tình-trạng-dữ-liệu)) **chưa được dọn tay**.
-- **`company_size` (61%), `address` (46%), `linkedin_url` (28%) còn
-  thiếu nhiều** — chạy thêm `get_company_fb_linkedin_link.py` /
-  `enrich_company_web_info.py` để vá, hoặc chấp nhận vì nguồn crawl
-  không phải lúc nào cũng có sẵn field này.
-- **Dữ liệu mới từ 1 lượt crawl, 6 ngành, 2 nguồn** — cần crawl thêm
-  định kỳ để có dữ liệu đủ lớn cho dashboard.
-
----
-
-## `get_company_fb_linkedin_link.py` — điền fanpage/LinkedIn
-
-```bash
-python get_company_fb_linkedin_link.py --limit 10   # test thử ít công ty
-python get_company_fb_linkedin_link.py               # chạy full
-```
-
-- Chỉ xử lý công ty **đã có `website`** và **còn thiếu**
-  `fanpage_url`/`linkedin_url`.
-- Vào thẳng website công ty tìm link Facebook/LinkedIn thật (không đoán
-  mò qua Google — tránh bắt nhầm trang công ty khác trùng tên).
-- Không có website hoặc không có link social → để trống, không cố tìm
-  cách khác. Chạy lại nhiều lần được, chỉ xử lý công ty còn thiếu, độc
-  lập với pipeline crawl chính.
-
-## `enrich_company_web_info.py` — vá website/tax_id
-
-```bash
-python enrich_company_web_info.py --limit 10   # test thử ít công ty
-python enrich_company_web_info.py                # chạy full
-```
-
-Dùng cho công ty còn thiếu `website` hoặc `tax_id` sau khi crawl chính:
-
-1. Tavily search — tìm kết quả web thật cho tên công ty.
-2. Gemini — đọc kết quả Tavily, trích xuất `website`/`tax_id` ra JSON.
-3. Chỉ lưu kết quả tin cậy `high`/`medium`, `tax_id` đúng định dạng mã số
-   doanh nghiệp VN, `website` không thuộc mạng xã hội/trang tuyển
-   dụng/trang tra MST. Không đủ tin cậy → để trống.
-4. Domain tìm được không khớp token nào với tên công ty (nghi nhầm 2
-   pháp nhân cùng thương hiệu, vd "AEON" vs "AEONMALL") → log cảnh báo,
-   không tự lưu sai.
-5. **`tax_id` trùng công ty khác đã có trong DB** (vd cùng công ty crawl
-   từ cả 2 nguồn, tên ghi khác nhau) → **tự động gộp**: chuyển job/contact
-   sang công ty gốc, xoá công ty trùng. Không tự xoá job trùng nội dung
-   sau khi gộp (soát tay bằng `v_duplicate_job_candidates`).
-
-Cần `TAVILY_API_KEY` (free tier tại https://tavily.com) và
-`GEMINI_API_KEY` (https://aistudio.google.com) trong `.env`.
-
----
-
-## Thêm ngành mới để crawl
-
-Mở `config.py`, thêm vào `TOPCV_CATEGORIES` (hoặc `VIETNAMWORKS_CATEGORIES`):
+Mở `config.py`, thêm vào `TOPCV_CATEGORIES` (hoặc
+`VIETNAMWORKS_CATEGORIES`/`CAREERVIET_CATEGORIES`):
 
 ```python
 "business-analyst": {
@@ -649,19 +373,202 @@ Mở `config.py`, thêm vào `TOPCV_CATEGORIES` (hoặc `VIETNAMWORKS_CATEGORIES
 
 Lấy URL category TopCV thật: vào https://www.topcv.vn/viec-lam → "Danh
 mục Nghề" → chọn ngành → copy URL kết quả. Với VietnamWorks chỉ cần
-`query` (chuỗi tìm kiếm), xem ví dụ có sẵn trong `VIETNAMWORKS_CATEGORIES`.
+`query` (chuỗi tìm kiếm); với CareerViet chỉ cần `keyword` — xem ví dụ có
+sẵn trong `config.py`.
+
+Thêm hẳn 1 **nguồn** crawl mới (ITviec...): viết `adapters/itviec.py`
+implement `fetch_jobs()` (dựa theo `adapters/base.py`), khai báo trong
+`SOURCES` ở `main.py` — không cần sửa `normalize.py`, `db.py`,
+`pipeline.py`.
 
 ## Debug khi nguồn crawl đổi giao diện
 
-Cả 2 adapter bám theo **pattern URL** và **nhãn tiếng Việt** (`"Mã số
+Cả 3 adapter bám theo **pattern URL** và **nhãn tiếng Việt** (`"Mã số
 thuế"`, `"Quy mô"`...) thay vì tên class CSS — bền hơn khi trang web
 redesign. Nếu 1 ngày crawl ra 0 kết quả hoặc thiếu field:
 
 1. Mở URL category/job/công ty bằng trình duyệt → "View Page Source"
    (không phải Inspect Element — cần đúng HTML server trả về).
 2. So khớp lại pattern URL hoặc nhãn tiếng Việt trong
-   `adapters/topcv.py`/`adapters/vietnamworks.py` với HTML thật, sửa
-   cho khớp.
+   `adapters/topcv.py`/`adapters/vietnamworks.py`/`adapters/careerviet.py`
+   với HTML thật, sửa cho khớp.
 3. Cập nhật fixture HTML mẫu trong `tests/`, chạy lại
    `python tests/test_parse_and_normalize.py` để xác nhận trước khi
    crawl thật.
+
+---
+
+## Deploy production
+
+- **Backend**: Render Web Service, build từ repo này (`Koaito/scrap-jd`,
+  GitHub private). Biến môi trường (Postgres, `API_KEY`,
+  `ALLOWED_ORIGINS`, `JWT_SECRET_KEY`, Resend/Tavily/Gemini key...) cấu
+  hình trực tiếp trên Render — **không phải** qua `.env` (file đó chỉ
+  dùng local, `.gitignore` đã chặn commit). URL public:
+  `https://scrap-jd-api.onrender.com`.
+- **Frontend**: repo `mindx-jobs` (Flask), deploy trên Vercel, gọi API
+  qua `Authorization: Bearer` (JWT). `ALLOWED_ORIGINS` trên Render cần
+  trỏ đúng domain Vercel thật (không cập nhật → frontend bị chặn bởi
+  CORS dù key đúng).
+
+Chi tiết đầy đủ (thứ tự migration bắt buộc trước khi deploy bản có
+JWT/phân quyền, danh sách biến môi trường) xem `API_README.md`.
+
+---
+
+## Tình trạng dữ liệu & giới hạn đã biết
+
+Snapshot tại thời điểm viết (183 job / 134 công ty, crawl **6 ngành**
+trên **TopCV + VietnamWorks**, CareerViet mới thêm sau nên chưa nằm
+trong snapshot này):
+
+| Field                                                    | Độ phủ |
+| --------------------------------------------------------- | --------- |
+| `job_postings.work_type` / `deadline` / `parsed_content` | ~97%      |
+| `job_postings.salary_min` (không tính "Thoả thuận")       | 29%       |
+| `companies.tax_id`                                        | 96%       |
+| `companies.website`                                       | 73%       |
+| `companies.industry`                                      | 80%       |
+| `companies.company_size`                                  | 61%       |
+| `companies.fanpage_url`                                   | 41%       |
+| `companies.address`                                       | 46%       |
+| `companies.linkedin_url`                                  | 28%       |
+
+Phân bố job theo ngành: Code 38, UI/UX Design 39, Data Engineer 35,
+Business Analysis 31, Data Scientist 20, Data Analysis 20.
+
+**Giới hạn đang tồn tại:**
+
+- **Chưa sửa race condition thật** (2 lượt crawl chạy chồng lên nhau
+  cùng lúc) — xem cảnh báo ở [1. Crawl job](#1-crawl-job). Tạm thời chỉ
+  chạy 1 lượt/lúc.
+- **`company_size` (61%), `address` (46%), `linkedin_url` (28%) còn
+  thiếu nhiều** — chạy `get_company_fb_linkedin_link.py` /
+  `enrich_company_web_info.py` để vá thêm, hoặc chấp nhận vì nguồn crawl
+  không phải lúc nào cũng có sẵn field này.
+- 1 cặp job "Fullstack Developer" trùng nội dung (case repost cũ, sinh ra
+  trước khi bug repost được vá — xem [Lịch sử bug đã
+  sửa](#lịch-sử-bug-đã-sửa)) **chưa được dọn tay** — soát bằng
+  `v_duplicate_job_candidates`.
+- 2 record lương sai đã biết (iOS Dev, Vendor Development — do bug
+  "/năm" đã sửa) và 4 job TopCV Brand Pro từng bị null nội dung (do bug
+  selector đã sửa) **chưa được backfill/re-crawl lại** — code đã vá,
+  data cũ trong DB vẫn cần dọn tay hoặc đợi lượt crawl định kỳ tiếp theo
+  tự vá qua nhánh "vá job cũ còn thiếu field".
+
+---
+
+## Lịch sử bug đã sửa
+
+Các mục dưới đây là **changelog**, không phải hướng dẫn vận hành — giữ
+lại để biết dữ liệu cũ trong DB có thể còn sai sót gì cần soát tay.
+
+<details>
+<summary><strong>Sai đơn vị lương VietnamWorks (08/2026)</strong></summary>
+
+`normalize_salary()` trước đây luôn nhân số VNĐ với 1.000.000 (giả định
+mọi số ở đơn vị "triệu"). VietnamWorks có 2 định dạng `prettySalary`
+khác nhau cho cùng đơn vị VNĐ — `"15tr-30tr ₫/tháng"` (có hậu tố "tr") và
+`"12,000-30,000 ₫/tháng"` (đã ở đơn vị nghìn đồng, không hậu tố) — nhân
+cứng 1 kiểu khiến case thứ 2 lệch 1000 lần. Đã sửa bằng cách suy luận hệ
+số nhân theo độ lớn của chính con số — xem docstring `_vnd_multiplier()`
+trong `normalize.py`. Job cũ bị lệch đơn vị trong DB đã được vá lại,
+không còn tồn đọng.
+</details>
+
+<details>
+<summary><strong><code>required_skills</code> bị lặp phần tử (08/2026)</strong></summary>
+
+4 job có danh sách kỹ năng bị lặp phần tử trong `parsed_content`, nghi do
+artifact khi parse DOM (TopCV) hoặc dữ liệu API trả kèm trùng
+(VietnamWorks). Đã sửa bằng cách dedupe tại
+`pipeline._build_parsed_content_and_raw()` — dùng chung cho mọi adapter.
+Chỉ áp dụng cho job crawl mới sau này — job cũ trong DB (nếu còn) cần
+soát tay bằng SQL nếu cần.
+</details>
+
+<details>
+<summary><strong>Lương "/năm" bị hiểu nhầm thành lương/tháng (08/2026)</strong></summary>
+
+`normalize_salary()` trước đây chỉ trích số ra khỏi text lương rồi suy
+luận đơn vị tiền tệ (triệu/nghìn đồng) theo độ lớn con số, hoàn toàn
+không đọc chu kỳ trả lương ("/tháng" hay "/năm") trong text gốc — mọi
+mức lương crawl được mặc định coi là lương/tháng. 2 job thật ("iOS
+Developer", "Vendor Development") có raw text `"200tr-500tr ₫/năm"` bị
+lưu `salary_min`/`salary_max` y hệt như lương/tháng (sai lệch 12 lần).
+
+Đã sửa bằng cách thêm cột `salary_period` (`MONTH`/`YEAR`) và detect tín
+hiệu "/năm"/"annual"/"per year"/"yearly" trong text gốc — xem
+`_YEARLY_SALARY_MARKER` trong `normalize.py`. `salary_min`/`salary_max`
+GIỮ NGUYÊN con số gốc theo đúng chu kỳ đã detect, KHÔNG tự chia 12 để
+quy đổi ra "tháng tương đương". 2 record sai đã biết (iOS Dev, Vendor
+Development) chưa được backfill lại — vẫn cần soát tay hoặc đọc lại
+`raw_jd_content` đã lưu sẵn trong `job_sources_log`.
+</details>
+
+<details>
+<summary><strong>4 job TopCV "Brand Pro" bị null toàn bộ nội dung (08/2026)</strong></summary>
+
+4 job có URL dạng `topcv.vn/brand/<company>/tuyen-dung/...` (trang "Brand
+Pro" — gói trả phí cho nhà tuyển dụng) bị lưu `job_description`/
+`requirements`/`perks`/`required_skills` rỗng hoàn toàn, dù HTML fetch
+thành công. Nguyên nhân: `fetch_job_full_detail()` trong
+`adapters/topcv.py` chỉ khớp selector class CSS của trang thường — trang
+Brand Pro dùng template hoàn toàn khác.
+
+Đã sửa bằng fallback: khi selector class CSS không tìm được nội dung,
+thử lại bằng cách quét theo text heading (heading Brand Pro có khác biệt
+nhỏ so với trang thường, vd "Quyền lợi được hưởng" thay vì "Quyền lợi
+ứng viên"). Khi cả 2 cách đều không ra nội dung, log cảnh báo riêng
+"template mismatch" thay vì âm thầm lưu NULL. 4 job cũ chưa được
+re-crawl lại.
+</details>
+
+<details>
+<summary><strong>VietnamWorks <code>typeWorkingId</code> lạ bị hiểu sai (08/2026)</strong></summary>
+
+`typeWorkingId` (field số nguyên VietnamWorks trả về) chỉ được xác nhận
+chắc chắn 2 giá trị: `1` = Toàn thời gian, `3` = Thực tập — các giá trị
+khác trước đây bị map sai/để trống. Đối chiếu thực tế: các job có
+`typeWorkingId` không phải `1`/`3`/`0` đều hiện đúng "Hình thức làm việc:
+Khác" trên trang thật. Đã sửa: mọi `typeWorkingId` không khớp 2 giá trị
+đã xác nhận → fallback về `"Khác"` (map sang `OTHER`) — xem
+`_work_type_text_from_id()` trong `adapters/vietnamworks.py`.
+</details>
+
+<details>
+<summary><strong>Job trùng nội dung do đăng lại — repost (08/2026)</strong></summary>
+
+Cơ chế chống trùng của pipeline trước đây chỉ so khớp theo `source_url`
+chính xác từng ký tự. TopCV/VietnamWorks gán `source_url`/job ID mới mỗi
+khi nhà tuyển dụng "làm mới" tin đăng để đẩy lên top tìm kiếm — dù nội
+dung JD giống hệt job cũ, hệ thống coi là 2 job riêng biệt và insert cả
+hai (case thật: 2 job "Fullstack Developer" cùng công ty, cùng nội dung,
+khác `source_url`, đăng cách nhau ~1 phút).
+
+Đã sửa: sau khi resolve được `company_id`/`level_id`/`province_id` của
+job mới, kiểm tra xem đã có job nào cùng bộ khoá này chưa (khớp đúng
+công thức `generate_job_hash()`) — nếu có, bỏ qua hoàn toàn, không
+insert job mới. Quyết định thiết kế: chỉ CHẶN insert trùng, chưa tự động
+"vá" job cũ bằng nội dung/deadline mới từ lượt phát hiện repost này — vì
+lượt đăng lại có thể đi kèm nội dung/deadline mới hơn thật sự, nhưng gộp
+2 luồng "vá theo repost" và "vá theo thiếu field" cùng lúc phức tạp hơn
+cần thiết cho lần sửa này.
+</details>
+
+<details>
+<summary><strong>Thiếu cột <code>companies.products_services</code> trong schema (08/2026)</strong></summary>
+
+`sql/schema.sql` bị bỏ sót cột `products_services` dù `pipeline.py` và
+`enrich_company_profile_from_website.py` đã chủ động ghi vào cột này từ
+trước — DB nào tạo mới hoàn toàn từ schema (trước bản vá) sẽ thiếu cột,
+khiến crawl/enrich lỗi 500. Tệ hơn: từng có
+`sql/migration_drop_products_services.sql` và README từng hướng dẫn
+chạy nó khi setup DB mới — chạy đúng theo hướng dẫn cũ sẽ **xoá luôn**
+cột mà code đang cần.
+
+Đã sửa: thêm `products_services TEXT` vào `sql/schema.sql`, tạo
+`sql/migration_add_products_services.sql` cho DB cũ, xoá dòng hướng dẫn
+chạy migration DROP khỏi README/API_README.
+</details>
+
