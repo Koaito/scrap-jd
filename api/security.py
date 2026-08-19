@@ -174,3 +174,40 @@ def hash_refresh_token(token: str) -> str:
 
 def refresh_token_expiry() -> datetime:
     return datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+
+# ------------------------------------------------------------------
+# Token xác thực email / đặt lại mật khẩu — HASH TRƯỚC KHI LƯU DB
+# ------------------------------------------------------------------
+
+def hash_verification_token(token: str) -> str:
+    """SHA-256 hex — CÙNG cơ chế hash_refresh_token() ở trên (deterministic,
+    không salt: cần tra ngược lại đúng bằng token thô người dùng gửi lên
+    từ link email, và token nguồn đã đủ ngẫu nhiên — 32 byte urlsafe, xem
+    _generate_verify_token() trong api/routers/auth.py — nên không cần
+    salt để chống rainbow table). Tách hàm riêng (thay vì gọi thẳng
+    hash_refresh_token()) để giữ đúng tinh thần "khác khái niệm, khác
+    tên hàm dù cùng cách sinh" đã áp dụng nhất quán trong file này (xem
+    _generate_verify_token() không gọi thẳng generate_refresh_token()).
+
+    THÊM (vá lỗ hổng bảo mật đã phát hiện): email_verify_token và
+    password_reset_token trước đây lưu THẲNG giá trị thô người dùng nhận
+    qua email vào cột DB (app_users.email_verify_token/
+    password_reset_token) — nếu DB từng bị lộ (backup lỡ public, dump
+    lỗi cấu hình, quyền truy cập nội bộ bị lạm dụng...), kẻ tấn công có
+    ngay token DÙNG ĐƯỢC LUÔN trong cửa sổ hiệu lực (24h/1h) mà không
+    cần làm gì thêm — khác hẳn refresh_token (đã hash từ đầu, xem
+    hash_refresh_token()). Giờ CẢ 2 loại token này đều hash trước khi
+    lưu, tra cứu bằng hash — đúng nguyên tắc "không bao giờ lưu bí mật
+    dạng đọc được trực tiếp trong DB" đã áp dụng cho mật khẩu/refresh
+    token, giờ áp dụng nhất quán cho cả 2 loại token còn lại.
+
+    LƯU Ý DEPLOY: đổi này KHÔNG cần migration SQL (cột vẫn kiểu text,
+    chỉ đổi Ý NGHĨA giá trị lưu trong đó từ "token thô" sang "hash của
+    token") — nhưng token nào đang "bay" giữa email và DB đúng lúc
+    deploy bản vá này (hiếm, cửa sổ rất ngắn) sẽ không tra cứu được nữa
+    vì giá trị cũ trong DB (thô) không khớp hash mới tính từ token thô
+    y hệt — chấp nhận được vì token loại này sống ngắn (1h/24h) và
+    người dùng luôn tự xin lại được (resend-verification/forgot-password),
+    không mất dữ liệu gì quan trọng."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()

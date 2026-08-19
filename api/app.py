@@ -139,6 +139,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Security headers cơ bản — thêm 08/2026 (rà soát bảo mật), áp dụng cho
+# MỌI response kể cả lỗi/redirect. Chi phí gần như 0 (chỉ set vài
+# header), nên thêm dù API này chủ yếu trả JSON thuần (không tự render
+# HTML, trừ 2 route redirect ở api/routers/auth.py) — phòng hờ vẫn tốt
+# hơn không có, và một số proxy/CDN phía trước (Render) không tự thêm
+# các header này giúp.
+#   - X-Content-Type-Options: nosniff — chặn trình duyệt tự đoán
+#     content-type khác Content-Type server khai báo (chống 1 số kiểu
+#     tấn công MIME-sniffing).
+#   - X-Frame-Options: DENY — chặn nhúng response của domain này vào
+#     <iframe> ở site khác (chống clickjacking) — không có lý do gì API
+#     này cần bị nhúng iframe.
+#   - Referrer-Policy: strict-origin-when-cross-origin — không rò rỉ
+#     full URL (có thể chứa token trong query string, vd link verify-
+#     email/reset-password) ra header Referer khi trình duyệt điều
+#     hướng sang domain khác.
+#   - Strict-Transport-Security (HSTS) — báo trình duyệt LUÔN dùng HTTPS
+#     cho domain này trong 2 năm tới, kể cả lần gõ http:// đầu tiên. AN
+#     TOÀN để bật vì Render luôn phục vụ qua HTTPS (không có luồng HTTP
+#     thật nào bị "khoá" bởi header này) — nếu sau này tự host lại trên
+#     hạ tầng KHÔNG luôn có HTTPS thì cần bỏ header này trước, nếu không
+#     người dùng cũ (đã có header) sẽ không truy cập được qua HTTP nữa.
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
+    return response
+
 # X-API-Key bắt buộc cho MỌI router dữ liệu thật (kể cả auth.router —
 # login/refresh/logout/me/change-password/users, những route CẦN biết
 # client là frontend nội bộ trước khi xử lý tiếp JWT bên trong).

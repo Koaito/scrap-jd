@@ -10,6 +10,7 @@ trường EMAIL_FROM, KHÔNG cần sửa code ở đây.
 Route gọi module này (api/routers/auth.py) KHÔNG await/raise nếu gửi
 lỗi — xem docstring send_verification_email() bên dưới để hiểu lý do."""
 
+import html
 import logging
 import os
 
@@ -50,6 +51,13 @@ def send_verification_email(*, to_email: str, full_name: str, verify_token: str)
     KHÔNG cần đăng ký lại từ đầu nếu email bị thất lạc/gửi lỗi tạm thời
     (vd Resend rate-limit, mạng chập chờn)."""
     verify_url = f"{API_BASE_URL}/auth/verify-email?token={verify_token}"
+    # full_name do NGƯỜI DÙNG tự nhập lúc đăng ký — escape trước khi ghép
+    # vào HTML (sửa bảo mật: trước đây ghép thẳng, ai đăng ký với
+    # full_name kiểu "<img src=x onerror=...>" sẽ chèn được HTML/script
+    # vào chính email gửi cho họ, ảnh hưởng tới email client của người
+    # nhận email đó). verify_url không cần escape vì tự dựng từ
+    # API_BASE_URL (biến môi trường cố định) + token (đã qua urlsafe).
+    safe_full_name = html.escape(full_name)
 
     try:
         resend.Emails.send({
@@ -57,7 +65,7 @@ def send_verification_email(*, to_email: str, full_name: str, verify_token: str)
             "to": to_email,
             "subject": "Xác thực tài khoản Scrap JD",
             "html": (
-                f"<p>Chào {full_name},</p>"
+                f"<p>Chào {safe_full_name},</p>"
                 f"<p>Bấm vào đường dẫn dưới đây để xác thực tài khoản "
                 f"Scrap JD của bạn (hết hạn sau 24 giờ):</p>"
                 f'<p><a href="{verify_url}">{verify_url}</a></p>'
@@ -92,6 +100,8 @@ def send_password_reset_email(*, to_email: str, full_name: str, reset_token: str
     return True/False ở đây chỉ để LOG, không ảnh hưởng gì response trả
     về người dùng."""
     reset_url = f"{FRONTEND_BASE_URL}/reset-password?token={reset_token}"
+    # Escape full_name — cùng lý do send_verification_email() ở trên.
+    safe_full_name = html.escape(full_name)
 
     try:
         resend.Emails.send({
@@ -99,7 +109,7 @@ def send_password_reset_email(*, to_email: str, full_name: str, reset_token: str
             "to": to_email,
             "subject": "Đặt lại mật khẩu — Scrap JD",
             "html": (
-                f"<p>Chào {full_name},</p>"
+                f"<p>Chào {safe_full_name},</p>"
                 f"<p>Có yêu cầu đặt lại mật khẩu cho tài khoản Scrap JD "
                 f"của bạn. Bấm vào đường dẫn dưới đây để đặt mật khẩu "
                 f"mới (hết hạn sau 1 giờ):</p>"

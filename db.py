@@ -1660,7 +1660,7 @@ def update_user_active_status(conn, ss_user_id: str, is_active: bool) -> bool:
 # ------------------------------------------------------------------
 
 def create_user_pending_verification(conn, *, full_name: str, email: str,
-                                      password_hash: str, verify_token: str,
+                                      password_hash: str, verify_token_hash: str,
                                       verify_expires,
                                       phone: Optional[str] = None,
                                       track: Optional[str] = None) -> str:
@@ -1670,6 +1670,13 @@ def create_user_pending_verification(conn, *, full_name: str, email: str,
     lại) và có thêm email_verify_token/expires. is_active vẫn true ngay
     từ đầu (is_active là cờ RIÊNG cho admin khoá tài khoản, KHÁC
     email_verified — 2 khái niệm độc lập, xem docstring migration).
+
+    verify_token_hash: HASH của token (security.hash_verification_token()),
+    KHÔNG PHẢI token thô — sửa bảo mật, xem docstring hàm đó. Cột DB
+    email_verify_token vẫn tên cũ (không cần migration, chỉ đổi Ý NGHĨA
+    giá trị lưu vào) nhưng giờ luôn chứa hash, không còn token đọc được
+    trực tiếp. Token thô CHỈ tồn tại trong email gửi cho người dùng, KHÔNG
+    bao giờ chạm tới DB.
 
     phone/track: thêm 08/2026 (xem sql/migration_add_phone_track.sql) —
     trước đó frontend đã gửi 2 field này lên nhưng không có chỗ lưu."""
@@ -1683,20 +1690,25 @@ def create_user_pending_verification(conn, *, full_name: str, email: str,
             VALUES (%s, %s, 'user', %s, false, true, false, %s, %s, %s, %s)
             RETURNING ss_user_id
             """,
-            (full_name, email, password_hash, verify_token, verify_expires, phone, track),
+            (full_name, email, password_hash, verify_token_hash, verify_expires, phone, track),
         )
         return str(cur.fetchone()[0])
 
 
-def get_user_by_verify_token(conn, verify_token: str):
+def get_user_by_verify_token_hash(conn, verify_token_hash: str):
     """Trả dict user (đủ field, kể cả email_verify_expires) hoặc None
     nếu token không tồn tại — KHÔNG tự kiểm tra hết hạn ở đây, route tự
     so sánh email_verify_expires với thời gian hiện tại (tách trách
-    nhiệm: hàm này chỉ tra cứu, route quyết định logic nghiệp vụ)."""
+    nhiệm: hàm này chỉ tra cứu, route quyết định logic nghiệp vụ).
+
+    Tra cứu bằng HASH (security.hash_verification_token(token thô từ
+    query string) — route tự hash trước khi gọi hàm này), KHÔNG PHẢI
+    token thô — sửa bảo mật, xem docstring security.hash_verification_
+    token()."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "SELECT * FROM app_users WHERE email_verify_token = %s",
-            (verify_token,),
+            (verify_token_hash,),
         )
         return cur.fetchone()
 
@@ -1715,15 +1727,18 @@ def mark_email_verified(conn, ss_user_id: str) -> None:
         )
 
 
-def set_new_verify_token(conn, ss_user_id: str, verify_token: str, verify_expires) -> None:
+def set_new_verify_token(conn, ss_user_id: str, verify_token_hash: str, verify_expires) -> None:
     """Ghi ĐÈ token xác thực mới — dùng cho POST /auth/resend-verification
     (token cũ hết hạn hoặc email thất lạc, user xin gửi lại). Token cũ
-    (nếu còn) bị thay thế hoàn toàn, không dùng lại được nữa."""
+    (nếu còn) bị thay thế hoàn toàn, không dùng lại được nữa.
+
+    verify_token_hash: HASH, không phải token thô — xem docstring
+    create_user_pending_verification()."""
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE app_users SET email_verify_token = %s, "
             "email_verify_expires = %s WHERE ss_user_id = %s",
-            (verify_token, verify_expires, ss_user_id),
+            (verify_token_hash, verify_expires, ss_user_id),
         )
 
 
@@ -2050,32 +2065,39 @@ def delete_saved_job(conn, *, ss_user_id: str, job_id: str) -> bool:
 
 # ------------------------------------------------------------------
 # Quên mật khẩu — thêm 08/2026, mirror ĐÚNG cơ chế
-# get_user_by_verify_token/mark_email_verified/set_new_verify_token ở
-# trên (email xác thực đăng ký), chỉ khác tên cột. Xem
+# get_user_by_verify_token_hash/mark_email_verified/set_new_verify_token
+# ở trên (email xác thực đăng ký), chỉ khác tên cột. Xem
 # sql/migration_add_password_reset.sql.
 # ------------------------------------------------------------------
 
-def set_password_reset_token(conn, ss_user_id: str, reset_token: str, reset_expires) -> None:
+def set_password_reset_token(conn, ss_user_id: str, reset_token_hash: str, reset_expires) -> None:
     """Ghi token reset mật khẩu — gọi bởi POST /auth/forgot-password.
     Ghi ĐÈ token cũ nếu có (user xin gửi lại nhiều lần), token cũ (nếu
-    còn) hết hiệu lực ngay vì không còn tồn tại trong DB để đối chiếu."""
+    còn) hết hiệu lực ngay vì không còn tồn tại trong DB để đối chiếu.
+
+    reset_token_hash: HASH của token (security.hash_verification_token()),
+    KHÔNG PHẢI token thô — sửa bảo mật cùng đợt với email_verify_token,
+    xem docstring create_user_pending_verification()."""
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE app_users SET password_reset_token = %s, "
             "password_reset_expires = %s WHERE ss_user_id = %s",
-            (reset_token, reset_expires, ss_user_id),
+            (reset_token_hash, reset_expires, ss_user_id),
         )
 
 
-def get_user_by_reset_token(conn, reset_token: str):
+def get_user_by_reset_token_hash(conn, reset_token_hash: str):
     """Trả dict user (đủ field, kể cả password_reset_expires) hoặc None
     nếu token không tồn tại — KHÔNG tự kiểm tra hết hạn ở đây, route tự
     so sánh password_reset_expires với thời gian hiện tại (tách trách
-    nhiệm, giống get_user_by_verify_token())."""
+    nhiệm, giống get_user_by_verify_token_hash()).
+
+    Tra cứu bằng HASH, không phải token thô — xem docstring
+    set_password_reset_token()."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             "SELECT * FROM app_users WHERE password_reset_token = %s",
-            (reset_token,),
+            (reset_token_hash,),
         )
         return cur.fetchone()
 

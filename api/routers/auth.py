@@ -177,6 +177,14 @@ def login(payload: LoginRequest, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/refresh", response_model=AccessTokenOut)
+# 30/minute theo IP — thêm cùng đợt rà soát rate-limit (trước đó route
+# này KHÔNG có giới hạn nào). Rủi ro chính không phải "đoán được token"
+# (refresh token 48 byte ngẫu nhiên, đoán được là bất khả thi) mà là
+# chặn bớt việc gọi lặp lại dồn dập vô ích (script lỗi loop, hoặc lạm
+# dụng để dò phản ứng server) — 30/minute vẫn dư sức cho use case thật
+# (access token 30 phút mới hết hạn 1 lần, không ai cần refresh nhanh
+# hơn thế nhiều).
+@limiter.limit("30/minute")
 def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
     """Xoay vòng refresh token: đổi lấy 1 CẶP token mới (cả access lẫn
     refresh), thu hồi token cũ ngay lập tức. Nếu token gửi lên là 1 token
@@ -237,7 +245,10 @@ def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
 
 
 @router.post("/logout", status_code=204)
-def logout(payload: RefreshRequest, conn=Depends(get_db)):
+# 30/minute theo IP — cùng lý do refresh() ở trên (chặn gọi lặp vô ích,
+# không phải vì token đoán được).
+@limiter.limit("30/minute")
+def logout(request: Request, payload: RefreshRequest, conn=Depends(get_db)):
     """Đăng xuất — thu hồi ĐÚNG refresh token gửi lên (không đụng tới
     token của thiết bị khác). Không lỗi nếu token không tồn tại/đã thu
     hồi từ trước (đăng xuất nhiều lần vẫn coi là thành công, tránh lộ
@@ -442,12 +453,16 @@ def register(payload: RegisterRequest, request: Request, conn=Depends(get_db)):
     verify_token = _generate_verify_token()
     verify_expires = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFY_EXPIRE_HOURS)
 
+    # Token THÔ chỉ tồn tại trong biến này + email gửi cho người dùng —
+    # DB chỉ nhận HASH (security.hash_verification_token()), không bao
+    # giờ lưu token đọc được trực tiếp (sửa bảo mật, xem docstring hàm
+    # đó và create_user_pending_verification()).
     ss_user_id = db_module.create_user_pending_verification(
         conn,
         full_name=payload.full_name,
         email=payload.email,
         password_hash=security.hash_password(payload.password),
-        verify_token=verify_token,
+        verify_token_hash=security.hash_verification_token(verify_token),
         verify_expires=verify_expires,
         phone=payload.phone,
         track=payload.track,
@@ -464,7 +479,16 @@ def register(payload: RegisterRequest, request: Request, conn=Depends(get_db)):
 
 
 @public_router.get("/verify-email")
-def verify_email(token: str, conn=Depends(get_db)):
+# 30/hour theo IP — thêm cùng đợt rà soát rate-limit (trước đó route
+# này KHÔNG có giới hạn nào, khác 3 route "chị em" resend-verification/
+# forgot-password/reset-password đã có từ đầu). Token 32 byte urlsafe
+# gần như không thể đoán được nên đây chỉ là lớp phòng thủ thêm, không
+# phải lớp chính — 30/hour đủ rộng cho người dùng bấm link vài lần (vd
+# double-click, hoặc trình quét link an toàn của Outlook/Gmail tự mở
+# link 1 lần trước khi người dùng bấm) mà vẫn chặn được request lặp bất
+# thường.
+@limiter.limit("30/hour")
+def verify_email(token: str, request: Request, conn=Depends(get_db)):
     """Endpoint người dùng BẤM TỪ EMAIL (không phải gọi qua code/frontend
     — xem api/email_service.py dựng link này). Route này KHÔNG tự vẽ
     giao diện — chỉ xử lý token rồi redirect(302) NGAY về trang
@@ -472,8 +496,14 @@ def verify_email(token: str, conn=Depends(get_db)):
     api/email_service.py — dùng chung biến với link reset mật khẩu) kèm
     ?status=success|expired|invalid, để frontend tự hiển thị đúng theme
     của site (trước đây trả HTML tĩnh viết tay ở chính route này — bỏ
-    từ lúc frontend đã có trang riêng, xem lịch sử trao đổi 08/2026)."""
-    user = db_module.get_user_by_verify_token(conn, token)
+    từ lúc frontend đã có trang riêng, xem lịch sử trao đổi 08/2026).
+
+    token nhận từ query string LUÔN là token THÔ (đúng giá trị trong link
+    email) — hash lại tại đây trước khi tra DB (DB chỉ lưu hash, xem
+    docstring register())."""
+    user = db_module.get_user_by_verify_token_hash(
+        conn, security.hash_verification_token(token)
+    )
 
     if user is None:
         return RedirectResponse(f"{FRONTEND_BASE_URL}/verify-email?status=invalid", status_code=302)
@@ -513,7 +543,12 @@ def resend_verification(payload: ResendVerificationRequest, request: Request, co
     verify_token = _generate_verify_token()
     verify_expires = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFY_EXPIRE_HOURS)
 
-    db_module.set_new_verify_token(conn, str(user["ss_user_id"]), verify_token, verify_expires)
+    # DB chỉ nhận hash, token thô chỉ tồn tại ở đây + email gửi đi — xem
+    # docstring register()/set_new_verify_token().
+    db_module.set_new_verify_token(
+        conn, str(user["ss_user_id"]),
+        security.hash_verification_token(verify_token), verify_expires,
+    )
     conn.commit()
 
     send_verification_email(
@@ -558,7 +593,12 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request, conn=Depen
     reset_token = _generate_verify_token()  # cùng cơ chế sinh token (secrets.token_urlsafe), khác tên biến cho rõ ngữ cảnh
     reset_expires = datetime.now(timezone.utc) + timedelta(hours=PASSWORD_RESET_EXPIRE_HOURS)
 
-    db_module.set_password_reset_token(conn, str(user["ss_user_id"]), reset_token, reset_expires)
+    # DB chỉ nhận hash, token thô chỉ tồn tại ở đây + email gửi đi — xem
+    # docstring register()/set_password_reset_token().
+    db_module.set_password_reset_token(
+        conn, str(user["ss_user_id"]),
+        security.hash_verification_token(reset_token), reset_expires,
+    )
     conn.commit()
 
     send_password_reset_email(
@@ -583,8 +623,13 @@ def reset_password(payload: ResetPasswordRequest, request: Request, conn=Depends
     user (revoke_all_refresh_tokens_for_user) — nếu lý do quên mật khẩu
     là bị lộ mật khẩu/máy bị chiếm quyền, phiên đăng nhập cũ (nếu kẻ tấn
     công đang có access/refresh token còn hạn) sẽ bị đá ra ngay, không
-    đợi access token 30 phút tự hết hạn."""
-    user = db_module.get_user_by_reset_token(conn, payload.token)
+    đợi access token 30 phút tự hết hạn.
+
+    payload.token là token THÔ từ email — hash lại trước khi tra DB
+    (DB chỉ lưu hash, xem docstring set_password_reset_token())."""
+    user = db_module.get_user_by_reset_token_hash(
+        conn, security.hash_verification_token(payload.token)
+    )
     if user is None:
         raise HTTPException(status_code=400, detail="Link đặt lại mật khẩu không hợp lệ hoặc đã được dùng.")
 
