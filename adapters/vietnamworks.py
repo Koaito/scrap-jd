@@ -319,10 +319,19 @@ class VietnamWorksAdapter(BaseAdapter):
                 self._last_request_time = time.monotonic()
                 return resp.text
             except requests.exceptions.RequestException as exc:
-                logger.error("Lỗi fetch %s: %s", url, exc)
+                # SỬA 08/2026 (đồng bộ với careerviet.py) — retry cả lỗi
+                # kết nối không có status code (VD: HTTP/2 stream reset,
+                # timeout...), không bỏ cuộc ngay ở lần lỗi đầu tiên như
+                # trước, vì đã xác nhận loại lỗi này có thể chỉ tạm thời.
+                wait = REQUEST_DELAY_SECONDS * (2 ** attempt)
+                logger.warning(
+                    "Lỗi kết nối tại %s (lần %d/%d): %s -> chờ %.1fs rồi thử lại",
+                    url, attempt, max_retries, exc, wait,
+                )
+                time.sleep(wait)
                 self._last_request_time = time.monotonic()
-                return None
-        logger.error("Bỏ cuộc sau %d lần liên tiếp bị chặn (429/403): %s", max_retries, url)
+                continue
+        logger.error("Bỏ cuộc sau %d lần liên tiếp (429/403/lỗi kết nối): %s", max_retries, url)
         return None
 
     # ------------------------------------------------------------------
@@ -486,8 +495,23 @@ class VietnamWorksAdapter(BaseAdapter):
         if m:
             result["real_website"] = m.group(1).rstrip(".,;")
 
+        # "Về chúng tôi" xuất hiện 2 LẦN LIÊN TIẾP trên trang thật (đã xác
+        # nhận bằng HTML thật 08/2026, mẫu "Bảo hiểm VietinBank (VBI)"):
+        # lần 1 là TÊN TAB trong tab bar ("Về chúng tôi" / "Vị trí đang
+        # tuyển dụng"), lần 2 mới là <h2> heading thật đứng ngay trước nội
+        # dung (Lĩnh vực/Liên hệ/đoạn mô tả). page_text.find() TRƯỚC ĐÂY
+        # bắt occurrence #1 (tab) -> "after" bị dính luôn tên tab kia
+        # ("Vị trí đang tuyển dụng") + heading thật ("Về chúng tôi") +
+        # nhãn field kế tiếp ("Lĩnh vực"...) thay vì đoạn mô tả thật, sinh
+        # ra description dạng rác kiểu "Vị trí đang tuyển dụng Về chúng
+        # tôi Quy mô...". Sửa: lấy occurrence #2 nếu có; nếu trang chỉ có
+        # 1 occurrence (hoặc template khác, không dùng cụm này) thì giữ
+        # hành vi cũ (an toàn, không đổi kết quả các trường hợp khác).
         intro_idx = page_text.find("Về chúng tôi")
         if intro_idx != -1:
+            second_idx = page_text.find("Về chúng tôi", intro_idx + 1)
+            if second_idx != -1:
+                intro_idx = second_idx
             after = page_text[intro_idx + len("Về chúng tôi"):]
             lines = [l.strip() for l in after.split("\n") if l.strip()]
             desc_lines = []

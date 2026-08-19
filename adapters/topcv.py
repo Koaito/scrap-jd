@@ -186,11 +186,21 @@ class TopCVAdapter(BaseAdapter):
                 self._last_request_time = time.monotonic()
                 return resp.text
             except requests.exceptions.RequestException as exc:
-                logger.error("Lỗi fetch %s: %s", url, exc)
+                # SỬA 08/2026 (đồng bộ với careerviet.py/vietnamworks.py) —
+                # retry cả lỗi kết nối không có status code (VD: HTTP/2
+                # stream reset, timeout...), không bỏ cuộc ngay ở lần lỗi
+                # đầu tiên như trước, vì đã xác nhận loại lỗi này có thể
+                # chỉ tạm thời (WAF chặn tạm do request dồn dập).
+                wait = REQUEST_DELAY_SECONDS * (2 ** attempt)
+                logger.warning(
+                    "Lỗi kết nối tại %s (lần %d/%d): %s -> chờ %.1fs rồi thử lại",
+                    url, attempt, max_retries, exc, wait,
+                )
+                time.sleep(wait)
                 self._last_request_time = time.monotonic()
-                return None
+                continue
 
-        logger.error("Bỏ cuộc sau %d lần liên tiếp bị chặn (429/403): %s", max_retries, url)
+        logger.error("Bỏ cuộc sau %d lần liên tiếp (429/403/lỗi kết nối): %s", max_retries, url)
         return None
 
     def _throttle(self):

@@ -415,10 +415,26 @@ class CareerVietAdapter(BaseAdapter):
                 self._last_request_time = time.monotonic()
                 return resp.text
             except requests.exceptions.RequestException as exc:
-                logger.error("Lỗi fetch %s: %s", url, exc)
+                # SỬA 08/2026: TRƯỚC ĐÂY return None ngay ở lần lỗi đầu
+                # tiên, không thử lại — trong khi lỗi kết nối kiểu
+                # "curl: (92) HTTP/2 stream reset by server" (WAF/anti-bot
+                # chặn tầng kết nối, KHÔNG có status code nên không rơi
+                # vào nhánh 429/403 phía trên) đã xác nhận là TẠM THỜI: 4
+                # URL CareerViet fail liên tiếp trong 1 lần chạy test lại
+                # load bình thường khi fetch lại thủ công ngay sau đó, và
+                # cũng những URL đó chạy trót lọt ở lần chạy trước —
+                # KHÔNG PHẢI trang đã đổi/hết dữ liệu như log cũ suy đoán
+                # sai. Giờ retry giống nhánh 429/403: backoff tăng dần,
+                # chỉ thật sự bỏ cuộc sau khi hết max_retries.
+                wait = REQUEST_DELAY_SECONDS * (2 ** attempt)
+                logger.warning(
+                    "Lỗi kết nối tại %s (lần %d/%d): %s -> chờ %.1fs rồi thử lại",
+                    url, attempt, max_retries, exc, wait,
+                )
+                time.sleep(wait)
                 self._last_request_time = time.monotonic()
-                return None
-        logger.error("Bỏ cuộc sau %d lần liên tiếp bị chặn (429/403): %s", max_retries, url)
+                continue
+        logger.error("Bỏ cuộc sau %d lần liên tiếp (429/403/lỗi kết nối): %s", max_retries, url)
         return None
 
     def _throttle(self):
