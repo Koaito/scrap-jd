@@ -26,9 +26,20 @@ KHI NÀO DÙNG SCRIPT NÀO:
     enrich_company_web_info.py (Tavily+Gemini, tốn credit, kém chính xác
     hơn vì phải suy luận qua search).
 
-CHỌN ĐÚNG ADAPTER THEO DOMAIN: source_profile_url có thể là URL TopCV
-hoặc VietnamWorks (2 nguồn hiện có) — script tự nhận diện qua domain
-trong URL, không cần người dùng chỉ định tay.
+CHỌN ĐÚNG ADAPTER THEO DOMAIN: source_profile_url có thể là URL TopCV,
+VietnamWorks, hoặc CareerViet (3 nguồn hiện có) — script tự nhận diện
+qua domain trong URL, không cần người dùng chỉ định tay.
+
+LƯU Ý RIÊNG CHO CAREERVIET (thêm 08/2026, xem adapters/careerviet.py):
+CareerVietAdapter.fetch_company_profile() CHỦ ĐÍCH luôn trả industry=""
+(trang công ty CareerViet không hiển thị field này) — company nguồn
+CareerViet sẽ KHÔNG BAO GIỜ được vá industry qua script này, dù
+company_size/address/website vẫn vá bình thường. Field industry của
+các công ty này chỉ có thể vá qua enrich_company_web_info.py
+(Tavily+Gemini). Hệ quả: company nguồn CareerViet có thể vẫn xuất hiện
+lại trong get_companies_needing_profile_backfill() ở các lần chạy sau
+dù đã vá hết những gì vá được (vì industry vẫn rỗng) — không phải lỗi,
+chỉ là chi phí chạy lại 1 request vô ích mỗi lần, chấp nhận được.
 
 Cách chạy:
     python backfill_company_profiles.py
@@ -43,6 +54,7 @@ from urllib.parse import urlsplit
 import db
 from adapters.topcv import TopCVAdapter
 from adapters.vietnamworks import VietnamWorksAdapter
+from adapters.careerviet import CareerVietAdapter
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,6 +69,7 @@ logger = logging.getLogger(__name__)
 _DOMAIN_ADAPTERS = {
     "topcv.vn": TopCVAdapter,
     "vietnamworks.com": VietnamWorksAdapter,
+    "careerviet.vn": CareerVietAdapter,
 }
 
 
