@@ -1430,6 +1430,12 @@ def get_stats_summary(conn) -> dict:
         cur.execute("SELECT count(*) AS n FROM job_applications")
         total_applications = cur.fetchone()["n"]
 
+        # Thêm 08/2026 cùng lúc với việc cho staff xem saved_jobs (xem
+        # db.list_saved_jobs_for_job()) — để dashboard hiện cân xứng với
+        # total_applications ở trên, cùng cách đếm thẳng 1 lần.
+        cur.execute("SELECT count(*) AS n FROM saved_jobs")
+        total_saved_jobs = cur.fetchone()["n"]
+
     return {
         "total_jobs": total_jobs,
         "total_companies": total_companies,
@@ -1437,6 +1443,7 @@ def get_stats_summary(conn) -> dict:
         "by_industry": by_industry,
         "by_source": by_source,
         "total_applications": total_applications,
+        "total_saved_jobs": total_saved_jobs,
     }
 
 
@@ -2044,8 +2051,20 @@ def delete_job_application(conn, *, ss_user_id: str, job_id: str) -> bool:
 
 
 # ------------------------------------------------------------------
-# Saved jobs — bookmark riêng tư của học viên, KHÁC ứng tuyển. Không có
-# route nào cho staff xem saved_jobs của người khác (xem migration).
+# Saved jobs — bookmark của học viên, KHÁC ứng tuyển.
+#
+# 08/2026 (đổi quyết định — xem lịch sử trao đổi): TRƯỚC ĐÂY cố ý không
+# có route nào cho staff xem saved_jobs của người khác ("không staff
+# nào cần thấy học viên đã lưu job gì, đây là danh sách cá nhân", xem
+# comment cũ ở sql/migration_add_applications_saved_jobs.sql). SS
+# team/admin hiện không có cách nào theo dõi học viên đang quan tâm/lưu
+# JD nào để chủ động hỗ trợ -> ĐẢO NGƯỢC quyết định riêng tư ban đầu:
+# thêm list_saved_jobs_for_job() (mirror list_applications_for_job(),
+# chiều "1 job có ai lưu") bên dưới; chiều "1 học viên đã lưu job nào"
+# tái dùng thẳng list_saved_jobs_for_user() đã có sẵn (route staff mới
+# gọi hàm này với ss_user_id của người khác thay vì user["sub"] của
+# chính mình — xem api/routers/auth.py). Không đổi schema (bảng
+# saved_jobs không đổi), chỉ thêm đường truy vấn mới + route mới.
 # ------------------------------------------------------------------
 
 def create_saved_job(conn, *, ss_user_id: str, job_id: str) -> str:
@@ -2089,6 +2108,28 @@ def delete_saved_job(conn, *, ss_user_id: str, job_id: str) -> bool:
             (ss_user_id, job_id),
         )
         return cur.rowcount > 0
+
+
+def list_saved_jobs_for_job(conn, job_id: str):
+    """Ai đã lưu 1 job — staff (ss_team+) dùng để biết job nào đang
+    được học viên quan tâm nhiều (kể cả chưa ứng tuyển), từ đó chủ động
+    nhắc/hỗ trợ. Mirror ĐÚNG list_applications_for_job() ở trên — join
+    thêm full_name/email/phone từ app_users để staff khỏi tra riêng.
+    Thêm 08/2026 cùng lúc với việc đảo ngược quyết định riêng tư saved
+    jobs (xem comment đầu khối "Saved jobs" phía trên)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT s.saved_job_id, s.ss_user_id, s.job_id, s.created_at,
+                   u.full_name, u.email, u.phone
+            FROM saved_jobs s
+            JOIN app_users u ON u.ss_user_id = s.ss_user_id
+            WHERE s.job_id = %s
+            ORDER BY s.created_at DESC
+            """,
+            (job_id,),
+        )
+        return cur.fetchall()
 
 
 # ------------------------------------------------------------------

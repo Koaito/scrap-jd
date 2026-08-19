@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 import db as db_module
 from api.deps import get_db, require_role
 from api.rate_limit import limiter
-from api.schemas import JobApplicantOut, JobCreate, JobDetailOut, JobUpdate, PaginatedJobs
+from api.schemas import JobApplicantOut, JobCreate, JobDetailOut, JobSaverOut, JobUpdate, PaginatedJobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -209,3 +209,24 @@ def list_job_applications(
         raise HTTPException(status_code=404, detail="Không tìm thấy job")
 
     return db_module.list_applications_for_job(conn, job_id)
+
+
+@router.get("/{job_id}/saved-jobs", response_model=list[JobSaverOut])
+def list_job_savers(
+    job_id: str,
+    user: dict = Depends(require_role("ss_team")),
+    conn=Depends(get_db),
+):
+    """Thêm 08/2026 — mirror ĐÚNG list_job_applications() ở trên nhưng
+    cho chiều 'lưu' thay vì 'ứng tuyển': ai đã lưu (bookmark) job này,
+    role 'ss_team' trở lên. Trước đây saved_jobs cố ý bị coi là riêng
+    tư 100% của học viên, không route nào cho staff xem — đổi quyết
+    định vì SS team/admin không có cách nào theo dõi học viên đang
+    quan tâm JD nào để chủ động hỗ trợ (xem db.list_saved_jobs_for_job()
+    để biết chi tiết lý do đảo ngược)."""
+    if not db_module.is_valid_uuid(job_id):
+        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+    if db_module.get_job_by_id(conn, job_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy job")
+
+    return db_module.list_saved_jobs_for_job(conn, job_id)

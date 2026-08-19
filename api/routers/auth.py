@@ -28,10 +28,10 @@ from api.deps import get_db, get_current_user, require_admin, require_role
 from api.email_service import FRONTEND_BASE_URL, send_verification_email, send_password_reset_email
 from api.rate_limit import limiter
 from api.schemas import (
-    AccessTokenOut, ChangePasswordRequest, ForgotPasswordRequest, LoginRequest,
-    MessageOut, RefreshRequest, RegisterOut, RegisterRequest, ResendVerificationRequest,
-    ResetPasswordRequest, TokenPairOut, UserActiveStatusUpdate, UserCreateByAdmin,
-    UserCreatedOut, UserOut, UserRoleUpdate,
+    AccessTokenOut, ChangePasswordRequest, ForgotPasswordRequest, JobApplicationOut,
+    LoginRequest, MessageOut, RefreshRequest, RegisterOut, RegisterRequest,
+    ResendVerificationRequest, ResetPasswordRequest, SavedJobOut, TokenPairOut,
+    UserActiveStatusUpdate, UserCreateByAdmin, UserCreatedOut, UserOut, UserRoleUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -396,6 +396,51 @@ def list_users(
     được (khác POST /auth/users tạo tài khoản, vẫn admin-only), dùng cho
     mục "xem danh sách tài khoản" trong dashboard ss_team đã thống nhất."""
     return db_module.list_users(conn)
+
+
+@router.get("/users/{ss_user_id}/applications", response_model=list[JobApplicationOut])
+def list_applications_of_user(
+    ss_user_id: str,
+    user: dict = Depends(require_role("ss_team")),
+    conn=Depends(get_db),
+):
+    """Thêm 08/2026 — chiều "1 học viên đã ứng tuyển job nào", để bổ
+    sung cho GET /jobs/{job_id}/applications (chiều ngược lại, "1 job
+    có ai ứng tuyển") đã có sẵn — SS team/admin cần cả 2 chiều để theo
+    dõi hoạt động ứng tuyển/lưu job của học viên. Tái dùng thẳng
+    db.list_applications_for_user() — hàm này vốn dùng cho GET
+    /me/applications (học viên xem đơn của CHÍNH MÌNH, ss_user_id lấy
+    từ JWT); ở đây staff truyền ss_user_id của NGƯỜI KHÁC qua path,
+    response_model JobApplicationOut giống hệt vì cùng là "xem job nào
+    kèm job_title/job_status/company_name", không cần full_name/email
+    của chính học viên đó (staff đã biết đang xem ai qua ss_user_id)."""
+    if not db_module.is_valid_uuid(ss_user_id):
+        raise HTTPException(status_code=400, detail=f"ss_user_id '{ss_user_id}' không đúng định dạng UUID.")
+    if db_module.get_user_by_id(conn, ss_user_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+
+    return db_module.list_applications_for_user(conn, ss_user_id)
+
+
+@router.get("/users/{ss_user_id}/saved-jobs", response_model=list[SavedJobOut])
+def list_saved_jobs_of_user(
+    ss_user_id: str,
+    user: dict = Depends(require_role("ss_team")),
+    conn=Depends(get_db),
+):
+    """Thêm 08/2026 — mirror ĐÚNG list_applications_of_user() ở trên
+    nhưng cho chiều "lưu" thay vì "ứng tuyển": 1 học viên đã lưu
+    (bookmark) job nào, để bổ sung cho GET /jobs/{job_id}/saved-jobs
+    (chiều "1 job có ai lưu") — xem docstring 2 route đó và
+    db.list_saved_jobs_for_job() để biết lý do đảo ngược quyết định
+    "saved_jobs riêng tư 100%" ban đầu. Tái dùng thẳng
+    db.list_saved_jobs_for_user() (vốn dùng cho GET /me/saved-jobs)."""
+    if not db_module.is_valid_uuid(ss_user_id):
+        raise HTTPException(status_code=400, detail=f"ss_user_id '{ss_user_id}' không đúng định dạng UUID.")
+    if db_module.get_user_by_id(conn, ss_user_id) is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+
+    return db_module.list_saved_jobs_for_user(conn, ss_user_id)
 
 
 @router.patch("/users/{ss_user_id}/role", response_model=UserOut)

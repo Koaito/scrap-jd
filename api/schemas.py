@@ -278,6 +278,10 @@ class StatsOut(BaseModel):
     # Thêm 08/2026 — tổng số job_applications toàn hệ thống (không phân
     # biệt job/user), dùng cho dashboard frontend. Xem db.get_stats_summary().
     total_applications: int
+    # Thêm 08/2026 cùng lúc với việc cho staff xem saved_jobs (xem
+    # JobSaverOut bên dưới) — tổng số saved_jobs toàn hệ thống, cân xứng
+    # với total_applications ở trên.
+    total_saved_jobs: int
 
 
 # ------------------------------------------------------------------
@@ -580,6 +584,26 @@ class JobApplicantOut(BaseModel):
     job_id: str
     note: Optional[str] = None
     applied_at: datetime
+    full_name: str
+    email: str
+    phone: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class JobSaverOut(BaseModel):
+    """Thêm 08/2026 — dùng cho GET /jobs/{job_id}/saved-jobs (staff xem
+    ai đã LƯU job này, khác ứng tuyển). Mirror ĐÚNG JobApplicantOut ở
+    trên, chỉ khác không có 'note' (saved_jobs không có cột note — chỉ
+    là bookmark, không có ghi chú như application). Trước đây saved_jobs
+    cố ý không có route nào cho staff xem (xem comment ở
+    db.list_saved_jobs_for_job()) — đổi quyết định vì SS team/admin cần
+    theo dõi học viên đang quan tâm JD nào để chủ động hỗ trợ."""
+    saved_job_id: str
+    ss_user_id: str
+    job_id: str
+    created_at: datetime
     full_name: str
     email: str
     phone: Optional[str] = None

@@ -26,7 +26,7 @@ trung vào pipeline crawl + các script bổ trợ + quy trình vận hành.
 - [Thêm ngành / nguồn crawl mới](#thêm-ngành--nguồn-crawl-mới)
 - [Debug khi nguồn crawl đổi giao diện](#debug-khi-nguồn-crawl-đổi-giao-diện)
 - [Deploy production](#deploy-production)
-- [Tình trạng dữ liệu & giới hạn đã biết](#tình-trạng-dữ-liệu--giới-hạn-đã-biết)
+- [Tình trạng dữ liệu &amp; giới hạn đã biết](#tình-trạng-dữ-liệu--giới-hạn-đã-biết)
 - [Lịch sử bug đã sửa](#lịch-sử-bug-đã-sửa)
 
 ---
@@ -66,12 +66,12 @@ script nào chạy trước), nhưng **chạy bước 2 sau bước 1** thì hi�
 Lý do có 4 script riêng ở bước 2 thay vì gộp làm 1 — mỗi script nhắm 1
 nguồn dữ liệu khác nhau, ưu tiên **rẻ + chính xác trước**:
 
-| Thứ tự | Script | Vá field | Đọc từ đâu | Chi phí |
-|---|---|---|---|---|
-| 1 | `backfill_company_profiles.py` | `industry`, `company_size`, `address`, `website` (+ `products_services` nhặt kèm) | `source_profile_url` đã lưu (đúng trang TopCV/VietnamWorks/CareerViet gốc) | Miễn phí — chỉ tốn thời gian chờ |
-| 2 | `enrich_company_profile_from_website.py` | `industry`, `products_services` | `companies.website` + Gemini phân loại | Rẻ (1 lần gọi Gemini/công ty, không Tavily) |
-| 3 | `enrich_company_web_info.py` | `website`, `tax_id` | Tavily search (2 query/công ty) + Gemini trích xuất | Tốn nhất — chỉ nên chạy cho công ty không có `source_profile_url` |
-| 4 | `get_company_fb_linkedin_link.py` | `fanpage_url`, `linkedin_url` | `companies.website` (crawl HTML thô) | Miễn phí, giới hạn với site SPA/React |
+| Thứ tự | Script                                     | Vá field                                                                                     | Đọc từ đâu                                                                    | Chi phí                                                                    |
+| -------- | ------------------------------------------ | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| 1        | `backfill_company_profiles.py`           | `industry`, `company_size`, `address`, `website` (+ `products_services` nhặt kèm) | `source_profile_url` đã lưu (đúng trang TopCV/VietnamWorks/CareerViet gốc) | Miễn phí — chỉ tốn thời gian chờ                                     |
+| 2        | `enrich_company_profile_from_website.py` | `industry`, `products_services`                                                           | `companies.website` + Gemini phân loại                                         | Rẻ (1 lần gọi Gemini/công ty, không Tavily)                            |
+| 3        | `enrich_company_web_info.py`             | `website`, `tax_id`                                                                       | Tavily search (2 query/công ty) + Gemini trích xuất                             | Tốn nhất — chỉ nên chạy cho công ty không có`source_profile_url` |
+| 4        | `get_company_fb_linkedin_link.py`        | `fanpage_url`, `linkedin_url`                                                             | `companies.website` (crawl HTML thô)                                            | Miễn phí, giới hạn với site SPA/React                                  |
 
 Mỗi script chỉ chọn công ty **còn thiếu đúng field nó vá được** — chạy
 lại nhiều lần an toàn, không tốn thêm gì cho công ty đã đủ dữ liệu.
@@ -118,18 +118,20 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
 
 ## Cài đặt
 
-1. **PostgreSQL** — cài local (`brew install postgresql@16` / `apt install
-   postgresql` / [Windows installer](https://www.postgresql.org/download/windows/))
+1. **PostgreSQL** — cài local (`brew install postgresql@16` / `apt install postgresql` / [Windows installer](https://www.postgresql.org/download/windows/))
    hoặc dùng managed Postgres cloud (Supabase...), rồi tạo database:
+
    ```bash
    psql -U postgres -c 'CREATE DATABASE "Student Success — Job Postings & Company Contacts";'
    ```
 2. **Python 3.9+** + thư viện:
+
    ```bash
    python3 -m venv venv && source venv/bin/activate   # Windows: venv\Scripts\activate
    pip install -r requirements.txt
    ```
 3. **Cấu hình `.env`**: `cp .env.example .env`, sửa `PGPASSWORD`.
+
    - Chạy `enrich_company_profile_from_website.py` hoặc
      `enrich_company_web_info.py`: cần `GEMINI_API_KEY`. Riêng
      `enrich_company_web_info.py` cần thêm `TAVILY_API_KEY`.
@@ -137,9 +139,11 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
      `JWT_SECRET_KEY` (xem `API_README.md`). Bật đăng ký công khai + quên
      mật khẩu qua email thật: thêm `RESEND_API_KEY`/`EMAIL_FROM`/`API_BASE_URL`.
 4. **Tạo bảng**:
+
    ```bash
    python main.py init-db
    ```
+
    Kỳ vọng: `✅ Đã tạo/cập nhật schema trong database.`
 
    > DB tạo từ bản cũ (trước khi có lớp auth/audit/role/đăng ký/quên mật
@@ -147,6 +151,7 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
    > `sql/migration_*.sql` — xem comment đầu mỗi file để biết chi tiết.
    > Chạy **đúng thứ tự sau** (migration sau phụ thuộc bảng/cột migration
    > trước tạo ra):
+   >
    > ```bash
    > psql -U postgres -d "..." -f sql/migration_add_auth.sql
    > psql -U postgres -d "..." -f sql/migration_add_audit_columns.sql
@@ -162,6 +167,7 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
    > psql -U postgres -d "..." -f sql/migration_add_salary_period.sql
    > psql -U postgres -d "..." -f sql/migration_add_products_services.sql
    > ```
+   >
    > Thiếu bất kỳ file nào ở trên có thể làm `POST`/`PATCH /jobs`,
    > `POST /companies`, CRUD `/companies/{id}/contacts`,
    > `POST /auth/register`, đăng nhập, quên mật khẩu, ứng tuyển, lưu job,
@@ -176,12 +182,14 @@ Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implem
    > này còn trên đĩa như lịch sử, nhưng chạy nó sẽ `DROP COLUMN`
    > đúng cột `products_services` mà pipeline/enrich đang chủ động ghi
    > vào, gây lỗi 500 ngay khi crawl.
-
+   >
 5. **Test** (không cần DB/internet):
+
    ```bash
    python tests/test_parse_and_normalize.py
    python tests/test_merge_companies.py
    ```
+
    Kỳ vọng `✅ PASS` cho cả 2.
 
 ---
@@ -383,8 +391,7 @@ implement `fetch_jobs()` (dựa theo `adapters/base.py`), khai báo trong
 
 ## Debug khi nguồn crawl đổi giao diện
 
-Cả 3 adapter bám theo **pattern URL** và **nhãn tiếng Việt** (`"Mã số
-thuế"`, `"Quy mô"`...) thay vì tên class CSS — bền hơn khi trang web
+Cả 3 adapter bám theo **pattern URL** và **nhãn tiếng Việt** (`"Mã số thuế"`, `"Quy mô"`...) thay vì tên class CSS — bền hơn khi trang web
 redesign. Nếu 1 ngày crawl ra 0 kết quả hoặc thiếu field:
 
 1. Mở URL category/job/công ty bằng trình duyệt → "View Page Source"
@@ -422,17 +429,17 @@ Snapshot tại thời điểm viết (183 job / 134 công ty, crawl **6 ngành**
 trên **TopCV + VietnamWorks**, CareerViet mới thêm sau nên chưa nằm
 trong snapshot này):
 
-| Field                                                    | Độ phủ |
-| --------------------------------------------------------- | --------- |
+| Field                                                          | Độ phủ |
+| -------------------------------------------------------------- | --------- |
 | `job_postings.work_type` / `deadline` / `parsed_content` | ~97%      |
-| `job_postings.salary_min` (không tính "Thoả thuận")       | 29%       |
-| `companies.tax_id`                                        | 96%       |
-| `companies.website`                                       | 73%       |
-| `companies.industry`                                      | 80%       |
-| `companies.company_size`                                  | 61%       |
-| `companies.fanpage_url`                                   | 41%       |
-| `companies.address`                                       | 46%       |
-| `companies.linkedin_url`                                  | 28%       |
+| `job_postings.salary_min` (không tính "Thoả thuận")      | 29%       |
+| `companies.tax_id`                                           | 96%       |
+| `companies.website`                                          | 73%       |
+| `companies.industry`                                         | 80%       |
+| `companies.company_size`                                     | 61%       |
+| `companies.fanpage_url`                                      | 41%       |
+| `companies.address`                                          | 46%       |
+| `companies.linkedin_url`                                     | 28%       |
 
 Phân bố job theo ngành: Code 38, UI/UX Design 39, Data Engineer 35,
 Business Analysis 31, Data Scientist 20, Data Analysis 20.
@@ -474,6 +481,7 @@ cứng 1 kiểu khiến case thứ 2 lệch 1000 lần. Đã sửa bằng cách 
 số nhân theo độ lớn của chính con số — xem docstring `_vnd_multiplier()`
 trong `normalize.py`. Job cũ bị lệch đơn vị trong DB đã được vá lại,
 không còn tồn đọng.
+
 </details>
 
 <details>
@@ -485,6 +493,7 @@ artifact khi parse DOM (TopCV) hoặc dữ liệu API trả kèm trùng
 `pipeline._build_parsed_content_and_raw()` — dùng chung cho mọi adapter.
 Chỉ áp dụng cho job crawl mới sau này — job cũ trong DB (nếu còn) cần
 soát tay bằng SQL nếu cần.
+
 </details>
 
 <details>
@@ -504,6 +513,7 @@ GIỮ NGUYÊN con số gốc theo đúng chu kỳ đã detect, KHÔNG tự chia 
 quy đổi ra "tháng tương đương". 2 record sai đã biết (iOS Dev, Vendor
 Development) chưa được backfill lại — vẫn cần soát tay hoặc đọc lại
 `raw_jd_content` đã lưu sẵn trong `job_sources_log`.
+
 </details>
 
 <details>
@@ -522,6 +532,7 @@ nhỏ so với trang thường, vd "Quyền lợi được hưởng" thay vì "Q
 ứng viên"). Khi cả 2 cách đều không ra nội dung, log cảnh báo riêng
 "template mismatch" thay vì âm thầm lưu NULL. 4 job cũ chưa được
 re-crawl lại.
+
 </details>
 
 <details>
@@ -534,6 +545,7 @@ khác trước đây bị map sai/để trống. Đối chiếu thực tế: cá
 Khác" trên trang thật. Đã sửa: mọi `typeWorkingId` không khớp 2 giá trị
 đã xác nhận → fallback về `"Khác"` (map sang `OTHER`) — xem
 `_work_type_text_from_id()` trong `adapters/vietnamworks.py`.
+
 </details>
 
 <details>
@@ -554,6 +566,7 @@ insert job mới. Quyết định thiết kế: chỉ CHẶN insert trùng, chư
 lượt đăng lại có thể đi kèm nội dung/deadline mới hơn thật sự, nhưng gộp
 2 luồng "vá theo repost" và "vá theo thiếu field" cùng lúc phức tạp hơn
 cần thiết cho lần sửa này.
+
 </details>
 
 <details>
@@ -570,5 +583,5 @@ cột mà code đang cần.
 Đã sửa: thêm `products_services TEXT` vào `sql/schema.sql`, tạo
 `sql/migration_add_products_services.sql` cho DB cũ, xoá dòng hướng dẫn
 chạy migration DROP khỏi README/API_README.
-</details>
 
+</details>

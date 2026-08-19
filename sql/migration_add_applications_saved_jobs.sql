@@ -43,8 +43,16 @@ CREATE INDEX IF NOT EXISTS idx_job_applications_user ON job_applications(ss_user
 CREATE INDEX IF NOT EXISTS idx_job_applications_job  ON job_applications(job_id);
 
 -- ============================================================
--- 2. saved_jobs — bookmark riêng tư, KHÁC ứng tuyển (không staff nào
--- cần thấy học viên đã lưu job gì, đây là danh sách cá nhân)
+-- 2. saved_jobs — bookmark, KHÁC ứng tuyển.
+--
+-- LƯU Ý (08/2026, ĐÃ ĐỔI QUYẾT ĐỊNH): lúc tạo bảng này ban đầu cố ý
+-- KHÔNG cho staff xem ("không staff nào cần thấy học viên đã lưu job
+-- gì, đây là danh sách cá nhân"). Sau đó phát hiện SS team/admin không
+-- có cách nào theo dõi học viên đang quan tâm/lưu JD nào để chủ động
+-- hỗ trợ -> đã thêm route staff-only GET /jobs/{job_id}/saved-jobs và
+-- GET /auth/users/{ss_user_id}/saved-jobs (xem db.list_saved_jobs_for_job()
+-- và api/routers/jobs.py, api/routers/auth.py). KHÔNG đổi schema bảng
+-- này khi đảo ngược quyết định — chỉ thêm đường query mới.
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS saved_jobs (
