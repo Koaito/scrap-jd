@@ -6,12 +6,11 @@ Gemini phân loại ngành nghề.
 
 THÊM 08/2026: cùng lần gọi Gemini đó, vá LUÔN products_services (sản
 phẩm/dịch vụ chính) nếu model tự tin — "nhặt kèm" giống đúng tinh thần
-backfill_company_profiles.py (không quét riêng DB cho field này, chỉ vá
-khi đằng nào cũng đang xử lý company đó cho industry). LƯU Ý: điều kiện
-chọn company để chạy (get_companies_needing_profile_from_website(),
-xem db.py) VẪN CHỈ xét industry rỗng — company đã có industry nhưng
-thiếu products_services sẽ KHÔNG được chọn lại qua script này, giống hệt
-giới hạn đã biết của backfill_company_profiles.py với field này.
+backfill_company_profiles.py. Điều kiện chọn company để chạy
+(get_companies_needing_profile_from_website(), xem db.py) xét OR: company
+thiếu industy HOẶC thiếu products_services đều được chọn lại — không cần
+phân biệt "chạy thường" và "chạy backfill" nữa, cứ thiếu field nào thì
+company đó được vá lại field đó ở lần chạy kế tiếp.
 
 TẠI SAO CẦN SCRIPT NÀY (khác 2 script chị em industry-liên-quan đã có):
   - backfill_company_profiles.py đọc lại source_profile_url (TopCV/
@@ -284,7 +283,10 @@ def run(limit: Optional[int] = None) -> dict:
         if limit:
             companies = companies[:limit]
 
-        logger.info("Tìm thấy %d công ty cần bù industry từ website", len(companies))
+        logger.info(
+            "Tìm thấy %d công ty cần bù industry/products_services từ website",
+            len(companies),
+        )
 
         for company_id, company_name, website in companies:
             stats["checked"] += 1

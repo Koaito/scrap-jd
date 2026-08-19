@@ -609,16 +609,25 @@ def update_company_profile_with_merge(conn, company_id: str, *, tax_id: str = ""
 
 
 def get_companies_needing_profile_from_website(conn):
-    """Lấy công ty ĐÃ CÓ website nhưng còn thiếu industry — tập company
-    mà enrich_company_profile_from_website.py (script mới, 08/2026) có
-    thể vá được bằng cách đọc trang chủ/giới thiệu của chính website đó
-    + Gemini phân loại, KHÔNG cần Tavily (rẻ hơn enrich_company_web_info.py).
+    """Lấy công ty ĐÃ CÓ website nhưng còn thiếu industry và/hoặc
+    products_services — tập company mà enrich_company_profile_from_
+    website.py (script mới, 08/2026) có thể vá được bằng cách đọc trang
+    chủ/giới thiệu của chính website đó + Gemini phân loại, KHÔNG cần
+    Tavily (rẻ hơn enrich_company_web_info.py).
 
     Chủ yếu nhắm tới công ty nguồn CareerViet (CareerVietAdapter cố ý
     không lấy industry, xem adapters/careerviet.py), nhưng KHÔNG giới hạn
     riêng nguồn nào — bất kỳ công ty nào đã có website mà vẫn thiếu
-    industry đều thuộc tập này (kể cả công ty tạo tay qua POST /companies
-    có điền website nhưng bỏ trống industry).
+    industry hoặc products_services đều thuộc tập này (kể cả công ty tạo
+    tay qua POST /companies có điền website nhưng bỏ trống 1 trong 2).
+
+    Điều kiện là OR (không phải AND): company chỉ cần thiếu 1 trong 2
+    field là được chọn lại — company đã có industry nhưng thiếu
+    products_services (hoặc ngược lại) vẫn được chạy lại để vá nốt field
+    còn thiếu, KHÔNG cần cờ/tham số riêng như bản trước 08/2026. Company
+    mà Gemini từng trả confidence thấp cho 1 field (không lưu) vẫn còn
+    rỗng ở field đó nên vẫn được chọn lại ở lần chạy sau — chấp nhận
+    được, không có cơ chế đánh dấu "đã thử nhưng thất bại".
 
     Trả về list[(company_id, company_name, website)]."""
     with conn.cursor() as cur:
@@ -627,7 +636,8 @@ def get_companies_needing_profile_from_website(conn):
             SELECT company_id, company_name, website
             FROM companies
             WHERE website IS NOT NULL AND website != ''
-              AND (industry IS NULL OR industry = '')
+              AND ((industry IS NULL OR industry = '')
+                   OR (products_services IS NULL OR products_services = ''))
             ORDER BY company_name
             """
         )
