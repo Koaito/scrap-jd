@@ -36,6 +36,14 @@ class JobOut(BaseModel):
     deadline: Optional[date] = None
     job_status: Optional[str] = None
     source_url: Optional[str] = None
+    source_name: Optional[str] = Field(
+        default=None,
+        description="TopCV | VietnamWorks | CareerViet | MANUAL — tên nguồn "
+                    "crawl gần nhất (từ job_sources_log). Trước 08/2026 field "
+                    "này chỉ xuất hiện ở /stats (SourceCount), chưa join vào "
+                    "job list/detail. null = job crawl trước khi có cột này, "
+                    "hoặc chưa từng ghi log nguồn.",
+    )
     company_id: str
     company_name: str
     level_code: Optional[str] = None

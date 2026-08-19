@@ -1158,7 +1158,13 @@ _JOB_SELECT_COLUMNS = """
         jp.created_by, jp.updated_by,
         c.company_id, c.company_name,
         l.level_code,
-        p.province_name
+        p.province_name,
+        (
+            SELECT jsl.source_name FROM job_sources_log jsl
+            WHERE jsl.job_id = jp.job_id
+            ORDER BY jsl.collected_date DESC, jsl.log_id DESC
+            LIMIT 1
+        ) AS source_name
 """
 
 _JOB_FROM_JOINS = """
