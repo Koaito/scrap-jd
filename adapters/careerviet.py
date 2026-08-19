@@ -134,7 +134,7 @@ import time
 import logging
 from datetime import datetime
 from typing import Iterator, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlsplit
 
 from curl_cffi import requests
 from bs4 import BeautifulSoup
@@ -175,6 +175,27 @@ _ISO_DATE_FORMATS = ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d")
 # nhưng vẫn để nguyên biến thể ở đây làm tài liệu tham khảo.
 _JOB_DESCRIPTION_HEADINGS = {"mô tả công việc"}
 _JOB_REQUIREMENTS_HEADINGS = {"yêu cầu công việc"}
+
+
+# BUG THẬT gặp 08/2026 (công ty "Coca-Cola Beverages Vietnam"): ô "Website"
+# trên trang công ty CareerViet đôi khi bị chính công ty tự điền nhầm
+# thành link LinkedIn/Facebook của họ thay vì website thật — code cũ chỉ
+# check startswith("http") nên lưu thẳng luôn, kết quả companies.website
+# = link LinkedIn. Danh sách domain loại trừ này CỐ Ý viết RIÊNG (không
+# import từ TopCVAdapter._NON_COMPANY_WEBSITE_DOMAINS) để giữ mỗi adapter
+# tự chứa (self-contained), đúng cấu trúc project hiện tại (mỗi nguồn 1
+# file độc lập, không phụ thuộc chéo) — đánh đổi là 2 danh sách có thể
+# trôi lệch nhau nếu sau này chỉ sửa 1 bên, chấp nhận được vì danh sách
+# domain mạng xã hội hiếm khi đổi.
+_NON_COMPANY_WEBSITE_DOMAINS = (
+    "linkedin.com", "facebook.com", "tiktok.com", "youtube.com",
+    "twitter.com", "x.com", "instagram.com", "threads.com", "zalo.me",
+)
+
+
+def _is_non_company_website(url: str) -> bool:
+    netloc = urlsplit(url).netloc.lower().removeprefix("www.")
+    return netloc in _NON_COMPANY_WEBSITE_DOMAINS
 
 
 class CareerVietAdapter(BaseAdapter):
@@ -359,7 +380,11 @@ class CareerVietAdapter(BaseAdapter):
         result["tax_id"] = labels.get("Mã số thuế", "")
 
         website = labels.get("Website", "")
-        if website.startswith("http"):
+        # Xem docstring _NON_COMPANY_WEBSITE_DOMAINS ở đầu file — công ty
+        # đôi khi tự điền nhầm link LinkedIn/Facebook vào ô "Website" trên
+        # CareerViet, KHÔNG lưu thẳng nếu domain khớp mạng xã hội (thà
+        # thiếu còn hơn sai, cùng nguyên tắc xuyên suốt project).
+        if website.startswith("http") and not _is_non_company_website(website):
             result["real_website"] = website
 
         desc_p = soup.select_one("div.intro-section-1 .box-text .main-text p")

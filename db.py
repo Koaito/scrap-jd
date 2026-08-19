@@ -314,7 +314,7 @@ def get_or_create_company(conn, company_name: str, province_id: Optional[int]) -
 def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: str = "",
                             industry: str = "", company_size: str = "",
                             address: str = "", partnership_potential: str = "",
-                            source_profile_url: str = "",
+                            source_profile_url: str = "", products_services: str = "",
                             updated_by: Optional[str] = None) -> None:
     """Cập nhật thêm thông tin công ty (chỉ ghi đè field nào có giá trị mới,
     không xóa mất dữ liệu cũ nếu lần crawl sau không lấy được field đó).
@@ -342,9 +342,16 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
     đổi từ /cong-ty/ sang /brand/ khi công ty mua gói Pro...) — giữ URL
     cũ có thể đã chết trong khi lẽ ra có URL mới hơn để backfill.
 
-    products_services ĐÃ BỊ BỎ (08/2026, xem
-    sql/migration_drop_products_services.sql) — không còn field CRM mô
-    tả sản phẩm/dịch vụ nào ở company nữa, công ty chỉ còn hồ sơ thuần."""
+    products_services (NỐI LẠI 08/2026, xem lịch sử trao đổi): cột này
+    thực ra CHƯA BAO GIỜ bị DROP thật ở DB — sql/migration_drop_
+    products_services.sql tồn tại nhưng chưa từng được chạy trên DB thật.
+    Trước đó code (pipeline.py) đã ngừng ghi field này dù mọi adapter vẫn
+    fetch sẵn profile["description"] mỗi lần crawl — dữ liệu có trong tay
+    nhưng bị vứt đi, khiến cột trống 100% dù còn tồn tại. Giờ nối lại việc
+    GHI ở tầng crawl/enrich tự động (pipeline.py, backfill_company_
+    profiles.py); CHỦ Ý KHÔNG thêm lại vào CompanyCreate/CompanyUpdate
+    (api/schemas.py) hay UI — giữ nguyên quyết định cũ "bỏ khỏi CRM/form
+    nhập tay", chỉ khác ở chỗ dữ liệu crawl được nên lưu lại thay vì vứt."""
     updates = []
     values = []
     if updated_by is not None:
@@ -371,6 +378,9 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
     if source_profile_url:
         updates.append("source_profile_url = %s")
         values.append(source_profile_url)
+    if products_services:
+        updates.append("products_services = %s")
+        values.append(products_services)
 
     if not updates:
         return
@@ -596,6 +606,32 @@ def update_company_profile_with_merge(conn, company_id: str, *, tax_id: str = ""
         company_size=company_size, address=address,
     )
     return final_company_id
+
+
+def get_companies_needing_industry_from_website(conn):
+    """Lấy công ty ĐÃ CÓ website nhưng còn thiếu industry — tập company
+    mà enrich_company_industry_from_website.py (script mới, 08/2026) có
+    thể vá được bằng cách đọc trang chủ/giới thiệu của chính website đó
+    + Gemini phân loại, KHÔNG cần Tavily (rẻ hơn enrich_company_web_info.py).
+
+    Chủ yếu nhắm tới công ty nguồn CareerViet (CareerVietAdapter cố ý
+    không lấy industry, xem adapters/careerviet.py), nhưng KHÔNG giới hạn
+    riêng nguồn nào — bất kỳ công ty nào đã có website mà vẫn thiếu
+    industry đều thuộc tập này (kể cả công ty tạo tay qua POST /companies
+    có điền website nhưng bỏ trống industry).
+
+    Trả về list[(company_id, company_name, website)]."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT company_id, company_name, website
+            FROM companies
+            WHERE website IS NOT NULL AND website != ''
+              AND (industry IS NULL OR industry = '')
+            ORDER BY company_name
+            """
+        )
+        return cur.fetchall()
 
 
 def get_companies_needing_social_links(conn):

@@ -13,7 +13,15 @@ ty (chính URL crawl gốc, không phải suy luận qua search), nên:
     search+LLM suy luận, không có rủi ro "nhầm pháp nhân chị em cùng
     thương hiệu" như enrich_company_web_info.py đã từng gặp).
   - Vá được CẢ 4 field (industry/company_size/address/website), không
-    chỉ website/tax_id như bên kia.
+    chỉ website/tax_id như bên kia. Từ 08/2026 vá thêm cả
+    products_services (mô tả công ty, xem db.update_company_profile()
+    mục "NỐI LẠI 08/2026") nếu adapter có trả profile["description"] —
+    field này KHÔNG nằm trong điều kiện get_companies_needing_
+    profile_backfill() (chỉ xét industry/company_size/address/website),
+    nên company đã đủ 4 field kia nhưng thiếu products_services sẽ
+    KHÔNG được chọn để backfill lại — chấp nhận được vì mục tiêu chính
+    của field này là "nhặt kèm khi đằng nào cũng đang crawl lại", không
+    đáng để quét lại toàn bộ DB chỉ vì riêng field này.
   - Miễn phí, không giới hạn quota — chỉ tốn thời gian chờ (throttle
     theo REQUEST_DELAY_SECONDS của adapter, giống crawl thường).
 
@@ -139,7 +147,7 @@ def run(limit: Optional[int] = None) -> dict:
             # trả dict rỗng-an-toàn, không phải None, ở fetch_company_profile()).
             has_any_value = any(profile.get(k) for k in
                                  ("tax_id", "real_website", "industry",
-                                  "company_size", "address"))
+                                  "company_size", "address", "description"))
             if not has_any_value:
                 stats["unchanged"] += 1
                 logger.info("  Không lấy thêm được gì mới (trang có thể đã đổi/hết dữ liệu).")
@@ -153,6 +161,7 @@ def run(limit: Optional[int] = None) -> dict:
                     industry=profile.get("industry", ""),
                     company_size=profile.get("company_size", ""),
                     address=profile.get("address", ""),
+                    products_services=profile.get("description", ""),
                 )
                 conn.commit()
             except Exception as exc:  # noqa: BLE001 - lỗi DB, không để dừng cả batch
