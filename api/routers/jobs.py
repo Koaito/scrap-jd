@@ -1,16 +1,19 @@
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 import db as db_module
 from api.deps import get_db, require_role
+from api.rate_limit import limiter
 from api.schemas import JobApplicantOut, JobCreate, JobDetailOut, JobUpdate, PaginatedJobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 
 @router.get("", response_model=PaginatedJobs)
+@limiter.limit("60/minute")
 def list_jobs(
+    request: Request,
     industry: Optional[str] = Query(None, description="Lọc theo matching_industry, vd 'Data Analysis'"),
     province: Optional[str] = Query(None, description="Lọc theo tên tỉnh/thành, vd 'Hà Nội'"),
     level: Optional[str] = Query(None, description="Lọc theo level_code, vd 'Junior'"),
@@ -22,7 +25,14 @@ def list_jobs(
     conn=Depends(get_db),
 ):
     """Danh sách job, hỗ trợ filter + phân trang. Không filter gì -> trả
-    toàn bộ job, mới nhất trước."""
+    toàn bộ job, mới nhất trước.
+
+    Rate limit 60/minute theo IP (thêm 08/2026) — route public, mỗi lần
+    đổi filter ở frontend (index.html) là 1 query đầy đủ kèm COUNT(*)
+    xuống Postgres, không giới hạn trước đó. 60/minute = trung bình 1
+    request/giây, đủ rộng cho người dùng đổi filter nhanh tay lẫn
+    debounce phía frontend (nếu sau này thêm), chỉ chặn kiểu spam script
+    gọi liên tục."""
     rows, total = db_module.list_jobs(
         conn,
         industry=industry,

@@ -1,17 +1,20 @@
 import psycopg2.errors
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 import db as db_module
 from api.deps import get_db, require_role
+from api.rate_limit import limiter
 from api.schemas import CompanyCreate, CompanyDetailOut, CompanyOut, CompanyUpdate, PaginatedCompanies
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
 
 @router.get("", response_model=PaginatedCompanies)
+@limiter.limit("60/minute")
 def list_companies(
+    request: Request,
     keyword: Optional[str] = Query(None, description="Tìm trong company_name"),
     province: Optional[str] = Query(None, description="Lọc theo tên tỉnh/thành"),
     has_social: Optional[bool] = Query(
@@ -24,6 +27,8 @@ def list_companies(
     offset: int = Query(0, ge=0),
     conn=Depends(get_db),
 ):
+    """Rate limit 60/minute theo IP (thêm 08/2026) — cùng lý do với
+    GET /jobs (xem api/routers/jobs.py::list_jobs)."""
     rows, total = db_module.list_companies(
         conn, keyword=keyword, has_social=has_social, province_name=province,
         limit=limit, offset=offset,

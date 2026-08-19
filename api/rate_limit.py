@@ -37,4 +37,29 @@ X-Forwarded-For thủ công).
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
+from api import security
+
 limiter = Limiter(key_func=get_remote_address)
+
+
+def get_user_id_or_ip(request) -> str:
+    """Key function riêng cho route ĐÃ đăng nhập (vd /me/applications,
+    /me/saved-jobs) — thêm 08/2026 cùng đợt rate-limit /auth/login.
+
+    Dùng ss_user_id (từ JWT) thay vì địa chỉ IP như limiter mặc định ở
+    trên, vì các route này luôn có Authorization header hợp lệ (đã qua
+    require_role() mới tới được decorator) — khoá theo user_id công bằng
+    hơn: nhiều học viên chung 1 mạng (KTX, wifi trường) sẽ không bị tính
+    chung 1 hạn mức IP và vô tình đụng trần của nhau.
+
+    Tự rơi về IP nếu vì lý do gì đó không đọc được token hợp lệ (không
+    nên xảy ra trong thực tế vì Depends(require_role(...)) đã chạy trước,
+    nhưng slowapi tính rate limit trước khi vào body hàm nên cứ phòng hờ
+    thay vì để lỗi 500) — an toàn hơn là bỏ giới hạn hoàn toàn."""
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:]
+        payload = security.decode_access_token(token)
+        if payload and payload.get("sub"):
+            return f"user:{payload['sub']}"
+    return get_remote_address(request)

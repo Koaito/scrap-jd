@@ -96,8 +96,19 @@ def _issue_token_pair(conn, user_row, request: Request) -> tuple[str, str]:
 
 
 @router.post("/login", response_model=TokenPairOut)
+@limiter.limit("20/minute")
 def login(payload: LoginRequest, request: Request, conn=Depends(get_db)):
-    """Đăng nhập bằng email + mật khẩu. Không tiết lộ qua thông báo lỗi
+    """20/minute theo IP — thêm 08/2026 cùng đợt rà soát rate-limit tổng
+    thể (xem api/rate_limit.py). Route công khai duy nhất KHÔNG có giới
+    hạn nào trước đó ngoài khoá tài khoản is_account_locked() — nhưng
+    khoá đó chỉ chặn brute-force VÀO 1 tài khoản cụ thể (5 lần sai liên
+    tiếp, xem security.FAILED_LOGIN_LOCK_THRESHOLD), không chặn được kiểu
+    "credential stuffing" dò dàn trải qua NHIỀU email khác nhau (mỗi email
+    chỉ thử vài lần, không đủ ngưỡng khoá riêng lẻ). 20/minute đủ rộng
+    cho người dùng thật gõ nhầm vài lần, nhưng chặn được script quét
+    nhanh nhiều tài khoản từ cùng 1 IP.
+
+    Đăng nhập bằng email + mật khẩu. Không tiết lộ qua thông báo lỗi
     việc email có tồn tại hay không (luôn trả cùng 1 message 401 chung
     cho cả 2 trường hợp 'không tìm thấy email' và 'sai mật khẩu') — tránh
     lộ thông tin cho kẻ dò email hợp lệ."""

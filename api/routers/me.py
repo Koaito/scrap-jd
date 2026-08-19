@@ -12,13 +12,27 @@ của chính mình, không có route nào cho phép truyền ss_user_id tuỳ ý
 Chỉ ứng tuyển được job đang job_status='OPEN' — job đã CLOSED/EXPIRED
 bị chặn 400 ngay ở POST /me/applications (không chặn ở tầng saved-jobs,
 vì lưu job đã đóng để xem lại vẫn hợp lý).
+
+Rate limit (thêm 08/2026): POST /me/applications và POST /me/saved-jobs
+dùng key_func=get_user_id_or_ip (api/rate_limit.py) — khoá theo
+ss_user_id trong JWT thay vì IP, vì route này luôn có người đăng nhập
+sẵn. Lý do khoá theo user thay vì IP mặc định của limiter: nhiều học
+viên dùng chung 1 mạng (KTX, wifi lớp học) sẽ có cùng 1 IP, nếu khoá
+theo IP thì 1 học viên bấm nhanh có thể vô tình làm nghẽn hạn mức của
+người khác chung mạng — không công bằng và không đúng mục tiêu (mục
+tiêu là chặn 1 người dùng cụ thể spam, không phải chặn cả dải IP).
+saved-jobs cho phép cao hơn applications (30/minute vs 15/minute) vì
+đây là nút toggle lưu/bỏ lưu (frontend AJAX, xem CHANGELOG_frontend_fixes
+#4) — người dùng có thể lưu/bỏ lưu qua lại vài lần khi cân nhắc, trong
+khi ứng tuyển là hành động 1 chiều, ít lý do bấm nhiều lần liên tiếp.
 """
 
 import psycopg2.errors
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 import db as db_module
 from api.deps import get_db, require_role
+from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
     JobApplicationCreate,
     JobApplicationOut,
@@ -30,7 +44,9 @@ router = APIRouter(prefix="/me", tags=["me"])
 
 
 @router.post("/applications", response_model=JobApplicationOut, status_code=201)
+@limiter.limit("15/minute", key_func=get_user_id_or_ip)
 def apply_to_job(
+    request: Request,
     payload: JobApplicationCreate,
     user: dict = Depends(require_role("user")),
     conn=Depends(get_db),
@@ -88,7 +104,9 @@ def withdraw_application(
 
 
 @router.post("/saved-jobs", response_model=SavedJobOut, status_code=201)
+@limiter.limit("30/minute", key_func=get_user_id_or_ip)
 def save_job(
+    request: Request,
     payload: SavedJobCreate,
     user: dict = Depends(require_role("user")),
     conn=Depends(get_db),

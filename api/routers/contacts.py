@@ -9,10 +9,11 @@ nhạy cảm (email/SĐT cá nhân của người liên hệ), 'user' KHÔNG đ�
 theo đúng thiết kế 3 role đã thống nhất (xem lịch sử trao đổi).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 import db as db_module
 from api.deps import get_db, require_role
+from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
     CompanyContactCreate,
     CompanyContactOut,
@@ -32,7 +33,9 @@ _VALID_CONTACT_STATUS = {"UNCONTACTED", "EMAIL_SENT", "RESPONDED", "IN_PARTNERSH
 
 
 @all_contacts_router.get("", response_model=list[CompanyContactWithCompanyOut])
+@limiter.limit("60/minute", key_func=get_user_id_or_ip)
 def list_all_contacts(
+    request: Request,
     include_inactive: bool = Query(
         False, description="true = xem cả contact đã xoá mềm (lịch sử liên hệ cũ)"
     ),
@@ -47,7 +50,13 @@ def list_all_contacts(
     """Danh sách contact GỘP TẤT CẢ công ty, kèm company_name — dùng cho
     trang "Danh sách contact" tổng hợp ở frontend. Cùng require_role
     ("ss_team") như mọi route contact khác trong file này vì đây vẫn là
-    dữ liệu nhạy cảm (email/SĐT cá nhân)."""
+    dữ liệu nhạy cảm (email/SĐT cá nhân).
+
+    Rate limit 60/minute theo user_id (thêm 08/2026, key_func=
+    get_user_id_or_ip giống /me/*) — không theo IP mặc định vì route
+    này chỉ nội bộ ss_team, số lượng nhân viên ít nhưng có thể ngồi
+    chung văn phòng/mạng, khoá theo IP sẽ khiến cả phòng share chung 1
+    hạn mức."""
     if contact_status is not None and contact_status not in _VALID_CONTACT_STATUS:
         raise HTTPException(
             status_code=400,
@@ -70,7 +79,9 @@ def list_all_contacts(
 
 
 @router.get("", response_model=list[CompanyContactOut])
+@limiter.limit("60/minute", key_func=get_user_id_or_ip)
 def list_contacts(
+    request: Request,
     company_id: str,
     include_inactive: bool = Query(
         False, description="true = xem cả contact đã xoá mềm (lịch sử liên hệ cũ)"
