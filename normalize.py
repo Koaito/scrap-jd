@@ -360,3 +360,26 @@ def normalize_work_type(work_type_text: str) -> Optional[str]:
     cột work_type vốn đã nullable, không làm crash insert)."""
     key = (work_type_text or "").strip().lower()
     return _WORK_TYPE_MAP.get(key)
+
+
+# VietnamWorks trả company_size kèm hậu tố "nhân viên" (vd "100-499 nhân
+# viên", "25-99 nhân viên"), trong khi TopCV/CareerViet chỉ trả khoảng số
+# thuần (vd "100-499", "5.000-9.999") — cùng 1 cột company_size trong DB
+# nên bị trộn lẫn 2 format. Regex chỉ bắt ĐÚNG hậu tố "nhân viên" (kể cả
+# có/không khoảng trắng thừa trước đó) ở CUỐI chuỗi, không đụng gì khác.
+_COMPANY_SIZE_SUFFIX_RE = re.compile(r"\s*nhân\s*viên\s*$", re.IGNORECASE)
+
+
+def normalize_company_size(company_size_text: Optional[str]) -> str:
+    """Bỏ hậu tố "nhân viên" khỏi company_size để đồng nhất format giữa
+    các nguồn (xem docstring _COMPANY_SIZE_SUFFIX_RE ở trên). KHÔNG parse
+    thành số/khoảng có cấu trúc — giữ nguyên phần còn lại dạng text tự do
+    (vd "100-499", "5.000-9.999"), chỉ cắt bỏ đúng hậu tố này.
+
+    Trả "" cho input rỗng/None (khớp default "" mà các hàm ghi DB
+    company_size đang dùng, KHÔNG trả None để khỏi phải sửa thêm chỗ nào
+    đang check `if company_size:`)."""
+    text = (company_size_text or "").strip()
+    if not text:
+        return ""
+    return _COMPANY_SIZE_SUFFIX_RE.sub("", text).strip()

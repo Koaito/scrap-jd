@@ -14,6 +14,7 @@ import psycopg2.extras
 import psycopg2.pool
 
 from config import DB_CONFIG, DB_POOL_MAX, DB_POOL_MIN
+from normalize import normalize_company_size
 from province_alias import resolve_province_alias
 
 logger = logging.getLogger(__name__)
@@ -367,6 +368,12 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
         updates.append("industry = %s")
         values.append(industry)
     if company_size:
+        # Chuẩn hoá format (08/2026, xem normalize.normalize_company_size)
+        # — VietnamWorks trả kèm "nhân viên", TopCV/CareerViet thì không,
+        # bỏ hậu tố này để cột company_size đồng nhất 1 format duy nhất
+        # dù nguồn crawl nào ghi vào.
+        company_size = normalize_company_size(company_size)
+    if company_size:
         updates.append("company_size = %s")
         values.append(company_size)
     if address:
@@ -449,6 +456,10 @@ def patch_company_profile(conn, company_id: str, *,
         updates.append("industry = %s")
         values.append(industry)
     if company_size is not None:
+        # Chuẩn hoá format — xem docstring trong update_company_profile()
+        # ở trên. company_size="" (PATCH cố ý xoá field) vẫn qua
+        # normalize_company_size("") -> "" bình thường, không đổi hành vi.
+        company_size = normalize_company_size(company_size)
         updates.append("company_size = %s")
         values.append(company_size)
     if address is not None:
