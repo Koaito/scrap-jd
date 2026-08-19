@@ -67,16 +67,26 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
+    conn=Depends(get_db),
 ) -> dict:
     """Verify JWT access token trong header `Authorization: Bearer
     <token>`, trả payload (dict có 'sub'=ss_user_id, 'role', 'email') —
-    CHỈ đọc từ chữ ký JWT, KHÔNG query DB (đúng lợi thế JWT: verify
-    nhanh). Vì không query DB, route KHÔNG tự biết tài khoản có bị
-    is_active=False/xoá sau khi token đã phát hành hay không — chấp
+    trước 08/2026 CHỈ đọc chữ ký JWT, không query DB (đúng lợi thế JWT:
+    verify nhanh). Vì không query DB, route KHÔNG tự biết tài khoản có
+    bị is_active=False/xoá sau khi token đã phát hành hay không — chấp
     nhận đánh đổi này vì access token sống ngắn (30 phút, xem
-    security.ACCESS_TOKEN_EXPIRE_MINUTES); cần thu hồi ngay lập tức thì
-    dùng revoke_all_refresh_tokens_for_user() để chặn user lấy access
-    token MỚI, chờ token hiện tại tự hết hạn."""
+    security.ACCESS_TOKEN_EXPIRE_MINUTES).
+
+    08/2026 (single-session, xem sql/migration_add_single_session.sql):
+    THÊM 1 lượt query DB mỗi request (tra theo primary key ss_user_id,
+    rất rẻ) để so khớp claim "sid" trong token với
+    app_users.active_session_id hiện tại — cần thiết vì mục tiêu là
+    CHẶN NGAY LẬP TỨC khi có phiên mới login/token bị thu hồi (đổi mật
+    khẩu, logout), không chấp nhận cửa sổ chồng lấn tới 30 phút như
+    trước (JWT thuần chữ ký không tự "chết" giữa chừng được). Đây là
+    điểm khác duy nhất so với thiết kế "verify không cần DB" ban đầu —
+    đánh đổi có chủ đích để enforce single-session THỰC SỰ, không chỉ ở
+    tầng refresh token."""
     if credentials is None:
         raise HTTPException(
             status_code=401,
@@ -93,6 +103,30 @@ def get_current_user(
                 "error_code": "token_expired",
                 "message": "Access token không hợp lệ hoặc đã hết hạn — dùng "
                             "refresh token qua POST /auth/refresh để lấy token mới.",
+            },
+        )
+
+    user_row = db_module.get_user_by_id(conn, payload["sub"])
+    if user_row is None or user_row.get("active_session_id") is None:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "session_revoked",
+                "message": "Phiên đăng nhập này không còn hiệu lực — đăng "
+                            "nhập lại.",
+            },
+        )
+    if str(user_row["active_session_id"]) != payload.get("sid"):
+        # session_id trong token KHÁC session_id hiện đang active trong
+        # DB -> tài khoản này vừa đăng nhập ở nơi khác (login() luôn
+        # sinh session_id mới), phiên hiện tại bị thay thế.
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "session_replaced",
+                "message": "Tài khoản này vừa đăng nhập ở một nơi khác — "
+                            "phiên đăng nhập hiện tại đã bị đăng xuất. Mỗi "
+                            "tài khoản chỉ dùng được ở 1 nơi tại 1 thời điểm.",
             },
         )
     return payload

@@ -1588,6 +1588,23 @@ def revoke_refresh_token(conn, refresh_token_id: str,
         )
 
 
+def set_active_session_id(conn, ss_user_id: str, session_id: Optional[str]) -> None:
+    """Ghi session_id đang active của 1 tài khoản — dùng CHUNG cho 2
+    tình huống trái ngược (08/2026, single-session, xem
+    sql/migration_add_single_session.sql):
+      - login() gọi với session_id MỚI (uuid4) -> mọi access token cũ
+        (mang session_id khác) bị get_current_user() từ chối ngay từ
+        lần gọi kế tiếp, dù chưa hết hạn 30 phút.
+      - logout()/change_password()/reset_password() gọi với
+        session_id=None -> access token hiện có (nếu còn ai đang cầm)
+        cũng bị từ chối ngay, không đợi tự hết hạn."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app_users SET active_session_id = %s WHERE ss_user_id = %s",
+            (session_id, ss_user_id),
+        )
+
+
 def revoke_all_refresh_tokens_for_user(conn, ss_user_id: str) -> int:
     """Thu hồi TOÀN BỘ refresh token còn sống của 1 user — dùng khi: phát
     hiện refresh token bị TÁI SỬ DỤNG sau khi đã revoke (dấu hiệu bị đánh

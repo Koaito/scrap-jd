@@ -75,13 +75,20 @@ def _generate_verify_token() -> str:
     return secrets.token_urlsafe(32)
 
 
-def _issue_token_pair(conn, user_row, request: Request) -> tuple[str, str]:
+def _issue_token_pair(conn, user_row, request: Request, session_id: str) -> tuple[str, str]:
     """Sinh CẢ access token lẫn refresh token mới cho 1 user — dùng
-    chung cho login lẫn refresh (rotation), tránh lặp code."""
+    chung cho login lẫn refresh (rotation), tránh lặp code.
+
+    session_id (08/2026, single-session — xem
+    sql/migration_add_single_session.sql): login() truyền session_id
+    MỚI (vừa ghi vào app_users.active_session_id), refresh() truyền lại
+    session_id HIỆN TẠI của phiên đang xoay vòng (không đổi) — xem
+    docstring security.create_access_token()."""
     access_token = security.create_access_token(
         ss_user_id=str(user_row["ss_user_id"]),
         role=user_row["role"],
         email=user_row["email"],
+        session_id=session_id,
     )
     raw_refresh_token = security.generate_refresh_token()
     db_module.create_refresh_token(
@@ -166,7 +173,20 @@ def login(payload: LoginRequest, request: Request, conn=Depends(get_db)):
         )
 
     db_module.reset_failed_login(conn, str(user["ss_user_id"]))
-    access_token, refresh_token = _issue_token_pair(conn, user, request)
+
+    # SINGLE SESSION (08/2026, xem sql/migration_add_single_session.sql):
+    # login MỚI luôn thắng — thu hồi TOÀN BỘ refresh token cũ (nếu có,
+    # từ phiên khác đang active) rồi sinh session_id mới, ghi đè
+    # active_session_id. Access token của phiên cũ (nếu ai đang cầm) sẽ
+    # bị get_current_user() từ chối NGAY ở lần gọi kế tiếp, không đợi
+    # hết hạn 30 phút — đây là điểm khác với hành vi cũ (nhiều phiên
+    # song song thoải mái).
+    ss_user_id = str(user["ss_user_id"])
+    db_module.revoke_all_refresh_tokens_for_user(conn, ss_user_id)
+    new_session_id = security.generate_session_id()
+    db_module.set_active_session_id(conn, ss_user_id, new_session_id)
+
+    access_token, refresh_token = _issue_token_pair(conn, user, request, new_session_id)
     conn.commit()
 
     return TokenPairOut(
@@ -227,7 +247,20 @@ def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
     if user is None or not user.get("is_active", True):
         raise HTTPException(status_code=403, detail="Tài khoản không còn hoạt động.")
 
-    access_token, new_refresh_token = _issue_token_pair(conn, user, request)
+    # refresh() KHÔNG sinh session_id mới (khác login()) — giữ nguyên
+    # session của phiên đang xoay vòng. active_session_id chỉ NULL cho
+    # tài khoản có refresh token còn hạn TỪ TRƯỚC lúc migration này
+    # được deploy (chưa từng login lại để có session_id) — tự chữa lành
+    # bằng cách sinh session_id lần đầu ở đây, tránh bắt buộc phải logout
+    # thủ công toàn bộ user đang có phiên hợp lệ ngay lúc deploy.
+    session_id = user.get("active_session_id")
+    if session_id is None:
+        session_id = security.generate_session_id()
+        db_module.set_active_session_id(conn, str(user["ss_user_id"]), session_id)
+    else:
+        session_id = str(session_id)
+
+    access_token, new_refresh_token = _issue_token_pair(conn, user, request, session_id)
 
     # Lấy refresh_token_id VỪA tạo để nối replaced_by_token_id — tra lại
     # bằng hash vì create_refresh_token() chỉ trả refresh_token_id dạng
@@ -258,6 +291,10 @@ def logout(request: Request, payload: RefreshRequest, conn=Depends(get_db)):
     )
     if stored is not None:
         db_module.revoke_refresh_token(conn, str(stored["refresh_token_id"]))
+        # Single-session: clear luôn active_session_id — access token
+        # còn sống (chưa hết 30 phút) của phiên này cũng bị từ chối
+        # ngay ở get_current_user(), không cần đợi tự hết hạn.
+        db_module.set_active_session_id(conn, str(stored["ss_user_id"]), None)
         conn.commit()
     return None
 
@@ -304,6 +341,11 @@ def change_password(
         must_change_password=False,
     )
     db_module.revoke_all_refresh_tokens_for_user(conn, user["sub"])
+    # Single-session: clear active_session_id — access token đang cầm
+    # (kể cả của chính request này) cũng hết hiệu lực ngay từ request
+    # kế tiếp, nhất quán với logout(). Người dùng cần đăng nhập lại để
+    # lấy phiên mới, kể cả trên chính thiết bị vừa đổi mật khẩu.
+    db_module.set_active_session_id(conn, user["sub"], None)
     conn.commit()
 
     return db_module.get_user_by_id(conn, user["sub"])
@@ -643,6 +685,9 @@ def reset_password(payload: ResetPasswordRequest, request: Request, conn=Depends
     ss_user_id = str(user["ss_user_id"])
     db_module.reset_password_with_token(conn, ss_user_id, security.hash_password(payload.new_password))
     db_module.revoke_all_refresh_tokens_for_user(conn, ss_user_id)
+    # Single-session: clear active_session_id — nhất quán với
+    # change_password()/logout() (xem docstring change_password()).
+    db_module.set_active_session_id(conn, ss_user_id, None)
     conn.commit()
 
     return MessageOut(message="Đặt lại mật khẩu thành công — vui lòng đăng nhập lại bằng mật khẩu mới.")

@@ -31,6 +31,7 @@ khi cần đổi runtime):
 import os
 import secrets
 import hashlib
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -119,16 +120,25 @@ def generate_temp_password() -> str:
 # JWT access token
 # ------------------------------------------------------------------
 
-def create_access_token(*, ss_user_id: str, role: str, email: str) -> str:
+def create_access_token(*, ss_user_id: str, role: str, email: str, session_id: str) -> str:
     """Access token TỰ CHỨA ss_user_id/role/email — verify chỉ cần kiểm
     chữ ký (không query DB). Sống ngắn (ACCESS_TOKEN_EXPIRE_MINUTES) —
     hết hạn nhanh nếu bị lộ; muốn phiên dài hơn thì dùng refresh token
-    lấy access token mới, không kéo dài access token."""
+    lấy access token mới, không kéo dài access token.
+
+    session_id (claim "sid", thêm 08/2026 cho cơ chế single-session —
+    xem sql/migration_add_single_session.sql): KHÔNG đổi mỗi lần refresh
+    (chỉ login() sinh session_id mới), dùng để get_current_user()
+    (api/deps.py) so khớp với app_users.active_session_id — nếu 1 login
+    MỚI diễn ra (session_id khác được ghi vào DB), access token đang
+    cầm bởi phiên CŨ sẽ bị từ chối ngay ở lần gọi kế tiếp, không cần đợi
+    tự hết hạn."""
     now = datetime.now(timezone.utc)
     payload = {
         "sub": ss_user_id,
         "role": role,
         "email": email,
+        "sid": session_id,
         "iat": now,
         "exp": now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
         "type": "access",
@@ -174,6 +184,16 @@ def hash_refresh_token(token: str) -> str:
 
 def refresh_token_expiry() -> datetime:
     return datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+
+
+def generate_session_id() -> str:
+    """Sinh session_id MỚI cho 1 lần login() (KHÔNG gọi lại ở refresh()
+    — xem docstring create_access_token()). Dùng UUID4 (qua uuid chuẩn
+    thư viện) thay vì token_urlsafe như refresh token, vì giá trị này
+    không phải bí mật cần chống đoán (chỉ dùng để SO SÁNH bằng, không
+    phải khoá tra cứu công khai) — UUID đơn giản, đủ duy nhất, và khớp
+    kiểu cột UUID của app_users.active_session_id."""
+    return str(uuid.uuid4())
 
 
 # ------------------------------------------------------------------
