@@ -4,6 +4,15 @@ cho công ty ĐÃ CÓ website nhưng còn thiếu industry, bằng cách đọc 
 trang chủ (+ trang giới thiệu nếu cần) của chính website đó rồi nhờ
 Gemini phân loại ngành nghề.
 
+THÊM 08/2026: cùng lần gọi Gemini đó, vá LUÔN products_services (sản
+phẩm/dịch vụ chính) nếu model tự tin — "nhặt kèm" giống đúng tinh thần
+backfill_company_profiles.py (không quét riêng DB cho field này, chỉ vá
+khi đằng nào cũng đang xử lý company đó cho industry). LƯU Ý: điều kiện
+chọn company để chạy (get_companies_needing_industry_from_website(),
+xem db.py) VẪN CHỈ xét industry rỗng — company đã có industry nhưng
+thiếu products_services sẽ KHÔNG được chọn lại qua script này, giống hệt
+giới hạn đã biết của backfill_company_profiles.py với field này.
+
 TẠI SAO CẦN SCRIPT NÀY (khác 2 script chị em industry-liên-quan đã có):
   - backfill_company_profiles.py đọc lại source_profile_url (TopCV/
     VietnamWorks/CareerViet) — nhưng CareerVietAdapter CỐ Ý không lấy
@@ -99,7 +108,18 @@ _CHALLENGE_PAGE_MARKERS = (
 # token vô ích. 3000 ký tự đủ cho hầu hết trang giới thiệu.
 _MAX_TEXT_CHARS = 3000
 
-_PROMPT_TEMPLATE = """Bạn đang đọc nội dung trang web của 1 công ty tại Việt Nam để xác định NGÀNH NGHỀ/LĨNH VỰC HOẠT ĐỘNG chính của công ty đó.
+# THÊM 08/2026: cùng 1 lần đọc trang/gọi Gemini này, nhờ luôn model tóm
+# tắt SẢN PHẨM/DỊCH VỤ CHÍNH (products_services) — không tốn thêm request
+# nào vì nội dung trang đọc vào prompt vốn đã có sẵn cho industry. ĐÁNH
+# ĐỔI đã bàn: JSON có 2 field thay vì 1 -> để tránh rủi ro "1 field lỗi
+# kéo hỏng field kia" (coupling), industry và products_services có
+# confidence RIÊNG BIỆT, được chấp nhận/từ chối ĐỘC LẬP với nhau ở phần
+# xử lý response bên dưới (xem run()) — industry đúng vẫn được lưu dù
+# products_services confidence thấp, và ngược lại. Chỉ có 1 rủi ro KHÔNG
+# thể tách được: nếu response hỏng ở mức cú pháp JSON (parse thất bại
+# hoàn toàn, vd bị cắt giữa chừng) thì mất cả 2 — không có cách nào cứu
+# 1 phần của JSON không hợp lệ, chấp nhận như giới hạn cố hữu.
+_PROMPT_TEMPLATE = """Bạn đang đọc nội dung trang web của 1 công ty tại Việt Nam để xác định (1) NGÀNH NGHỀ/LĨNH VỰC HOẠT ĐỘNG chính và (2) SẢN PHẨM/DỊCH VỤ CHÍNH của công ty đó.
 
 Tên công ty: {company_name}
 
@@ -109,12 +129,13 @@ Nội dung trang web (trích từ trang chủ hoặc trang giới thiệu):
 ---
 
 Trả lời DUY NHẤT 1 object JSON (không markdown, không giải thích thêm), đúng định dạng:
-{{"industry": "<nhãn ngành nghề ngắn gọn tiếng Việt, vd 'Phần Mềm CNTT/Dịch vụ Phần mềm', 'Bán lẻ', 'Ngân hàng', 'Bất động sản', 'Sản xuất - Dược phẩm'>", "confidence": "<high|medium|low>", "note": "<lý do ngắn, 1 câu>"}}
+{{"industry": "<nhãn ngành nghề ngắn gọn tiếng Việt, vd 'Phần Mềm CNTT/Dịch vụ Phần mềm', 'Bán lẻ', 'Ngân hàng', 'Bất động sản', 'Sản xuất - Dược phẩm'>", "industry_confidence": "<high|medium|low>", "products_services": "<liệt kê ngắn gọn sản phẩm/dịch vụ chính, dưới 20 từ, vd 'Bảo hiểm phi nhân thọ: xe cơ giới, tài sản, sức khỏe'>", "products_services_confidence": "<high|medium|low>", "note": "<lý do ngắn, 1 câu>"}}
 
 Quy tắc:
-- Nếu nội dung KHÔNG đủ rõ để xác định ngành nghề (trang trống, chỉ có menu/banner, không mô tả gì về công ty) -> industry="" và confidence="low".
+- 2 field industry và products_services ĐỘC LẬP nhau — có thể chắc chắn về 1 field nhưng không chắc field còn lại, vẫn điền confidence ĐÚNG cho từng field, không cần khớp nhau.
+- Nếu nội dung KHÔNG đủ rõ để xác định 1 trong 2 -> field đó = "" và confidence riêng của field đó = "low". KHÔNG vì 1 field chắc chắn mà tự nâng confidence cho field còn lại.
 - KHÔNG suy đoán/bịa nếu không chắc chắn — thà để confidence thấp còn hơn đoán sai.
-- industry nên là 1 nhãn ngắn (dưới 6 từ), không phải cả câu mô tả.
+- industry là 1 nhãn ngắn (dưới 6 từ). products_services là liệt kê ngắn gọn (dưới 20 từ), KHÔNG phải đoạn mô tả dài về lịch sử/sứ mệnh/văn hoá công ty.
 """
 
 
@@ -244,6 +265,9 @@ def run(limit: Optional[int] = None) -> dict:
     stats = {
         "checked": 0, "updated": 0, "no_page_content": 0,
         "low_confidence": 0, "fetch_failed": 0, "errors": 0,
+        # Tách riêng để biết mỗi field vá được bao nhiêu — 1 company có
+        # thể chỉ vá được 1 trong 2 field (xem logic industry_ok/products_ok).
+        "industry_updated": 0, "products_services_updated": 0,
     }
 
     if not GEMINI_API_KEY:
@@ -287,23 +311,44 @@ def run(limit: Optional[int] = None) -> dict:
 
             parsed = _parse_gemini_json(gemini_resp.text or "")
             if parsed is None:
+                # Chỉ mất cả 2 field ở đây khi JSON hỏng cú pháp hoàn
+                # toàn (không parse được) — không có cách tách phần nào
+                # dùng được từ 1 JSON không hợp lệ, chấp nhận giới hạn
+                # này (xem comment ở _PROMPT_TEMPLATE).
                 stats["errors"] += 1
                 continue
 
-            industry = (parsed.get("industry") or "").strip()
-            confidence = (parsed.get("confidence") or "").strip().lower()
             note = parsed.get("note", "")
 
-            if not industry or confidence not in ("high", "medium"):
+            # industry và products_services được đánh giá ĐỘC LẬP —
+            # confidence thấp/rỗng ở field này KHÔNG loại field kia. Đây
+            # chính là phần sửa "hướng 1" (tolerant theo field, thay vì
+            # all-or-nothing như trước khi thêm products_services).
+            industry = (parsed.get("industry") or "").strip()
+            industry_confidence = (parsed.get("industry_confidence") or "").strip().lower()
+            industry_ok = bool(industry) and industry_confidence in ("high", "medium")
+
+            products_services = (parsed.get("products_services") or "").strip()
+            products_confidence = (parsed.get("products_services_confidence") or "").strip().lower()
+            products_ok = bool(products_services) and products_confidence in ("high", "medium")
+
+            if not industry_ok and not products_ok:
                 stats["low_confidence"] += 1
                 logger.info(
-                    "  -> confidence=%r (industry=%r) -> bỏ qua, không lưu. Ghi chú: %s",
-                    confidence, industry, note,
+                    "  -> Cả 2 field đều confidence thấp/rỗng "
+                    "(industry=%r/%s, products_services=%r/%s) -> bỏ qua. Ghi chú: %s",
+                    industry, industry_confidence, products_services, products_confidence, note,
                 )
                 continue
 
+            update_kwargs = {}
+            if industry_ok:
+                update_kwargs["industry"] = industry
+            if products_ok:
+                update_kwargs["products_services"] = products_services
+
             try:
-                db.update_company_profile(conn, company_id, industry=industry)
+                db.update_company_profile(conn, company_id, **update_kwargs)
                 conn.commit()
             except Exception as exc:  # noqa: BLE001 - lỗi DB, không để dừng cả batch
                 conn.rollback()
@@ -312,7 +357,17 @@ def run(limit: Optional[int] = None) -> dict:
                 continue
 
             stats["updated"] += 1
-            logger.info("  -> Đã vá industry=%s (confidence=%s)", industry, confidence)
+            if industry_ok:
+                stats["industry_updated"] += 1
+            if products_ok:
+                stats["products_services_updated"] += 1
+            logger.info(
+                "  -> Đã vá industry=%s | products_services=%s "
+                "(industry_conf=%s, products_conf=%s)",
+                industry if industry_ok else "(bỏ qua)",
+                products_services if products_ok else "(bỏ qua)",
+                industry_confidence, products_confidence,
+            )
     finally:
         conn.close()
 
@@ -332,9 +387,11 @@ def main():
 
     print("\n===== KẾT QUẢ =====")
     print(f"Đã kiểm tra                    : {stats['checked']}")
-    print(f"Đã vá industry                 : {stats['updated']}")
+    print(f"Đã vá ít nhất 1 field          : {stats['updated']}")
+    print(f"  trong đó vá industry         : {stats['industry_updated']}")
+    print(f"  trong đó vá products_services: {stats['products_services_updated']}")
     print(f"Trang không đủ nội dung đọc    : {stats['no_page_content']}")
-    print(f"Confidence thấp (bỏ qua)       : {stats['low_confidence']}")
+    print(f"Cả 2 field confidence thấp     : {stats['low_confidence']}")
     print(f"Lỗi                            : {stats['errors']}")
 
 
