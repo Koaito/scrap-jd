@@ -11,7 +11,7 @@ mục đích khác nhau, gộp chung sẽ rối khi 1 bên cần đổi mà bên
 from datetime import date, datetime
 from typing import Optional
 import re
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # ------------------------------------------------------------------
@@ -146,6 +146,13 @@ class JobUpdate(BaseModel):
         default=None,
         description="Mô tả JD chi tiết — gửi field này sẽ GHI ĐÈ TOÀN BỘ parsed_content cũ (không merge từng key con)",
     )
+    note: Optional[str] = Field(
+        default=None,
+        description="Ghi chú cho log thủ công — TUỲ CHỌN, giải thích lý do sửa/xoá "
+                    "(job_status='CLOSED') JD này để các ss_team khác xem lại được. "
+                    "Không liên quan ss_team_notes (note nội bộ hiển thị trên JD, "
+                    "field này chỉ dùng cho audit_logs.note).",
+    )
 
 
 # ------------------------------------------------------------------
@@ -170,6 +177,13 @@ class CompanyOut(BaseModel):
                     "phải 'tiềm năng thấp'.",
     )
     province_name: Optional[str] = None
+    is_active: bool = Field(
+        default=True,
+        description="false = công ty đã bị xoá mềm qua DELETE /companies/{id} "
+                    "(xem sql/migration_add_company_soft_delete.sql) — GET "
+                    "/companies mặc định không trả company này, xem lại qua "
+                    "?include_inactive=true.",
+    )
     created_at: datetime
     updated_at: datetime
     created_by: Optional[str] = Field(
@@ -253,6 +267,37 @@ class CompanyUpdate(BaseModel):
         description="HIGH | MEDIUM | LOW | UNVERIFIED — gửi field này để "
                     "staff cập nhật lại đánh giá tiềm năng hợp tác.",
     )
+    note: Optional[str] = Field(
+        default=None,
+        description="Ghi chú cho log thủ công — TUỲ CHỌN, giải thích lý do sửa "
+                    "company này để các ss_team khác xem lại được.",
+    )
+
+
+class CompanyDeleteRequest(BaseModel):
+    """Body cho DELETE /companies/{company_id} (thêm 08/2026, xem
+    sql/migration_add_company_soft_delete.sql). note BẮT BUỘC — khác mọi
+    field 'note' optional khác trong file này — vì xoá company là 1 trong
+    4 action bị CHẶN CỨNG nếu thiếu note (xem ACTION_LOG_RULES trong
+    db.py): thiếu note -> 422, KHÔNG xoá công ty, KHÔNG ghi log."""
+    note: str = Field(
+        ..., min_length=1,
+        description="BẮT BUỘC — lý do xoá công ty này, để các ss_team khác "
+                    "biết vì sao (vd: trùng lặp, công ty đã đóng cửa, sai "
+                    "thông tin nhập nhầm...).",
+    )
+
+    @field_validator("note")
+    @classmethod
+    def _note_not_blank(cls, v: str) -> str:
+        # min_length=1 chỉ đếm SỐ KÝ TỰ, không chặn chuỗi toàn khoảng
+        # trắng (vd "   " vẫn qua được min_length=1) — validator này
+        # chặn nốt trường hợp đó, vì note toàn khoảng trắng thực chất
+        # tương đương "không có note".
+        v = v.strip()
+        if not v:
+            raise ValueError("note không được để trống hoặc chỉ chứa khoảng trắng")
+        return v
 
 
 # ------------------------------------------------------------------
@@ -282,39 +327,6 @@ class StatsOut(BaseModel):
     # JobSaverOut bên dưới) — tổng số saved_jobs toàn hệ thống, cân xứng
     # với total_applications ở trên.
     total_saved_jobs: int
-
-
-class JobEngagementOut(BaseModel):
-    """1 dòng trong GET /stats/engagement — job kèm số lượt lưu/ứng
-    tuyển gộp sẵn, để frontend tự lọc "JD ế" (đăng lâu, 0 lượt quan
-    tâm) mà không cần gọi N+1 request cho từng job."""
-    job_id: str
-    job_title: str
-    deadline: Optional[date] = None
-    created_at: Optional[datetime] = None
-    application_count: int
-    saved_count: int
-
-
-class MonthlyCountOut(BaseModel):
-    this_month: int
-    last_month: int
-
-
-class MonthlyEngagementOut(BaseModel):
-    applications: MonthlyCountOut
-    saved_jobs: MonthlyCountOut
-
-
-class EngagementStatsOut(BaseModel):
-    """GET /stats/engagement — thêm 08/2026 riêng cho dashboard tab
-    'Gợi ý học viên'/'Báo cáo tháng' (xem trao đổi thiết kế), tách
-    khỏi GET /stats hiện có (StatsOut) vì 2 query bên dưới tốn hơn
-    (JOIN + GROUP BY theo từng job, FILTER theo tháng) — không muốn
-    dashboard tổng quan hiện tại (gọi /stats liên tục) chậm đi vì
-    thêm việc không phải lúc nào cũng cần."""
-    jobs: list[JobEngagementOut]
-    monthly: MonthlyEngagementOut
 
 
 # ------------------------------------------------------------------
@@ -569,11 +581,23 @@ class CompanyContactCreate(BaseModel):
     assigned_ss_user: Optional[str] = Field(
         None, description="ss_user_id của thành viên ss_team/admin phụ trách contact này ngay từ lúc tạo — có thể bỏ trống, gán sau qua PATCH /contacts/{contact_id}/assign."
     )
+    note: Optional[str] = Field(
+        default=None,
+        description="Ghi chú cho log thủ công — TUỲ CHỌN, vd nguồn tìm được contact "
+                    "này ngoài found_source, hoặc bối cảnh liên quan.",
+    )
 
 
 class CompanyContactUpdate(BaseModel):
     """Mọi field optional — chỉ field có mặt trong body mới bị ghi đè,
-    giống pattern JobUpdate."""
+    giống pattern JobUpdate.
+
+    note: BẮT BUỘC (khác mọi field khác trong class này) NẾU thực sự có
+    field nào ở trên bị đổi giá trị — sửa HR contact là 1 trong 4 action
+    bị CHẶN CỨNG nếu thiếu note (xem ACTION_LOG_RULES trong db.py):
+    thiếu note khi có thay đổi thật -> 422, KHÔNG lưu, KHÔNG ghi log.
+    Nếu body không đổi field nào (patch rỗng hoặc trùng giá trị cũ) thì
+    note không bắt buộc, vì bản chất chưa có gì để "giải thích lý do sửa"."""
     contact_name: Optional[str] = None
     job_title: Optional[str] = None
     work_email: Optional[str] = None
@@ -583,6 +607,11 @@ class CompanyContactUpdate(BaseModel):
         None, description="UNCONTACTED | EMAIL_SENT | RESPONDED | IN_PARTNERSHIP"
     )
     last_contacted_date: Optional[date] = None
+    note: Optional[str] = Field(
+        default=None,
+        description="BẮT BUỘC nếu có field nào ở trên thực sự thay đổi giá trị — "
+                    "lý do sửa contact này, để các ss_team khác xem lại được.",
+    )
 
 
 class ContactAssignUpdate(BaseModel):
@@ -592,10 +621,37 @@ class ContactAssignUpdate(BaseModel):
     của route update thường không phân biệt được "không gửi field" với
     "cố ý set về NULL để bỏ gán". Ở đây assigned_ss_user LUÔN bắt buộc
     có mặt trong body (có thể là null để bỏ gán, hoặc 1 UUID để gán/đổi
-    người phụ trách) — không optional/thiếu field như CompanyContactUpdate."""
+    người phụ trách) — không optional/thiếu field như CompanyContactUpdate.
+
+    note: BẮT BUỘC nếu assigned_ss_user thực sự đổi giá trị so với hiện
+    tại (gán mới/đổi người/bỏ gán) — cùng nhóm CHẶN CỨNG với sửa contact."""
     assigned_ss_user: Optional[str] = Field(
         None, description="ss_user_id của thành viên ss_team/admin phụ trách contact này — null để bỏ gán (chưa ai phụ trách)."
     )
+    note: Optional[str] = Field(
+        default=None,
+        description="BẮT BUỘC nếu việc gán này thực sự đổi người phụ trách — lý do "
+                    "gán/đổi/bỏ gán, để các ss_team khác xem lại được.",
+    )
+
+
+class ContactDeleteRequest(BaseModel):
+    """Body cho DELETE /companies/{company_id}/contacts/{contact_id} (xoá
+    MỀM) — note BẮT BUỘC, cùng nhóm CHẶN CỨNG với sửa/gán contact và xoá
+    company (xem ACTION_LOG_RULES trong db.py)."""
+    note: str = Field(
+        ..., min_length=1,
+        description="BẮT BUỘC — lý do xoá contact này, để các ss_team khác biết "
+                    "vì sao (vd: nghỉ việc, sai thông tin, trùng lặp...).",
+    )
+
+    @field_validator("note")
+    @classmethod
+    def _note_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("note không được để trống hoặc chỉ chứa khoảng trắng")
+        return v
 
 
 # ------------------------------------------------------------------
@@ -677,3 +733,83 @@ class SavedJobOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ------------------------------------------------------------------
+# Audit logs — lịch sử thao tác ss_team/admin (08/2026, xem db.py mục
+# "AUDIT LOGS" + sql/migration_add_audit_logs.sql).
+# ------------------------------------------------------------------
+
+class AuditLogOut(BaseModel):
+    log_id: str
+    actor_id: Optional[str] = Field(
+        default=None, description="null = thao tác tự động (crawl), không phải người tạo."
+    )
+    actor_name: Optional[str] = Field(
+        default=None, description="full_name của actor tại THỜI ĐIỂM TRUY VẤN (join sống, "
+                                   "không phải snapshot) — null nếu actor_id null hoặc tài khoản đã bị xoá."
+    )
+    action_type: str = Field(
+        description="CREATE_JOB | UPDATE_JOB | DELETE_JOB | CREATE_COMPANY | "
+                    "UPDATE_COMPANY | DELETE_COMPANY | CREATE_CONTACT | "
+                    "UPDATE_CONTACT | DELETE_CONTACT | ASSIGN_CONTACT"
+    )
+    entity_type: str = Field(description="JOB | COMPANY | CONTACT")
+    entity_id: str
+    entity_label: Optional[str] = Field(
+        default=None, description="Tên JD/company/contact SNAPSHOT tại thời điểm log — "
+                                   "vẫn hiển thị đúng dù entity sau này đổi tên/bị xoá."
+    )
+    company_id: Optional[str] = None
+    company_name: Optional[str] = Field(
+        default=None, description="Tên company HIỆN TẠI (join sống) — có thể khác entity_label "
+                                   "nếu action_type liên quan company và company đã đổi tên sau đó."
+    )
+    changes: Optional[dict] = Field(
+        default=None,
+        description="{field: {old, new}} — chỉ có ở action UPDATE_*, null cho CREATE/DELETE/ASSIGN.",
+    )
+    is_manual_log: bool = Field(
+        description="true = action này nằm trong view 'log thủ công' (subset các action nhạy "
+                    "cảm: sửa/xoá JD, sửa/xoá company, mọi thao tác HR contact)."
+    )
+    note_required: bool = Field(
+        description="true = action này BẮT BUỘC phải có note lúc thao tác (đã chặn cứng ở "
+                    "tầng API, nên nếu note_required=true thì note LUÔN có giá trị)."
+    )
+    note: Optional[str] = None
+    note_updated_by: Optional[str] = None
+    note_updated_at: Optional[datetime] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class PaginatedAuditLogs(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[AuditLogOut]
+
+
+class AuditLogNoteUpdate(BaseModel):
+    """Body cho PATCH /audit-logs/{log_id}/note — CHỈ dùng để bổ sung/sửa
+    note của log thuộc nhóm TUỲ CHỌN (note_required=false, vd sửa/xoá JD,
+    sửa company, tạo contact). Log thuộc nhóm BẮT BUỘC đã CÓ note ngay
+    lúc tạo (chặn cứng, xem ACTION_LOG_RULES trong db.py) nên route này
+    vẫn CHO sửa lại (chỉnh câu chữ), nhưng KHÔNG cho set về rỗng nếu
+    note_required=true (route trả 422 nếu cố tình xoá note của log bắt
+    buộc — xem api/routers/audit_logs.py).
+
+    Chỉ actor_id GỐC của log mới gọi được route này — kiểm tra ở router,
+    không ở schema."""
+    note: str = Field(..., min_length=1, description="Nội dung note mới.")
+
+    @field_validator("note")
+    @classmethod
+    def _note_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("note không được để trống hoặc chỉ chứa khoảng trắng")
+        return v

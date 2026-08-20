@@ -203,6 +203,11 @@ CREATE TABLE IF NOT EXISTS companies (
     -- (xem migration_add_partnership_potential.sql).
     partnership_potential partnership_potential_enum NOT NULL DEFAULT 'UNVERIFIED',
 
+    -- Xoá mềm (xem sql/migration_add_company_soft_delete.sql) — xoá qua
+    -- API là UPDATE is_active=false, KHÔNG DELETE thật (JD/HR contact cũ
+    -- vẫn tham chiếu company_id này qua FK, xoá cứng sẽ vỡ FK/mất lịch sử).
+    is_active        BOOLEAN NOT NULL DEFAULT true,
+
     created_at       TIMESTAMP NOT NULL DEFAULT now(),
     updated_at       TIMESTAMP NOT NULL DEFAULT now(),
 
@@ -346,12 +351,50 @@ CREATE INDEX IF NOT EXISTS idx_saved_jobs_user ON saved_jobs(ss_user_id);
 CREATE INDEX IF NOT EXISTS idx_saved_jobs_job  ON saved_jobs(job_id);
 
 -- ============================================================
+-- 2c. LỊCH SỬ THAO TÁC (audit_logs) — xem
+-- sql/migration_add_audit_logs.sql để biết đầy đủ lý do thiết kế.
+--
+-- 1 BẢNG DUY NHẤT phục vụ CẢ "log tự động" (mọi thao tác, không note)
+-- LẪN "log thủ công" (tập con action nhạy cảm, có note) — 2 view này
+-- chỉ là filter is_manual_log khác nhau ở tầng API, không phải 2 bảng.
+-- ============================================================
+
+DO $$ BEGIN
+    CREATE TYPE audit_action_enum AS ENUM (
+        'CREATE_JOB', 'UPDATE_JOB', 'DELETE_JOB',
+        'CREATE_COMPANY', 'UPDATE_COMPANY', 'DELETE_COMPANY',
+        'CREATE_CONTACT', 'UPDATE_CONTACT', 'DELETE_CONTACT', 'ASSIGN_CONTACT'
+    );
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+    log_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    actor_id        UUID REFERENCES app_users(ss_user_id),
+    action_type     audit_action_enum NOT NULL,
+    entity_type     VARCHAR(20) NOT NULL,
+    entity_id       UUID NOT NULL,
+    entity_label    VARCHAR(255),
+    company_id      UUID REFERENCES companies(company_id),
+    changes         JSONB,
+    is_manual_log   BOOLEAN NOT NULL,
+    note_required   BOOLEAN NOT NULL DEFAULT false,
+    note            TEXT,
+    note_updated_by UUID REFERENCES app_users(ss_user_id),
+    note_updated_at TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    CONSTRAINT chk_audit_logs_note_required
+        CHECK (NOT note_required OR note IS NOT NULL)
+);
+
+-- ============================================================
 -- 3. INDEXES
 -- ============================================================
 
 CREATE INDEX IF NOT EXISTS idx_companies_province        ON companies(province_id);
 CREATE INDEX IF NOT EXISTS idx_companies_created_by       ON companies(created_by);
 CREATE INDEX IF NOT EXISTS idx_companies_partnership_potential ON companies(partnership_potential);
+CREATE INDEX IF NOT EXISTS idx_companies_is_active ON companies(is_active);
 CREATE INDEX IF NOT EXISTS idx_job_postings_company       ON job_postings(company_id);
 CREATE INDEX IF NOT EXISTS idx_job_postings_created_by    ON job_postings(created_by);
 CREATE INDEX IF NOT EXISTS idx_job_postings_level         ON job_postings(level_id);
@@ -364,6 +407,12 @@ CREATE INDEX IF NOT EXISTS idx_job_sources_log_job        ON job_sources_log(job
 CREATE INDEX IF NOT EXISTS idx_job_contact_links_job      ON job_contact_links(job_id);
 CREATE INDEX IF NOT EXISTS idx_job_contact_links_contact  ON job_contact_links(contact_id);
 CREATE INDEX IF NOT EXISTS idx_job_contact_interactions_link ON job_contact_interactions(link_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_entity     ON audit_logs(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_company    ON audit_logs(company_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_actor      ON audit_logs(actor_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_manual     ON audit_logs(is_manual_log, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_pending_note ON audit_logs(is_manual_log)
+    WHERE note_required = true AND note IS NULL;
 
 -- ============================================================
 -- 4. TRIGGERS — updated_at tự động
