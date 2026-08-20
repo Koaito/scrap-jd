@@ -284,6 +284,39 @@ class StatsOut(BaseModel):
     total_saved_jobs: int
 
 
+class JobEngagementOut(BaseModel):
+    """1 dòng trong GET /stats/engagement — job kèm số lượt lưu/ứng
+    tuyển gộp sẵn, để frontend tự lọc "JD ế" (đăng lâu, 0 lượt quan
+    tâm) mà không cần gọi N+1 request cho từng job."""
+    job_id: str
+    job_title: str
+    deadline: Optional[date] = None
+    created_at: Optional[datetime] = None
+    application_count: int
+    saved_count: int
+
+
+class MonthlyCountOut(BaseModel):
+    this_month: int
+    last_month: int
+
+
+class MonthlyEngagementOut(BaseModel):
+    applications: MonthlyCountOut
+    saved_jobs: MonthlyCountOut
+
+
+class EngagementStatsOut(BaseModel):
+    """GET /stats/engagement — thêm 08/2026 riêng cho dashboard tab
+    'Gợi ý học viên'/'Báo cáo tháng' (xem trao đổi thiết kế), tách
+    khỏi GET /stats hiện có (StatsOut) vì 2 query bên dưới tốn hơn
+    (JOIN + GROUP BY theo từng job, FILTER theo tháng) — không muốn
+    dashboard tổng quan hiện tại (gọi /stats liên tục) chậm đi vì
+    thêm việc không phải lúc nào cũng cần."""
+    jobs: list[JobEngagementOut]
+    monthly: MonthlyEngagementOut
+
+
 # ------------------------------------------------------------------
 # Crawl trigger
 # ------------------------------------------------------------------
