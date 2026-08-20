@@ -20,6 +20,9 @@ def list_jobs(
     work_type: Optional[str] = Query(None, description="FULL_TIME | PART_TIME | INTERNSHIP | OTHER"),
     status: Optional[str] = Query(None, description="OPEN | EXPIRED | CLOSED"),
     keyword: Optional[str] = Query(None, description="Tìm trong job_title (không phân biệt hoa/thường)"),
+    created_by: Optional[str] = Query(
+        None, description="Lọc job do 1 thành viên ss_team/admin cụ thể TỰ NHẬP TAY (ss_user_id) — job crawl tự động (created_by NULL trong DB) không bao giờ khớp filter này."
+    ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     conn=Depends(get_db),
@@ -33,6 +36,8 @@ def list_jobs(
     request/giây, đủ rộng cho người dùng đổi filter nhanh tay lẫn
     debounce phía frontend (nếu sau này thêm), chỉ chặn kiểu spam script
     gọi liên tục."""
+    if created_by is not None and not db_module.is_valid_uuid(created_by):
+        raise HTTPException(status_code=400, detail=f"created_by '{created_by}' không đúng định dạng UUID.")
     rows, total = db_module.list_jobs(
         conn,
         industry=industry,
@@ -41,6 +46,7 @@ def list_jobs(
         work_type=work_type,
         job_status=status,
         keyword=keyword,
+        created_by=created_by,
         limit=limit,
         offset=offset,
     )

@@ -507,6 +507,7 @@ class CompanyContactOut(BaseModel):
     last_contacted_date: Optional[date] = None
     contact_status: str
     is_active: bool
+    assigned_ss_user: Optional[str] = None
     created_by: Optional[str] = None
     updated_by: Optional[str] = None
     created_at: datetime
@@ -532,6 +533,9 @@ class CompanyContactCreate(BaseModel):
     social_link: Optional[str] = None
     phone_number: Optional[str] = None
     found_source: Optional[str] = None
+    assigned_ss_user: Optional[str] = Field(
+        None, description="ss_user_id của thành viên ss_team/admin phụ trách contact này ngay từ lúc tạo — có thể bỏ trống, gán sau qua PATCH /contacts/{contact_id}/assign."
+    )
 
 
 class CompanyContactUpdate(BaseModel):
@@ -546,6 +550,19 @@ class CompanyContactUpdate(BaseModel):
         None, description="UNCONTACTED | EMAIL_SENT | RESPONDED | IN_PARTNERSHIP"
     )
     last_contacted_date: Optional[date] = None
+
+
+class ContactAssignUpdate(BaseModel):
+    """Route riêng PATCH /contacts/{contact_id}/assign (xem
+    api/routers/contacts.py::assign_contact) — KHÔNG dùng chung
+    CompanyContactUpdate ở trên vì pattern "field != None mới ghi đè"
+    của route update thường không phân biệt được "không gửi field" với
+    "cố ý set về NULL để bỏ gán". Ở đây assigned_ss_user LUÔN bắt buộc
+    có mặt trong body (có thể là null để bỏ gán, hoặc 1 UUID để gán/đổi
+    người phụ trách) — không optional/thiếu field như CompanyContactUpdate."""
+    assigned_ss_user: Optional[str] = Field(
+        None, description="ss_user_id của thành viên ss_team/admin phụ trách contact này — null để bỏ gán (chưa ai phụ trách)."
+    )
 
 
 # ------------------------------------------------------------------

@@ -12,13 +12,14 @@ theo đúng thiết kế 3 role đã thống nhất (xem lịch sử trao đổi
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 import db as db_module
-from api.deps import get_db, require_role
+from api.deps import ROLE_HIERARCHY, get_db, require_role
 from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
     CompanyContactCreate,
     CompanyContactOut,
-    CompanyContactUpdate,
     CompanyContactWithCompanyOut,
+    CompanyContactUpdate,
+    ContactAssignUpdate,
 )
 
 router = APIRouter(prefix="/companies/{company_id}/contacts", tags=["contacts"])
@@ -30,6 +31,30 @@ router = APIRouter(prefix="/companies/{company_id}/contacts", tags=["contacts"])
 all_contacts_router = APIRouter(prefix="/contacts", tags=["contacts"])
 
 _VALID_CONTACT_STATUS = {"UNCONTACTED", "EMAIL_SENT", "RESPONDED", "IN_PARTNERSHIP"}
+
+
+def _validate_assignee(conn, assigned_ss_user: str) -> None:
+    """Kiểm tra assigned_ss_user là 1 ss_user_id tồn tại thật VÀ có role
+    ss_team hoặc admin — dùng chung cho create_contact() và
+    assign_contact() bên dưới. Không cho gán contact cho role 'user'
+    (học viên): 'phụ trách contact' là khái niệm nội bộ team SS, học
+    viên không có quyền/khái niệm này trong hệ thống.
+
+    Raise HTTPException 400 nếu không phải UUID hợp lệ, 404 nếu không
+    tìm thấy user, 422 nếu tìm thấy nhưng role không đủ — 3 mã lỗi khác
+    nhau để frontend phân biệt được nguyên nhân chính xác thay vì gộp
+    chung 1 lỗi mơ hồ."""
+    if not db_module.is_valid_uuid(assigned_ss_user):
+        raise HTTPException(status_code=400, detail=f"assigned_ss_user '{assigned_ss_user}' không đúng định dạng UUID.")
+    target_user = db_module.get_user_by_id(conn, assigned_ss_user)
+    if target_user is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản assigned_ss_user.")
+    if ROLE_HIERARCHY.get(target_user.get("role"), -1) < ROLE_HIERARCHY["ss_team"]:
+        raise HTTPException(
+            status_code=422,
+            detail="assigned_ss_user phải là tài khoản có role 'ss_team' hoặc 'admin' — "
+                   "không thể giao contact cho tài khoản role 'user' (học viên).",
+        )
 
 
 @all_contacts_router.get("", response_model=list[CompanyContactWithCompanyOut])
@@ -44,6 +69,12 @@ def list_all_contacts(
     ),
     company_id: str | None = Query(None, description="Lọc theo 1 công ty cụ thể"),
     search: str | None = Query(None, description="Tìm theo tên contact (khớp 1 phần, không phân biệt hoa/thường)"),
+    created_by: str | None = Query(
+        None, description="Lọc contact do 1 thành viên ss_team/admin cụ thể TỰ THÊM (ss_user_id)"
+    ),
+    assigned_ss_user: str | None = Query(
+        None, description="Lọc contact đang được GIAO cho 1 thành viên cụ thể phụ trách (ss_user_id) — độc lập với created_by"
+    ),
     user: dict = Depends(require_role("ss_team")),
     conn=Depends(get_db),
 ):
@@ -68,6 +99,10 @@ def list_all_contacts(
             raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
         if db_module.get_company_by_id(conn, company_id) is None:
             raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
+    if created_by is not None and not db_module.is_valid_uuid(created_by):
+        raise HTTPException(status_code=400, detail=f"created_by '{created_by}' không đúng định dạng UUID.")
+    if assigned_ss_user is not None and not db_module.is_valid_uuid(assigned_ss_user):
+        raise HTTPException(status_code=400, detail=f"assigned_ss_user '{assigned_ss_user}' không đúng định dạng UUID.")
 
     return db_module.list_all_contacts(
         conn,
@@ -75,6 +110,8 @@ def list_all_contacts(
         contact_status=contact_status,
         company_id=company_id,
         search=search,
+        created_by=created_by,
+        assigned_ss_user=assigned_ss_user,
     )
 
 
@@ -109,6 +146,9 @@ def create_contact(
     if db_module.get_company_by_id(conn, company_id) is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
 
+    if payload.assigned_ss_user is not None:
+        _validate_assignee(conn, payload.assigned_ss_user)
+
     contact_id = db_module.create_company_contact(
         conn,
         company_id=company_id,
@@ -118,6 +158,7 @@ def create_contact(
         social_link=payload.social_link,
         phone_number=payload.phone_number,
         found_source=payload.found_source,
+        assigned_ss_user=payload.assigned_ss_user,
         created_by=user["sub"],
     )
     conn.commit()
@@ -160,6 +201,40 @@ def update_contact(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Không tìm thấy contact")
+    conn.commit()
+
+    return db_module.get_company_contact_by_id(conn, contact_id)
+
+
+@router.patch("/{contact_id}/assign", response_model=CompanyContactOut)
+def assign_contact(
+    company_id: str,
+    contact_id: str,
+    payload: ContactAssignUpdate,
+    user: dict = Depends(require_role("ss_team")),
+    conn=Depends(get_db),
+):
+    """Gán (hoặc bỏ gán, khi assigned_ss_user=null trong body) người
+    phụ trách 1 contact — route RIÊNG khỏi PATCH /{contact_id} thường
+    (xem docstring ContactAssignUpdate trong api/schemas.py để hiểu vì
+    sao tách route thay vì gộp field vào CompanyContactUpdate: pattern
+    "field != None mới ghi đè" của route update thường sẽ không cho
+    phép bỏ gán về NULL một cách tường minh)."""
+    if not db_module.is_valid_uuid(contact_id):
+        raise HTTPException(status_code=400, detail=f"contact_id '{contact_id}' không đúng định dạng UUID.")
+
+    existing = db_module.get_company_contact_by_id(conn, contact_id)
+    if existing is None or str(existing["company_id"]) != company_id:
+        raise HTTPException(status_code=404, detail="Không tìm thấy contact thuộc công ty này")
+
+    if payload.assigned_ss_user is not None:
+        _validate_assignee(conn, payload.assigned_ss_user)
+
+    db_module.assign_company_contact(
+        conn, contact_id,
+        assigned_ss_user=payload.assigned_ss_user,
+        updated_by=user["sub"],
+    )
     conn.commit()
 
     return db_module.get_company_contact_by_id(conn, contact_id)

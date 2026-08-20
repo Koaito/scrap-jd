@@ -23,15 +23,20 @@ def list_companies(
                     "false = chỉ công ty còn thiếu cả hai (ứng viên cho "
                     "get_company_fb_linkedin_link.py)",
     ),
+    created_by: Optional[str] = Query(
+        None, description="Lọc công ty do 1 thành viên ss_team/admin cụ thể TỰ THÊM TAY (ss_user_id) — công ty crawl tự động (created_by NULL trong DB) không bao giờ khớp filter này."
+    ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     conn=Depends(get_db),
 ):
     """Rate limit 60/minute theo IP (thêm 08/2026) — cùng lý do với
     GET /jobs (xem api/routers/jobs.py::list_jobs)."""
+    if created_by is not None and not db_module.is_valid_uuid(created_by):
+        raise HTTPException(status_code=400, detail=f"created_by '{created_by}' không đúng định dạng UUID.")
     rows, total = db_module.list_companies(
         conn, keyword=keyword, has_social=has_social, province_name=province,
-        limit=limit, offset=offset,
+        created_by=created_by, limit=limit, offset=offset,
     )
     return PaginatedCompanies(total=total, limit=limit, offset=offset, items=rows)
 

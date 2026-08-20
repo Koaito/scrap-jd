@@ -1240,6 +1240,7 @@ _JOB_LIST_BASE_QUERY = f"SELECT {_JOB_SELECT_COLUMNS} {_JOB_FROM_JOINS}"
 def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[str] = None,
               level_code: Optional[str] = None, work_type: Optional[str] = None,
               keyword: Optional[str] = None, job_status: Optional[str] = None,
+              created_by: Optional[str] = None,
               limit: int = 50, offset: int = 0):
     """Trả (list[dict] job, total_count) — dùng cho GET /jobs.
 
@@ -1248,6 +1249,12 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
     khớp chính xác) — đủ dùng cho ô tìm kiếm đơn giản, KHÔNG phải full-
     text search (nếu sau này cần search nhanh trên dữ liệu lớn, nên
     thêm GIN index + to_tsvector riêng, không sửa hàm này vội).
+
+    created_by: lọc job do 1 thành viên ss_team/admin cụ thể tự nhập
+    tay (xem sql/migration_add_audit_columns.sql) — dùng cho trang
+    "theo dõi hoạt động" nội bộ (08/2026), KHÔNG khớp job crawl tự động
+    (created_by luôn NULL với job crawl, nên filter này không bao giờ
+    trả về job crawl dù truyền UUID nào).
 
     limit/offset: phân trang chuẩn — FastAPI route validate limit tối
     đa (tránh client xin limit=999999 kéo sập DB), hàm này KHÔNG tự
@@ -1273,6 +1280,9 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
     if keyword:
         conditions.append("jp.job_title ILIKE %s")
         params.append(f"%{keyword}%")
+    if created_by:
+        conditions.append("jp.created_by = %s")
+        params.append(created_by)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -1326,13 +1336,19 @@ _COMPANY_LIST_BASE_QUERY = f"SELECT {_COMPANY_SELECT_COLUMNS} {_COMPANY_FROM_JOI
 def list_companies(conn, *, keyword: Optional[str] = None,
                     has_social: Optional[bool] = None,
                     province_name: Optional[str] = None,
+                    created_by: Optional[str] = None,
                     limit: int = 50, offset: int = 0):
     """Trả (list[dict] company, total_count) — dùng cho GET /companies.
 
     has_social=True  -> chỉ công ty đã có fanpage_url HOẶC linkedin_url.
     has_social=False -> chỉ công ty còn thiếu CẢ HAI (tập ứng viên cho
     get_company_fb_linkedin_link.py) — tiện cho dashboard theo dõi tiến
-    độ enrich mà không cần chạy script tay để biết còn bao nhiêu."""
+    độ enrich mà không cần chạy script tay để biết còn bao nhiêu.
+
+    created_by: lọc công ty do 1 thành viên ss_team/admin cụ thể tự
+    thêm tay (xem sql/migration_add_audit_columns.sql) — dùng cho trang
+    "theo dõi hoạt động" nội bộ (08/2026). Công ty tạo qua crawl pipeline
+    có created_by NULL, không khớp filter này với bất kỳ UUID nào."""
     conditions = []
     params: list = []
 
@@ -1346,6 +1362,9 @@ def list_companies(conn, *, keyword: Optional[str] = None,
         conditions.append("(c.fanpage_url IS NOT NULL OR c.linkedin_url IS NOT NULL)")
     elif has_social is False:
         conditions.append("(c.fanpage_url IS NULL AND c.linkedin_url IS NULL)")
+    if created_by:
+        conditions.append("c.created_by = %s")
+        params.append(created_by)
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
@@ -1806,6 +1825,8 @@ def list_all_contacts(
     contact_status: Optional[str] = None,
     company_id: Optional[str] = None,
     search: Optional[str] = None,
+    created_by: Optional[str] = None,
+    assigned_ss_user: Optional[str] = None,
 ):
     """Danh sách contact GỘP TẤT CẢ công ty (khác list_company_contacts()
     chỉ trả theo 1 company_id) — dùng cho trang "Danh sách contact" tổng
@@ -1818,6 +1839,12 @@ def list_all_contacts(
     - search: khớp theo contact_name (ILIKE, không phân biệt hoa/thường,
       khớp 1 phần) — company_name lọc riêng qua company_id vì chọn theo
       dropdown công ty chính xác hơn search text tự do.
+    - created_by: contact do 1 thành viên ss_team/admin cụ thể TỰ THÊM
+      (khác assigned_ss_user bên dưới — 1 người có thể thêm contact rồi
+      giao cho người khác phụ trách).
+    - assigned_ss_user: contact đang được GIAO cho 1 thành viên cụ thể
+      phụ trách (xem migration_add_assigned_ss_user.sql) — độc lập với
+      created_by, có thể khác người tạo.
     """
     query = (
         "SELECT cc.*, c.company_name "
@@ -1838,6 +1865,12 @@ def list_all_contacts(
     if search:
         query += " AND cc.contact_name ILIKE %s"
         params.append(f"%{search}%")
+    if created_by:
+        query += " AND cc.created_by = %s"
+        params.append(created_by)
+    if assigned_ss_user:
+        query += " AND cc.assigned_ss_user = %s"
+        params.append(assigned_ss_user)
 
     query += " ORDER BY cc.created_at DESC"
 
@@ -1855,18 +1888,21 @@ def get_company_contact_by_id(conn, contact_id: str):
 def create_company_contact(conn, *, company_id: str, contact_name: str,
                             job_title: Optional[str] = None, work_email: Optional[str] = None,
                             social_link: Optional[str] = None, phone_number: Optional[str] = None,
-                            found_source: Optional[str] = None, created_by: str) -> str:
+                            found_source: Optional[str] = None,
+                            assigned_ss_user: Optional[str] = None,
+                            created_by: str) -> str:
     with conn.cursor() as cur:
         cur.execute(
             """
             INSERT INTO company_contacts
                 (company_id, contact_name, job_title, work_email, social_link,
-                 phone_number, found_source, collected_date, created_by, updated_by)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, %s, %s)
+                 phone_number, found_source, collected_date, assigned_ss_user,
+                 created_by, updated_by)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_DATE, %s, %s, %s)
             RETURNING contact_id
             """,
             (company_id, contact_name, job_title, work_email, social_link,
-             phone_number, found_source, created_by, created_by),
+             phone_number, found_source, assigned_ss_user, created_by, created_by),
         )
         return str(cur.fetchone()[0])
 
@@ -1902,6 +1938,28 @@ def update_company_contact(conn, contact_id: str, *, contact_name: Optional[str]
         cur.execute(
             f"UPDATE company_contacts SET {', '.join(fields)} WHERE contact_id = %s",
             values,
+        )
+        return cur.rowcount > 0
+
+
+def assign_company_contact(conn, contact_id: str, *, assigned_ss_user: Optional[str],
+                            updated_by: str) -> bool:
+    """Gán (hoặc BỎ gán, khi assigned_ss_user=None) người phụ trách 1
+    contact — tách route riêng khỏi update_company_contact() (xem
+    api/routers/contacts.py::assign_contact) vì pattern "chỉ field !=
+    None mới ghi đè" của update_company_contact() không phân biệt được
+    "không gửi field" với "cố ý set về NULL để bỏ gán" — ở đây
+    assigned_ss_user LUÔN được ghi (kể cả None), không có nhánh bỏ qua.
+
+    Validate assigned_ss_user phải là ss_user_id hợp lệ, role ss_team
+    hoặc admin (không gán nhầm cho role 'user' — học viên không có khái
+    niệm "phụ trách" contact) nằm ở route, KHÔNG ở đây — hàm này chỉ lo
+    ghi giá trị đã được validate."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE company_contacts SET assigned_ss_user = %s, updated_by = %s, "
+            "updated_at = now() WHERE contact_id = %s",
+            (assigned_ss_user, updated_by, contact_id),
         )
         return cur.rowcount > 0
 
