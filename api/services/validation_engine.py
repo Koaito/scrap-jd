@@ -111,7 +111,10 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                 row_ok = False
 
         for f, raw_val in row_dict.items():
-            if raw_val is None:
+            # Pandas đọc ô trống trong CSV thành "" (string rỗng) hoặc NaN
+            # (→ None khi to_dict()) tuỳ context. Chuẩn hoá: coi "" như None
+            # cho mọi field (số/date/text đều vậy), để logic đơn giản nhất quán.
+            if raw_val is None or (isinstance(raw_val, str) and raw_val.strip() == ""):
                 cleaned[f] = None
                 continue
 
