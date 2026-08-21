@@ -6,14 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 import db as db_module
 from api.deps import get_db, require_role
 from api.rate_limit import limiter
-from api.schemas import (
-    CompanyCreate,
-    CompanyDeleteRequest,
-    CompanyDetailOut,
-    CompanyOut,
-    CompanyUpdate,
-    PaginatedCompanies,
-)
+from api.schemas import CompanyCreate, CompanyDetailOut, CompanyOut, CompanyUpdate, PaginatedCompanies
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
@@ -33,9 +26,6 @@ def list_companies(
     created_by: Optional[str] = Query(
         None, description="Lọc công ty do 1 thành viên ss_team/admin cụ thể TỰ THÊM TAY (ss_user_id) — công ty crawl tự động (created_by NULL trong DB) không bao giờ khớp filter này."
     ),
-    include_inactive: bool = Query(
-        False, description="true = xem cả công ty đã xoá mềm qua DELETE /companies/{id} (mặc định ẩn)"
-    ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     conn=Depends(get_db),
@@ -46,8 +36,7 @@ def list_companies(
         raise HTTPException(status_code=400, detail=f"created_by '{created_by}' không đúng định dạng UUID.")
     rows, total = db_module.list_companies(
         conn, keyword=keyword, has_social=has_social, province_name=province,
-        created_by=created_by, include_inactive=include_inactive,
-        limit=limit, offset=offset,
+        created_by=created_by, limit=limit, offset=offset,
     )
     return PaginatedCompanies(total=total, limit=limit, offset=offset, items=rows)
 
@@ -82,16 +71,6 @@ def create_company(
     08/2026, xem sql/migration_add_role_hierarchy.sql) — ghi lại
     companies.created_by (nếu company MỚI tạo) và updated_by (kể cả khi
     trùng company đã có, đang vá thêm thông tin)."""
-    # get_or_create_company_by_profile() là IDEMPOTENT (dùng LẠI company
-    # đã có nếu trùng tax_id/tên — xem docstring) — kiểm tra trùng TRƯỚC
-    # bằng đúng logic nó dùng bên trong (tax_id trước, tên sau) để biết
-    # company trả về là MỚI hay TÁI SỬ DỤNG, tránh log CREATE_COMPANY sai
-    # cho trường hợp thực ra chỉ đang "vá" thêm thông tin công ty cũ.
-    was_existing = (
-        (payload.tax_id and db_module.find_company_by_tax_id(conn, payload.tax_id))
-        or db_module.find_company_probe(conn, payload.company_name)
-    ) is not None
-
     province_id = db_module.get_or_create_province(conn, payload.province_name or "")
     company_id = db_module.get_or_create_company_by_profile(
         conn, payload.company_name, province_id, tax_id=payload.tax_id or "",
@@ -112,16 +91,6 @@ def create_company(
             conn, company_id,
             fanpage_url=payload.fanpage_url or "",
             linkedin_url=payload.linkedin_url or "",
-        )
-    if not was_existing:
-        # CREATE_COMPANY không thuộc log thủ công, không cần note (xem
-        # db.ACTION_LOG_RULES) — company "vá thêm thông tin" (trùng
-        # tax_id/tên) không log gì ở route này, khác PATCH /companies
-        # (route riêng, có UPDATE_COMPANY optional-note của chính nó).
-        db_module.log_action(
-            conn, actor_id=user["sub"], action_type="CREATE_COMPANY",
-            entity_type="COMPANY", entity_id=company_id,
-            entity_label=payload.company_name, company_id=company_id,
         )
     conn.commit()
 
@@ -147,10 +116,6 @@ def patch_company(
     ghi lại companies.updated_by = người vừa sửa."""
     if not db_module.is_valid_uuid(company_id):
         raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
-
-    existing = db_module.get_company_by_id(conn, company_id)
-    if existing is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
 
     province_id = (
         db_module.get_or_create_province(conn, payload.province_name)
@@ -181,67 +146,8 @@ def patch_company(
 
     if not updated:
         raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
-
-    # payload_fields: CHỈ field client thực sự gửi lên. province_name so
-    # sánh riêng bằng tên hiển thị (existing['province_name'] là chuỗi,
-    # không phải id) — giống pattern PATCH /jobs.
-    payload_fields = payload.model_dump(exclude_unset=True, exclude={"note", "province_name"})
-    if payload.province_name is not None:
-        payload_fields["province_name"] = payload.province_name
-
-    if payload_fields:
-        changes = db_module.diff_changed_fields(existing, payload_fields)
-        if changes:
-            # UPDATE_COMPANY — note TUỲ CHỌN (khác PATCH /contacts, khác
-            # DELETE /companies bên dưới), xem db.ACTION_LOG_RULES.
-            db_module.log_action(
-                conn, actor_id=user["sub"], action_type="UPDATE_COMPANY",
-                entity_type="COMPANY", entity_id=company_id,
-                entity_label=existing["company_name"], company_id=company_id,
-                changes=changes, note=payload.note,
-            )
-
     conn.commit()
 
     row = db_module.get_company_by_id(conn, company_id)
     jobs = db_module.get_jobs_by_company_id(conn, company_id)
     return {**row, "jobs": jobs}
-
-
-@router.delete("/{company_id}", status_code=204)
-def delete_company(
-    company_id: str,
-    payload: CompanyDeleteRequest,
-    conn=Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
-):
-    """Xoá MỀM company (is_active=false) — thêm 08/2026, xem
-    sql/migration_add_company_soft_delete.sql. Trước route này, company
-    KHÔNG có cách xoá nào.
-
-    note BẮT BUỘC (khác PATCH /companies) — DELETE_COMPANY thuộc nhóm
-    action bị CHẶN CỨNG nếu thiếu note (xem db.ACTION_LOG_RULES): thiếu
-    note -> 422 ngay từ Pydantic (CompanyDeleteRequest.note không có
-    default, FastAPI tự trả 422 nếu body thiếu field/rỗng), KHÔNG chạm
-    tới DB.
-
-    Gọi lại nhiều lần trên company đã xoá vẫn trả 204, KHÔNG lỗi, nhưng
-    KHÔNG ghi thêm log mới (xem db.soft_delete_company() — trả False
-    nếu company đã is_active=false từ trước, tránh log trùng lặp)."""
-    if not db_module.is_valid_uuid(company_id):
-        raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
-
-    existing = db_module.get_company_by_id(conn, company_id)
-    if existing is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
-
-    was_active = db_module.soft_delete_company(conn, company_id, updated_by=user["sub"])
-    if was_active:
-        db_module.log_action(
-            conn, actor_id=user["sub"], action_type="DELETE_COMPANY",
-            entity_type="COMPANY", entity_id=company_id,
-            entity_label=existing["company_name"], company_id=company_id,
-            note=payload.note,
-        )
-    conn.commit()
-    return None

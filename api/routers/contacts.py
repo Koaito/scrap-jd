@@ -20,7 +20,6 @@ from api.schemas import (
     CompanyContactWithCompanyOut,
     CompanyContactUpdate,
     ContactAssignUpdate,
-    ContactDeleteRequest,
 )
 
 router = APIRouter(prefix="/companies/{company_id}/contacts", tags=["contacts"])
@@ -162,16 +161,6 @@ def create_contact(
         assigned_ss_user=payload.assigned_ss_user,
         created_by=user["sub"],
     )
-    # CREATE_CONTACT — note TUỲ CHỌN (khác sửa/xoá/gán contact bên dưới),
-    # xem db.ACTION_LOG_RULES. Vẫn thuộc log thủ công (is_manual_log=true)
-    # vì đây là thao tác HR contact — "bất kỳ thao tác nào bên HR contact
-    # đều phải nằm ở log thủ công".
-    db_module.log_action(
-        conn, actor_id=user["sub"], action_type="CREATE_CONTACT",
-        entity_type="CONTACT", entity_id=contact_id,
-        entity_label=payload.contact_name, company_id=company_id,
-        note=payload.note,
-    )
     conn.commit()
 
     return db_module.get_company_contact_by_id(conn, contact_id)
@@ -199,20 +188,6 @@ def update_contact(
                    f"có sẵn: {sorted(_VALID_CONTACT_STATUS)}",
         )
 
-    # CHẶN CỨNG: sửa HR contact bắt buộc note NẾU thực sự có field nào
-    # đổi giá trị (xem db.ACTION_LOG_RULES, action UPDATE_CONTACT) —
-    # kiểm tra TRƯỚC KHI gọi update_company_contact(), không cho thao
-    # tác chính chạy nếu thiếu note.
-    payload_fields = payload.model_dump(exclude_unset=True, exclude={"note"})
-    changes = db_module.diff_changed_fields(existing, payload_fields) if payload_fields else {}
-    if changes and not (payload.note or "").strip():
-        raise HTTPException(
-            status_code=422,
-            detail="Sửa HR contact bắt buộc phải có 'note' giải thích lý do sửa "
-                   "(field 'note' trong body) — các ss_team khác cần biết vì sao "
-                   "thông tin contact này thay đổi.",
-        )
-
     updated = db_module.update_company_contact(
         conn, contact_id,
         contact_name=payload.contact_name,
@@ -226,15 +201,6 @@ def update_contact(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Không tìm thấy contact")
-
-    if changes:
-        db_module.log_action(
-            conn, actor_id=user["sub"], action_type="UPDATE_CONTACT",
-            entity_type="CONTACT", entity_id=contact_id,
-            entity_label=existing["contact_name"], company_id=company_id,
-            changes=changes, note=payload.note,
-        )
-
     conn.commit()
 
     return db_module.get_company_contact_by_id(conn, contact_id)
@@ -264,37 +230,11 @@ def assign_contact(
     if payload.assigned_ss_user is not None:
         _validate_assignee(conn, payload.assigned_ss_user)
 
-    # So sánh str() vì existing["assigned_ss_user"] là UUID object (từ
-    # psycopg2) còn payload.assigned_ss_user là str/None từ Pydantic.
-    is_change = str(existing.get("assigned_ss_user")) != str(payload.assigned_ss_user)
-
-    # CHẶN CỨNG: gán/đổi/bỏ gán contact bắt buộc note NẾU thực sự đổi
-    # người phụ trách (xem db.ACTION_LOG_RULES, action ASSIGN_CONTACT).
-    if is_change and not (payload.note or "").strip():
-        raise HTTPException(
-            status_code=422,
-            detail="Gán/đổi/bỏ gán người phụ trách HR contact bắt buộc phải có "
-                   "'note' giải thích lý do — các ss_team khác cần biết vì sao.",
-        )
-
     db_module.assign_company_contact(
         conn, contact_id,
         assigned_ss_user=payload.assigned_ss_user,
         updated_by=user["sub"],
     )
-
-    if is_change:
-        db_module.log_action(
-            conn, actor_id=user["sub"], action_type="ASSIGN_CONTACT",
-            entity_type="CONTACT", entity_id=contact_id,
-            entity_label=existing["contact_name"], company_id=company_id,
-            changes={"assigned_ss_user": {
-                "old": existing.get("assigned_ss_user"),
-                "new": payload.assigned_ss_user,
-            }},
-            note=payload.note,
-        )
-
     conn.commit()
 
     return db_module.get_company_contact_by_id(conn, contact_id)
@@ -304,19 +244,12 @@ def assign_contact(
 def delete_contact(
     company_id: str,
     contact_id: str,
-    payload: ContactDeleteRequest,
     user: dict = Depends(require_role("ss_team")),
     conn=Depends(get_db),
 ):
     """Xoá MỀM (is_active=false) — KHÔNG xoá thật, giữ lịch sử liên hệ
     (xem sql/migration_add_role_hierarchy.sql). Gọi lại nhiều lần trên
-    cùng 1 contact đã ẩn vẫn trả 204, không lỗi (nhưng KHÔNG ghi thêm
-    log mới lần thứ 2 trở đi — xem is_change bên dưới).
-
-    note BẮT BUỘC (thêm 08/2026, xem db.ACTION_LOG_RULES — action
-    DELETE_CONTACT thuộc nhóm CHẶN CỨNG, khác mọi route DELETE khác
-    trong API này) — thiếu note -> 422 ngay từ Pydantic
-    (ContactDeleteRequest.note không có default), KHÔNG chạm tới DB."""
+    cùng 1 contact đã ẩn vẫn trả 204, không lỗi."""
     if not db_module.is_valid_uuid(contact_id):
         raise HTTPException(status_code=400, detail=f"contact_id '{contact_id}' không đúng định dạng UUID.")
 
@@ -324,17 +257,7 @@ def delete_contact(
     if existing is None or str(existing["company_id"]) != company_id:
         raise HTTPException(status_code=404, detail="Không tìm thấy contact thuộc công ty này")
 
-    is_change = existing["is_active"]
     db_module.soft_delete_company_contact(conn, contact_id, updated_by=user["sub"])
-
-    if is_change:
-        db_module.log_action(
-            conn, actor_id=user["sub"], action_type="DELETE_CONTACT",
-            entity_type="CONTACT", entity_id=contact_id,
-            entity_label=existing["contact_name"], company_id=company_id,
-            note=payload.note,
-        )
-
     conn.commit()
     return None
 

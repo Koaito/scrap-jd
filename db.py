@@ -1320,7 +1320,7 @@ def get_job_by_id(conn, job_id: str):
 _COMPANY_SELECT_COLUMNS = """
         c.company_id, c.company_name, c.tax_id, c.website, c.industry,
         c.company_size, c.address, c.fanpage_url, c.linkedin_url,
-        c.partnership_potential, c.is_active,
+        c.partnership_potential,
         c.created_at, c.updated_at, c.created_by, c.updated_by,
         p.province_name
 """
@@ -1337,7 +1337,6 @@ def list_companies(conn, *, keyword: Optional[str] = None,
                     has_social: Optional[bool] = None,
                     province_name: Optional[str] = None,
                     created_by: Optional[str] = None,
-                    include_inactive: bool = False,
                     limit: int = 50, offset: int = 0):
     """Trả (list[dict] company, total_count) — dùng cho GET /companies.
 
@@ -1349,17 +1348,10 @@ def list_companies(conn, *, keyword: Optional[str] = None,
     created_by: lọc công ty do 1 thành viên ss_team/admin cụ thể tự
     thêm tay (xem sql/migration_add_audit_columns.sql) — dùng cho trang
     "theo dõi hoạt động" nội bộ (08/2026). Công ty tạo qua crawl pipeline
-    có created_by NULL, không khớp filter này với bất kỳ UUID nào.
-
-    include_inactive (08/2026, xem sql/migration_add_company_soft_delete.sql):
-    False (mặc định) -> chỉ trả company is_active=true, giống pattern
-    company_contacts. True -> xem cả company đã xoá mềm (vd trang xem
-    lại lịch sử/audit log cần hiển thị tên company dù đã bị xoá)."""
+    có created_by NULL, không khớp filter này với bất kỳ UUID nào."""
     conditions = []
     params: list = []
 
-    if not include_inactive:
-        conditions.append("c.is_active = true")
     if keyword:
         conditions.append("c.company_name ILIKE %s")
         params.append(f"%{keyword}%")
@@ -1471,6 +1463,94 @@ def get_stats_summary(conn) -> dict:
         "by_source": by_source,
         "total_applications": total_applications,
         "total_saved_jobs": total_saved_jobs,
+    }
+
+
+def get_job_engagement_counts(conn) -> list[dict]:
+    """Đếm số lượt lưu + ứng tuyển của TỪNG job đang OPEN, gộp sẵn 1
+    lần cho toàn bộ hệ thống — dùng cho dashboard frontend (nhóm "JD
+    ế": job đăng lâu nhưng 0 lượt quan tâm). Trước đây không có cách
+    lấy số này ngoại trừ gọi GET /jobs/{id}/applications +
+    /jobs/{id}/saved-jobs CHO TỪNG job (N+1, ~200 job/lần là ~400
+    request) — hàm này gộp bằng 2 GROUP BY rồi JOIN, luôn đúng 2 query
+    bất kể có bao nhiêu job.
+
+    Chỉ lấy job job_status = 'OPEN' (job đã đóng/hết hạn không còn ý
+    nghĩa để "đẩy" cho học viên, frontend cũng không cần biết lượt
+    quan tâm của job đã đóng)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT
+                jp.job_id,
+                jp.job_title,
+                jp.deadline,
+                jp.created_at,
+                COALESCE(app_counts.n, 0) AS application_count,
+                COALESCE(saved_counts.n, 0) AS saved_count
+            FROM job_postings jp
+            LEFT JOIN (
+                SELECT job_id, count(*) AS n
+                FROM job_applications
+                GROUP BY job_id
+            ) app_counts ON app_counts.job_id = jp.job_id
+            LEFT JOIN (
+                SELECT job_id, count(*) AS n
+                FROM saved_jobs
+                GROUP BY job_id
+            ) saved_counts ON saved_counts.job_id = jp.job_id
+            WHERE jp.job_status = 'OPEN'
+            ORDER BY jp.created_at DESC
+            """
+        )
+        return cur.fetchall()
+
+
+def get_monthly_engagement_stats(conn) -> dict:
+    """So sánh số ứng tuyển/lưu job THÁNG NÀY vs THÁNG TRƯỚC (theo
+    calendar month, dùng applied_at/created_at thật của từng dòng) —
+    dùng cho tab "Báo cáo tháng" bên frontend. GET /stats hiện có chỉ
+    trả TỔNG DỒN (total_applications/total_saved_jobs), không có
+    breakdown theo tháng nên không tính được % tăng/giảm.
+
+    date_trunc('month', now()) lấy đúng đầu tháng hiện tại theo
+    UTC (cột applied_at/created_at đều TIMESTAMPTZ) — nhất quán với
+    cách _jobs_by_month() bên frontend (mindx-jobs/app.py) đang nhóm
+    job theo tháng, không lệch múi giờ giữa 2 phía."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT
+                count(*) FILTER (
+                    WHERE applied_at >= date_trunc('month', now())
+                ) AS this_month,
+                count(*) FILTER (
+                    WHERE applied_at >= date_trunc('month', now()) - interval '1 month'
+                      AND applied_at < date_trunc('month', now())
+                ) AS last_month
+            FROM job_applications
+            """
+        )
+        applications = cur.fetchone()
+
+        cur.execute(
+            """
+            SELECT
+                count(*) FILTER (
+                    WHERE created_at >= date_trunc('month', now())
+                ) AS this_month,
+                count(*) FILTER (
+                    WHERE created_at >= date_trunc('month', now()) - interval '1 month'
+                      AND created_at < date_trunc('month', now())
+                ) AS last_month
+            FROM saved_jobs
+            """
+        )
+        saved_jobs = cur.fetchone()
+
+    return {
+        "applications": dict(applications),
+        "saved_jobs": dict(saved_jobs),
     }
 
 
@@ -2251,247 +2331,3 @@ def reset_password_with_token(conn, ss_user_id: str, password_hash: str) -> None
             "WHERE ss_user_id = %s",
             (password_hash, ss_user_id),
         )
-
-
-# ============================================================
-# AUDIT LOGS — lịch sử thao tác của ss_team/admin (08/2026, xem
-# sql/migration_add_audit_logs.sql cho toàn bộ lý do thiết kế).
-#
-# CHỈ 1 BẢNG (audit_logs) phục vụ CẢ 2 "loại log" mà UI hiển thị:
-#   - "Log tự động": TẤT CẢ dòng trong bảng, không có note.
-#   - "Log thủ công": tập con is_manual_log=true, có note.
-# 2 loại này là 2 CÁCH LỌC (xem list_audit_logs() bên dưới, tham số
-# `manual_only`), KHÔNG phải 2 bảng riêng — router quyết định show/ẩn
-# cột note tuỳ view, không phải hàm ở đây.
-# ============================================================
-
-# Luật phân loại + bắt buộc note, tính SẴN lúc insert (xem docstring
-# migration để hiểu vì sao không derive lại mỗi lần query). Đây là NƠI
-# DUY NHẤT định nghĩa luật này — router chỉ gọi log_action(), không tự
-# quyết định is_manual_log/note_required ở đâu khác.
-ACTION_LOG_RULES: dict[str, dict] = {
-    "CREATE_JOB":     {"is_manual_log": False, "note_required": False},
-    "UPDATE_JOB":     {"is_manual_log": True,  "note_required": False},
-    "DELETE_JOB":     {"is_manual_log": True,  "note_required": False},
-    "CREATE_COMPANY": {"is_manual_log": False, "note_required": False},
-    "UPDATE_COMPANY": {"is_manual_log": True,  "note_required": False},
-    "DELETE_COMPANY": {"is_manual_log": True,  "note_required": True},
-    "CREATE_CONTACT": {"is_manual_log": True,  "note_required": False},
-    "UPDATE_CONTACT": {"is_manual_log": True,  "note_required": True},
-    "DELETE_CONTACT": {"is_manual_log": True,  "note_required": True},
-    "ASSIGN_CONTACT": {"is_manual_log": True,  "note_required": True},
-}
-
-
-class NoteRequiredError(Exception):
-    """Action thuộc nhóm bắt buộc note (xem ACTION_LOG_RULES) nhưng gọi
-    log_action() không kèm note hoặc note rỗng — router PHẢI validate
-    trước khi chạm tới thao tác chính (UPDATE/DELETE thật) để CHẶN CỨNG
-    đúng yêu cầu (không note thì không cho lưu thao tác), KHÔNG để tới
-    đây mới raise — raise ở đây chỉ là lớp phòng thủ THỨ 2 (giống CHECK
-    constraint ở DB), phòng router nào quên validate."""
-
-
-def diff_changed_fields(old_row: dict, payload_fields: dict) -> dict:
-    """So sánh giá trị CŨ (old_row, lấy từ get_job_by_id()/get_company_by_id()/
-    get_company_contact_by_id()) với các field THỰC SỰ có mặt trong request
-    (payload_fields — dùng payload.model_dump(exclude_unset=True) ở router,
-    KHÔNG phải toàn bộ payload, để không coi field không gửi là "đổi
-    thành None"). Trả dict {field: {"old":..., "new":...}} CHỈ gồm field
-    có giá trị thực sự khác nhau — field gửi lên nhưng trùng giá trị cũ
-    (PATCH lại y hệt) KHÔNG được tính là 1 thay đổi.
-
-    So sánh bằng str(...) 2 vế — old_row có thể chứa Decimal/date/UUID
-    từ psycopg2 trong khi payload_fields là kiểu Python thuần từ
-    Pydantic, so sánh trực tiếp (!=) dễ lệch kiểu dữ liệu dù giá trị
-    hiển thị giống hệt nhau (vd Decimal('0') != 0 tuỳ context)."""
-    changes = {}
-    for field, new_val in payload_fields.items():
-        old_val = old_row.get(field)
-        if str(old_val) != str(new_val):
-            changes[field] = {"old": old_val, "new": new_val}
-    return changes
-
-
-def log_action(conn, *, actor_id: Optional[str], action_type: str,
-                entity_type: str, entity_id: str,
-                entity_label: Optional[str] = None,
-                company_id: Optional[str] = None,
-                changes: Optional[dict] = None,
-                note: Optional[str] = None) -> str:
-    """Ghi 1 dòng audit_logs — gọi TRONG CÙNG transaction với thao tác
-    chính (TRƯỚC conn.commit() của route, dùng CHUNG connection `conn`),
-    KHÔNG tự commit ở đây — nếu thao tác chính rollback vì lỗi gì đó,
-    log cũng phải rollback theo, không được tồn tại mồ côi mô tả 1 thao
-    tác thực ra chưa xảy ra.
-
-    is_manual_log/note_required tra từ ACTION_LOG_RULES theo action_type
-    — raise KeyError rõ ràng nếu action_type gõ sai (lỗi lập trình, nên
-    để crash thay vì âm thầm ghi sai luật).
-
-    Raise NoteRequiredError nếu action_type thuộc nhóm bắt buộc mà note
-    rỗng/None — ĐÂY LÀ LỚP CHẶN THỨ 2 (constraint CHECK ở DB là lớp
-    thứ 3), lớp CHÍNH phải nằm ở router (trả 422 TRƯỚC KHI gọi
-    UPDATE/DELETE thật trên bảng nghiệp vụ — xem api/routers/*.py) để
-    không lỡ chạy nửa chừng thao tác chính rồi mới phát hiện thiếu note.
-
-    Trả log_id (str) của dòng vừa tạo."""
-    rules = ACTION_LOG_RULES[action_type]
-    note = (note or "").strip() or None
-
-    if rules["note_required"] and note is None:
-        raise NoteRequiredError(
-            f"Action '{action_type}' bắt buộc phải có note — router cần "
-            f"validate và trả 422 TRƯỚC KHI gọi log_action()/thực hiện "
-            f"thao tác chính."
-        )
-
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO audit_logs
-                (actor_id, action_type, entity_type, entity_id, entity_label,
-                 company_id, changes, is_manual_log, note_required, note,
-                 note_updated_by, note_updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            RETURNING log_id
-            """,
-            (
-                actor_id, action_type, entity_type, entity_id, entity_label,
-                company_id,
-                json.dumps(changes, ensure_ascii=False, default=str) if changes else None,
-                rules["is_manual_log"], rules["note_required"], note,
-                actor_id if note is not None else None,
-                datetime.now(timezone.utc) if note is not None else None,
-            ),
-        )
-        return str(cur.fetchone()[0])
-
-
-_AUDIT_LOG_SELECT_COLUMNS = """
-        al.log_id, al.actor_id, u.full_name AS actor_name, al.action_type,
-        al.entity_type, al.entity_id, al.entity_label, al.company_id,
-        c.company_name, al.changes, al.is_manual_log, al.note_required,
-        al.note, al.note_updated_by, al.note_updated_at, al.created_at
-"""
-
-_AUDIT_LOG_FROM_JOINS = """
-    FROM audit_logs al
-    LEFT JOIN app_users u ON u.ss_user_id = al.actor_id
-    LEFT JOIN companies c ON c.company_id = al.company_id
-"""
-
-
-def list_audit_logs(conn, *, manual_only: bool = False,
-                     entity_type: Optional[str] = None,
-                     company_id: Optional[str] = None,
-                     actor_id: Optional[str] = None,
-                     action_type: Optional[str] = None,
-                     pending_note: Optional[bool] = None,
-                     limit: int = 50, offset: int = 0):
-    """Trả (list[dict], total) — dùng cho GET /audit-logs.
-
-    manual_only=True  -> view "log thủ công" (chỉ is_manual_log=true).
-    manual_only=False -> view "log tự động" (TẤT CẢ dòng, kể cả những
-    dòng cũng thuộc log thủ công — log thủ công LUÔN là tập con, không
-    phải dữ liệu tách biệt).
-
-    pending_note=True -> CHỈ trả dòng note_required=true VÀ note IS NULL
-    (đang chờ ai đó điền) — dùng cho badge nhắc nhở ở UI, chỉ có ý
-    nghĩa khi manual_only=True (log tự động không có khái niệm note)."""
-    conditions = []
-    params: list = []
-
-    if manual_only:
-        conditions.append("al.is_manual_log = true")
-    if entity_type:
-        conditions.append("al.entity_type = %s")
-        params.append(entity_type)
-    if company_id:
-        conditions.append("al.company_id = %s")
-        params.append(company_id)
-    if actor_id:
-        conditions.append("al.actor_id = %s")
-        params.append(actor_id)
-    if action_type:
-        conditions.append("al.action_type = %s")
-        params.append(action_type)
-    if pending_note is True:
-        conditions.append("al.note_required = true AND al.note IS NULL")
-    elif pending_note is False:
-        conditions.append("(al.note_required = false OR al.note IS NOT NULL)")
-
-    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            f"SELECT count(*) AS total {_AUDIT_LOG_FROM_JOINS} {where_clause}",
-            params,
-        )
-        total = cur.fetchone()["total"]
-
-        cur.execute(
-            f"SELECT {_AUDIT_LOG_SELECT_COLUMNS} {_AUDIT_LOG_FROM_JOINS} {where_clause} "
-            f"ORDER BY al.created_at DESC LIMIT %s OFFSET %s",
-            params + [limit, offset],
-        )
-        rows = cur.fetchall()
-
-    return rows, total
-
-
-def get_audit_log_by_id(conn, log_id: str):
-    """Trả 1 dict audit log đầy đủ hoặc None — dùng để kiểm tra quyền
-    sửa note (so actor_id) trước khi PATCH /audit-logs/{log_id}/note."""
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            f"SELECT {_AUDIT_LOG_SELECT_COLUMNS} {_AUDIT_LOG_FROM_JOINS} "
-            f"WHERE al.log_id = %s",
-            (log_id,),
-        )
-        return cur.fetchone()
-
-
-def update_audit_log_note(conn, log_id: str, note: str, note_updated_by: str) -> bool:
-    """Sửa/bổ sung note của 1 log ĐÃ TỒN TẠI — dùng cho log thuộc nhóm
-    note TUỲ CHỌN (note_required=false), nơi note có thể để trống lúc
-    thao tác rồi bổ sung sau. QUYỀN "chỉ actor gốc mới được sửa" kiểm
-    tra ở ROUTER (so log['actor_id'] với user hiện tại), KHÔNG ở đây —
-    hàm này chỉ lo ghi giá trị đã được validate.
-
-    note rỗng/khoảng trắng -> lưu NULL (cho phép "xoá" note cũ đã lỡ
-    điền, TRỪ log có note_required=true — router phải chặn trường hợp
-    đó TRƯỚC khi gọi hàm này, vì set NULL cho dòng note_required=true
-    sẽ vi phạm CHECK constraint ở DB, raise lỗi rõ ràng thay vì âm thầm
-    cho qua)."""
-    note = (note or "").strip() or None
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE audit_logs SET note = %s, note_updated_by = %s, "
-            "note_updated_at = now() WHERE log_id = %s",
-            (note, note_updated_by, log_id),
-        )
-        return cur.rowcount > 0
-
-
-# ------------------------------------------------------------------
-# Xoá mềm company (08/2026, xem sql/migration_add_company_soft_delete.sql)
-# ------------------------------------------------------------------
-
-def soft_delete_company(conn, company_id: str, updated_by: str) -> bool:
-    """Xoá MỀM — is_active=false, KHÔNG DELETE thật (JD/HR contact cũ
-    vẫn tham chiếu company_id này). GET /companies mặc định chỉ trả
-    is_active=true (xem list_companies() — CẦN thêm filter is_active
-    nếu muốn ẩn hẳn company đã xoá khỏi danh sách chính).
-
-    Trả False nếu company_id không tồn tại HOẶC đã is_active=false từ
-    trước (idempotent — gọi lại nhiều lần trên company đã xoá không lỗi,
-    nhưng router dùng giá trị False này để BIẾT không cần ghi thêm 1
-    dòng audit log nữa, tránh log trùng lặp mỗi lần gọi lại)."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE companies SET is_active = false, updated_by = %s, "
-            "updated_at = now() WHERE company_id = %s AND is_active = true",
-            (updated_by, company_id),
-        )
-        return cur.rowcount > 0

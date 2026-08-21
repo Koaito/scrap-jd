@@ -61,7 +61,7 @@ from slowapi.middleware import SlowAPIMiddleware
 import db as db_module
 from api.auth import require_api_key
 from api.rate_limit import limiter
-from api.routers import auth, companies, contacts, crawl, jobs, me, meta, audit_logs
+from api.routers import auth, companies, contacts, crawl, jobs, me, meta
 
 logging.basicConfig(
     level=logging.INFO,
@@ -181,7 +181,6 @@ app.include_router(contacts.router, dependencies=_require_key)
 app.include_router(contacts.all_contacts_router, dependencies=_require_key)
 app.include_router(crawl.router, dependencies=_require_key)
 app.include_router(meta.router, dependencies=_require_key)
-app.include_router(audit_logs.router, dependencies=_require_key)
 app.include_router(auth.router, dependencies=_require_key)
 app.include_router(me.router, dependencies=_require_key)
 
