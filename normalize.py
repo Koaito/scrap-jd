@@ -354,12 +354,61 @@ _WORK_TYPE_MAP = {
     "khác": "OTHER",
 }
 
+<<<<<<< HEAD
 
 def normalize_work_type(work_type_text: str) -> Optional[str]:
     """'Toàn thời gian' -> 'FULL_TIME' ; text lạ/rỗng -> None (an toàn,
     cột work_type vốn đã nullable, không làm crash insert)."""
     key = (work_type_text or "").strip().lower()
     return _WORK_TYPE_MAP.get(key)
+=======
+# "Nhân viên chính thức" là 1 cách viết khác của "Toàn thời gian" — đã
+# thấy thật trong field "Hình thức" của CareerViet (vd "Nhân viên chính
+# thức, Bán thời gian", xem ảnh chụp trang job thật trong lịch sử trao
+# đổi 08/2026). CHỈ dùng để NHẬN DIỆN 1 phần tử trong chuỗi ghép nhiều
+# loại hình bên dưới — không thêm thẳng vào _WORK_TYPE_MAP ở trên vì
+# _WORK_TYPE_MAP dùng cho match CHÍNH XÁC 1 giá trị đơn (giữ nguyên hành
+# vi cũ cho input không phải chuỗi ghép).
+_WORK_TYPE_ALIASES = {**_WORK_TYPE_MAP, "nhân viên chính thức": "FULL_TIME"}
+
+# Tách chuỗi ghép nhiều loại hình — đã thấy thật cả 2 dấu phân cách:
+# CareerViet dùng dấu phẩy ("Nhân viên chính thức, Bán thời gian"), TopCV
+# đôi khi dùng dấu gạch chéo. Liệt kê cả 2 để không bỏ sót.
+_WORK_TYPE_SPLIT_RE = re.compile(r"[,/]")
+
+
+def normalize_work_type(work_type_text: str) -> Optional[str]:
+    """'Toàn thời gian' -> 'FULL_TIME' ; text lạ/rỗng -> None (an toàn,
+    cột work_type vốn đã nullable, không làm crash insert).
+
+    Bug đã sửa (08/2026, xem migration_add_work_type_flexible.sql): input
+    có thể là CHUỖI GHÉP nhiều loại hình (vd "Nhân viên chính thức, Bán
+    thời gian" — job hỗ trợ cả full-time lẫn part-time cùng lúc). Trước
+    đây hàm này chỉ so khớp CHÍNH XÁC 1 giá trị đơn -> chuỗi ghép không
+    khớp gì cả -> trả None -> MẤT dữ liệu work_type âm thầm. Giờ tách
+    chuỗi theo dấu phẩy/gạch chéo, map từng phần: nếu ra đúng 1 loại hình
+    duy nhất thì trả loại đó (hành vi cũ, không đổi cho input đơn giản);
+    nếu ra >= 2 loại hình KHÁC NHAU thì trả 'FLEXIBLE' (job có nhiều
+    hình thức); nếu không phần nào khớp thì vẫn trả None như cũ."""
+    text = (work_type_text or "").strip().lower()
+    if not text:
+        return None
+
+    # Input đơn giản (không có dấu phẩy/gạch chéo) — giữ nguyên hành vi
+    # cũ, match trực tiếp qua _WORK_TYPE_MAP (KHÔNG dùng alias ở đây để
+    # không đổi kết quả của mọi input đã hoạt động đúng từ trước).
+    if not _WORK_TYPE_SPLIT_RE.search(text):
+        return _WORK_TYPE_MAP.get(text)
+
+    parts = [p.strip() for p in _WORK_TYPE_SPLIT_RE.split(text) if p.strip()]
+    matched = {_WORK_TYPE_ALIASES[p] for p in parts if p in _WORK_TYPE_ALIASES}
+
+    if not matched:
+        return None
+    if len(matched) == 1:
+        return next(iter(matched))
+    return "FLEXIBLE"
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
 
 # VietnamWorks trả company_size kèm hậu tố "nhân viên" (vd "100-499 nhân

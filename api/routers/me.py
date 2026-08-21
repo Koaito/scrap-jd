@@ -9,9 +9,15 @@ không riêng học viên). ss_user_id lấy từ chính JWT (user["sub"]),
 KHÔNG nhận qua path/body — 1 người chỉ thao tác được trên đơn/bookmark
 của chính mình, không có route nào cho phép truyền ss_user_id tuỳ ý.
 
+<<<<<<< HEAD
 Chỉ ứng tuyển được job đang job_status='OPEN' — job đã CLOSED/EXPIRED
 bị chặn 400 ngay ở POST /me/applications (không chặn ở tầng saved-jobs,
 vì lưu job đã đóng để xem lại vẫn hợp lý).
+=======
+Chỉ ứng tuyển được job đang job_status='OPEN' — job đã CLOSED bị chặn
+400 ngay ở POST /me/applications (không chặn ở tầng saved-jobs, vì lưu
+job đã đóng để xem lại vẫn hợp lý).
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
 Rate limit (thêm 08/2026): POST /me/applications và POST /me/saved-jobs
 dùng key_func=get_user_id_or_ip (api/rate_limit.py) — khoá theo
@@ -27,6 +33,7 @@ saved-jobs cho phép cao hơn applications (30/minute vs 15/minute) vì
 khi ứng tuyển là hành động 1 chiều, ít lý do bấm nhiều lần liên tiếp.
 """
 
+<<<<<<< HEAD
 from typing import Optional
 import psycopg2.errors
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
@@ -36,6 +43,16 @@ from api import storage as cv_storage
 from api.deps import get_db, require_role
 from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
+=======
+import psycopg2.errors
+from fastapi import APIRouter, Depends, HTTPException, Request
+
+import db as db_module
+from api.deps import get_db, require_role
+from api.rate_limit import get_user_id_or_ip, limiter
+from api.schemas import (
+    JobApplicationCreate,
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
     JobApplicationOut,
     SavedJobCreate,
     SavedJobOut,
@@ -48,6 +65,7 @@ router = APIRouter(prefix="/me", tags=["me"])
 @limiter.limit("15/minute", key_func=get_user_id_or_ip)
 def apply_to_job(
     request: Request,
+<<<<<<< HEAD
     job_id: str = Form(...),
     note: Optional[str] = Form(None),
     cv_file: UploadFile = File(..., description="File PDF CV của học viên (max 5MB)"),
@@ -58,11 +76,21 @@ def apply_to_job(
         raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
     
     job = db_module.get_job_by_id(conn, job_id)
+=======
+    payload: JobApplicationCreate,
+    user: dict = Depends(require_role("user")),
+    conn=Depends(get_db),
+):
+    if not db_module.is_valid_uuid(payload.job_id):
+        raise HTTPException(status_code=400, detail=f"job_id '{payload.job_id}' không đúng định dạng UUID.")
+    job = db_module.get_job_by_id(conn, payload.job_id)
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
     if job is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy job")
     if job["job_status"] != "OPEN":
         raise HTTPException(
             status_code=400,
+<<<<<<< HEAD
             detail=f"Job đang ở trạng thái '{job['job_status']}', không thể ứng tuyển.",
         )
 
@@ -99,6 +127,18 @@ def apply_to_job(
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(exc))
 
+=======
+            detail=f"Job này đang ở trạng thái '{job['job_status']}', không thể ứng tuyển (chỉ nhận job OPEN).",
+        )
+
+    try:
+        application_id = db_module.create_job_application(
+            conn, ss_user_id=user["sub"], job_id=payload.job_id, note=payload.note,
+        )
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        raise HTTPException(status_code=409, detail="Bạn đã ứng tuyển job này rồi")
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
     conn.commit()
 
     applications = db_module.list_applications_for_user(conn, user["sub"])
@@ -113,6 +153,7 @@ def list_my_applications(
     return db_module.list_applications_for_user(conn, user["sub"])
 
 
+<<<<<<< HEAD
 @router.get("/applications/{application_id}/cv-url")
 def get_cv_signed_url(
     application_id: str,
@@ -137,6 +178,8 @@ def get_cv_signed_url(
     return {"signed_url": signed_url}
 
 
+=======
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 @router.delete("/applications/{job_id}", status_code=204)
 def withdraw_application(
     job_id: str,
@@ -150,6 +193,7 @@ def withdraw_application(
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
 
+<<<<<<< HEAD
     with conn.cursor() as cur:
         cur.execute(
             "SELECT cv_url FROM job_applications WHERE ss_user_id = %s AND job_id = %s",
@@ -166,6 +210,12 @@ def withdraw_application(
     if row and row.get("cv_url"):
         cv_storage.delete_cv(row["cv_url"])
 
+=======
+    deleted = db_module.delete_job_application(conn, ss_user_id=user["sub"], job_id=job_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Bạn chưa ứng tuyển job này")
+    conn.commit()
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
     return None
 
 

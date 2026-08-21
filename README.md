@@ -329,6 +329,7 @@ python check_expired_source_jobs.py --check-deadline  # chỉ check deadline, kh
 python check_expired_source_jobs.py --limit 20         # giới hạn số job xử lý, test trước
 ```
 
+<<<<<<< HEAD
 **Nguyên tắc "thà thiếu còn hơn sai"** — chỉ tự động chuyển `EXPIRED` khi
 tín hiệu không mơ hồ:
 
@@ -340,6 +341,24 @@ lỗi...) — **không** kết luận, đếm vào `cần_kiểm_tra_tay` để 
 công. Dùng `EXPIRED` (job tự nhiên hết hiệu lực) chứ không phải `CLOSED`
 (team SS chủ động đóng qua frontend) — 2 status khác nghĩa, để sau này
 lọc/báo cáo phân biệt được lý do đóng job.
+=======
+**Nguyên tắc "thà thiếu còn hơn sai"** — chỉ tự động chuyển `CLOSED` khi
+tín hiệu không mơ hồ:
+
+- `source_url` trả về HTTP 404/410 (Gone) → `CLOSED`.
+- Deadline job đã qua (mặc định hoặc `--check-deadline`) → `CLOSED`.
+
+Mọi trường hợp khác (200 kèm redirect, timeout, 403 bị chặn bot, 5xx tạm
+lỗi...) — **không** kết luận, đếm vào `cần_kiểm_tra_tay` để soát thủ
+công.
+
+> 08/2026: `job_status_enum` chỉ còn `OPEN`/`CLOSED` — đã bỏ `EXPIRED`
+> (xem `sql/migration_remove_expired_job_status.sql`). Trước đây job
+> "tự nhiên hết hiệu lực" (script này phát hiện) và job "SS chủ động
+> đóng qua frontend" dùng 2 status khác nhau để phân biệt lý do đóng
+> job; giờ gộp chung vào `CLOSED`, không còn phân biệt ở tầng
+> `job_status` nữa.
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
 ---
 

@@ -17,6 +17,10 @@ google-genai>=1.0.0
 # Không cần nếu chỉ chạy pipeline crawl CLI (main.py) như cũ.
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
+<<<<<<< HEAD
+=======
+python-multipart>=0.0.9
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
 # Dùng cho lớp đăng nhập TỪNG NGƯỜI (api/security.py, api/routers/auth.py)
 # — KHÁC API_KEY tĩnh (api/auth.py, không cần 2 lib này). Không cần nếu
@@ -34,3 +38,17 @@ resend>=2.36.0
 # api/routers/auth.py: register/resend-verification/forgot-password/
 # reset-password) — thêm 08/2026. Không cần nếu chỉ dùng CLI main.py.
 slowapi>=0.1.9
+<<<<<<< HEAD
+=======
+
+# Dùng cho tính năng Import/Export CSV/XLSX (api/services/file_parser.py)
+# — thêm 08/2026, xem requirements.md/design.md tính năng import/export.
+# pandas: đọc/ghi CSV + DataFrame validate. openpyxl: engine đọc/ghi XLSX
+# (pandas cần lib này cài kèm để xử lý .xlsx, không tự có sẵn).
+pandas>=2.2.0
+openpyxl>=3.1.0
+
+# Dùng cho APScheduler chạy cleanup task định kỳ (dọn import_previews
+# hết hạn, xem api/services/preview_cleanup.py) — thêm 08/2026.
+apscheduler>=3.10.4
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a

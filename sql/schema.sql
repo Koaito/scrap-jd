@@ -25,7 +25,11 @@ EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 DO $$ BEGIN
     CREATE TYPE job_status_enum AS ENUM (
+<<<<<<< HEAD
         'OPEN', 'EXPIRED', 'CLOSED'
+=======
+        'OPEN', 'CLOSED'
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
     );
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 

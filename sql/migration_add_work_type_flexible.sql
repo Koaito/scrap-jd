@@ -1,0 +1,42 @@
+-- Thêm giá trị 'FLEXIBLE' vào work_type_enum — cho job có NHIỀU loại hình
+-- làm việc cùng lúc (vd trang chi tiết CareerViet ghi "Nhân viên chính
+-- thức, Bán thời gian" trong cùng 1 field "Hình thức").
+--
+-- Bug đã sửa (08/2026, xem lịch sử trao đổi): trước migration này, cả 3
+-- adapter đều xử lý sai job có nhiều loại hình:
+--   - CareerViet: JSON-LD "employmentType" trả về LIST khi job có nhiều
+--     loại hình (vd ["FULL_TIME","PART_TIME"]) -> code cũ chỉ lấy
+--     raw[0], luôn ra "FULL_TIME", ÂM THẦM BỎ MẤT các loại hình khác.
+--     Đây là nguyên nhân chính khiến work_type crawl từ CareerViet lệch
+--     hẳn về FULL_TIME (đã đối chiếu 100 dòng export: 97/100 FULL_TIME).
+--   - TopCV: field text "Loại hình làm việc" có thể là chuỗi ghép "Toàn
+--     thời gian, Bán thời gian" -> normalize_work_type() cũ chỉ so khớp
+--     CHÍNH XÁC 1 giá trị đơn trong _WORK_TYPE_MAP -> chuỗi ghép KHÔNG
+--     khớp gì cả -> trả None -> MẤT HẲN dữ liệu work_type (không lệch,
+--     nhưng "biến mất" âm thầm).
+--   - VietnamWorks: "typeWorkingId" số nguyên, _TYPE_WORKING_ID_MAP cũ
+--     chỉ có 1=FULL_TIME, 3=INTERNSHIP -> job có typeWorkingId=2 (ĐÃ XÁC
+--     NHẬN bằng dữ liệu thật: job "IT Support Engineer...Part-Time...",
+--     jobId 2089114, typeWorkingId=2) bị rơi vào nhánh "khác" -> map
+--     sai thành OTHER thay vì PART_TIME.
+--
+-- Cùng đợt sửa này: normalize.normalize_work_type() được sửa để nhận
+-- diện chuỗi ghép nhiều loại hình (tách theo dấu phẩy/"/", nếu detect
+-- được >= 2 loại khác nhau -> trả "FLEXIBLE" thay vì None/1 giá trị bất
+-- kỳ); adapters/careerviet.py xét TOÀN BỘ list employmentType thay vì
+-- chỉ raw[0]; adapters/vietnamworks.py thêm 2="Bán thời gian" vào
+-- _TYPE_WORKING_ID_MAP. Xem diff code đi kèm migration này.
+--
+-- An toàn để chạy lại nhiều lần (ALTER TYPE ... ADD VALUE IF NOT EXISTS
+-- hỗ trợ từ Postgres 12+).
+--
+-- ⚠️ Lưu ý Postgres: ALTER TYPE ... ADD VALUE không thể chạy trong cùng
+-- 1 transaction block với câu lệnh SAU ĐÓ có dùng giá trị enum mới này
+-- ngay lập tức (giới hạn của Postgres, không phải lỗi ở migration này).
+-- Không sao vì migration này CHỈ thêm giá trị, không dùng nó ở đâu khác
+-- trong cùng file.
+--
+-- Cách chạy:
+--   psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_work_type_flexible.sql
+
+ALTER TYPE work_type_enum ADD VALUE IF NOT EXISTS 'FLEXIBLE';
