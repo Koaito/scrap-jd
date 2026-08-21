@@ -1,0 +1,36 @@
+# requests>=2.31.0 -- ĐÃ THAY bằng curl_cffi (08/2026): adapter TopCV cần
+# giả lập TLS fingerprint Chrome thật để vượt qua chặn 403 của WAF, mà
+# requests thuần không làm được. Không còn file nào khác trong project
+# dùng `requests` trực tiếp nên bỏ hẳn, không giữ song song 2 thư viện.
+curl_cffi>=0.7.0
+beautifulsoup4>=4.12.0
+psycopg2-binary>=2.9.9
+python-dotenv>=1.0.0
+
+# Dùng cho enrich_company_web_info.py (script riêng, xem docstring đầu
+# file đó) — tra cứu website/tax_id công ty qua Tavily search + Gemini
+# trích xuất. Không cần nếu chỉ chạy pipeline crawl chính.
+tavily-python>=0.5.0
+google-genai>=1.0.0
+
+# Dùng cho API layer (api/) — expose dữ liệu qua HTTP cho frontend.
+# Không cần nếu chỉ chạy pipeline crawl CLI (main.py) như cũ.
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+
+# Dùng cho lớp đăng nhập TỪNG NGƯỜI (api/security.py, api/routers/auth.py)
+# — KHÁC API_KEY tĩnh (api/auth.py, không cần 2 lib này). Không cần nếu
+# chỉ dùng API_KEY chung, không có nhu cầu đăng nhập cá nhân qua frontend.
+argon2-cffi>=23.1.0
+pyjwt>=2.9.0
+
+# Dùng cho gửi email xác thực đăng ký công khai (api/email_service.py,
+# POST /auth/register) — thêm 08/2026, xem
+# sql/migration_add_email_verification.sql. Không cần nếu tắt hẳn luồng
+# đăng ký công khai (chỉ dùng POST /auth/users admin tạo hộ).
+resend>=2.36.0
+
+# Dùng cho rate limiting 4 route công khai (api/rate_limit.py,
+# api/routers/auth.py: register/resend-verification/forgot-password/
+# reset-password) — thêm 08/2026. Không cần nếu chỉ dùng CLI main.py.
+slowapi>=0.1.9

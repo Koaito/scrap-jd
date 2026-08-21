@@ -1,0 +1,34 @@
+-- Thêm cơ chế SINGLE ACTIVE SESSION (08/2026) — mục tiêu: 1 tài khoản
+-- không được đăng nhập ĐỒNG THỜI ở 2 nơi khác nhau. Nhiều người thay
+-- phiên dùng chung 1 tài khoản ở các thời điểm KHÁC nhau vẫn được (đó
+-- là lựa chọn có chủ đích, không phải lỗ hổng) — chỉ chặn việc 2 phiên
+-- cùng active song song.
+--
+-- Vấn đề trước đây: hệ thống cho phép vô hạn refresh token active song
+-- song trên 1 tài khoản (xem docstring auth_refresh_tokens trong
+-- migration_add_auth.sql) — không có gì ngăn 2 người tự login riêng
+-- biệt rồi cùng dùng 1 lúc.
+--
+-- Thiết kế: mỗi lần login() thành công, sinh 1 session_id (UUID) MỚI,
+-- ghi vào app_users.active_session_id VÀ nhúng vào JWT access token
+-- (claim "sid") + gắn với refresh token của phiên đó. Mọi access token
+-- CŨ (thuộc session_id khác) sẽ bị từ chối NGAY LẬP TỨC ở
+-- get_current_user() (api/deps.py) — khác hành vi cũ là JWT chỉ verify
+-- chữ ký, không query DB, nên token cũ vẫn sống tới khi tự hết hạn (tối
+-- đa 30 phút). Đánh đổi: get_current_user() giờ cần 1 lượt query DB
+-- mỗi request (tra theo primary key, rất rẻ) — chấp nhận được để đổi
+-- lấy khả năng chặn NGAY LẬP TỨC thay vì có cửa sổ chồng lấn tới 30
+-- phút giữa 2 phiên.
+--
+-- refresh() KHÔNG sinh session_id mới (chỉ login() mới sinh) — vì
+-- refresh là xoay vòng token của CÙNG 1 phiên đang dùng, không phải
+-- phiên mới; session_id được giữ nguyên từ phiên gốc.
+--
+-- NULL = tài khoản chưa từng login lần nào sau khi có cột này (dữ liệu
+-- cũ trước migration), hoặc phiên đã bị logout/đổi mật khẩu/reset mật
+-- khẩu (xem db.clear_active_session_id() — dùng chung 1 hàm
+-- set_active_session_id() để set/clear).
+--
+-- An toàn để chạy lại nhiều lần (IF NOT EXISTS).
+
+ALTER TABLE app_users ADD COLUMN IF NOT EXISTS active_session_id UUID;
