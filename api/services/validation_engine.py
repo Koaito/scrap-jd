@@ -98,8 +98,23 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
         cleaned: dict = {}
         row_ok = True
 
+        # Chuẩn hoá và strip TẤT CẢ field trước khi validate — để required
+        # check có thể detect string chỉ toàn space (Requirement 11.6).
+        normalized = {}
+        for f, raw_val in row_dict.items():
+            if raw_val is None:
+                normalized[f] = None
+            elif isinstance(raw_val, str):
+                stripped = raw_val.strip()
+                normalized[f] = None if stripped == "" else stripped
+            else:
+                # Giữ nguyên non-string (int/float/Timestamp...) để xử lý ở
+                # bước type-specific validation bên dưới.
+                normalized[f] = raw_val
+
+        # Required field check — PHẢI chạy SAU khi normalize/strip.
         for req_field in spec.required_fields:
-            if row_dict.get(req_field) in (None, ""):
+            if normalized.get(req_field) is None:
                 errors.append(
                     ValidationError(
                         row_number=row_number,
@@ -110,23 +125,12 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                 )
                 row_ok = False
 
-        for f, raw_val in row_dict.items():
-            # file_parser.py đã convert np.nan → None, nhưng chưa strip
-            # string (để pandas tự infer type). Chuẩn hoá tại đây:
-            # - None → giữ nguyên None
-            # - String rỗng (sau strip) → None (Requirement 11.6)
-            # - String có nội dung → strip rồi dùng
-            # - Number (int/float) → giữ nguyên để xử lý ở bước type-specific
+        for f, raw_val in normalized.items():
+            # raw_val đã được normalize: None hoặc string đã strip hoặc
+            # non-string (int/float...). Xử lý theo type của field.
             if raw_val is None:
                 cleaned[f] = None
                 continue
-            
-            # Strip string trước khi xử lý. Nếu sau strip thành rỗng → None.
-            if isinstance(raw_val, str):
-                raw_val = raw_val.strip()
-                if raw_val == "":
-                    cleaned[f] = None
-                    continue
 
             if f in spec.date_fields:
                 try:
@@ -176,19 +180,21 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                 continue
 
             if f in spec.email_fields:
-                # raw_val đã là string đã strip (check ở đầu vòng loop).
-                if not _EMAIL_RE.match(raw_val):
+                # raw_val có thể là string (đã strip) hoặc non-string (pandas
+                # infer nhầm, vd số). Convert về string trước khi regex match.
+                email_str = raw_val if isinstance(raw_val, str) else str(raw_val)
+                if not _EMAIL_RE.match(email_str):
                     errors.append(
                         ValidationError(
                             row_number=row_number,
                             field_name=f,
                             rule="type_email",
-                            message=f"Dòng {row_number}, cột '{f}': email không hợp lệ '{raw_val}'",
+                            message=f"Dòng {row_number}, cột '{f}': email không hợp lệ '{email_str}'",
                         )
                     )
                     row_ok = False
                 else:
-                    cleaned[f] = raw_val
+                    cleaned[f] = email_str
                 continue
 
             if f in spec.enum_fields:
