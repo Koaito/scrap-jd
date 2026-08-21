@@ -57,13 +57,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
-
-<<<<<<< HEAD
-import db as db_module
-from api.auth import require_api_key
-from api.rate_limit import limiter
-from api.routers import auth, companies, contacts, crawl, jobs, me, meta, audit_logs
-=======
 from apscheduler.schedulers.background import BackgroundScheduler
 
 import db as db_module
@@ -71,7 +64,6 @@ from api.auth import require_api_key
 from api.rate_limit import limiter
 from api.routers import auth, companies, contacts, crawl, jobs, me, meta, audit_logs, import_export
 from api.services.preview_cleanup import CLEANUP_INTERVAL_MINUTES, run_cleanup_once
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
 logging.basicConfig(
     level=logging.INFO,
@@ -94,9 +86,6 @@ async def lifespan(app: FastAPI):
     "shutdown") đã deprecated. Đóng pool lúc shutdown tránh connection
     bị bỏ "treo" phía Postgres khi Render restart/deploy lại server."""
     db_module.init_pool()
-<<<<<<< HEAD
-    yield
-=======
 
     # Cleanup task định kỳ cho import_previews hết hạn (Requirement 9)
     # — BackgroundScheduler chạy TRONG process này (không cần service
@@ -113,7 +102,6 @@ async def lifespan(app: FastAPI):
     yield
 
     scheduler.shutdown(wait=False)
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
     db_module.close_pool()
 
 
@@ -213,10 +201,7 @@ app.include_router(meta.router, dependencies=_require_key)
 app.include_router(auth.router, dependencies=_require_key)
 app.include_router(me.router, dependencies=_require_key)
 app.include_router(audit_logs.router, dependencies=_require_key)
-<<<<<<< HEAD
-=======
 app.include_router(import_export.router, dependencies=_require_key)
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
 # auth.public_router: register/verify-email/resend-verification — CỐ Ý
 # KHÔNG kèm dependencies=_require_key (xem docstring đầu file).
