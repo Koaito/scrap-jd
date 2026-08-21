@@ -870,3 +870,55 @@ class CompanySuggestionOut(BaseModel):
 class CompanySuggestionsResponse(BaseModel):
     """Response wrapper cho danh sách gợi ý công ty"""
     suggestions: list[CompanySuggestionOut] = Field(default_factory=list)
+
+
+class ImportUploadResponse(BaseModel):
+    """Response cho POST /import/{entity_type}/preview và
+    GET /import/{entity_type}/preview/{preview_id}
+    
+    Chứa preview_id, entity_type, summary (tổng hợp số dòng), 
+    và rows (chi tiết từng dòng với trạng thái ready/needs_resolution)
+    """
+    preview_id: str
+    entity_type: str
+    summary: dict  # {"total": int, "ready": int, "needs_resolution": int, ...}
+    rows: list[dict]  # Chi tiết từng dòng import
+
+
+class RowResolution(BaseModel):
+    """Resolution cho 1 dòng cần xử lý thủ công - dùng trong ImportConfirmRequest"""
+    action: str = Field(
+        ..., 
+        description="create_new | use_existing | skip"
+    )
+    company_id: Optional[str] = Field(
+        None, 
+        description="Bắt buộc nếu action='use_existing'"
+    )
+
+
+class ImportConfirmRequest(BaseModel):
+    """Body cho POST /import/{entity_type}/confirm
+    
+    Staff xác nhận import sau khi đã xem preview và resolve các dòng cần xử lý
+    """
+    preview_id: str
+    note: str = Field(
+        ..., 
+        min_length=1,
+        description="Ghi chú về lần import này (bắt buộc cho audit log)"
+    )
+    resolutions: dict[str, RowResolution] = Field(
+        default_factory=dict,
+        description="Map row_index -> resolution cho các dòng needs_resolution"
+    )
+
+
+class ImportConfirmResult(BaseModel):
+    """Response cho POST /import/{entity_type}/confirm
+    
+    Tổng kết số bản ghi đã tạo mới, cập nhật, và bỏ qua
+    """
+    created: int
+    updated: int
+    skipped: int
