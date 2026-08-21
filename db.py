@@ -2152,8 +2152,6 @@ def list_applications_for_user(conn, ss_user_id: str):
             """
             SELECT a.application_id, a.ss_user_id, a.job_id, a.note, a.applied_at,
                    a.cv_url,
-<<<<<<< HEAD
-=======
                    j.job_title, j.job_status, c.company_name
             FROM job_applications a
             JOIN job_postings j ON j.job_id = a.job_id
@@ -2178,7 +2176,6 @@ def list_applications_for_job(conn, job_id: str):
             """
             SELECT a.application_id, a.ss_user_id, a.job_id, a.note, a.applied_at,
                    a.cv_url,
->>>>>>> 7d96241e0ac0b305d464549c4c8db02d84509e1e
                    u.full_name, u.email, u.phone
             FROM job_applications a
             JOIN app_users u ON u.ss_user_id = a.ss_user_id

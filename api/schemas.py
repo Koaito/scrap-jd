@@ -706,8 +706,6 @@ class JobApplicationOut(BaseModel):
     job_status: Optional[str] = None
     company_name: str
     cv_url: Optional[str] = None
-<<<<<<< HEAD
-=======
 
     class Config:
         from_attributes = True
@@ -730,7 +728,6 @@ class JobApplicantOut(BaseModel):
     email: str
     phone: Optional[str] = None
     cv_url: Optional[str] = None
->>>>>>> 7d96241e0ac0b305d464549c4c8db02d84509e1e
 
     class Config:
         from_attributes = True

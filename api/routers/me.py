@@ -137,8 +137,6 @@ def get_cv_signed_url(
     return {"signed_url": signed_url}
 
 
-<<<<<<< HEAD
-=======
 @router.delete("/applications/{job_id}", status_code=204)
 def withdraw_application(
     job_id: str,
@@ -168,7 +166,6 @@ def withdraw_application(
     if row and row.get("cv_url"):
         cv_storage.delete_cv(row["cv_url"])
 
->>>>>>> 7d96241e0ac0b305d464549c4c8db02d84509e1e
     return None
 
 
