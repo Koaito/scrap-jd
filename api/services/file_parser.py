@@ -37,59 +37,56 @@ class FileTooLargeError(ValueError):
 def parse_file(file: UploadFile, raw_bytes: bytes) -> pd.DataFrame:
     """Parse file CSV/XLSX upload thành DataFrame.
 
-    file: dùng để đọc `filename` (quyết định CSV hay XLSX theo đuôi file
-    — KHÔNG dựa vào content_type vì trình duyệt/OS gửi content_type CSV
-    không đồng nhất giữa các hệ điều hành, đuôi file đáng tin hơn).
-    raw_bytes: nội dung file đã đọc sẵn (router đọc 1 lần qua
-    `await file.read()` rồi truyền vào đây — UploadFile là file thực
-    async, không tiện gọi trực tiếp trong hàm sync này).
+    file: dùng để đọc `filename` (quyết định CSV hay XLSX theo đuôi file).
+    raw_bytes: nội dung file đã đọc sẵn.
 
-    Để pandas tự infer type (không dùng dtype=str) — số đọc thành
-    float64/int64, date string đọc thành object/string, empty cell đọc
-    thành np.nan. Validation Engine (validation_engine.py) sẽ xử lý
-    mixed types (int/float/str/None) và convert đúng schema từng entity.
-
-    Empty cell -> np.nan -> convert về None ngay tại đây, để tầng sau
-    (validation/conflict/insert) chỉ cần check `is None` một kiểu duy
-    nhất, không phải vừa check None vừa check pd.isna()/np.nan.
+    **STRATEGY: Read everything as strings** — Best practice từ production
+    CSV import systems (xem pandas docs + CSVBox/Dromo architecture):
+    
+    - dtype=object: Đọc mọi cell thành string (không để pandas infer type)
+    - keep_default_na=False: Empty cell → empty string "", KHÔNG phải NaN
+    - Validation engine sẽ tự parse string → type đúng (int/date/email...)
+    
+    Lý do: Pandas infer type không đáng tin (mixed types, locale-dependent
+    date parsing, float precision loss...). Control tốt nhất là đọc raw
+    string + validate/convert trong code của mình.
 
     Raises:
         UnsupportedFileFormatError: đuôi file không phải csv/xlsx/xls.
-        FileTooLargeError: số dòng dữ liệu (không tính header) > 5000.
+        FileTooLargeError: số dòng dữ liệu > 5000.
     """
     filename = (file.filename or "").lower()
 
     if filename.endswith(".csv"):
-        # KHÔNG dùng dtype=str — nếu dùng, pandas convert NaN thành string
-        # literal "nan" thay vì giữ np.nan object, làm pd.notnull() không
-        # nhận ra missing value, và validation_engine nhận raw_val="nan"
-        # khi xử lý number field → int("nan") crash. Để pandas tự đọc type
-        # tự nhiên (number → float64, date → object/string, empty → np.nan),
-        # sau đó chuẩn hoá về None ở bước `df.where(pd.notnull(df), None)`
-        # bên dưới — validation_engine.py mới là nơi convert đúng type theo
-        # schema từng entity.
-        df = pd.read_csv(BytesIO(raw_bytes), keep_default_na=True, encoding="utf-8")
+        # dtype=object + keep_default_na=False: mọi cell thành string,
+        # empty cell thành "" (không phải np.nan). Đơn giản và predictable.
+        df = pd.read_csv(
+            BytesIO(raw_bytes),
+            dtype=object,
+            keep_default_na=False,
+            encoding="utf-8"
+        )
     elif filename.endswith(".xlsx") or filename.endswith(".xls"):
+        # Excel: pandas vẫn tự infer type (không có dtype= cho read_excel),
+        # nhưng sẽ convert về string ở bước sau.
         df = pd.read_excel(BytesIO(raw_bytes), engine="openpyxl")
+        # Convert mọi cell thành string, NaN thành empty string.
+        df = df.astype(object).fillna("")
     else:
         raise UnsupportedFileFormatError(
             "Unsupported file format. Please upload CSV or XLSX"
         )
 
-    # Chuẩn hoá header: bỏ khoảng trắng thừa 2 đầu — Requirement 11.4
-    # (chấp nhận header ở bất kỳ thứ tự nào) không nói gì về khoảng
-    # trắng thừa, nhưng đây là lỗi copy-paste rất hay gặp thực tế (vd
-    # " job_title" thay vì "job_title") nên chuẩn hoá luôn ở đây.
+    # Chuẩn hoá header: strip khoảng trắng.
     df.columns = [str(c).strip() for c in df.columns]
 
     if len(df) > MAX_IMPORT_ROWS:
         raise FileTooLargeError(len(df))
 
-    # NaN -> None: pandas dùng np.nan (numpy.float64) để biểu diễn
-    # missing value. df.where(pd.notnull(), None) KHÔNG chuyển np.nan →
-    # None như mong đợi (vẫn là nan object). Phải dùng fillna(None) hoặc
-    # replace() để thực sự convert về Python None.
-    df = df.fillna(value=None)
+    # Convert mọi cell thành string và strip whitespace.
+    # Empty string sẽ được validation_engine convert thành None.
+    for col in df.columns:
+        df[col] = df[col].astype(str).str.strip()
 
     return df
 
