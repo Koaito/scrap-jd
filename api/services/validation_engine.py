@@ -98,21 +98,17 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
         cleaned: dict = {}
         row_ok = True
 
-        # Chuẩn hoá và strip TẤT CẢ field trước khi validate — để required
-        # check có thể detect string chỉ toàn space (Requirement 11.6).
+        # file_parser.py đã convert MỌI cell thành string (đã strip).
+        # Empty string sẽ được convert thành None tại đây.
+        # Logic đơn giản: string → parse theo type, empty string → None.
         normalized = {}
         for f, raw_val in row_dict.items():
-            if raw_val is None:
-                normalized[f] = None
-            elif isinstance(raw_val, str):
-                stripped = raw_val.strip()
-                normalized[f] = None if stripped == "" else stripped
-            else:
-                # Giữ nguyên non-string (int/float/Timestamp...) để xử lý ở
-                # bước type-specific validation bên dưới.
-                normalized[f] = raw_val
+            # raw_val luôn là string (hoặc str của số từ Excel).
+            # Strip và convert empty → None.
+            val_str = str(raw_val).strip()
+            normalized[f] = None if val_str == "" else val_str
 
-        # Required field check — PHẢI chạy SAU khi normalize/strip.
+        # Required field check — chạy SAU khi normalize.
         for req_field in spec.required_fields:
             if normalized.get(req_field) is None:
                 errors.append(
@@ -125,17 +121,15 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                 )
                 row_ok = False
 
-        for f, raw_val in normalized.items():
-            # raw_val đã được normalize: None hoặc string đã strip hoặc
-            # non-string (int/float...). Xử lý theo type của field.
-            if raw_val is None:
+        for f, val_str in normalized.items():
+            # val_str là None hoặc string đã strip (không empty).
+            if val_str is None:
                 cleaned[f] = None
                 continue
 
             if f in spec.date_fields:
                 try:
-                    # raw_val đã được strip ở trên nếu là string. Convert về date.
-                    cleaned[f] = _parse_date_value(str(raw_val))
+                    cleaned[f] = _parse_date_value(val_str)
                 except ValueError:
                     errors.append(
                         ValidationError(
@@ -144,7 +138,7 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                             rule="type_date",
                             message=(
                                 f"Dòng {row_number}, cột '{f}': kỳ vọng ngày định dạng "
-                                f"YYYY-MM-DD, nhận được '{raw_val}'"
+                                f"YYYY-MM-DD, nhận được '{val_str}'"
                             ),
                         )
                     )
@@ -153,18 +147,10 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
 
             if f in spec.number_fields:
                 try:
-                    # raw_val có thể là:
-                    # - int: pandas đọc được số nguyên nhỏ
-                    # - float: pandas đọc số (kể cả nguyên) thành float64
-                    # - str: số viết dạng text ("1000", "1,000", "20000.5"...)
-                    # Convert hết về int, bỏ phần thập phân nếu có.
-                    if isinstance(raw_val, (int, float)):
-                        cleaned[f] = int(raw_val)
-                    else:
-                        # raw_val là string đã strip. Remove dấu phẩy ngăn cách
-                        # nghìn (vd "1,000,000" → "1000000"), parse qua float()
-                        # trước (để xử lý "20000.5") rồi mới cast int.
-                        cleaned[f] = int(float(str(raw_val).replace(",", "")))
+                    # val_str là string. Remove dấu phẩy ngăn cách nghìn
+                    # (vd "1,000,000"), parse qua float (để xử lý "20000.5"),
+                    # rồi cast int.
+                    cleaned[f] = int(float(val_str.replace(",", "")))
                 except (ValueError, OverflowError):
                     errors.append(
                         ValidationError(
@@ -173,7 +159,7 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                             rule="type_number",
                             message=(
                                 f"Dòng {row_number}, cột '{f}': kỳ vọng số nguyên, "
-                                f"nhận được '{raw_val}'"
+                                f"nhận được '{val_str}'"
                             ),
                         )
                     )
@@ -181,27 +167,25 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                 continue
 
             if f in spec.email_fields:
-                # raw_val có thể là string (đã strip) hoặc non-string (pandas
-                # infer nhầm, vd số). Convert về string trước khi regex match.
-                email_str = raw_val if isinstance(raw_val, str) else str(raw_val)
-                if not _EMAIL_RE.match(email_str):
+                # val_str là string đã strip.
+                if not _EMAIL_RE.match(val_str):
                     errors.append(
                         ValidationError(
                             row_number=row_number,
                             field_name=f,
                             rule="type_email",
-                            message=f"Dòng {row_number}, cột '{f}': email không hợp lệ '{email_str}'",
+                            message=f"Dòng {row_number}, cột '{f}': email không hợp lệ '{val_str}'",
                         )
                     )
                     row_ok = False
                 else:
-                    cleaned[f] = email_str
+                    cleaned[f] = val_str
                 continue
 
             if f in spec.enum_fields:
                 allowed = spec.enum_fields[f]
-                # raw_val đã là string đã strip. Upper để so sánh case-insensitive.
-                val_upper = raw_val.upper() if isinstance(raw_val, str) else str(raw_val).upper()
+                # val_str là string. Upper để so sánh case-insensitive.
+                val_upper = val_str.upper()
                 if val_upper not in allowed:
                     errors.append(
                         ValidationError(
@@ -209,7 +193,7 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                             field_name=f,
                             rule="business_rule_enum",
                             message=(
-                                f"Dòng {row_number}, cột '{f}': giá trị '{raw_val}' không hợp lệ, "
+                                f"Dòng {row_number}, cột '{f}': giá trị '{val_str}' không hợp lệ, "
                                 f"chỉ nhận {allowed}"
                             ),
                         )
@@ -219,11 +203,8 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                     cleaned[f] = val_upper
                 continue
 
-            # Field không thuộc type đặc biệt nào (date/number/email/enum) →
-            # text field tự do. raw_val đã strip ở trên nếu là string, giữ
-            # nguyên nếu là type khác (ít khi xảy ra, nhưng để pandas tự infer
-            # nên có thể gặp). Convert hết về string để nhất quán.
-            cleaned[f] = str(raw_val) if not isinstance(raw_val, str) else raw_val
+            # Text field — giữ nguyên string đã strip.
+            cleaned[f] = val_str
 
         # Business rule liên trường (không gắn với 1 field đơn lẻ):
         if entity_type == "job":

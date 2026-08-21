@@ -706,6 +706,31 @@ class JobApplicationOut(BaseModel):
     job_status: Optional[str] = None
     company_name: str
     cv_url: Optional[str] = None
+<<<<<<< HEAD
+=======
+
+    class Config:
+        from_attributes = True
+
+
+class JobApplicantOut(BaseModel):
+    """Dùng cho GET /jobs/{job_id}/applications (staff xem ai đã ứng
+    tuyển) — khác JobApplicationOut (dùng cho GET /me/applications,
+    học viên xem đơn của chính mình): ở đây cần full_name/email/phone
+    người ứng tuyển thay vì thông tin job (staff đã biết job nào rồi).
+    phone thêm 08/2026 (xem sql/migration_add_phone_track.sql) — đúng
+    mục đích ban đầu của cột này: để staff liên hệ trực tiếp, không chỉ
+    qua email."""
+    application_id: str
+    ss_user_id: str
+    job_id: str
+    note: Optional[str] = None
+    applied_at: datetime
+    full_name: str
+    email: str
+    phone: Optional[str] = None
+    cv_url: Optional[str] = None
+>>>>>>> 7d96241e0ac0b305d464549c4c8db02d84509e1e
 
     class Config:
         from_attributes = True
@@ -826,94 +851,77 @@ class AuditLogNoteUpdate(BaseModel):
         if not v:
             raise ValueError("note không được để trống hoặc chỉ chứa khoảng trắng")
         return v
-<<<<<<< HEAD
-=======
 
 
 # ------------------------------------------------------------------
-# Import / Export (thêm 08/2026)
+# Import/Export — Company resolution schemas
 # ------------------------------------------------------------------
-
-class ImportUploadResponse(BaseModel):
-    """Response của POST /import/{entity_type}/preview khi file hợp lệ
-    (Requirement 4.1). `preview` là JSON tự do (cấu trúc mô tả trong
-    api/services/preview_manager.py — rows[] + summary{}), KHÔNG ép kiểu
-    Pydantic chi tiết từng field vì rows[].data thay đổi shape theo
-    entity_type (Job/Company/Contact có field khác nhau hoàn toàn)."""
-    preview_id: str
-    entity_type: str
-    summary: dict
-    rows: list[dict]
-
-
-class ImportValidationErrorOut(BaseModel):
-    row_number: int
-    field_name: str
-    rule: str
-    message: str
-
-
-class RowResolution(BaseModel):
-    """1 mục trong resolution map gửi lên lúc confirm — key ngoài (JSON
-    object) là row_index dạng string, value là RowResolution này."""
-    action: str = Field(..., description="skip | update | create")
-    company_id: Optional[str] = Field(
-        default=None,
-        description="BẮT BUỘC nếu dòng này ở trạng thái "
-                    "pending_company_resolution lúc preview — company_id "
-                    "staff chọn từ danh sách gợi ý, hoặc company_id company "
-                    "MỚI sẽ được tạo (client tự POST /companies trước, "
-                    "hoặc để trống để hệ thống tự tạo company mới theo "
-                    "company_name trong file).",
-    )
-    confirm_reactivate: bool = Field(
-        default=False,
-        description="BẮT BUỘC true nếu action=update cho dòng conflict_inactive "
-                    "(record trùng đang inactive/CLOSED) — xác nhận staff CHẮC "
-                    "CHẮN muốn ghi đè + kích hoạt lại record đó.",
-    )
-
-    @field_validator("action")
-    @classmethod
-    def _valid_action(cls, v: str) -> str:
-        v = v.strip().lower()
-        if v not in ("skip", "update", "create"):
-            raise ValueError("action chỉ nhận 'skip' | 'update' | 'create'")
-        return v
-
-
-class ImportConfirmRequest(BaseModel):
-    """Body cho POST /import/{entity_type}/confirm. `note` BẮT BUỘC
-    (quyết định thiết kế: mọi lượt import cần staff giải thích lý do,
-    ghi vào audit_logs.note — xem ACTION_LOG_RULES trong db.py, action
-    BULK_IMPORT_* luôn note_required=True)."""
-    preview_id: str
-    resolutions: dict[str, RowResolution] = Field(default_factory=dict)
-    note: str = Field(..., min_length=1, description="BẮT BUỘC — lý do thực hiện đợt import này.")
-
-    @field_validator("note")
-    @classmethod
-    def _note_not_blank(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("note không được để trống hoặc chỉ chứa khoảng trắng")
-        return v
-
-
-class ImportConfirmResult(BaseModel):
-    created: int
-    updated: int
-    skipped: int
-
 
 class CompanySuggestionOut(BaseModel):
+    """Gợi ý công ty tương tự cho import resolution — dùng trong
+    GET /import/{entity_type}/preview/{preview_id}/rows/{row_index}/suggest-companies"""
     company_id: str
     company_name: str
     tax_id: Optional[str] = None
     is_active: bool
-    similarity: float
+    similarity: float = Field(
+        ..., 
+        description="Độ tương đồng tên công ty (pg_trgm similarity, 0-1)"
+    )
 
 
 class CompanySuggestionsResponse(BaseModel):
-    suggestions: list[CompanySuggestionOut]
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
+    """Response wrapper cho danh sách gợi ý công ty"""
+    suggestions: list[CompanySuggestionOut] = Field(default_factory=list)
+
+
+class ImportUploadResponse(BaseModel):
+    """Response cho POST /import/{entity_type}/preview và
+    GET /import/{entity_type}/preview/{preview_id}
+    
+    Chứa preview_id, entity_type, summary (tổng hợp số dòng), 
+    và rows (chi tiết từng dòng với trạng thái ready/needs_resolution)
+    """
+    preview_id: str
+    entity_type: str
+    summary: dict  # {"total": int, "ready": int, "needs_resolution": int, ...}
+    rows: list[dict]  # Chi tiết từng dòng import
+
+
+class RowResolution(BaseModel):
+    """Resolution cho 1 dòng cần xử lý thủ công - dùng trong ImportConfirmRequest"""
+    action: str = Field(
+        ..., 
+        description="create_new | use_existing | skip"
+    )
+    company_id: Optional[str] = Field(
+        None, 
+        description="Bắt buộc nếu action='use_existing'"
+    )
+
+
+class ImportConfirmRequest(BaseModel):
+    """Body cho POST /import/{entity_type}/confirm
+    
+    Staff xác nhận import sau khi đã xem preview và resolve các dòng cần xử lý
+    """
+    preview_id: str
+    note: str = Field(
+        ..., 
+        min_length=1,
+        description="Ghi chú về lần import này (bắt buộc cho audit log)"
+    )
+    resolutions: dict[str, RowResolution] = Field(
+        default_factory=dict,
+        description="Map row_index -> resolution cho các dòng needs_resolution"
+    )
+
+
+class ImportConfirmResult(BaseModel):
+    """Response cho POST /import/{entity_type}/confirm
+    
+    Tổng kết số bản ghi đã tạo mới, cập nhật, và bỏ qua
+    """
+    created: int
+    updated: int
+    skipped: int

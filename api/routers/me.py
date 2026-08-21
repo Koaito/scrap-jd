@@ -137,6 +137,38 @@ def get_cv_signed_url(
     return {"signed_url": signed_url}
 
 
+<<<<<<< HEAD
+=======
+@router.delete("/applications/{job_id}", status_code=204)
+def withdraw_application(
+    job_id: str,
+    user: dict = Depends(require_role("user")),
+    conn=Depends(get_db),
+):
+    """Huỷ ứng tuyển (thêm 08/2026, xem db.delete_job_application()) —
+    học viên chỉ huỷ được đơn của CHÍNH mình (ss_user_id lấy từ JWT,
+    không nhận qua path/body, giống mọi route khác trong file này).
+    Huỷ xong có thể POST /me/applications lại nếu muốn ứng tuyển lại."""
+    if not db_module.is_valid_uuid(job_id):
+        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT cv_url FROM job_applications WHERE ss_user_id = %s AND job_id = %s",
+            (user["sub"], job_id),
+        )
+        row = cur.fetchone()
+
+    deleted = db_module.delete_job_application(conn, ss_user_id=user["sub"], job_id=job_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Bạn chưa ứng tuyển job này.")
+    conn.commit()
+
+    # Dọn dẹp file PDF trên storage
+    if row and row.get("cv_url"):
+        cv_storage.delete_cv(row["cv_url"])
+
+>>>>>>> 7d96241e0ac0b305d464549c4c8db02d84509e1e
     return None
 
 

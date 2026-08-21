@@ -2152,6 +2152,33 @@ def list_applications_for_user(conn, ss_user_id: str):
             """
             SELECT a.application_id, a.ss_user_id, a.job_id, a.note, a.applied_at,
                    a.cv_url,
+<<<<<<< HEAD
+=======
+                   j.job_title, j.job_status, c.company_name
+            FROM job_applications a
+            JOIN job_postings j ON j.job_id = a.job_id
+            JOIN companies c ON c.company_id = j.company_id
+            WHERE a.ss_user_id = %s
+            ORDER BY a.applied_at DESC
+            """,
+            (ss_user_id,),
+        )
+        return cur.fetchall()
+
+
+def list_applications_for_job(conn, job_id: str):
+    """Ai đã ứng tuyển 1 job — staff (ss_team+) dùng để chủ động gửi hồ
+    sơ cho HR. Join thêm full_name/email/phone từ app_users (bảng dùng
+    chung cho mọi role, xem migration_add_role_hierarchy.sql) để staff
+    khỏi phải tra riêng. phone thêm 08/2026 (xem
+    migration_add_phone_track.sql) — có thể NULL nếu học viên đăng ký
+    trước khi cột này tồn tại, hoặc bỏ trống lúc đăng ký (không bắt buộc)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT a.application_id, a.ss_user_id, a.job_id, a.note, a.applied_at,
+                   a.cv_url,
+>>>>>>> 7d96241e0ac0b305d464549c4c8db02d84509e1e
                    u.full_name, u.email, u.phone
             FROM job_applications a
             JOIN app_users u ON u.ss_user_id = a.ss_user_id
@@ -2346,15 +2373,6 @@ ACTION_LOG_RULES: dict[str, dict] = {
     "UPDATE_CONTACT": {"is_manual_log": True,  "note_required": True},
     "DELETE_CONTACT": {"is_manual_log": True,  "note_required": True},
     "ASSIGN_CONTACT": {"is_manual_log": True,  "note_required": True},
-<<<<<<< HEAD
-=======
-    # Import/Export bulk actions (08/2026) — mỗi lượt import ghi 1 dòng
-    # audit_logs tổng hợp (không ghi từng record con), note BẮT BUỘC
-    # (staff phải giải thích lý do import data hàng loạt).
-    "BULK_IMPORT_JOB":     {"is_manual_log": True, "note_required": True},
-    "BULK_IMPORT_COMPANY": {"is_manual_log": True, "note_required": True},
-    "BULK_IMPORT_CONTACT": {"is_manual_log": True, "note_required": True},
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 }
 
 
