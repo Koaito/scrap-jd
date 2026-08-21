@@ -354,6 +354,14 @@ _WORK_TYPE_MAP = {
     "khác": "OTHER",
 }
 
+<<<<<<< HEAD
+
+def normalize_work_type(work_type_text: str) -> Optional[str]:
+    """'Toàn thời gian' -> 'FULL_TIME' ; text lạ/rỗng -> None (an toàn,
+    cột work_type vốn đã nullable, không làm crash insert)."""
+    key = (work_type_text or "").strip().lower()
+    return _WORK_TYPE_MAP.get(key)
+=======
 # "Nhân viên chính thức" là 1 cách viết khác của "Toàn thời gian" — đã
 # thấy thật trong field "Hình thức" của CareerViet (vd "Nhân viên chính
 # thức, Bán thời gian", xem ảnh chụp trang job thật trong lịch sử trao
@@ -400,6 +408,7 @@ def normalize_work_type(work_type_text: str) -> Optional[str]:
     if len(matched) == 1:
         return next(iter(matched))
     return "FLEXIBLE"
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
 
 # VietnamWorks trả company_size kèm hậu tố "nhân viên" (vd "100-499 nhân

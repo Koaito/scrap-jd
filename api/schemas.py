@@ -705,6 +705,10 @@ class JobApplicationOut(BaseModel):
     job_title: str
     job_status: Optional[str] = None
     company_name: str
+<<<<<<< HEAD
+    cv_url: Optional[str] = None
+=======
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
     class Config:
         from_attributes = True
@@ -726,6 +730,10 @@ class JobApplicantOut(BaseModel):
     full_name: str
     email: str
     phone: Optional[str] = None
+<<<<<<< HEAD
+    cv_url: Optional[str] = None
+=======
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
     class Config:
         from_attributes = True
@@ -846,6 +854,8 @@ class AuditLogNoteUpdate(BaseModel):
         if not v:
             raise ValueError("note không được để trống hoặc chỉ chứa khoảng trắng")
         return v
+<<<<<<< HEAD
+=======
 
 
 # ------------------------------------------------------------------
@@ -934,3 +944,4 @@ class CompanySuggestionOut(BaseModel):
 
 class CompanySuggestionsResponse(BaseModel):
     suggestions: list[CompanySuggestionOut]
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a

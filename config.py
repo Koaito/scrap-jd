@@ -227,4 +227,15 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL = "gemini-3.1-flash-lite"
 GEMINI_FREE_TIER_RPM = 15
 
+<<<<<<< HEAD
 ENRICH_REQUEST_DELAY_SECONDS = 60 / GEMINI_FREE_TIER_RPM + 1.5  # ~5.5s
+
+# ------------------------------------------------------------------
+# Supabase Storage — Lưu trữ file CV PDF (REST API)
+# ------------------------------------------------------------------
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
+SUPABASE_CV_BUCKET = os.getenv("SUPABASE_CV_BUCKET", "cv-files")
+=======
+ENRICH_REQUEST_DELAY_SECONDS = 60 / GEMINI_FREE_TIER_RPM + 1.5  # ~5.5s
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a

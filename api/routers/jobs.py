@@ -18,7 +18,11 @@ def list_jobs(
     province: Optional[str] = Query(None, description="Lọc theo tên tỉnh/thành, vd 'Hà Nội'"),
     level: Optional[str] = Query(None, description="Lọc theo level_code, vd 'Junior'"),
     work_type: Optional[str] = Query(None, description="FULL_TIME | PART_TIME | INTERNSHIP | OTHER"),
+<<<<<<< HEAD
+    status: Optional[str] = Query(None, description="OPEN | EXPIRED | CLOSED"),
+=======
     status: Optional[str] = Query(None, description="OPEN | CLOSED"),
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
     keyword: Optional[str] = Query(None, description="Tìm trong job_title (không phân biệt hoa/thường)"),
     created_by: Optional[str] = Query(
         None, description="Lọc job do 1 thành viên ss_team/admin cụ thể TỰ NHẬP TAY (ss_user_id) — job crawl tự động (created_by NULL trong DB) không bao giờ khớp filter này."

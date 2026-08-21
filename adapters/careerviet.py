@@ -771,6 +771,16 @@ def _extract_employment_type_text(jsonld: dict) -> str:
     ["\\"FULL_TIME\\""] — CÓ dấu ngoặc kép THỪA lồng bên trong chuỗi,
     khả năng cao là lỗi serialize phía CareerViet, KHÔNG phải chuẩn
     schema.org) hoặc string đơn — strip hết dấu ngoặc kép/khoảng trắng
+<<<<<<< HEAD
+    thừa trước khi so khớp để không bị lỗi này làm miss map."""
+    raw = jsonld.get("employmentType")
+    if isinstance(raw, list):
+        raw = raw[0] if raw else ""
+    if not isinstance(raw, str):
+        return ""
+    key = raw.strip().strip('"').strip("'").strip().upper()
+    return _EMPLOYMENT_TYPE_MAP.get(key, "")
+=======
     thừa trước khi so khớp để không bị lỗi này làm miss map.
 
     Bug đã sửa (08/2026, xem migration_add_work_type_flexible.sql):
@@ -806,6 +816,7 @@ def _extract_employment_type_text(jsonld: dict) -> str:
             labels.append(label)
 
     return ", ".join(labels)
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
 
 def _iso_to_ddmmyyyy(iso_text: str) -> str:

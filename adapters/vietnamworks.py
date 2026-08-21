@@ -35,13 +35,24 @@ Kết luận Discovery (xác nhận qua DevTools + cURL thật của user, 08/20
      chữ/số -> khoảng trắng, gộp khoảng trắng liên tiếp -> 1 dấu "-".
      Xem _slugify_company_name(). Query "?fromPage=jobDetail" trong URL
      mẫu chỉ là tracking, không cần thiết để trang load đúng.
+<<<<<<< HEAD
+  2. typeWorkingId: chỉ xác nhận chắc chắn 1=Toàn thời gian, 3=Thực tập.
+=======
   2. typeWorkingId: xác nhận chắc chắn 1=Toàn thời gian, 3=Thực tập.
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
      Mẫu mới nhất có 1 job với giá trị 0 (rỗng/không set) -> để None là
      đúng (không đoán 0 = FULL_TIME).
      CẬP NHẬT (08/2026): người dùng tự tay mở 4 job VietnamWorks có
      typeWorkingId KHÔNG PHẢI 1/3/0 (đúng 4 job trước đó bị work_type =
      NULL trong DB) và xác nhận CẢ 4/4 job đều hiển thị "Loại hình làm
      việc: Khác" trên trang thật -> đủ căn cứ để mọi typeWorkingId khác
+<<<<<<< HEAD
+     0/1/3 (số cụ thể là bao nhiêu KHÔNG quan trọng, vì UI luôn hiển thị
+     "Khác" cho mọi trường hợp không phải 3 loại chính) fallback về
+     "Khác" (-> OTHER qua normalize._WORK_TYPE_MAP đã có sẵn key "khác",
+     không cần sửa normalize.py) thay vì để trống. Xem
+     _work_type_text_from_id().
+=======
      0/1/2/3 (số cụ thể là bao nhiêu KHÔNG quan trọng, vì UI luôn hiển
      thị "Khác" cho mọi trường hợp không phải 4 loại đã biết) fallback
      về "Khác" (-> OTHER qua normalize._WORK_TYPE_MAP đã có sẵn key
@@ -53,6 +64,7 @@ Kết luận Discovery (xác nhận qua DevTools + cURL thật của user, 08/20
      giá trị 2 bị rơi nhầm vào nhánh "Khác" ở trên (chưa từng được xác
      nhận riêng), khiến MỌI job part-time trên VietnamWorks bị map sai
      thành OTHER thay vì PART_TIME — xem _TYPE_WORKING_ID_MAP bên dưới.
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
   3. expiredOn: XÁC NHẬN có giá trị thật ở toàn bộ 50/50 job (không rỗng),
      đúng định dạng ISO 8601 có timezone, vd "2026-08-13T23:59:59+07:00"
      -> _format_deadline() đã parse đúng nhánh "%Y-%m-%dT%H:%M:%S" (dùng
@@ -114,6 +126,10 @@ BASE_URL = "https://www.vietnamworks.com"
 # có sẵn, KHÔNG cần sửa normalize.py. Chỉ map số ĐÃ XÁC NHẬN bằng dữ liệu
 # thật (xem "Việc 1" trong cuộc trò chuyện trước) — số khác để trống, để
 # normalize_work_type() tự trả None thay vì đoán sai.
+<<<<<<< HEAD
+_TYPE_WORKING_ID_MAP = {
+    1: "Toàn thời gian",
+=======
 #
 # Bug đã sửa (08/2026, xem migration_add_work_type_flexible.sql):
 # typeWorkingId=2 THIẾU HẲN trong map này trước đây -> mọi job part-time
@@ -127,6 +143,7 @@ BASE_URL = "https://www.vietnamworks.com"
 _TYPE_WORKING_ID_MAP = {
     1: "Toàn thời gian",
     2: "Bán thời gian",
+>>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
     3: "Thực tập",
 }
 
