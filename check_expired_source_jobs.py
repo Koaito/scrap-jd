@@ -1,7 +1,7 @@
 """
 Script RIÊNG (không nằm trong pipeline crawl chính) — re-check job đang
 OPEN trong DB xem còn tồn tại thật ở nguồn (TopCV/VietnamWorks) hay
-không, tự động chuyển job_status='EXPIRED' cho job KHÔNG còn tồn tại.
+không, tự động chuyển job_status='CLOSED' cho job KHÔNG còn tồn tại.
 
 BỐI CẢNH: JD trên TopCV/VietnamWorks bị nhà tuyển dụng xoá sau 1 thời
 gian (hết nhu cầu tuyển, đủ hồ sơ...) — DB của mình vẫn giữ job đó ở
@@ -9,23 +9,22 @@ OPEN mãi vì không có gì tự động phát hiện link nguồn đã chết.
 bấm "Xem JD gốc" sẽ ra trang lỗi/404, và job vẫn hiện ra như đang tuyển
 dù thực ra không còn nữa.
 
-TẠI SAO DÙNG job_status='EXPIRED' MÀ KHÔNG PHẢI 'CLOSED': 2 status này
-khác nghĩa trong hệ thống (xem api/schemas.py) — CLOSED dành cho quyết
-định CHỦ ĐỘNG của team SS (nút "Xoá" job ở frontend), EXPIRED dành cho
-job tự nhiên hết hiệu lực không do ai quyết định. Job nguồn bị xoá đúng
-là trường hợp EXPIRED, không phải CLOSED — dùng đúng status để sau này
-lọc/báo cáo phân biệt được lý do đóng job (query WHERE job_status =
-'EXPIRED' sẽ ra đúng nhóm job "chết tự nhiên", không lẫn job team SS
-chủ động đóng).
+08/2026: bỏ status 'EXPIRED' khỏi job_status_enum (xem
+sql/migration_remove_expired_job_status.sql) — trước đây script này
+dùng EXPIRED để phân biệt "job chết tự nhiên" với CLOSED ("SS chủ động
+đóng"), giờ đổi ý gộp chung, không phân biệt lý do đóng job ở tầng
+job_status nữa. Script vẫn giữ nguyên logic PHÁT HIỆN job chết (deadline
+qua hạn / nguồn trả 404-410), chỉ đổi status ghi vào DB từ EXPIRED sang
+CLOSED.
 
 NGUYÊN TẮC "THÀ THIẾU CÒN HƠN SAI" (xuyên suốt project, xem
 get_company_fb_linkedin_link.py) — áp dụng NGHIÊM NGẶT ở đây vì hậu quả
-sai lớn hơn nhiều so với việc thiếu social link: EXPIRED nhầm 1 job vẫn
+sai lớn hơn nhiều so với việc thiếu social link: đóng nhầm 1 job vẫn
 đang tuyển thật sẽ chặn học viên ứng tuyển (xem api/routers/me.py — chỉ
-ứng tuyển được job OPEN). Vì vậy CHỈ tự động EXPIRED khi tín hiệu KHÔNG
+ứng tuyển được job OPEN). Vì vậy CHỈ tự động đóng job khi tín hiệu KHÔNG
 MƠ HỒ:
 
-  - HTTP 404 hoặc 410 (Gone) từ chính source_url -> EXPIRED. Đây là tín
+  - HTTP 404 hoặc 410 (Gone) từ chính source_url -> CLOSED. Đây là tín
     hiệu rõ ràng nhất: server nguồn xác nhận URL không còn tồn tại.
 
   MỌI trường hợp khác (200 nhưng redirect sang trang khác/trang chủ,
@@ -37,22 +36,20 @@ MƠ HỒ:
   nghiệm mẫu HTML/redirect thật của từng trang lúc viết script này) —
   tự ý đoán dấu hiệu "trang đã đổi nội dung" dễ bắt nhầm job THẬT (vd
   site tạm bảo trì, đổi giao diện, chặn bot bằng challenge page) thành
-  EXPIRED, an toàn hơn nhiều nếu chỉ tin 404/410 rồi để phần còn lại
+  đã đóng, an toàn hơn nhiều nếu chỉ tin 404/410 rồi để phần còn lại
   cho người kiểm tra tay. Có thể bổ sung tín hiệu khác sau khi đã xem
   qua vài chục job ở "cần_kiểm_tra_tay" để biết dấu hiệu thật của từng
   site trông như thế nào.
 
   Case KHÔNG cần fetch mạng, hoàn toàn an toàn, được gộp CHUNG script
-  này qua cờ --check-deadline: deadline đã qua ngày hôm nay -> EXPIRED
-  luôn (không phụ thuộc source_url có sống hay không, đây là quyết định
-  đã có sẵn ý nghĩa rõ ràng trong schema, tách biệt hoàn toàn với phần
-  check link nguồn ở trên).
+  này qua cờ --check-deadline: deadline đã qua ngày hôm nay -> CLOSED
+  luôn (không phụ thuộc source_url có sống hay không).
 
 CHẠY:
     python check_expired_source_jobs.py                # check tất cả job OPEN có source_url
     python check_expired_source_jobs.py --limit 20      # test thử trước khi chạy full
     python check_expired_source_jobs.py --check-deadline  # CHỈ check deadline quá hạn, không fetch mạng
-    python check_expired_source_jobs.py --dry-run       # chỉ in ra job sẽ bị EXPIRED, KHÔNG ghi DB
+    python check_expired_source_jobs.py --dry-run       # chỉ in ra job sẽ bị đóng, KHÔNG ghi DB
 
 NÊN CHẠY ĐỊNH KỲ (chưa có cron tự động — xem README mục "Việc còn tồn
 đọng"), gợi ý: 1 tuần/lần bằng tay hoặc lên lịch sau khi có hạ tầng
@@ -92,7 +89,7 @@ class _Throttled404Checker:
     def check(self, url: str) -> Optional[int]:
         """Trả HTTP status_code, hoặc None nếu fetch lỗi hoàn toàn (mất
         mạng/timeout/site chặn ở tầng TLS...) — None KHÔNG được coi là
-        tín hiệu EXPIRED (xem nguyên tắc ở docstring đầu file)."""
+        tín hiệu job đã đóng (xem nguyên tắc ở docstring đầu file)."""
         self._throttle()
         try:
             resp = self.session.head(url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=True)
@@ -130,7 +127,7 @@ class _Throttled404Checker:
 def run(limit: Optional[int] = None, check_deadline_only: bool = False,
         dry_run: bool = False) -> dict:
     stats = {
-        "checked": 0, "expired_by_source_dead": 0, "expired_by_deadline": 0,
+        "checked": 0, "closed_by_source_dead": 0, "closed_by_deadline": 0,
         "still_alive": 0, "cần_kiểm_tra_tay": 0,
     }
 
@@ -152,10 +149,10 @@ def run(limit: Optional[int] = None, check_deadline_only: bool = False,
             # (kể cả khi --check-deadline không bật, vì đây là tín hiệu
             # miễn phí, không có lý do bỏ qua).
             if deadline is not None and deadline < today:
-                stats["expired_by_deadline"] += 1
-                logger.info("  -> deadline %s đã qua -> EXPIRED", deadline)
+                stats["closed_by_deadline"] += 1
+                logger.info("  -> deadline %s đã qua -> CLOSED", deadline)
                 if not dry_run:
-                    db.update_job(conn, job_id, job_status="EXPIRED")
+                    db.update_job(conn, job_id, job_status="CLOSED")
                     conn.commit()
                 continue
 
@@ -164,10 +161,10 @@ def run(limit: Optional[int] = None, check_deadline_only: bool = False,
 
             status_code = checker.check(source_url)
             if status_code in (404, 410):
-                stats["expired_by_source_dead"] += 1
-                logger.info("  -> nguồn trả HTTP %d -> EXPIRED", status_code)
+                stats["closed_by_source_dead"] += 1
+                logger.info("  -> nguồn trả HTTP %d -> CLOSED", status_code)
                 if not dry_run:
-                    db.update_job(conn, job_id, job_status="EXPIRED")
+                    db.update_job(conn, job_id, job_status="CLOSED")
                     conn.commit()
             elif status_code is not None and 200 <= status_code < 300:
                 stats["still_alive"] += 1
@@ -186,7 +183,7 @@ def run(limit: Optional[int] = None, check_deadline_only: bool = False,
 def main():
     parser = argparse.ArgumentParser(
         description="Re-check job OPEN xem còn tồn tại ở nguồn (TopCV/VietnamWorks) không, "
-                     "tự động chuyển EXPIRED nếu nguồn xác nhận đã xoá (404/410) hoặc deadline đã qua."
+                     "tự động chuyển CLOSED nếu nguồn xác nhận đã xoá (404/410) hoặc deadline đã qua."
     )
     parser.add_argument("--limit", type=int, default=None,
                          help="Giới hạn số job xử lý (dùng để test thử trước khi chạy full)")
@@ -194,7 +191,7 @@ def main():
                          help="CHỈ check deadline quá hạn, KHÔNG fetch mạng tới source_url "
                               "(nhanh hơn nhiều, chạy được thường xuyên hơn)")
     parser.add_argument("--dry-run", action="store_true",
-                         help="Chỉ in ra job SẼ bị EXPIRED, không ghi gì vào DB — dùng để xem "
+                         help="Chỉ in ra job SẼ bị đóng, không ghi gì vào DB — dùng để xem "
                               "trước kết quả trước khi chạy thật")
     args = parser.parse_args()
 
@@ -202,8 +199,8 @@ def main():
 
     print("\n===== KẾT QUẢ =====" + (" (DRY RUN — chưa ghi gì vào DB)" if args.dry_run else ""))
     print(f"Đã kiểm tra                      : {stats['checked']}")
-    print(f"EXPIRED do deadline đã qua        : {stats['expired_by_deadline']}")
-    print(f"EXPIRED do nguồn trả 404/410      : {stats['expired_by_source_dead']}")
+    print(f"CLOSED do deadline đã qua         : {stats['closed_by_deadline']}")
+    print(f"CLOSED do nguồn trả 404/410       : {stats['closed_by_source_dead']}")
     print(f"Vẫn còn sống (200 OK)             : {stats['still_alive']}")
     print(f"⚠️  Cần kiểm tra tay (không rõ)    : {stats['cần_kiểm_tra_tay']}")
 

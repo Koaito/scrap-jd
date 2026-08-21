@@ -706,8 +706,8 @@ def get_open_jobs_with_source_url(conn):
     Dùng cho check_expired_source_jobs.py — script re-check job còn OPEN
     trong DB có còn tồn tại thật ở nguồn (TopCV/VietnamWorks) hay không.
 
-    KHÔNG lấy job đã EXPIRED/CLOSED — không cần re-check job vốn đã
-    không còn hiệu lực từ trước.
+    KHÔNG lấy job đã CLOSED — không cần re-check job vốn đã không còn
+    hiệu lực từ trước.
 
     Trả về list[(job_id, job_title, source_url, deadline)]."""
     with conn.cursor() as cur:

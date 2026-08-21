@@ -9,9 +9,9 @@ không riêng học viên). ss_user_id lấy từ chính JWT (user["sub"]),
 KHÔNG nhận qua path/body — 1 người chỉ thao tác được trên đơn/bookmark
 của chính mình, không có route nào cho phép truyền ss_user_id tuỳ ý.
 
-Chỉ ứng tuyển được job đang job_status='OPEN' — job đã CLOSED/EXPIRED
-bị chặn 400 ngay ở POST /me/applications (không chặn ở tầng saved-jobs,
-vì lưu job đã đóng để xem lại vẫn hợp lý).
+Chỉ ứng tuyển được job đang job_status='OPEN' — job đã CLOSED bị chặn
+400 ngay ở POST /me/applications (không chặn ở tầng saved-jobs, vì lưu
+job đã đóng để xem lại vẫn hợp lý).
 
 Rate limit (thêm 08/2026): POST /me/applications và POST /me/saved-jobs
 dùng key_func=get_user_id_or_ip (api/rate_limit.py) — khoá theo

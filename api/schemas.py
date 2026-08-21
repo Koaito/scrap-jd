@@ -140,7 +140,7 @@ class JobUpdate(BaseModel):
     salary_type: Optional[str] = Field(default=None, description="RANGE | EXACT | UPTO | STARTING_FROM | NEGOTIABLE | UNPAID")
     salary_period: Optional[str] = Field(default=None, description="MONTH | YEAR — không gửi thì giữ nguyên giá trị cũ")
     deadline: Optional[date] = None
-    job_status: Optional[str] = Field(default=None, description="OPEN | EXPIRED | CLOSED — dùng CLOSED để 'xoá mềm'")
+    job_status: Optional[str] = Field(default=None, description="OPEN | CLOSED — dùng CLOSED để 'xoá mềm'")
     ss_team_notes: Optional[str] = None
     parsed_content: Optional[ParsedContent] = Field(
         default=None,
