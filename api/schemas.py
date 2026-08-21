@@ -848,3 +848,25 @@ class AuditLogNoteUpdate(BaseModel):
         if not v:
             raise ValueError("note không được để trống hoặc chỉ chứa khoảng trắng")
         return v
+
+
+# ------------------------------------------------------------------
+# Import/Export — Company resolution schemas
+# ------------------------------------------------------------------
+
+class CompanySuggestionOut(BaseModel):
+    """Gợi ý công ty tương tự cho import resolution — dùng trong
+    GET /import/{entity_type}/preview/{preview_id}/rows/{row_index}/suggest-companies"""
+    company_id: str
+    company_name: str
+    tax_id: Optional[str] = None
+    is_active: bool
+    similarity: float = Field(
+        ..., 
+        description="Độ tương đồng tên công ty (pg_trgm similarity, 0-1)"
+    )
+
+
+class CompanySuggestionsResponse(BaseModel):
+    """Response wrapper cho danh sách gợi ý công ty"""
+    suggestions: list[CompanySuggestionOut] = Field(default_factory=list)
