@@ -138,8 +138,14 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
 
             if f in spec.number_fields:
                 try:
-                    cleaned[f] = int(str(raw_val).strip())
-                except ValueError:
+                    # raw_val có thể là: int (pandas đọc được), float (pandas
+                    # đọc number thành float64), hoặc string. Convert hết về
+                    # int, bỏ phần thập phân nếu có (vd 20000000.0 → 20000000).
+                    if isinstance(raw_val, (int, float)):
+                        cleaned[f] = int(raw_val)
+                    else:
+                        cleaned[f] = int(str(raw_val).strip())
+                except (ValueError, OverflowError):
                     errors.append(
                         ValidationError(
                             row_number=row_number,

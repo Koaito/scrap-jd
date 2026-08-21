@@ -62,9 +62,17 @@ def parse_file(file: UploadFile, raw_bytes: bytes) -> pd.DataFrame:
     filename = (file.filename or "").lower()
 
     if filename.endswith(".csv"):
-        df = pd.read_csv(BytesIO(raw_bytes), dtype=str, keep_default_na=True, encoding="utf-8")
+        # KHÔNG dùng dtype=str — nếu dùng, pandas convert NaN thành string
+        # literal "nan" thay vì giữ np.nan object, làm pd.notnull() không
+        # nhận ra missing value, và validation_engine nhận raw_val="nan"
+        # khi xử lý number field → int("nan") crash. Để pandas tự đọc type
+        # tự nhiên (number → float64, date → object/string, empty → np.nan),
+        # sau đó chuẩn hoá về None ở bước `df.where(pd.notnull(df), None)`
+        # bên dưới — validation_engine.py mới là nơi convert đúng type theo
+        # schema từng entity.
+        df = pd.read_csv(BytesIO(raw_bytes), keep_default_na=True, encoding="utf-8")
     elif filename.endswith(".xlsx") or filename.endswith(".xls"):
-        df = pd.read_excel(BytesIO(raw_bytes), dtype=str, engine="openpyxl")
+        df = pd.read_excel(BytesIO(raw_bytes), engine="openpyxl")
     else:
         raise UnsupportedFileFormatError(
             "Unsupported file format. Please upload CSV or XLSX"
