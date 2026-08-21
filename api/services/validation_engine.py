@@ -111,15 +111,26 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                 row_ok = False
 
         for f, raw_val in row_dict.items():
-            # Pandas đọc ô trống trong CSV thành "" (string rỗng) hoặc NaN
-            # (→ None khi to_dict()) tuỳ context. Chuẩn hoá: coi "" như None
-            # cho mọi field (số/date/text đều vậy), để logic đơn giản nhất quán.
-            if raw_val is None or (isinstance(raw_val, str) and raw_val.strip() == ""):
+            # file_parser.py đã convert np.nan → None, nhưng chưa strip
+            # string (để pandas tự infer type). Chuẩn hoá tại đây:
+            # - None → giữ nguyên None
+            # - String rỗng (sau strip) → None (Requirement 11.6)
+            # - String có nội dung → strip rồi dùng
+            # - Number (int/float) → giữ nguyên để xử lý ở bước type-specific
+            if raw_val is None:
                 cleaned[f] = None
                 continue
+            
+            # Strip string trước khi xử lý. Nếu sau strip thành rỗng → None.
+            if isinstance(raw_val, str):
+                raw_val = raw_val.strip()
+                if raw_val == "":
+                    cleaned[f] = None
+                    continue
 
             if f in spec.date_fields:
                 try:
+                    # raw_val đã được strip ở trên nếu là string. Convert về date.
                     cleaned[f] = _parse_date_value(str(raw_val))
                 except ValueError:
                     errors.append(
@@ -138,13 +149,17 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
 
             if f in spec.number_fields:
                 try:
-                    # raw_val có thể là: int (pandas đọc được), float (pandas
-                    # đọc number thành float64), hoặc string. Convert hết về
-                    # int, bỏ phần thập phân nếu có (vd 20000000.0 → 20000000).
+                    # raw_val có thể là:
+                    # - int: pandas đọc được số nguyên nhỏ
+                    # - float: pandas đọc số (kể cả nguyên) thành float64
+                    # - str: số viết dạng text ("1000", "1,000"...)
+                    # Convert hết về int, bỏ phần thập phân nếu có.
                     if isinstance(raw_val, (int, float)):
                         cleaned[f] = int(raw_val)
                     else:
-                        cleaned[f] = int(str(raw_val).strip())
+                        # raw_val là string đã strip ở trên. Remove dấu phẩy
+                        # ngăn cách nghìn (vd "1,000,000" → "1000000") để parse.
+                        cleaned[f] = int(str(raw_val).replace(",", ""))
                 except (ValueError, OverflowError):
                     errors.append(
                         ValidationError(
@@ -161,7 +176,8 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                 continue
 
             if f in spec.email_fields:
-                if not _EMAIL_RE.match(str(raw_val).strip()):
+                # raw_val đã là string đã strip (check ở đầu vòng loop).
+                if not _EMAIL_RE.match(raw_val):
                     errors.append(
                         ValidationError(
                             row_number=row_number,
@@ -172,12 +188,13 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                     )
                     row_ok = False
                 else:
-                    cleaned[f] = str(raw_val).strip()
+                    cleaned[f] = raw_val
                 continue
 
             if f in spec.enum_fields:
                 allowed = spec.enum_fields[f]
-                val_upper = str(raw_val).strip().upper()
+                # raw_val đã là string đã strip. Upper để so sánh case-insensitive.
+                val_upper = raw_val.upper() if isinstance(raw_val, str) else str(raw_val).upper()
                 if val_upper not in allowed:
                     errors.append(
                         ValidationError(
@@ -195,7 +212,11 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                     cleaned[f] = val_upper
                 continue
 
-            cleaned[f] = str(raw_val).strip()
+            # Field không thuộc type đặc biệt nào (date/number/email/enum) →
+            # text field tự do. raw_val đã strip ở trên nếu là string, giữ
+            # nguyên nếu là type khác (ít khi xảy ra, nhưng để pandas tự infer
+            # nên có thể gặp). Convert hết về string để nhất quán.
+            cleaned[f] = str(raw_val) if not isinstance(raw_val, str) else raw_val
 
         # Business rule liên trường (không gắn với 1 field đơn lẻ):
         if entity_type == "job":

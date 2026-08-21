@@ -44,16 +44,14 @@ def parse_file(file: UploadFile, raw_bytes: bytes) -> pd.DataFrame:
     `await file.read()` rồi truyền vào đây — UploadFile là file thực
     async, không tiện gọi trực tiếp trong hàm sync này).
 
-    Mọi cột đọc lên đều giữ dạng string thô (dtype=str) — KHÔNG để
-    pandas tự đoán kiểu (vd tự convert "2024-01-01" thành Timestamp,
-    hay tự đoán salary_min thành float64 rồi thêm ".0"). Validation
-    Engine (validation_engine.py) mới là nơi tự diễn giải/convert kiểu
-    theo đúng schema từng entity — parse_file() chỉ lo đọc thô, tránh
-    pandas "giúp" sai ý trước khi validate kịp thấy.
+    Để pandas tự infer type (không dùng dtype=str) — số đọc thành
+    float64/int64, date string đọc thành object/string, empty cell đọc
+    thành np.nan. Validation Engine (validation_engine.py) sẽ xử lý
+    mixed types (int/float/str/None) và convert đúng schema từng entity.
 
-    Empty cell -> NaN (mặc định của pandas) -> convert về None ngay tại
-    đây, để tầng sau (validation/conflict/insert) chỉ cần check `is None`
-    một kiểu duy nhất, không phải vừa check None vừa check NaN.
+    Empty cell -> np.nan -> convert về None ngay tại đây, để tầng sau
+    (validation/conflict/insert) chỉ cần check `is None` một kiểu duy
+    nhất, không phải vừa check None vừa check pd.isna()/np.nan.
 
     Raises:
         UnsupportedFileFormatError: đuôi file không phải csv/xlsx/xls.
@@ -87,13 +85,12 @@ def parse_file(file: UploadFile, raw_bytes: bytes) -> pd.DataFrame:
     if len(df) > MAX_IMPORT_ROWS:
         raise FileTooLargeError(len(df))
 
-    # NaN -> None, và strip khoảng trắng 2 đầu mọi cell dạng string
-    # (Requirement 11.6: empty cell = NULL cho optional field).
+    # NaN -> None: pandas dùng np.nan (float NaN) để biểu diễn missing
+    # value, nhưng tầng sau (validation/conflict/insert) không muốn
+    # phải import numpy và dùng pd.isna() mỗi lần check — chuẩn hoá hết
+    # về None (Python native) ngay đây. where(pd.notnull(df), None) thay
+    # thế mọi NaN bằng None.
     df = df.where(pd.notnull(df), None)
-    for col in df.columns:
-        df[col] = df[col].apply(lambda v: v.strip() if isinstance(v, str) else v)
-        # Sau khi strip, chuỗi rỗng cũng coi là NULL (Requirement 11.6).
-        df[col] = df[col].apply(lambda v: None if v == "" else v)
 
     return df
 
