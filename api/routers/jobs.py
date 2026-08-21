@@ -119,6 +119,15 @@ def create_job(
         if payload.province_name else None
     )
 
+    # create_manual_job() là IDEMPOTENT (trả job_id ĐÃ CÓ nếu trùng —
+    # xem docstring), nên phải tự kiểm tra trùng TRƯỚC để biết job vừa
+    # trả về là MỚI hay TÁI SỬ DỤNG — chỉ ghi CREATE_JOB khi thật sự
+    # tạo mới, tránh log spam mỗi lần double-click Submit.
+    was_duplicate = db_module.find_manual_job_duplicate(
+        conn, company_id=payload.company_id, job_title=payload.job_title,
+        level_id=level_id, province_id=province_id,
+    ) is not None
+
     job_id = db_module.create_manual_job(
         conn,
         job_title=payload.job_title,
@@ -136,6 +145,17 @@ def create_job(
         parsed_content=payload.parsed_content.model_dump(exclude_none=True) if payload.parsed_content else None,
         created_by=user["sub"],
     )
+
+    if not was_duplicate:
+        # Ghi audit log CÙNG transaction với việc tạo job (trước
+        # commit) — xem docstring db.log_action(). CREATE_JOB không
+        # thuộc log thủ công, không cần note (xem db.ACTION_LOG_RULES).
+        db_module.log_action(
+            conn, actor_id=user["sub"], action_type="CREATE_JOB",
+            entity_type="JOB", entity_id=job_id, entity_label=payload.job_title,
+            company_id=payload.company_id,
+        )
+
     conn.commit()
 
     row = db_module.get_job_by_id(conn, job_id)
@@ -163,6 +183,14 @@ def patch_job(
     vừa sửa, đồng thời chặn role 'user' không sửa được."""
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+
+    # Lấy trạng thái CŨ trước khi patch — cần để tính diff cho audit log
+    # (xem db.diff_changed_fields). Cũng đóng vai trò kiểm tra tồn tại
+    # SỚM (404 rõ ràng trước khi build câu UPDATE), thay vì chỉ dựa vào
+    # rowcount của update_job().
+    existing = db_module.get_job_by_id(conn, job_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy job")
 
     level_id = (
         db_module.get_level_id(conn, payload.level_code)
@@ -193,6 +221,45 @@ def patch_job(
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Không tìm thấy job")
+
+    # payload_fields: CHỈ field client THỰC SỰ gửi lên (khác payload đầy
+    # đủ) — dùng exclude_unset để phân biệt "không gửi" (giữ nguyên, KHÔNG
+    # tính vào diff) với "gửi giá trị trùng cũ" (có gửi nhưng không đổi —
+    # diff_changed_fields() tự lọc trường hợp này). "note" không phải
+    # field nghiệp vụ của job, loại khỏi diff.
+    payload_fields = payload.model_dump(exclude_unset=True, exclude={"note", "level_code", "province_name"})
+    # level_code/province_name so sánh riêng bằng TÊN hiển thị (không
+    # phải id) để khớp đúng field trong `existing` (existing['level_code']
+    # là chuỗi, không phải level_id) — id đã resolve ở trên chỉ để truyền
+    # cho update_job(), không dùng để diff.
+    if payload.level_code is not None:
+        payload_fields["level_code"] = payload.level_code
+    if payload.province_name is not None:
+        payload_fields["province_name"] = payload.province_name
+
+    if payload_fields:
+        changes = db_module.diff_changed_fields(existing, payload_fields)
+        if changes:
+            # job_status chuyển sang CLOSED trong lượt patch này -> coi
+            # là hành động "xoá mềm JD" (DELETE_JOB), KHÔNG PHẢI sửa
+            # thường — kể cả khi patch còn kèm field khác cùng lúc, cả
+            # thao tác này được ghi thành 1 dòng DELETE_JOB duy nhất
+            # (không tách 2 dòng UPDATE_JOB + DELETE_JOB cho 1 lần bấm
+            # Save). Không phân biệt CLOSED vì "xoá" hay vì lý do khác ở
+            # tầng job_status (xem thảo luận note = nơi giải thích lý do).
+            is_delete = (
+                "job_status" in changes
+                and changes["job_status"]["new"] == "CLOSED"
+            )
+            db_module.log_action(
+                conn, actor_id=user["sub"],
+                action_type="DELETE_JOB" if is_delete else "UPDATE_JOB",
+                entity_type="JOB", entity_id=job_id,
+                entity_label=existing["job_title"],
+                company_id=existing["company_id"],
+                changes=changes, note=payload.note,
+            )
+
     conn.commit()
 
     row = db_module.get_job_by_id(conn, job_id)
