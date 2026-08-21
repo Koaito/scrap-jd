@@ -771,7 +771,6 @@ def _extract_employment_type_text(jsonld: dict) -> str:
     ["\\"FULL_TIME\\""] — CÓ dấu ngoặc kép THỪA lồng bên trong chuỗi,
     khả năng cao là lỗi serialize phía CareerViet, KHÔNG phải chuẩn
     schema.org) hoặc string đơn — strip hết dấu ngoặc kép/khoảng trắng
-<<<<<<< HEAD
     thừa trước khi so khớp để không bị lỗi này làm miss map."""
     raw = jsonld.get("employmentType")
     if isinstance(raw, list):
@@ -780,43 +779,6 @@ def _extract_employment_type_text(jsonld: dict) -> str:
         return ""
     key = raw.strip().strip('"').strip("'").strip().upper()
     return _EMPLOYMENT_TYPE_MAP.get(key, "")
-=======
-    thừa trước khi so khớp để không bị lỗi này làm miss map.
-
-    Bug đã sửa (08/2026, xem migration_add_work_type_flexible.sql):
-    trước đây khi raw là list, code chỉ lấy raw[0] rồi bỏ hẳn phần tử
-    còn lại -> job có NHIỀU loại hình cùng lúc (vd
-    ["FULL_TIME","PART_TIME"], đã xác nhận bằng ảnh chụp trang thật ghi
-    "Hình thức: Nhân viên chính thức, Bán thời gian") bị lưu SAI thành
-    chỉ FULL_TIME, mất hẳn thông tin PART_TIME. Đây là nguyên nhân
-    chính khiến work_type crawl từ CareerViet lệch hẳn về FULL_TIME
-    (đối chiếu 100 dòng export: 97/100 FULL_TIME).
-
-    Giờ xét TOÀN BỘ list: map từng phần tử qua _EMPLOYMENT_TYPE_MAP,
-    loại "" (giá trị lạ không nhận diện được); nếu ra đúng 1 loại hình
-    duy nhất -> trả loại đó (hành vi cũ với list 1 phần tử, không đổi);
-    nếu ra >= 2 loại hình KHÁC NHAU -> trả text ghép bằng dấu phẩy, để
-    normalize.normalize_work_type() tự nhận diện chuỗi ghép này và map
-    ra 'FLEXIBLE' (xem docstring hàm đó) — KHÔNG tự quyết FLEXIBLE ở
-    tầng adapter, giữ đúng phân tầng "adapter chỉ trích text thô, mọi
-    quyết định map sang enum nằm ở normalize.py"."""
-    raw = jsonld.get("employmentType")
-    if isinstance(raw, str):
-        raw = [raw]
-    if not isinstance(raw, list):
-        return ""
-
-    labels = []
-    for item in raw:
-        if not isinstance(item, str):
-            continue
-        key = item.strip().strip('"').strip("'").strip().upper()
-        label = _EMPLOYMENT_TYPE_MAP.get(key, "")
-        if label and label not in labels:
-            labels.append(label)
-
-    return ", ".join(labels)
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
 
 def _iso_to_ddmmyyyy(iso_text: str) -> str:
