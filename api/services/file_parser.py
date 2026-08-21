@@ -85,12 +85,11 @@ def parse_file(file: UploadFile, raw_bytes: bytes) -> pd.DataFrame:
     if len(df) > MAX_IMPORT_ROWS:
         raise FileTooLargeError(len(df))
 
-    # NaN -> None: pandas dùng np.nan (float NaN) để biểu diễn missing
-    # value, nhưng tầng sau (validation/conflict/insert) không muốn
-    # phải import numpy và dùng pd.isna() mỗi lần check — chuẩn hoá hết
-    # về None (Python native) ngay đây. where(pd.notnull(df), None) thay
-    # thế mọi NaN bằng None.
-    df = df.where(pd.notnull(df), None)
+    # NaN -> None: pandas dùng np.nan (numpy.float64) để biểu diễn
+    # missing value. df.where(pd.notnull(), None) KHÔNG chuyển np.nan →
+    # None như mong đợi (vẫn là nan object). Phải dùng fillna(None) hoặc
+    # replace() để thực sự convert về Python None.
+    df = df.fillna(value=None)
 
     return df
 

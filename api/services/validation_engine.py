@@ -156,14 +156,15 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                     # raw_val có thể là:
                     # - int: pandas đọc được số nguyên nhỏ
                     # - float: pandas đọc số (kể cả nguyên) thành float64
-                    # - str: số viết dạng text ("1000", "1,000"...)
+                    # - str: số viết dạng text ("1000", "1,000", "20000.5"...)
                     # Convert hết về int, bỏ phần thập phân nếu có.
                     if isinstance(raw_val, (int, float)):
                         cleaned[f] = int(raw_val)
                     else:
-                        # raw_val là string đã strip ở trên. Remove dấu phẩy
-                        # ngăn cách nghìn (vd "1,000,000" → "1000000") để parse.
-                        cleaned[f] = int(str(raw_val).replace(",", ""))
+                        # raw_val là string đã strip. Remove dấu phẩy ngăn cách
+                        # nghìn (vd "1,000,000" → "1000000"), parse qua float()
+                        # trước (để xử lý "20000.5") rồi mới cast int.
+                        cleaned[f] = int(float(str(raw_val).replace(",", "")))
                 except (ValueError, OverflowError):
                     errors.append(
                         ValidationError(
