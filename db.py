@@ -2368,6 +2368,12 @@ ACTION_LOG_RULES: dict[str, dict] = {
     "UPDATE_CONTACT": {"is_manual_log": True,  "note_required": True},
     "DELETE_CONTACT": {"is_manual_log": True,  "note_required": True},
     "ASSIGN_CONTACT": {"is_manual_log": True,  "note_required": True},
+    # Import/Export bulk actions (08/2026) — mỗi lượt import ghi 1 dòng
+    # audit_logs tổng hợp (không ghi từng record con), note BẮT BUỘC
+    # (staff phải giải thích lý do import data hàng loạt).
+    "BULK_IMPORT_JOB":     {"is_manual_log": True, "note_required": True},
+    "BULK_IMPORT_COMPANY": {"is_manual_log": True, "note_required": True},
+    "BULK_IMPORT_CONTACT": {"is_manual_log": True, "note_required": True},
 }
 
 
