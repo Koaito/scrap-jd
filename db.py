@@ -706,13 +706,8 @@ def get_open_jobs_with_source_url(conn):
     Dùng cho check_expired_source_jobs.py — script re-check job còn OPEN
     trong DB có còn tồn tại thật ở nguồn (TopCV/VietnamWorks) hay không.
 
-<<<<<<< HEAD
     KHÔNG lấy job đã EXPIRED/CLOSED — không cần re-check job vốn đã
     không còn hiệu lực từ trước.
-=======
-    KHÔNG lấy job đã CLOSED — không cần re-check job vốn đã không còn
-    hiệu lực từ trước.
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
     Trả về list[(job_id, job_title, source_url, deadline)]."""
     with conn.cursor() as cur:
@@ -2132,30 +2127,18 @@ def hard_delete_company_contact(conn, contact_id: str) -> bool:
 # nằm trong phạm vi hiện tại).
 # ------------------------------------------------------------------
 
-<<<<<<< HEAD
 def create_job_application(conn, *, ss_user_id: str, job_id: str, note: Optional[str] = None, cv_url: Optional[str] = None) -> str:
-=======
-def create_job_application(conn, *, ss_user_id: str, job_id: str, note: Optional[str] = None) -> str:
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
     """Raise psycopg2.errors.UniqueViolation nếu user đã ứng tuyển job
     này rồi (uq_job_applications_user_job) — router bắt lỗi này để trả
     409 thay vì để lộ traceback 500."""
     with conn.cursor() as cur:
         cur.execute(
             """
-<<<<<<< HEAD
             INSERT INTO job_applications (ss_user_id, job_id, note, cv_url)
             VALUES (%s, %s, %s, %s)
             RETURNING application_id
             """,
             (ss_user_id, job_id, note, cv_url),
-=======
-            INSERT INTO job_applications (ss_user_id, job_id, note)
-            VALUES (%s, %s, %s)
-            RETURNING application_id
-            """,
-            (ss_user_id, job_id, note),
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
         )
         return str(cur.fetchone()[0])
 
@@ -2168,37 +2151,7 @@ def list_applications_for_user(conn, ss_user_id: str):
         cur.execute(
             """
             SELECT a.application_id, a.ss_user_id, a.job_id, a.note, a.applied_at,
-<<<<<<< HEAD
                    a.cv_url,
-=======
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
-                   j.job_title, j.job_status, c.company_name
-            FROM job_applications a
-            JOIN job_postings j ON j.job_id = a.job_id
-            JOIN companies c ON c.company_id = j.company_id
-            WHERE a.ss_user_id = %s
-            ORDER BY a.applied_at DESC
-            """,
-            (ss_user_id,),
-        )
-        return cur.fetchall()
-
-
-def list_applications_for_job(conn, job_id: str):
-    """Ai đã ứng tuyển 1 job — staff (ss_team+) dùng để chủ động gửi hồ
-    sơ cho HR. Join thêm full_name/email/phone từ app_users (bảng dùng
-    chung cho mọi role, xem migration_add_role_hierarchy.sql) để staff
-    khỏi phải tra riêng. phone thêm 08/2026 (xem
-    migration_add_phone_track.sql) — có thể NULL nếu học viên đăng ký
-    trước khi cột này tồn tại, hoặc bỏ trống lúc đăng ký (không bắt buộc)."""
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
-            SELECT a.application_id, a.ss_user_id, a.job_id, a.note, a.applied_at,
-<<<<<<< HEAD
-                   a.cv_url,
-=======
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
                    u.full_name, u.email, u.phone
             FROM job_applications a
             JOIN app_users u ON u.ss_user_id = a.ss_user_id

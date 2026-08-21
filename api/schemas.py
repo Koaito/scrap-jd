@@ -705,35 +705,7 @@ class JobApplicationOut(BaseModel):
     job_title: str
     job_status: Optional[str] = None
     company_name: str
-<<<<<<< HEAD
     cv_url: Optional[str] = None
-=======
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
-
-    class Config:
-        from_attributes = True
-
-
-class JobApplicantOut(BaseModel):
-    """Dùng cho GET /jobs/{job_id}/applications (staff xem ai đã ứng
-    tuyển) — khác JobApplicationOut (dùng cho GET /me/applications,
-    học viên xem đơn của chính mình): ở đây cần full_name/email/phone
-    người ứng tuyển thay vì thông tin job (staff đã biết job nào rồi).
-    phone thêm 08/2026 (xem sql/migration_add_phone_track.sql) — đúng
-    mục đích ban đầu của cột này: để staff liên hệ trực tiếp, không chỉ
-    qua email."""
-    application_id: str
-    ss_user_id: str
-    job_id: str
-    note: Optional[str] = None
-    applied_at: datetime
-    full_name: str
-    email: str
-    phone: Optional[str] = None
-<<<<<<< HEAD
-    cv_url: Optional[str] = None
-=======
->>>>>>> 30bf9a43af4e25374ed7eade1dce9557ac563b8a
 
     class Config:
         from_attributes = True
