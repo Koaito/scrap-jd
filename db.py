@@ -2006,16 +2006,22 @@ def create_company_contact(conn, *, company_id: str, contact_name: str,
 def update_company_contact(conn, contact_id: str, *, contact_name: Optional[str] = None,
                             job_title: Optional[str] = None, work_email: Optional[str] = None,
                             social_link: Optional[str] = None, phone_number: Optional[str] = None,
+                            found_source: Optional[str] = None,
                             contact_status: Optional[str] = None,
                             last_contacted_date=None, updated_by: str) -> bool:
     """Chỉ field truyền vào (khác None) mới bị ghi đè — giống pattern
     update_job()/update_company_profile() đã có, tránh phải gửi lại
-    toàn bộ object mỗi lần PATCH."""
+    toàn bộ object mỗi lần PATCH.
+
+    found_source (BUG FIX 08/2026): thiếu hẳn khỏi hàm này từ đầu —
+    "Nguồn tìm thấy" chỉ ghi được lúc create_company_contact(), PATCH
+    sửa contact luôn bỏ qua field này dù router/schema có nhận."""
     fields, values = [], []
     for col, val in [
         ("contact_name", contact_name), ("job_title", job_title),
         ("work_email", work_email), ("social_link", social_link),
-        ("phone_number", phone_number), ("contact_status", contact_status),
+        ("phone_number", phone_number), ("found_source", found_source),
+        ("contact_status", contact_status),
         ("last_contacted_date", last_contacted_date),
     ]:
         if val is not None:

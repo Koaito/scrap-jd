@@ -669,6 +669,13 @@ class CompanyContactUpdate(BaseModel):
     work_email: Optional[str] = None
     social_link: Optional[str] = None
     phone_number: Optional[str] = None
+    # BUG FIX (08/2026): found_source CÓ trong CompanyContactCreate (tạo
+    # mới) nhưng bị THIẾU hẳn ở đây từ đầu — nghĩa là "Nguồn tìm thấy"
+    # chỉ nhập được lúc tạo, sau đó KHÔNG BAO GIỜ sửa được qua PATCH dù
+    # UI (add_contact.html, dùng chung cho cả thêm/sửa) vẫn có ô nhập
+    # này ở form sửa. extra="forbid" bên dưới khiến nếu FE có lỡ gửi
+    # field này lên cũng bị 422 luôn, chứ không phải chỉ bị "bỏ qua êm".
+    found_source: Optional[str] = None
     contact_status: Optional[str] = Field(
         None, description="UNCONTACTED | EMAIL_SENT | RESPONDED | IN_PARTNERSHIP"
     )

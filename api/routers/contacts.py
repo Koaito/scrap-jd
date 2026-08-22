@@ -222,6 +222,7 @@ def update_contact(
         work_email=payload.work_email,
         social_link=payload.social_link,
         phone_number=payload.phone_number,
+        found_source=payload.found_source,
         contact_status=payload.contact_status,
         last_contacted_date=payload.last_contacted_date,
         updated_by=user["sub"],
