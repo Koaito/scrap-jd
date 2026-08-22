@@ -2370,6 +2370,11 @@ ACTION_LOG_RULES: dict[str, dict] = {
     "UPDATE_CONTACT": {"is_manual_log": True,  "note_required": True},
     "DELETE_CONTACT": {"is_manual_log": True,  "note_required": True},
     "ASSIGN_CONTACT": {"is_manual_log": True,  "note_required": True},
+    # Học viên ứng tuyển (upload CV) / huỷ ứng tuyển — xem
+    # sql/migration_add_application_audit_log.sql. Cùng nhóm với
+    # CREATE_JOB/CREATE_COMPANY: log tự động, không bắt buộc note.
+    "APPLY_JOB":                {"is_manual_log": False, "note_required": False},
+    "WITHDRAW_JOB_APPLICATION": {"is_manual_log": False, "note_required": False},
 }
 
 

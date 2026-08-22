@@ -26,8 +26,9 @@ _VALID_ACTION_TYPES = {
     "CREATE_JOB", "UPDATE_JOB", "DELETE_JOB",
     "CREATE_COMPANY", "UPDATE_COMPANY", "DELETE_COMPANY",
     "CREATE_CONTACT", "UPDATE_CONTACT", "DELETE_CONTACT", "ASSIGN_CONTACT",
+    "APPLY_JOB", "WITHDRAW_JOB_APPLICATION",
 }
-_VALID_ENTITY_TYPES = {"JOB", "COMPANY", "CONTACT"}
+_VALID_ENTITY_TYPES = {"JOB", "COMPANY", "CONTACT", "APPLICATION"}
 
 
 @router.get("", response_model=PaginatedAuditLogs)
@@ -40,14 +41,15 @@ def list_audit_logs(
                     "1 bảng dữ liệu — 'manual' luôn là tập con của 'auto', "
                     "KHÔNG phải dữ liệu tách biệt.",
     ),
-    entity_type: Optional[str] = Query(None, description="JOB | COMPANY | CONTACT"),
+    entity_type: Optional[str] = Query(None, description="JOB | COMPANY | CONTACT | APPLICATION"),
     company_id: Optional[str] = Query(None, description="Lọc mọi hoạt động (JD + HR contact) liên quan 1 công ty cụ thể"),
     actor_id: Optional[str] = Query(None, description="Lọc log do 1 thành viên ss_team/admin cụ thể thực hiện"),
     action_type: Optional[str] = Query(
         None,
         description="CREATE_JOB | UPDATE_JOB | DELETE_JOB | CREATE_COMPANY | "
                     "UPDATE_COMPANY | DELETE_COMPANY | CREATE_CONTACT | "
-                    "UPDATE_CONTACT | DELETE_CONTACT | ASSIGN_CONTACT",
+                    "UPDATE_CONTACT | DELETE_CONTACT | ASSIGN_CONTACT | "
+                    "APPLY_JOB | WITHDRAW_JOB_APPLICATION",
     ),
     pending_note: Optional[bool] = Query(
         None,
