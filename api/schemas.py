@@ -11,7 +11,7 @@ mục đích khác nhau, gộp chung sẽ rối khi 1 bên cần đổi mà bên
 from datetime import date, datetime
 from typing import Optional
 import re
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # ------------------------------------------------------------------
@@ -94,6 +94,8 @@ class ParsedContent(BaseModel):
     lợi/kỹ năng, xem lịch sử trao đổi). Lưu nguyên vào
     job_postings.parsed_content (JSONB), KHÔNG có cột riêng nào cho
     từng field — đây là field tự do, không filter/index theo được."""
+    model_config = ConfigDict(extra="forbid")
+    
     job_description: Optional[str] = None
     requirements: Optional[str] = None
     perks: Optional[str] = None
@@ -101,6 +103,8 @@ class ParsedContent(BaseModel):
 
 
 class JobCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     job_title: str = Field(..., min_length=1)
     company_id: str = Field(..., description="company_id đã có trong DB — dùng GET /companies?keyword= để tìm, hoặc POST /companies để tạo mới nếu công ty chưa tồn tại")
     matching_industry: Optional[str] = Field(default=None, examples=["Data Analysis"])
@@ -129,6 +133,8 @@ class JobUpdate(BaseModel):
     """Mọi field optional — chỉ gửi field muốn sửa, field không gửi giữ
     nguyên giá trị cũ. Dùng field job_status='CLOSED' để "xoá mềm" 1 job
     (xem chi tiết trong docstring db.update_job())."""
+    model_config = ConfigDict(extra="forbid")
+    
     job_title: Optional[str] = Field(default=None, min_length=1)
     matching_industry: Optional[str] = None
     level_code: Optional[str] = Field(default=None, description="Intern | Fresher | Junior | Middle | Senior | Lead | Manager")
@@ -221,6 +227,8 @@ class CompanyCreate(BaseModel):
     được crawl từ TopCV/VietnamWorks trước đó) — route tự động dùng
     LẠI company đã có đó, KHÔNG tạo bản ghi trùng (tái dùng đúng
     get_or_create_company_by_profile() đã dùng cho pipeline crawl)."""
+    model_config = ConfigDict(extra="forbid")
+    
     company_name: str = Field(..., min_length=1)
     tax_id: Optional[str] = Field(default=None, description="Mã số thuế — nếu điền đúng, tự match với công ty đã crawl trước đó (nếu có), tránh tạo trùng")
     website: Optional[str] = None
@@ -253,6 +261,8 @@ class CompanyUpdate(BaseModel):
 
     KHÔNG có field để xoá công ty (chưa có is_active/soft-delete —
     xem lịch sử trao đổi, việc này để sau)."""
+    model_config = ConfigDict(extra="forbid")
+    
     company_name: Optional[str] = Field(default=None, min_length=1)
     tax_id: Optional[str] = None
     website: Optional[str] = None
@@ -367,6 +377,8 @@ class EngagementStatsOut(BaseModel):
 # ------------------------------------------------------------------
 
 class CrawlRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     source: str = Field(..., examples=["topcv", "vietnamworks"])
     category: str = Field(..., examples=["data-analyst", "data-engineer", "software-engineering"])
     # Optional (khác bản cũ default=3) — để phân biệt được "không truyền
@@ -409,6 +421,8 @@ class CrawlStatusOut(BaseModel):
 # ------------------------------------------------------------------
 
 class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     email: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
 
@@ -421,6 +435,8 @@ class TokenPairOut(BaseModel):
 
 
 class RefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     refresh_token: str = Field(..., min_length=1)
 
 
@@ -431,6 +447,8 @@ class AccessTokenOut(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     # Optional: KHÔNG bắt buộc khi must_change_password=True (tài khoản
     # mới tạo/vừa bị admin reset — người dùng chưa từng có mật khẩu
     # "thật" của riêng họ để xác nhận, chỉ có mật khẩu tạm admin đưa).
@@ -480,6 +498,8 @@ class UserCreateByAdmin(BaseModel):
     (security.generate_temp_password()), trả về ĐÚNG 1 LẦN trong response
     (xem UserCreatedOut) — admin tự đưa cho người dùng qua kênh khác
     (Slack/nói miệng), KHÔNG có luồng gửi email."""
+    model_config = ConfigDict(extra="forbid")
+    
     full_name: str = Field(..., min_length=1)
     email: str = Field(..., min_length=1)
     role: str = Field(default="user", description="user | ss_team | admin")
@@ -494,6 +514,8 @@ class UserCreatedOut(UserOut):
 
 class UserRoleUpdate(BaseModel):
     """Body cho PATCH /auth/users/{id}/role (admin-only, thêm 08/2026)."""
+    model_config = ConfigDict(extra="forbid")
+    
     role: str = Field(..., description="user | ss_team | admin")
 
 
@@ -503,6 +525,8 @@ class UserActiveStatusUpdate(BaseModel):
     TẠM THỜI tự hết hạn do sai mật khẩu nhiều lần, xem
     sql/migration_add_auth.sql). Dùng khi 1 người rời nhóm/vi phạm và cần
     chặn đăng nhập ngay lập tức, không chờ tự hết hạn."""
+    model_config = ConfigDict(extra="forbid")
+    
     is_active: bool = Field(..., description="true = kích hoạt lại, false = vô hiệu hoá")
 
 
@@ -519,6 +543,8 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class RegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    
     full_name: str = Field(..., min_length=1)
     email: str = Field(..., min_length=1)
     password: str = Field(..., min_length=8)
@@ -527,9 +553,6 @@ class RegisterRequest(BaseModel):
     # vì không khai báo ở đây, không phải vì cố tình optional-và-bỏ-qua.
     phone: Optional[str] = Field(default=None, max_length=30)
     track: Optional[str] = Field(default=None, max_length=100)
-
-    class Config:
-        str_strip_whitespace = True  # tự trim khoảng trắng thừa TRƯỚC khi validate email/full_name
 
     def model_post_init(self, __context) -> None:
         # Pydantic v2: EmailStr cần cài thêm 'email-validator' (chưa có
@@ -550,14 +573,20 @@ class RegisterOut(BaseModel):
 
 
 class ResendVerificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     email: str = Field(..., min_length=1)
 
 
 class ForgotPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     email: str = Field(..., min_length=1)
 
 
 class ResetPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     token: str = Field(..., min_length=1)
     new_password: str = Field(..., min_length=8)
 
@@ -605,6 +634,8 @@ class CompanyContactWithCompanyOut(CompanyContactOut):
 
 
 class CompanyContactCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     contact_name: str = Field(..., min_length=1)
     job_title: Optional[str] = None
     work_email: Optional[str] = None
@@ -631,6 +662,8 @@ class CompanyContactUpdate(BaseModel):
     thiếu note khi có thay đổi thật -> 422, KHÔNG lưu, KHÔNG ghi log.
     Nếu body không đổi field nào (patch rỗng hoặc trùng giá trị cũ) thì
     note không bắt buộc, vì bản chất chưa có gì để "giải thích lý do sửa"."""
+    model_config = ConfigDict(extra="forbid")
+    
     contact_name: Optional[str] = None
     job_title: Optional[str] = None
     work_email: Optional[str] = None
@@ -658,6 +691,8 @@ class ContactAssignUpdate(BaseModel):
 
     note: BẮT BUỘC nếu assigned_ss_user thực sự đổi giá trị so với hiện
     tại (gán mới/đổi người/bỏ gán) — cùng nhóm CHẶN CỨNG với sửa contact."""
+    model_config = ConfigDict(extra="forbid")
+    
     assigned_ss_user: Optional[str] = Field(
         None, description="ss_user_id của thành viên ss_team/admin phụ trách contact này — null để bỏ gán (chưa ai phụ trách)."
     )
@@ -692,6 +727,8 @@ class ContactDeleteRequest(BaseModel):
 # ------------------------------------------------------------------
 
 class JobApplicationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     job_id: str
     note: Optional[str] = None
 
@@ -754,6 +791,8 @@ class JobSaverOut(BaseModel):
 
 
 class SavedJobCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     job_id: str
 
 
@@ -839,6 +878,8 @@ class AuditLogNoteUpdate(BaseModel):
 
     Chỉ actor_id GỐC của log mới gọi được route này — kiểm tra ở router,
     không ở schema."""
+    model_config = ConfigDict(extra="forbid")
+    
     note: str = Field(..., min_length=1, description="Nội dung note mới.")
 
     @field_validator("note")
@@ -902,6 +943,8 @@ class RowResolution(BaseModel):
     frontend lẫn import_executor.py đều đã code đúng phần của mình.
     Sửa lại enum + bổ sung field cho khớp đúng những gì
     import_executor.py thực sự đọc."""
+    model_config = ConfigDict(extra="forbid")
+    
     action: str = Field(
         ..., 
         description="skip | create | update"
@@ -923,6 +966,8 @@ class ImportConfirmRequest(BaseModel):
     
     Staff xác nhận import sau khi đã xem preview và resolve các dòng cần xử lý
     """
+    model_config = ConfigDict(extra="forbid")
+    
     preview_id: str
     note: str = Field(
         ..., 
