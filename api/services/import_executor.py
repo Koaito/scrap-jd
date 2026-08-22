@@ -17,6 +17,7 @@ from typing import Optional
 
 import db as db_module
 from api.services import conflict_detector
+from api.services.entity_specs import get_spec
 
 
 class RowResolutionError(Exception):
@@ -226,7 +227,7 @@ def _resolve_company_id_for_create(conn, data, actor_id) -> str:
 
 def _update_row(conn, entity_type, data, existing, resolution, actor_id, *, reactivate: bool):
     if entity_type == "company":
-        company_id = existing["company_id"]
+        company_id = existing[get_spec(entity_type).id_field]
         province_id = (
             db_module.get_or_create_province(conn, data["province_name"])
             if data.get("province_name") else None
@@ -254,7 +255,7 @@ def _update_row(conn, entity_type, data, existing, resolution, actor_id, *, reac
         return company_id
 
     if entity_type == "job":
-        job_id = existing["job_id"]
+        job_id = existing[get_spec(entity_type).id_field]
         level_id = db_module.get_level_id(conn, data["level_code"]) if data.get("level_code") else None
         province_id = (
             db_module.get_or_create_province(conn, data["province_name"])
@@ -282,7 +283,7 @@ def _update_row(conn, entity_type, data, existing, resolution, actor_id, *, reac
         return job_id
 
     if entity_type == "contact":
-        contact_id = existing["contact_id"]
+        contact_id = existing[get_spec(entity_type).id_field]
         db_module.update_company_contact(
             conn, contact_id,
             contact_name=data.get("contact_name"),

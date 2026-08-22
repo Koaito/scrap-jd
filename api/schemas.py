@@ -922,7 +922,11 @@ class ImportUploadResponse(BaseModel):
     """
     preview_id: str
     entity_type: str
-    summary: dict  # {"total": int, "ready": int, "needs_resolution": int, ...}
+    summary: dict  # {"total_rows", "new_records", "conflicts", "conflicts_inactive",
+                    #  "pending_company_resolution", "id_field"} — xem
+                    # api/services/preview_manager.py::build_preview() cho cấu
+                    # trúc đầy đủ + comment đầu file (nguồn sự thật thật sự,
+                    # dict comment ở đây chỉ để đọc lướt nhanh).
     rows: list[dict]  # Chi tiết từng dòng import
 
 

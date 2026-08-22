@@ -26,6 +26,7 @@ from api.schemas import (
     ImportUploadResponse,
 )
 from api.services import company_resolver, export_query, file_parser, import_executor, preview_manager
+from api.services.entity_specs import get_spec
 from api.services.validation_engine import validate_dataframe
 
 router = APIRouter(tags=["import-export"])
@@ -56,7 +57,6 @@ def export_entity(
 
     query_fn = export_query.QUERY_FUNCS[entity_type]
     rows = query_fn(conn)
-    from api.services.entity_specs import get_spec
     columns = get_spec(entity_type).export_columns
 
     buffer = file_parser.generate_export_file(rows, columns, format)

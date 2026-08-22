@@ -24,7 +24,8 @@ Cấu trúc JSONB preview_data lưu trong DB:
     }
   ],
   "summary": {"total_rows": N, "new_records": N, "conflicts": N,
-              "conflicts_inactive": N, "pending_company_resolution": N}
+              "conflicts_inactive": N, "pending_company_resolution": N,
+              "id_field": "job_id" | "company_id" | "contact_id"}
 }
 """
 
@@ -37,6 +38,7 @@ import pandas as pd
 import psycopg2.extras
 
 from api.services import conflict_detector, company_resolver
+from api.services.entity_specs import get_spec
 from api.services.validation_engine import ValidationResult
 
 PREVIEW_TTL = timedelta(hours=1)
@@ -69,6 +71,11 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
         "conflicts": 0,
         "conflicts_inactive": 0,
         "pending_company_resolution": 0,
+        # id_field: tên cột PK thật của entity (vd "job_id") — thêm
+        # 08/2026 để FE tra tên field id đúng từ response thay vì tự
+        # hardcode map entity_type -> tên cột id riêng phía client (xem
+        # EntitySpec.id_field, api/services/entity_specs.py).
+        "id_field": get_spec(entity_type).id_field,
     }
 
     for row in validation_result.cleaned_rows:

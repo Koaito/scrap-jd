@@ -18,6 +18,18 @@ from typing import Optional
 
 @dataclass
 class EntitySpec:
+    # Tên cột khoá chính (PK) của entity trong DB — vd "job_id",
+    # "company_id", "contact_id". Thêm 08/2026: trước đây field này
+    # không tồn tại tường minh ở đây, mọi nơi cần biết tên PK (vd
+    # import_executor.py::_update_row đọc existing["company_id"]/
+    # existing["job_id"]/existing["contact_id"]) đều tự hardcode
+    # if/elif entity_type riêng — dễ quên cập nhật khi thêm entity mới.
+    # LƯU Ý: id_field LUÔN là export_columns[0] theo convention hiện có
+    # (mọi entity đặt cột id đầu tiên khi export) nhưng KHÔNG được suy
+    # ngầm từ vị trí đó — khai báo tường minh để không vỡ âm thầm nếu
+    # sau này thứ tự export_columns đổi vì lý do UI/UX nào đó.
+    id_field: str
+
     # Cột xuất ra file export, ĐÚNG THỨ TỰ, đúng tên cột DB.
     export_columns: list[str]
 
@@ -38,6 +50,7 @@ class EntitySpec:
 
 
 JOB_SPEC = EntitySpec(
+    id_field="job_id",
     export_columns=[
         "job_id", "company_name", "job_title", "matching_industry",
         "level_code", "province_name", "work_type", "currency",
@@ -61,6 +74,7 @@ JOB_SPEC = EntitySpec(
 )
 
 COMPANY_SPEC = EntitySpec(
+    id_field="company_id",
     export_columns=[
         "company_id", "company_name", "tax_id", "website", "industry",
         "company_size", "address", "province_name", "fanpage_url",
@@ -74,6 +88,7 @@ COMPANY_SPEC = EntitySpec(
 )
 
 CONTACT_SPEC = EntitySpec(
+    id_field="contact_id",
     export_columns=[
         "contact_id", "company_name", "contact_name", "job_title",
         "work_email", "social_link", "phone_number", "found_source",
@@ -92,6 +107,19 @@ ENTITY_SPECS: dict[str, EntitySpec] = {
     "company": COMPANY_SPEC,
     "contact": CONTACT_SPEC,
 }
+
+# Sanity check tại import-time: id_field phải khớp export_columns[0]
+# (convention hiện có: cột id luôn đứng đầu khi export) — 2 field này
+# giờ khai báo tách rời (xem comment EntitySpec.id_field ở trên) nên có
+# nguy cơ lệch nhau âm thầm nếu ai đó sửa 1 trong 2 mà quên chỗ còn lại;
+# fail ngay lúc import module thay vì để lỗi mờ xuất hiện lúc runtime
+# (vd import_executor.py tra existing[spec.id_field] ra KeyError khó hiểu).
+for _entity_type, _spec in ENTITY_SPECS.items():
+    assert _spec.export_columns and _spec.export_columns[0] == _spec.id_field, (
+        f"EntitySpec('{_entity_type}'): id_field={_spec.id_field!r} phải khớp "
+        f"export_columns[0]={_spec.export_columns[0]!r}"
+    )
+del _entity_type, _spec
 
 
 def get_spec(entity_type: str) -> EntitySpec:
