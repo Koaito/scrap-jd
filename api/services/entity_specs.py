@@ -15,6 +15,8 @@ headers matching the database schema field names") — CHỈ 2 ngoại lệ cố
 from dataclasses import dataclass, field
 from typing import Optional
 
+from constants import LEVEL_CODE_VALUES
+
 
 @dataclass
 class EntitySpec:
@@ -48,6 +50,30 @@ class EntitySpec:
     # field email cần validate format.
     email_fields: list[str] = field(default_factory=list)
 
+    # BUG FIX (08/2026, level_code): field khớp DANH SÁCH CỐ ĐỊNH nhưng
+    # KHÔNG được coi như enum_fields bình thường — enum_fields sai giá
+    # trị -> reject NGUYÊN FILE ở 422 (không cho qua bước preview luôn),
+    # trong khi level_code trước giờ hoàn toàn không nằm trong
+    # enum_fields lẫn number/date/email_fields -> rơi vào nhánh "text
+    # field, giữ nguyên string" cuối validate_dataframe(), không được so
+    # khớp DB (bảng levels seed đúng case 'Senior' không phải 'SENIOR')
+    # -> get_level_id() ở import_executor.py không tìm thấy, ÂM THẦM trả
+    # None -> job tạo ra thiếu level dù staff đã gõ đúng ý, không ai biết
+    # (khác lỗi 500 rõ ràng — đây là mất dữ liệu ÂM THẦM, phát hiện qua
+    # đối chiếu 08/2026).
+    #
+    # Field mới: match KHÔNG phân biệt hoa/thường trước (đa số trường hợp
+    # thật, vd "SENIOR"/"senior" trong file export cũ đều nên khớp
+    # "Senior" ngay, không cần staff làm gì thêm) — chỉ khi KHÔNG khớp dù
+    # đã chuẩn hoá case mới đánh dấu dòng "cần chọn lại" (needs_level_
+    # resolve, xem preview_manager.py), giữ nguyên giá trị gốc trong file
+    # để staff biết mình đã gõ gì, và chọn lại qua dropdown liệt kê tĩnh
+    # NUMBER_CODE_VALUES bên dưới, KHÔNG chặn cả file như enum_fields
+    # thường (Company/Job/Contact nào đúng chính tả vẫn qua bình thường,
+    # chỉ riêng dòng gõ sai mới cần thao tác thêm — quyết định 08/2026,
+    # chỉ áp dụng cho Job trước, Company/Contact chưa có field tương tự).
+    strict_enum_fields: dict[str, list[str]] = field(default_factory=dict)
+
 
 JOB_SPEC = EntitySpec(
     id_field="job_id",
@@ -71,6 +97,9 @@ JOB_SPEC = EntitySpec(
     },
     date_fields=["deadline"],
     number_fields=["salary_min", "salary_max"],
+    strict_enum_fields={
+        "level_code": LEVEL_CODE_VALUES,
+    },
 )
 
 COMPANY_SPEC = EntitySpec(

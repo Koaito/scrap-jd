@@ -72,7 +72,9 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
     # Requirement 11.5: cột thừa không có trong schema -> bỏ qua, không lỗi.
     known_fields = set(spec.required_fields) | set(spec.enum_fields) | set(
         spec.date_fields
-    ) | set(spec.number_fields) | set(spec.email_fields) | _extra_optional_fields(entity_type)
+    ) | set(spec.number_fields) | set(spec.email_fields) | set(
+        spec.strict_enum_fields
+    ) | _extra_optional_fields(entity_type)
     df = df[[c for c in df.columns if c in known_fields]]
 
     # Requirement 2.4: required field phải CÓ MẶT trong header, không chỉ
@@ -203,6 +205,30 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                     cleaned[f] = val_upper
                 continue
 
+            if f in spec.strict_enum_fields:
+                # KHÁC enum_fields ở trên: sai giá trị KHÔNG reject cả
+                # file (không append vào `errors`, không set row_ok=False)
+                # — chỉ set cleaned[f] = None (đồng nghĩa "chưa xác định",
+                # cùng convention với field khác) + giữ lại chuỗi gốc ở
+                # cleaned["_<field>_raw"] để preview_manager.py biết dòng
+                # này cần đánh dấu needs_level_resolve (tên field lấy
+                # nguyên bản để không hardcode riêng "level_code" ở đây —
+                # dù hiện chỉ Job/level_code dùng field này) và hiển thị
+                # lại đúng giá trị staff đã gõ trong file (vd "SR", "Sr.")
+                # cho staff biết mình cần sửa gì khi chọn lại qua dropdown
+                # tĩnh liệt kê spec.strict_enum_fields[f] (xem
+                # api/routers/import_export.py — KHÔNG cần gọi API gợi ý
+                # như company, vì đây là danh sách hữu hạn cố định, không
+                # phải fuzzy-match theo dữ liệu DB).
+                allowed = spec.strict_enum_fields[f]
+                matched = next((a for a in allowed if a.lower() == val_str.lower()), None)
+                if matched is not None:
+                    cleaned[f] = matched
+                else:
+                    cleaned[f] = None
+                    cleaned[f"_{f}_raw"] = val_str
+                continue
+
             # Text field — giữ nguyên string đã strip.
             cleaned[f] = val_str
 
@@ -256,10 +282,18 @@ def _validate_job_business_rules(cleaned: dict, row_number: int, errors: list[Va
 
 def _extra_optional_fields(entity_type: str) -> set[str]:
     """Field optional KHÔNG nằm trong required/enum/date/number/email
-    (vd matching_industry, level_code, province_name của Job — text tự
-    do, chỉ cần strip, không cần validate type/enum riêng)."""
+    (vd matching_industry, province_name của Job — text tự do, chỉ cần
+    strip, không cần validate type/enum riêng).
+
+    level_code KHÔNG còn ở đây (08/2026) — chuyển sang
+    spec.strict_enum_fields (xem entity_specs.py) vì nó CÓ 1 danh sách
+    giá trị cố định (khớp bảng levels), chỉ khác enum_fields ở việc
+    KHÔNG reject cả file khi sai, mà đánh dấu riêng dòng đó cần resolve.
+    known_fields ở validate_dataframe() đã gộp thêm set(spec.
+    strict_enum_fields) nên level_code vẫn được giữ lại đúng cột, không
+    cần khai báo lặp lại ở đây."""
     if entity_type == "job":
-        return {"matching_industry", "level_code", "province_name", "currency", "ss_team_notes"}
+        return {"matching_industry", "province_name", "currency", "ss_team_notes"}
     if entity_type == "company":
         return {"website", "industry", "company_size", "address", "province_name",
                 "fanpage_url", "linkedin_url"}

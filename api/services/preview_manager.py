@@ -71,6 +71,7 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
         "conflicts": 0,
         "conflicts_inactive": 0,
         "pending_company_resolution": 0,
+        "pending_level_resolution": 0,
         # id_field: tên cột PK thật của entity (vd "job_id") — thêm
         # 08/2026 để FE tra tên field id đúng từ response thay vì tự
         # hardcode map entity_type -> tên cột id riêng phía client (xem
@@ -80,8 +81,32 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
 
     for row in validation_result.cleaned_rows:
         row_index = row["_row_index"]
-        data = {k: v for k, v in row.items() if k != "_row_index"}
+        # "_row_index" (khoá nội bộ) và mọi "_<field>_raw" (giá trị gốc
+        # của field strict_enum_fields không khớp — xem validation_engine.
+        # py::validate_dataframe nhánh strict_enum_fields) đều KHÔNG được
+        # coi là 1 cột dữ liệu thật -> tách khỏi `data` (nếu để lẫn vào,
+        # FE sẽ render thành 1 cột rác "_level_code_raw" trên bảng preview
+        # cùng hàng các cột company_name/job_title/...).
+        data = {k: v for k, v in row.items() if k != "_row_index" and not k.startswith("_")}
         entry = {"row_index": row_index, "data": _jsonable(data)}
+
+        # needs_level_resolve (chỉ Job, 08/2026): validate_dataframe() đã
+        # set cleaned["level_code"] = None + cleaned["_level_code_raw"] =
+        # <giá trị gốc trong file> khi giá trị không khớp (dù đã chuẩn
+        # hoá case-insensitive) 1 trong 7 level hợp lệ. Tách riêng thành
+        # field top-level giống company_resolution, KHÔNG gộp vào
+        # conflict_status hiện có (no_conflict/conflict/conflict_inactive/
+        # pending_company_resolution) vì đây là 2 trục độc lập — 1 dòng
+        # CÓ THỂ vừa "no_conflict" (job chưa từng tồn tại) vừa "cần chọn
+        # lại level" cùng lúc, khác company_resolution vốn quyết định
+        # thẳng conflict_status vì company_id ảnh hưởng tới việc detect
+        # trùng job (job trùng được match theo company_id).
+        if entity_type == "job" and row.get("_level_code_raw") is not None:
+            entry["needs_level_resolve"] = True
+            entry["level_code_raw"] = row["_level_code_raw"]
+        else:
+            entry["needs_level_resolve"] = False
+            entry["level_code_raw"] = None
 
         if entity_type == "company":
             result = conflict_detector.detect_company_conflict(
@@ -123,6 +148,13 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
             summary["conflicts_inactive"] += 1
         elif status == "pending_company_resolution":
             summary["pending_company_resolution"] += 1
+
+        # Cộng dồn ĐỘC LẬP với conflict_status ở trên (xem comment
+        # needs_level_resolve phía trên) — 1 dòng "no_conflict" vẫn có
+        # thể cần chọn lại level, nên đếm bằng if riêng, KHÔNG phải
+        # elif nối vào chuỗi if/elif conflict_status.
+        if entry.get("needs_level_resolve"):
+            summary["pending_level_resolution"] += 1
 
         rows_out.append(entry)
 

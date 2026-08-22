@@ -2381,6 +2381,27 @@ ACTION_LOG_RULES: dict[str, dict] = {
     # CREATE_JOB/CREATE_COMPANY: log tự động, không bắt buộc note.
     "APPLY_JOB":                {"is_manual_log": False, "note_required": False},
     "WITHDRAW_JOB_APPLICATION": {"is_manual_log": False, "note_required": False},
+    # BUG FIX (08/2026): import_confirm() (api/routers/import_export.py)
+    # gọi log_action(action_type="BULK_IMPORT_JOB"/"BULK_IMPORT_COMPANY"/
+    # "BULK_IMPORT_CONTACT") nhưng 3 action_type này CHƯA TỪNG được đăng
+    # ký ở đây -> log_action() luôn raise KeyError ngay khi tra
+    # ACTION_LOG_RULES[action_type], SAU KHI execute_import() đã insert
+    # thành công job/company/contact trong transaction -> router bắt
+    # Exception rộng, conn.rollback() toàn bộ, trả 500 "Import failed due
+    # to database error" — staff thấy lỗi 500 dù dữ liệu đúng, không lưu
+    # được gì (đối chiếu log thật: KeyError: 'BULK_IMPORT_JOB' tại
+    # db.py::log_action, gọi từ import_export.py::import_confirm dòng 231).
+    #
+    # is_manual_log=True: đúng bản chất, đây là thao tác staff chủ động
+    # bấm "Xác nhận nhập dữ liệu" (không phải job tự động như CREATE_JOB
+    # qua crawl/APPLY_JOB), cùng nhóm với UPDATE_JOB/CREATE_CONTACT.
+    # note_required=True: khớp hành vi UI đã có sẵn — _dm_import.html bắt
+    # buộc nhập "Ghi chú lần nhập" (textarea required, nút Xác nhận bị
+    # disable tới khi có note) TRƯỚC KHI form có thể submit, nên tầng
+    # log_action() enforce lại đúng ràng buộc đó thay vì mâu thuẫn với UI.
+    "BULK_IMPORT_JOB":     {"is_manual_log": True, "note_required": True},
+    "BULK_IMPORT_COMPANY": {"is_manual_log": True, "note_required": True},
+    "BULK_IMPORT_CONTACT": {"is_manual_log": True, "note_required": True},
 }
 
 

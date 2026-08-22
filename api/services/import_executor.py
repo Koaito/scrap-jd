@@ -18,6 +18,7 @@ from typing import Optional
 import db as db_module
 from api.services import conflict_detector
 from api.services.entity_specs import get_spec
+from constants import LEVEL_CODE_VALUES
 
 
 class RowResolutionError(Exception):
@@ -47,7 +48,10 @@ def execute_import(
 ) -> ImportSummary:
     """resolutions: {str(row_index): {"action": "skip"|"update"|"create",
     "company_id": "<uuid>" (optional, cho dòng pending_company_resolution),
-    "confirm_reactivate": bool (optional, cho dòng conflict_inactive)}}.
+    "confirm_reactivate": bool (optional, cho dòng conflict_inactive),
+    "level_code": "<Intern|Fresher|...|Manager>" (optional, BẮT BUỘC nếu
+    dòng needs_level_resolve=true và action != "skip" — xem check ngay
+    đầu vòng lặp bên dưới)}}.
 
     Requirement 5.6: dòng conflict KHÔNG có resolution -> mặc định Skip.
     Dòng no_conflict KHÔNG cần resolution -> LUÔN tạo mới (Requirement 6.3).
@@ -60,6 +64,27 @@ def execute_import(
         status = row["conflict_status"]
         resolution = resolutions.get(str(row_index), {})
         action = resolution.get("action", "skip")
+
+        # needs_level_resolve (chỉ Job, 08/2026 — xem preview_manager.py::
+        # build_preview): level_code trong file không khớp danh sách hợp
+        # lệ (dù đã chuẩn hoá hoa/thường) -> validation_engine.py đã set
+        # data["level_code"] = None ngay từ preview. Bắt buộc staff chọn
+        # lại qua resolution["level_code"] TRƯỚC KHI tạo/sửa job — action
+        # "skip" thì bỏ qua check này (đằng nào cũng không ghi gì).
+        # KHÔNG default âm thầm về None/1 giá trị nào đó: level sai/thiếu
+        # là lỗi dữ liệu staff cần xác nhận tay, khác company (không chọn
+        # gì -> tự hiểu "tạo company mới theo tên trong file", vì company
+        # LUÔN có thể tạo mới hợp lệ; còn level chỉ có đúng 7 giá trị cố
+        # định, "level rỗng" không phải 1 lựa chọn nghiệp vụ hợp lệ).
+        if entity_type == "job" and row.get("needs_level_resolve") and action != "skip":
+            chosen_level = resolution.get("level_code")
+            if not chosen_level or chosen_level not in LEVEL_CODE_VALUES:
+                raise RowResolutionError(
+                    f"Dòng {row_index + 1}: level_code trong file "
+                    f"({row.get('level_code_raw')!r}) không khớp danh sách hợp lệ "
+                    f"{LEVEL_CODE_VALUES} — cần chọn lại 1 giá trị trước khi xác nhận."
+                )
+            data["level_code"] = chosen_level
 
         # Job/Contact: company đã resolve XONG lúc build preview (mọi
         # status TRỪ "pending_company_resolution") -> gắn company_id đã

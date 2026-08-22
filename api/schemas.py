@@ -930,7 +930,8 @@ class ImportUploadResponse(BaseModel):
     preview_id: str
     entity_type: str
     summary: dict  # {"total_rows", "new_records", "conflicts", "conflicts_inactive",
-                    #  "pending_company_resolution", "id_field"} — xem
+                    #  "pending_company_resolution", "pending_level_resolution",
+                    #  "id_field"} — xem
                     # api/services/preview_manager.py::build_preview() cho cấu
                     # trúc đầy đủ + comment đầu file (nguồn sự thật thật sự,
                     # dict comment ở đây chỉ để đọc lướt nhanh).
@@ -969,6 +970,14 @@ class RowResolution(BaseModel):
         description="Bắt buộc =true nếu action='update' cho dòng conflict_status="
                      "'conflict_inactive' (ghi đè + kích hoạt lại record đã ngừng "
                      "hoạt động) — xem import_executor.RowResolutionError.",
+    )
+    level_code: Optional[str] = Field(
+        None,
+        description="Bắt buộc (1 trong LEVEL_CODE_VALUES — xem constants.py) nếu "
+                     "dòng needs_level_resolve=true (Job, level_code trong file "
+                     "không khớp danh sách hợp lệ dù đã chuẩn hoá hoa/thường) — "
+                     "staff chọn lại qua dropdown tĩnh ở FE, xem "
+                     "import_executor.RowResolutionError.",
     )
 
 
