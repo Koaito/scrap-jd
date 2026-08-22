@@ -886,14 +886,35 @@ class ImportUploadResponse(BaseModel):
 
 
 class RowResolution(BaseModel):
-    """Resolution cho 1 dòng cần xử lý thủ công - dùng trong ImportConfirmRequest"""
+    """Resolution cho 1 dòng cần xử lý thủ công - dùng trong ImportConfirmRequest.
+
+    Sửa 08/2026 (fix bug reactivate không hoạt động): action enum ở đây
+    TRƯỚC ĐÂY là "create_new | use_existing | skip" và field
+    "confirm_reactivate" hoàn toàn không tồn tại — trong khi
+    api/services/import_executor.py (nơi thực thi thật) lại đọc
+    action là "skip"|"create"|"update" và đọc resolution.get(
+    "confirm_reactivate") cho dòng conflict_inactive (xem
+    RowResolutionError docstring + dòng 121-124 file đó). Vì router
+    convert RowResolution -> dict bằng .model_dump() (xem
+    api/routers/import_export.py), field lạ "confirm_reactivate" gửi
+    từ frontend bị Pydantic ÂM THẦM loại bỏ — nghĩa là flow "ghi đè +
+    kích hoạt lại record inactive" không bao giờ chạy được, dù cả
+    frontend lẫn import_executor.py đều đã code đúng phần của mình.
+    Sửa lại enum + bổ sung field cho khớp đúng những gì
+    import_executor.py thực sự đọc."""
     action: str = Field(
         ..., 
-        description="create_new | use_existing | skip"
+        description="skip | create | update"
     )
     company_id: Optional[str] = Field(
         None, 
-        description="Bắt buộc nếu action='use_existing'"
+        description="Bắt buộc nếu dòng needs_company_resolve và action='create'/'update'"
+    )
+    confirm_reactivate: bool = Field(
+        False,
+        description="Bắt buộc =true nếu action='update' cho dòng conflict_status="
+                     "'conflict_inactive' (ghi đè + kích hoạt lại record đã ngừng "
+                     "hoạt động) — xem import_executor.RowResolutionError.",
     )
 
 
