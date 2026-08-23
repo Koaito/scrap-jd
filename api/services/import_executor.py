@@ -18,6 +18,7 @@ from typing import Optional
 import db as db_module
 from api.services import conflict_detector
 from api.services.entity_specs import get_spec
+from api.services.validation_engine import validate_single_field
 from constants import LEVEL_CODE_VALUES
 
 
@@ -25,10 +26,12 @@ class RowResolutionError(Exception):
     """1 dòng thiếu thông tin bắt buộc để thực thi (vd action=Update cho
     dòng pending_company_resolution mà staff chưa chọn company_id nào,
     hoặc action=Update cho dòng conflict_inactive mà chưa xác nhận
-    confirm_reactivate) — router bắt exception này, trả 422 rõ nguyên
-    nhân TRƯỚC KHI chạm transaction (thực ra được raise NGAY BÊN TRONG
-    transaction nên vẫn rollback sạch, không cần router tự kiểm tra
-    trước — chỉ cần bắt và convert sang HTTPException)."""
+    confirm_reactivate, hoặc action != skip cho dòng needs_field_fix mà
+    staff chưa gửi đủ/đúng field_fixes — xem _apply_field_fixes() bên
+    dưới) — router bắt exception này, trả 422 rõ nguyên nhân TRƯỚC KHI
+    chạm transaction (thực ra được raise NGAY BÊN TRONG transaction nên
+    vẫn rollback sạch, không cần router tự kiểm tra trước — chỉ cần bắt
+    và convert sang HTTPException)."""
 
 
 @dataclass
@@ -85,6 +88,16 @@ def execute_import(
                     f"{LEVEL_CODE_VALUES} — cần chọn lại 1 giá trị trước khi xác nhận."
                 )
             data["level_code"] = chosen_level
+
+        # needs_field_fix (08/2026, mọi entity — xem preview_manager.py::
+        # build_preview): dòng có field lỗi type/required/business-rule
+        # lúc build preview (data[field] đã bị set None cho field lỗi).
+        # Bắt buộc staff gửi field_fixes cho MỌI field còn lỗi trước khi
+        # tạo/sửa (action "skip" thì bỏ qua, đằng nào cũng không ghi gì) —
+        # re-validate lại bằng đúng validate_single_field() dùng lúc build
+        # preview, không tin ngầm dữ liệu FE gửi lên.
+        if row.get("needs_field_fix") and action != "skip":
+            _apply_field_fixes(entity_type, row, data, resolution)
 
         # Job/Contact: company đã resolve XONG lúc build preview (mọi
         # status TRỪ "pending_company_resolution") -> gắn company_id đã
@@ -155,6 +168,62 @@ def _apply_conflict_action(conn, entity_type, data, existing, status, action, re
         return
 
     raise RowResolutionError(f"action '{action}' không hợp lệ (chỉ nhận skip/update/create)")
+
+
+def _apply_field_fixes(entity_type: str, row: dict, data: dict, resolution: dict) -> None:
+    """Re-validate resolution["field_fixes"] (giá trị staff sửa trực tiếp
+    trên bảng preview cho dòng needs_field_fix) TRƯỚC KHI ghi vào `data`
+    dùng để tạo/sửa record thật — KHÔNG tin ngầm FE đã validate đúng (dù
+    FE cũng validate phía client, request có thể bị sửa tay/replay tới
+    thẳng API). Dùng lại validate_single_field() Y HỆT hàm
+    validate_dataframe() dùng lúc build preview, để 2 nơi không lệch
+    logic convert theo type.
+
+    Raise RowResolutionError (router convert sang 422) nếu thiếu field
+    trong field_fixes, để trống, hoặc giá trị vẫn không hợp lệ sau khi
+    sửa — GIỐNG cách needs_level_resolve chặn confirm phía trên."""
+    field_errors = row.get("field_errors") or {}
+    if not field_errors:
+        return
+
+    row_label = row["row_index"] + 1
+    spec = get_spec(entity_type)
+    field_fixes = resolution.get("field_fixes") or {}
+
+    for fname in field_errors:
+        if fname not in field_fixes:
+            raise RowResolutionError(
+                f"Dòng {row_label}: cột '{fname}' vẫn còn lỗi "
+                f"({field_errors[fname]['message']}) — cần điền field_fixes['{fname}'] "
+                f"trước khi xác nhận import."
+            )
+        raw = str(field_fixes[fname]).strip()
+        if raw == "":
+            raise RowResolutionError(
+                f"Dòng {row_label}: cột '{fname}' là bắt buộc, không được để trống."
+            )
+        value, err = validate_single_field(spec, fname, raw)
+        if err is not None:
+            raise RowResolutionError(
+                f"Dòng {row_label}, cột '{fname}': {err['message']}"
+            )
+        data[fname] = value
+
+    # Business rule liên trường (Job: salary_min/salary_max) có thể bị vi
+    # phạm LẠI sau khi áp field_fixes (vd staff sửa salary_min lớn hơn
+    # salary_max cũ vẫn giữ nguyên) dù từng field riêng lẻ giờ hợp lệ về
+    # type — re-check để không lọt 1 job có salary_max < salary_min vào DB.
+    if entity_type == "job":
+        salary_min = data.get("salary_min")
+        salary_max = data.get("salary_max")
+        if salary_min is not None and salary_min < 0:
+            raise RowResolutionError(
+                f"Dòng {row_label}, cột 'salary_min': phải >= 0, nhận được {salary_min}"
+            )
+        if salary_min is not None and salary_max is not None and salary_max < salary_min:
+            raise RowResolutionError(
+                f"Dòng {row_label}: salary_max ({salary_max}) phải >= salary_min ({salary_min})"
+            )
 
 
 def _recheck_conflict(conn, entity_type, data) -> tuple[str, Optional[dict]]:

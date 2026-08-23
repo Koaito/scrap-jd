@@ -20,11 +20,24 @@ Cấu trúc JSONB preview_data lưu trong DB:
         "company_is_active": true/false | null,
         "suggestions": [{"company_id":..., "company_name":..., "tax_id":...,
                           "is_active":..., "similarity":...}, ...]
+      },
+      "needs_field_fix": true/false,   # thêm 08/2026, xem validation_engine.py
+      "field_errors": {                # {} nếu needs_field_fix=false
+        "<field_name>": {
+          "rule": "required" | "type_date" | "type_number" | "type_email"
+                  | "business_rule_enum" | "business_rule_non_negative"
+                  | "business_rule_salary_range",
+          "message": "...",
+          "raw_value": "<chuỗi gốc staff đã gõ trong file>" | null,
+          "widget_type": "enum" | "date" | "number" | "email" | "text",
+          "options": ["..."] | null   # chỉ có giá trị khi widget_type == "enum"
+        }
       }
     }
   ],
   "summary": {"total_rows": N, "new_records": N, "conflicts": N,
               "conflicts_inactive": N, "pending_company_resolution": N,
+              "pending_field_fix": N,
               "id_field": "job_id" | "company_id" | "contact_id"}
 }
 """
@@ -38,7 +51,7 @@ import pandas as pd
 import psycopg2.extras
 
 from api.services import conflict_detector, company_resolver
-from api.services.entity_specs import get_spec
+from api.services.entity_specs import field_options, field_widget_type, get_spec
 from api.services.validation_engine import ValidationResult
 
 PREVIEW_TTL = timedelta(hours=1)
@@ -72,6 +85,7 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
         "conflicts_inactive": 0,
         "pending_company_resolution": 0,
         "pending_level_resolution": 0,
+        "pending_field_fix": 0,
         # id_field: tên cột PK thật của entity (vd "job_id") — thêm
         # 08/2026 để FE tra tên field id đúng từ response thay vì tự
         # hardcode map entity_type -> tên cột id riêng phía client (xem
@@ -107,6 +121,32 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
         else:
             entry["needs_level_resolve"] = False
             entry["level_code_raw"] = None
+
+        # needs_field_fix (08/2026, mọi entity): validate_dataframe() gắn
+        # cleaned["_field_errors"] = {field: {"rule","message"}} cho dòng
+        # có field lỗi type/required/business-rule (KHÔNG còn reject cả
+        # file — xem validation_engine.py). Gắn kèm raw_value (giá trị
+        # gốc staff đã gõ, None cho rule "required" vì ô đó vốn để trống)
+        # + widget_type/options (tra từ entity_specs.py, KHÔNG hardcode ở
+        # đây hay ở FE) để FE render đúng loại ô sửa (select cho enum,
+        # input type=date cho ngày, input cho số/chữ) ngay trên bảng
+        # preview.
+        field_errors_raw = row.get("_field_errors") or {}
+        if field_errors_raw:
+            entry["needs_field_fix"] = True
+            entry["field_errors"] = {
+                fname: {
+                    "rule": err["rule"],
+                    "message": err["message"],
+                    "raw_value": row.get(f"_{fname}_raw"),
+                    "widget_type": field_widget_type(entity_type, fname),
+                    "options": field_options(entity_type, fname),
+                }
+                for fname, err in field_errors_raw.items()
+            }
+        else:
+            entry["needs_field_fix"] = False
+            entry["field_errors"] = {}
 
         if entity_type == "company":
             result = conflict_detector.detect_company_conflict(
@@ -155,6 +195,12 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
         # elif nối vào chuỗi if/elif conflict_status.
         if entry.get("needs_level_resolve"):
             summary["pending_level_resolution"] += 1
+
+        # Cộng dồn ĐỘC LẬP tương tự pending_level_resolution ở trên — 1
+        # dòng có thể vừa "no_conflict"/"conflict"/... vừa cần sửa field
+        # khác cùng lúc.
+        if entry.get("needs_field_fix"):
+            summary["pending_field_fix"] += 1
 
         rows_out.append(entry)
 

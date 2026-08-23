@@ -979,6 +979,18 @@ class RowResolution(BaseModel):
                      "staff chọn lại qua dropdown tĩnh ở FE, xem "
                      "import_executor.RowResolutionError.",
     )
+    field_fixes: Optional[dict[str, str]] = Field(
+        None,
+        description="Thêm 08/2026: map field_name -> giá trị staff đã sửa trực "
+                     "tiếp trên bảng preview, BẮT BUỘC chứa đủ mọi field còn "
+                     "trong needs_field_fix/field_errors của dòng này nếu "
+                     "action != 'skip' (xem preview_manager.build_preview -> "
+                     "entry['field_errors']). Giá trị LUÔN là string thô "
+                     "(giống format trong file gốc, vd ngày 'YYYY-MM-DD') — "
+                     "import_executor.py::_apply_field_fixes() re-validate lại "
+                     "bằng đúng validate_single_field() dùng lúc build preview, "
+                     "không tin ngầm dữ liệu FE gửi lên.",
+    )
 
 
 class ImportConfirmRequest(BaseModel):

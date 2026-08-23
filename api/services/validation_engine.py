@@ -4,10 +4,37 @@ Validation Engine — kiểm tra 1 DataFrame đã parse (file_parser.py) theo
 Requirement 2 (Validation) + Requirement 10 (Error message chi tiết
 row/field/rule).
 
-QUYẾT ĐỊNH: reject NGUYÊN FILE nếu có bất kỳ dòng nào lỗi (Requirement
-2.7) — validate_dataframe() luôn duyệt HẾT mọi dòng để gom đủ lỗi trả
-về 1 lần (không dừng ở lỗi đầu tiên), để staff sửa 1 lần thay vì fix
-từng dòng rồi upload lại nhiều lần.
+ĐỔI 08/2026 (bỏ "reject nguyên file"): TRƯỚC ĐÂY bất kỳ dòng nào lỗi 1
+trong các rule type/format/business-rule đều khiến CẢ FILE bị 422 ngay
+ở đây, không có preview nào được tạo để staff sửa. Theo yêu cầu mới
+(staff muốn sửa tại chỗ trên bảng preview thay vì phải sửa file gốc rồi
+upload lại), giờ CHỈ CÒN 1 trường hợp reject nguyên file:
+
+  - required_column_missing: thiếu HẲN 1 cột bắt buộc trong header —
+    không có ô nào trên bảng để sửa (khác "có cột nhưng vài dòng sai
+    giá trị"), nên vẫn phải sửa file gốc rồi upload lại.
+
+Mọi lỗi CÒN LẠI (required theo từng dòng, type_date, type_number,
+type_email, business_rule_enum, business_rule_non_negative,
+business_rule_salary_range) giờ KHÔNG append vào ValidationResult.
+errors nữa (không làm is_valid=False) — mà gắn vào field_errors của
+TỪNG DÒNG (cleaned["_field_errors"]), set cleaned[field] = None (giữ
+giá trị gốc ở cleaned["_<field>_raw"] để staff biết mình đã gõ gì), rồi
+vẫn CHO DÒNG ĐÓ VÀO cleaned_rows như bình thường. preview_manager.py
+đọc field_errors này ra để đánh dấu needs_field_fix + gắn kèm
+widget_type/options (xem entity_specs.field_widget_type/field_options)
+cho FE render ô sửa trực tiếp trên bảng preview, thay vì reject.
+
+Cùng pattern này ĐÃ có sẵn từ trước cho riêng field level_code (Job) —
+xem nhánh spec.strict_enum_fields bên dưới (needs_level_resolve, giữ
+NGUYÊN không đổi vì có luồng resolve riêng ở import_executor.py) — giờ
+tổng quát hoá cho mọi field type/format/business-rule khác qua
+field_errors.
+
+validate_single_field() (dùng chung bởi validate_dataframe() lúc build
+preview VÀ import_executor.py::_apply_field_fixes() lúc confirm) là nơi
+DUY NHẤT chứa logic convert từng field theo type — tránh lệch logic 2
+nơi khi staff sửa giá trị trên UI rồi gửi lại lúc confirm.
 
 KHÔNG đụng tới DB ở đây (không check company/level/province có tồn tại
 hay không) — đó là việc của company_resolver.py (chạy SAU khi
@@ -64,6 +91,73 @@ def _parse_bool_value(raw: str) -> bool:
     raise ValueError(f"'{raw}' không phải giá trị boolean hợp lệ")
 
 
+def validate_single_field(spec: EntitySpec, field_name: str, val_str: str):
+    """Convert 1 giá trị string (đã strip, KHÔNG rỗng) theo đúng type khai
+    báo trong spec cho field_name. Trả (converted_value, error) — error là
+    None khi hợp lệ, hoặc dict {"rule", "message"} (message KHÔNG kèm
+    "Dòng N, cột 'x':" — 2 chỗ gọi hàm này tự thêm tiền tố phù hợp ngữ
+    cảnh riêng) khi giá trị sai.
+
+    Field không thuộc date/number/email/enum/strict_enum nào trong spec
+    -> coi là text tự do, luôn hợp lệ, trả nguyên val_str.
+
+    Dùng chung bởi validate_dataframe() (lúc build preview, duyệt cả
+    file) VÀ import_executor.py::_apply_field_fixes() (lúc confirm,
+    re-validate LẠI giá trị staff vừa sửa trên UI trước khi ghi DB thật —
+    không tin ngầm dữ liệu FE gửi lên dù FE cũng validate phía client) —
+    tách ra đây để 2 nơi không lệch logic convert khi sau này sửa/thêm
+    rule."""
+    if field_name in spec.date_fields:
+        try:
+            return _parse_date_value(val_str), None
+        except ValueError:
+            return None, {
+                "rule": "type_date",
+                "message": f"kỳ vọng ngày định dạng YYYY-MM-DD, nhận được '{val_str}'",
+            }
+
+    if field_name in spec.number_fields:
+        try:
+            # Remove dấu phẩy ngăn cách nghìn (vd "1,000,000"), parse qua
+            # float (để xử lý "20000.5"), rồi cast int.
+            return int(float(val_str.replace(",", ""))), None
+        except (ValueError, OverflowError):
+            return None, {
+                "rule": "type_number",
+                "message": f"kỳ vọng số nguyên, nhận được '{val_str}'",
+            }
+
+    if field_name in spec.email_fields:
+        if not _EMAIL_RE.match(val_str):
+            return None, {
+                "rule": "type_email",
+                "message": f"email không hợp lệ '{val_str}'",
+            }
+        return val_str, None
+
+    if field_name in spec.enum_fields:
+        allowed = spec.enum_fields[field_name]
+        val_upper = val_str.upper()
+        if val_upper not in allowed:
+            return None, {
+                "rule": "business_rule_enum",
+                "message": f"giá trị '{val_str}' không hợp lệ, chỉ nhận {allowed}",
+            }
+        return val_upper, None
+
+    if field_name in spec.strict_enum_fields:
+        allowed = spec.strict_enum_fields[field_name]
+        matched = next((a for a in allowed if a.lower() == val_str.lower()), None)
+        if matched is None:
+            return None, {
+                "rule": "business_rule_enum",
+                "message": f"giá trị '{val_str}' không khớp danh sách hợp lệ {allowed}",
+            }
+        return matched, None
+
+    return val_str, None
+
+
 def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
     spec = get_spec(entity_type)
     errors: list[ValidationError] = []
@@ -98,7 +192,11 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
         row_number = idx + 2  # +1 về 1-based, +1 vì header chiếm dòng 1
         row_dict = row.to_dict()
         cleaned: dict = {}
-        row_ok = True
+        # field -> {"rule", "message"} — lỗi CỦA RIÊNG DÒNG NÀY, không còn
+        # đẩy lên `errors` (list cấp file) như trước, xem docstring đầu
+        # file. preview_manager.py đọc cleaned["_field_errors"] ra để đánh
+        # dấu needs_field_fix.
+        field_errors: dict[str, dict] = {}
 
         # file_parser.py đã convert MỌI cell thành string (đã strip).
         # Empty string sẽ được convert thành None tại đây.
@@ -110,18 +208,16 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
             val_str = str(raw_val).strip()
             normalized[f] = None if val_str == "" else val_str
 
-        # Required field check — chạy SAU khi normalize.
+        # Required field check — chạy SAU khi normalize. Thiếu giá trị ở
+        # 1 dòng (KHÁC thiếu hẳn cột — đã reject ở missing_columns phía
+        # trên) giờ chỉ đánh dấu field_errors, KHÔNG reject cả file — ô
+        # đó vẫn hiện trên preview (rỗng), staff gõ trực tiếp vào đó.
         for req_field in spec.required_fields:
             if normalized.get(req_field) is None:
-                errors.append(
-                    ValidationError(
-                        row_number=row_number,
-                        field_name=req_field,
-                        rule="required",
-                        message=f"Dòng {row_number}: thiếu giá trị bắt buộc cho '{req_field}'",
-                    )
-                )
-                row_ok = False
+                field_errors[req_field] = {
+                    "rule": "required",
+                    "message": f"Dòng {row_number}: thiếu giá trị bắt buộc cho '{req_field}'",
+                }
 
         for f, val_str in normalized.items():
             # val_str là None hoặc string đã strip (không empty).
@@ -129,97 +225,15 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                 cleaned[f] = None
                 continue
 
-            if f in spec.date_fields:
-                try:
-                    cleaned[f] = _parse_date_value(val_str)
-                except ValueError:
-                    errors.append(
-                        ValidationError(
-                            row_number=row_number,
-                            field_name=f,
-                            rule="type_date",
-                            message=(
-                                f"Dòng {row_number}, cột '{f}': kỳ vọng ngày định dạng "
-                                f"YYYY-MM-DD, nhận được '{val_str}'"
-                            ),
-                        )
-                    )
-                    row_ok = False
-                continue
-
-            if f in spec.number_fields:
-                try:
-                    # val_str là string. Remove dấu phẩy ngăn cách nghìn
-                    # (vd "1,000,000"), parse qua float (để xử lý "20000.5"),
-                    # rồi cast int.
-                    cleaned[f] = int(float(val_str.replace(",", "")))
-                except (ValueError, OverflowError):
-                    errors.append(
-                        ValidationError(
-                            row_number=row_number,
-                            field_name=f,
-                            rule="type_number",
-                            message=(
-                                f"Dòng {row_number}, cột '{f}': kỳ vọng số nguyên, "
-                                f"nhận được '{val_str}'"
-                            ),
-                        )
-                    )
-                    row_ok = False
-                continue
-
-            if f in spec.email_fields:
-                # val_str là string đã strip.
-                if not _EMAIL_RE.match(val_str):
-                    errors.append(
-                        ValidationError(
-                            row_number=row_number,
-                            field_name=f,
-                            rule="type_email",
-                            message=f"Dòng {row_number}, cột '{f}': email không hợp lệ '{val_str}'",
-                        )
-                    )
-                    row_ok = False
-                else:
-                    cleaned[f] = val_str
-                continue
-
-            if f in spec.enum_fields:
-                allowed = spec.enum_fields[f]
-                # val_str là string. Upper để so sánh case-insensitive.
-                val_upper = val_str.upper()
-                if val_upper not in allowed:
-                    errors.append(
-                        ValidationError(
-                            row_number=row_number,
-                            field_name=f,
-                            rule="business_rule_enum",
-                            message=(
-                                f"Dòng {row_number}, cột '{f}': giá trị '{val_str}' không hợp lệ, "
-                                f"chỉ nhận {allowed}"
-                            ),
-                        )
-                    )
-                    row_ok = False
-                else:
-                    cleaned[f] = val_upper
-                continue
-
             if f in spec.strict_enum_fields:
-                # KHÁC enum_fields ở trên: sai giá trị KHÔNG reject cả
-                # file (không append vào `errors`, không set row_ok=False)
-                # — chỉ set cleaned[f] = None (đồng nghĩa "chưa xác định",
-                # cùng convention với field khác) + giữ lại chuỗi gốc ở
-                # cleaned["_<field>_raw"] để preview_manager.py biết dòng
-                # này cần đánh dấu needs_level_resolve (tên field lấy
-                # nguyên bản để không hardcode riêng "level_code" ở đây —
-                # dù hiện chỉ Job/level_code dùng field này) và hiển thị
-                # lại đúng giá trị staff đã gõ trong file (vd "SR", "Sr.")
-                # cho staff biết mình cần sửa gì khi chọn lại qua dropdown
-                # tĩnh liệt kê spec.strict_enum_fields[f] (xem
-                # api/routers/import_export.py — KHÔNG cần gọi API gợi ý
-                # như company, vì đây là danh sách hữu hạn cố định, không
-                # phải fuzzy-match theo dữ liệu DB).
+                # level_code (Job) — pattern needs_level_resolve CÓ SẴN từ
+                # trước 08/2026, giữ NGUYÊN không đổi (có luồng resolve
+                # riêng ở import_executor.py, tách khỏi field_errors tổng
+                # quát bên dưới). Sai giá trị KHÔNG reject cả file — chỉ
+                # set cleaned[f] = None + giữ chuỗi gốc ở
+                # cleaned["_<field>_raw"] để preview_manager.py đánh dấu
+                # needs_level_resolve, staff chọn lại qua dropdown tĩnh
+                # liệt kê spec.strict_enum_fields[f].
                 allowed = spec.strict_enum_fields[f]
                 matched = next((a for a in allowed if a.lower() == val_str.lower()), None)
                 if matched is not None:
@@ -229,55 +243,65 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
                     cleaned[f"_{f}_raw"] = val_str
                 continue
 
+            if (
+                f in spec.date_fields
+                or f in spec.number_fields
+                or f in spec.email_fields
+                or f in spec.enum_fields
+            ):
+                value, err = validate_single_field(spec, f, val_str)
+                if err is not None:
+                    field_errors[f] = {
+                        "rule": err["rule"],
+                        "message": f"Dòng {row_number}, cột '{f}': {err['message']}",
+                    }
+                    cleaned[f] = None
+                    cleaned[f"_{f}_raw"] = val_str
+                else:
+                    cleaned[f] = value
+                continue
+
             # Text field — giữ nguyên string đã strip.
             cleaned[f] = val_str
 
         # Business rule liên trường (không gắn với 1 field đơn lẻ):
         if entity_type == "job":
-            row_ok = _validate_job_business_rules(cleaned, row_number, errors) and row_ok
+            _validate_job_business_rules(cleaned, row_number, field_errors)
 
-        if row_ok:
-            cleaned["_row_index"] = int(idx)  # 0-based, dùng làm khoá nội bộ preview
-            cleaned_rows.append(cleaned)
+        cleaned["_row_index"] = int(idx)  # 0-based, dùng làm khoá nội bộ preview
+        if field_errors:
+            cleaned["_field_errors"] = field_errors
+        cleaned_rows.append(cleaned)
 
     if errors:
         return ValidationResult(is_valid=False, errors=errors)
     return ValidationResult(is_valid=True, errors=[], cleaned_rows=cleaned_rows)
 
 
-def _validate_job_business_rules(cleaned: dict, row_number: int, errors: list[ValidationError]) -> bool:
+def _validate_job_business_rules(cleaned: dict, row_number: int, field_errors: dict) -> None:
     """salary_min >= 0 (nếu có), salary_max >= salary_min (nếu cả 2 có) —
-    Requirement business rule Job, xem design.md."""
-    ok = True
+    Requirement business rule Job, xem design.md. Ghi thẳng vào
+    field_errors của dòng (không còn reject cả file) — chỉ set khi
+    salary_min/salary_max ĐÃ parse được thành số (None nghĩa là field đó
+    đã có lỗi type_number riêng rồi, khỏi kiểm tra chồng thêm business
+    rule lên 1 giá trị chưa hợp lệ)."""
     salary_min = cleaned.get("salary_min")
     salary_max = cleaned.get("salary_max")
 
     if salary_min is not None and salary_min < 0:
-        errors.append(
-            ValidationError(
-                row_number=row_number,
-                field_name="salary_min",
-                rule="business_rule_non_negative",
-                message=f"Dòng {row_number}, cột 'salary_min': phải >= 0, nhận được {salary_min}",
-            )
-        )
-        ok = False
+        field_errors["salary_min"] = {
+            "rule": "business_rule_non_negative",
+            "message": f"Dòng {row_number}, cột 'salary_min': phải >= 0, nhận được {salary_min}",
+        }
 
     if salary_min is not None and salary_max is not None and salary_max < salary_min:
-        errors.append(
-            ValidationError(
-                row_number=row_number,
-                field_name="salary_max",
-                rule="business_rule_salary_range",
-                message=(
-                    f"Dòng {row_number}: salary_max ({salary_max}) phải >= "
-                    f"salary_min ({salary_min})"
-                ),
-            )
-        )
-        ok = False
-
-    return ok
+        field_errors["salary_max"] = {
+            "rule": "business_rule_salary_range",
+            "message": (
+                f"Dòng {row_number}: salary_max ({salary_max}) phải >= "
+                f"salary_min ({salary_min})"
+            ),
+        }
 
 
 def _extra_optional_fields(entity_type: str) -> set[str]:

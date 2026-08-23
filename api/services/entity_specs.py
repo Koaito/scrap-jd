@@ -156,3 +156,41 @@ def get_spec(entity_type: str) -> EntitySpec:
         return ENTITY_SPECS[entity_type]
     except KeyError:
         raise ValueError(f"entity_type không hợp lệ: {entity_type!r} (chỉ nhận job/company/contact)")
+
+
+# Thêm 08/2026 (đổi "reject nguyên file" -> "sửa tại chỗ trên preview",
+# xem validation_engine.py): 2 hàm dưới đây suy WIDGET nào FE nên render
+# cho 1 field bị lỗi (needs_field_fix), dựa THẲNG vào spec đã khai báo ở
+# trên — CHỦ ĐÍCH không hardcode danh sách field ở FE hay ở
+# preview_manager.py, để thêm/đổi field mới chỉ cần sửa EntitySpec Ở ĐÂY,
+# khỏi phải nhớ sửa thêm chỗ suy loại widget.
+def field_widget_type(entity_type: str, field_name: str) -> str:
+    """Trả 1 trong "enum" | "date" | "number" | "email" | "text" — FE dùng
+    để chọn <select>/<input type=date>/<input type=number>/<input>/
+    <input> tương ứng khi render ô sửa cho field bị lỗi trên bảng
+    preview. Field không khớp field nào trong spec (vd cột thừa không
+    thuộc entity) mặc định "text" — về lý thuyết không xảy ra vì
+    field_widget_type() chỉ được gọi cho field ĐÃ có trong field_errors
+    (tức đã đi qua validate_dataframe() và khớp 1 field có khai báo)."""
+    spec = get_spec(entity_type)
+    if field_name in spec.enum_fields or field_name in spec.strict_enum_fields:
+        return "enum"
+    if field_name in spec.date_fields:
+        return "date"
+    if field_name in spec.number_fields:
+        return "number"
+    if field_name in spec.email_fields:
+        return "email"
+    return "text"
+
+
+def field_options(entity_type: str, field_name: str) -> Optional[list[str]]:
+    """Danh sách giá trị hợp lệ để FE render <select> khi
+    field_widget_type() == "enum" — None cho mọi widget khác (FE không
+    cần render dropdown)."""
+    spec = get_spec(entity_type)
+    if field_name in spec.enum_fields:
+        return list(spec.enum_fields[field_name])
+    if field_name in spec.strict_enum_fields:
+        return list(spec.strict_enum_fields[field_name])
+    return None
