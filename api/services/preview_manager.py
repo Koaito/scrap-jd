@@ -467,6 +467,104 @@ def apply_field_fix(
     return {"row": row, "field_error": None}
 
 
+def resolve_company_selection(
+    conn, preview_row: dict, *, row_index: int, company_id: Optional[str],
+) -> dict:
+    """Staff chọn 1 công ty (hoặc "tạo công ty mới") trong modal chọn công
+    ty ở bước preview cho dòng conflict_status="pending_company_resolution"
+    (chỉ entity job/contact — xem build_preview()) -> re-check conflict
+    NGAY với company_id thật vừa chọn, thay vì để treo "pending_company_
+    resolution" tới tận lúc confirm (xem trao đổi thiết kế "vấn đề 2 & 3":
+    trước đây modal chỉ set state cục bộ ở FE, KHÔNG re-check gì, khiến
+    UI hiện sai — vd hiện "Sẽ tạo mới" trong khi backend lúc confirm phát
+    hiện trùng thật và action ngầm gửi lên vẫn là "skip" mặc định).
+
+    company_id:
+      - None hoặc "__new__" -> staff xác nhận "không công ty gợi ý nào
+        đúng, sẽ tạo công ty mới theo company_name trong file" -> company
+        CHẮC CHẮN chưa tồn tại -> khỏi cần detect gì, conflict_status
+        thẳng "no_conflict" (khớp _resolve_company_id_for_create() +
+        nhánh company_id rỗng trong import_executor.execute_import()).
+      - "<uuid>" -> tra company thật theo id (company_resolver.get_company,
+        KHÔNG dùng company_name gốc trong file — công ty staff chọn trong
+        modal có thể tên khác 1 chút so với file, xem docstring
+        company_resolver.get_company()), rồi chạy lại
+        detect_job_conflict()/detect_contact_conflict() tuỳ entity_type
+        với TÊN THẬT/company_id thật đó.
+
+    Raise ValueError nếu row_index không có trong preview, entity_type
+    không phải job/contact, hoặc company_id không tồn tại trong DB (case
+    hiếm — company vừa bị xoá giữa chừng).
+
+    Trả full row entry (dict) đã cập nhật — cùng shape với apply_field_fix(),
+    router build ResolveCompanyResponse trực tiếp từ đây, FE ghi đè
+    PREVIEW_DATA[row_index] rồi renderPage() lại (actionCell() tự động
+    render đúng nhánh Skip/Update/Create hay "Sẽ tạo mới" theo
+    conflict_status THẬT, không cần sửa gì thêm ở actionCell() — xem
+    trao đổi thiết kế).
+
+    LƯU Ý: hàm này TỰ COMMIT (conn.commit()), cùng tinh thần
+    apply_field_fix() — lưu ngay khi staff chọn xong trong modal, không
+    gộp chung transaction với bước confirm cuối."""
+    entity_type = preview_row["entity_type"]
+    if entity_type not in ("job", "contact"):
+        raise ValueError(
+            f"entity_type '{entity_type}' không có bước chọn công ty — chỉ job/contact."
+        )
+
+    preview_data = preview_row["preview_data"]
+    rows = preview_data["rows"]
+    row = next((r for r in rows if r["row_index"] == row_index), None)
+    if row is None:
+        raise ValueError(f"row_index {row_index} không có trong preview này.")
+
+    data = row["data"]
+    company_id = (company_id or "").strip() or None
+    if company_id == "__new__":
+        company_id = None
+
+    if company_id is None:
+        # Tạo mới -> company chắc chắn chưa tồn tại -> no_conflict, khỏi
+        # detect gì (giữ nguyên suggestions cũ trong company_resolution để
+        # staff còn xem lại/đổi ý nếu mở lại modal, chỉ đổi status/company_id).
+        row["company_resolution"] = {
+            **(row.get("company_resolution") or {}),
+            "status": "resolved",
+            "company_id": None,
+            "company_is_active": None,
+        }
+        row["conflict_status"] = "no_conflict"
+        row["existing_record"] = None
+    else:
+        company = company_resolver.get_company(conn, company_id)
+        if company is None:
+            raise ValueError(f"company_id {company_id!r} không tồn tại.")
+
+        row["company_resolution"] = {
+            **(row.get("company_resolution") or {}),
+            "status": "resolved",
+            "company_id": company_id,
+            "company_is_active": company["is_active"],
+        }
+
+        if entity_type == "job":
+            result = conflict_detector.detect_job_conflict(
+                conn, company["company_name"], data.get("job_title"), data.get("deadline"),
+            )
+        else:  # contact
+            result = conflict_detector.detect_contact_conflict(
+                conn, company_id, data.get("contact_name"), data.get("work_email"),
+            )
+        row["conflict_status"] = result["conflict_status"]
+        row["existing_record"] = _jsonable(result.get("existing_record"))
+
+    preview_data["summary"].update(_count_summary_fields(rows))
+    _save_preview_data(conn, preview_row["preview_id"], preview_data)
+    conn.commit()
+
+    return row
+
+
 def _clear_batch_link(rows: list[dict], other_row_index: int, expect_pointer_to: int) -> None:
     """Gỡ duplicate_in_batch phía DÒNG KIA khi dòng đang sửa KHÔNG còn
     trỏ tới nó nữa (dữ liệu vừa đổi khác đi, hoặc DB-match giờ được ưu

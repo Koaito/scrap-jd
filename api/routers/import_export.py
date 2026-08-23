@@ -26,6 +26,8 @@ from api.schemas import (
     ImportConfirmRequest,
     ImportConfirmResult,
     ImportUploadResponse,
+    ResolveCompanyRequest,
+    ResolveCompanyResponse,
 )
 from api.services import company_resolver, export_query, file_parser, import_executor, preview_manager
 from api.services.entity_specs import get_spec
@@ -220,6 +222,47 @@ def verify_field(
         raise HTTPException(status_code=404, detail=str(exc))
 
     return FieldVerifyResponse(row=result["row"], field_error=result["field_error"])
+
+
+@router.post(
+    "/import/{entity_type}/preview/{preview_id}/rows/{row_index}/resolve-company",
+    response_model=ResolveCompanyResponse,
+)
+def resolve_company(
+    entity_type: str,
+    preview_id: str,
+    row_index: int,
+    payload: ResolveCompanyRequest,
+    conn=Depends(get_db),
+    user: dict = Depends(require_role("ss_team")),
+):
+    """Staff chọn 1 công ty (hoặc "Tạo công ty mới") trong modal chọn công
+    ty ở bước preview -> re-check conflict NGAY với company_id thật vừa
+    chọn (xem preview_manager.resolve_company_selection() cho toàn bộ
+    logic + lý do thiết kế). Route generic theo entity_type — áp dụng
+    chung cho cả job lẫn contact (khác verify-field, hiện chỉ contact)."""
+    _check_entity_type(entity_type)
+    if entity_type not in ("job", "contact"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"entity_type '{entity_type}' không có bước chọn công ty — chỉ job/contact.",
+        )
+    preview_row = _load_owned_preview(conn, preview_id, user["sub"])
+
+    if preview_row["entity_type"] != entity_type:
+        raise HTTPException(
+            status_code=400,
+            detail=f"preview_id này thuộc entity_type '{preview_row['entity_type']}', không phải '{entity_type}'.",
+        )
+
+    try:
+        row = preview_manager.resolve_company_selection(
+            conn, preview_row, row_index=row_index, company_id=payload.company_id,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return ResolveCompanyResponse(row=row)
 
 
 # ------------------------------------------------------------------

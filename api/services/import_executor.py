@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import db as db_module
-from api.services import conflict_detector
+from api.services import company_resolver, conflict_detector
 from api.services.entity_specs import get_spec
 from api.services.validation_engine import validate_single_field
 from constants import LEVEL_CODE_VALUES
@@ -494,8 +494,30 @@ def _apply_field_fixes(entity_type: str, row: dict, data: dict, resolution: dict
 
 def _recheck_conflict(conn, entity_type, data) -> tuple[str, Optional[dict]]:
     if entity_type == "job":
+        # Dùng TÊN CÔNG TY THẬT (tra theo company_id staff vừa chọn ở
+        # bước preview, xem preview_manager.resolve_company_selection()),
+        # KHÔNG dùng data["company_name"] gốc trong file — detect_job_
+        # conflict() match theo company_name dạng text (JOIN companies rồi
+        # so lower(company_name), không dùng company_id trực tiếp — xem
+        # conflict_detector.py), nên nếu staff chọn 1 company có tên hơi
+        # khác tên gốc trong file (vd file ghi "FPT" nhưng chọn "FPT
+        # Software") thì check bằng company_name gốc sẽ SAI — kết quả
+        # confirm-time lệch với kết quả preview-time (staff thấy
+        # "no_conflict" lúc preview nhưng conflict lúc confirm, hoặc ngược
+        # lại). company_id["company_id"] LUÔN có ở đây (đã gán ngay trước
+        # khi gọi hàm này, xem execute_import() nhánh
+        # pending_company_resolution) — company mới tạo (company_id chưa
+        # từng tồn tại trước đó) thì get_company() trả None, fallback về
+        # company_name gốc (company mới tạo chắc chắn no_conflict với
+        # bất kỳ tên nào, nên fallback này không ảnh hưởng kết quả).
+        company_name = data.get("company_name")
+        company_id = data.get("company_id")
+        if company_id:
+            company = company_resolver.get_company(conn, company_id)
+            if company is not None:
+                company_name = company["company_name"]
         result = conflict_detector.detect_job_conflict(
-            conn, data.get("company_name"), data.get("job_title"), data.get("deadline")
+            conn, company_name, data.get("job_title"), data.get("deadline")
         )
     elif entity_type == "contact":
         result = conflict_detector.detect_contact_conflict(

@@ -1109,6 +1109,33 @@ class FieldVerifyResponse(BaseModel):
     )
 
 
+class ResolveCompanyRequest(BaseModel):
+    """Body cho POST /import/{entity_type}/preview/{preview_id}/rows/
+    {row_index}/resolve-company — staff chọn 1 công ty (hoặc "Tạo công ty
+    mới") trong modal chọn công ty ở bước preview, cho dòng
+    conflict_status="pending_company_resolution" (chỉ job/contact — xem
+    api/services/preview_manager.py::resolve_company_selection()).
+
+    Re-check conflict NGAY với company_id thật vừa chọn, thay vì để treo
+    tới lúc confirm (xem trao đổi thiết kế "vấn đề 2 & 3", 08/2026)."""
+    model_config = ConfigDict(extra="forbid")
+
+    company_id: Optional[str] = Field(
+        None,
+        description="UUID công ty staff chọn trong danh sách gợi ý. "
+        "None (hoặc '__new__') = staff xác nhận không công ty nào đúng, "
+        "sẽ tạo công ty mới theo company_name trong file.",
+    )
+
+
+class ResolveCompanyResponse(BaseModel):
+    """Response cho POST .../resolve-company — row trả về là TOÀN BỘ entry
+    của dòng đó sau khi cập nhật (đúng cấu trúc 1 phần tử trong
+    ImportUploadResponse.rows, cùng shape FieldVerifyResponse.row) — FE ghi
+    đè PREVIEW_DATA[row_index] bằng row này rồi renderPage() lại."""
+    row: dict
+
+
 class ImportConfirmRequest(BaseModel):
     """Body cho POST /import/{entity_type}/confirm
     
