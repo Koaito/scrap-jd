@@ -1,13 +1,13 @@
 """
-db.jobs — tách từ db.py (God module) theo domain, xem README/kế hoạch refactor.
+db.jobs — tách từ db.py (God module) theo domain.
 """
 
 import json
 import logging
 from typing import Optional
 
-import psycopg2.extras
 import psycopg2
+import psycopg2.extras
 
 logger = logging.getLogger(__name__)
 
@@ -437,6 +437,34 @@ def job_exists_by_id(conn, job_id: str) -> bool:
     with conn.cursor() as cur:
         cur.execute("SELECT 1 FROM job_postings WHERE job_id = %s LIMIT 1", (job_id,))
         return cur.fetchone() is not None
+
+
+_JOB_SELECT_COLUMNS = """
+        jp.job_id, jp.job_title, jp.matching_industry, jp.work_type,
+        jp.currency, jp.salary_min, jp.salary_max, jp.salary_type, jp.salary_period,
+        jp.deadline, jp.job_status, jp.source_url, jp.created_at, jp.updated_at,
+        jp.created_by, jp.updated_by,
+        c.company_id, c.company_name,
+        l.level_code,
+        p.province_name,
+        (
+            SELECT jsl.source_name FROM job_sources_log jsl
+            WHERE jsl.job_id = jp.job_id
+            ORDER BY jsl.collected_date DESC, jsl.log_id DESC
+            LIMIT 1
+        ) AS source_name
+"""
+
+
+_JOB_FROM_JOINS = """
+    FROM job_postings jp
+    JOIN companies c ON c.company_id = jp.company_id
+    LEFT JOIN levels l ON l.level_id = jp.level_id
+    LEFT JOIN provinces p ON p.province_id = jp.province_id
+"""
+
+
+_JOB_LIST_BASE_QUERY = f"SELECT {_JOB_SELECT_COLUMNS} {_JOB_FROM_JOINS}"
 
 
 def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[str] = None,

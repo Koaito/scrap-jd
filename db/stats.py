@@ -1,11 +1,11 @@
 """
-db.stats — tách từ db.py (God module) theo domain, xem README/kế hoạch refactor.
+db.stats — tách từ db.py (God module) theo domain.
 """
 
 import logging
 
-import psycopg2.extras
 import psycopg2
+import psycopg2.extras
 
 logger = logging.getLogger(__name__)
 

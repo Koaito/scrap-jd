@@ -1,12 +1,12 @@
 """
-db.companies — tách từ db.py (God module) theo domain, xem README/kế hoạch refactor.
+db.companies — tách từ db.py (God module) theo domain.
 """
 
 import logging
 from typing import Optional
 
-import psycopg2.extras
 import psycopg2
+import psycopg2.extras
 from normalize import normalize_company_size
 
 logger = logging.getLogger(__name__)
@@ -535,6 +535,24 @@ def get_companies_needing_profile_backfill(conn):
             """
         )
         return cur.fetchall()
+
+
+_COMPANY_SELECT_COLUMNS = """
+        c.company_id, c.company_name, c.tax_id, c.website, c.industry,
+        c.company_size, c.address, c.fanpage_url, c.linkedin_url,
+        c.partnership_potential, c.is_active,
+        c.created_at, c.updated_at, c.created_by, c.updated_by,
+        p.province_name
+"""
+
+
+_COMPANY_FROM_JOINS = """
+    FROM companies c
+    LEFT JOIN provinces p ON p.province_id = c.province_id
+"""
+
+
+_COMPANY_LIST_BASE_QUERY = f"SELECT {_COMPANY_SELECT_COLUMNS} {_COMPANY_FROM_JOINS}"
 
 
 def list_companies(conn, *, keyword: Optional[str] = None,

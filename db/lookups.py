@@ -1,10 +1,11 @@
 """
-db.lookups — tách từ db.py (God module) theo domain, xem README/kế hoạch refactor.
+db.lookups — tách từ db.py (God module) theo domain.
 """
 
 import logging
 from typing import Optional
 
+import psycopg2
 from province_alias import resolve_province_alias
 
 logger = logging.getLogger(__name__)
@@ -80,6 +81,9 @@ def get_province_id(conn, province_name: str) -> Optional[int]:
         )
         row = cur.fetchone()
         return row[0] if row else None
+
+
+get_or_create_province = get_province_id
 
 
 def get_level_id(conn, level_code: str) -> Optional[int]:

@@ -1,13 +1,13 @@
 """
-db.connection — tách từ db.py (God module) theo domain, xem README/kế hoạch refactor.
+db.connection — tách từ db.py (God module) theo domain.
 """
 
 import logging
 import uuid as uuid_module
 from typing import Optional
 
-import psycopg2.pool
 import psycopg2
+import psycopg2.pool
 from config import DB_CONFIG, DB_POOL_MAX, DB_POOL_MIN
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,9 @@ def get_connection():
     conn = psycopg2.connect(**DB_CONFIG)
     conn.autocommit = False
     return conn
+
+
+_pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
 
 
 def init_pool(minconn: int = DB_POOL_MIN, maxconn: int = DB_POOL_MAX) -> None:

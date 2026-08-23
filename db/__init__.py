@@ -5,9 +5,10 @@ LỊCH SỬ: trước đây là 1 file db.py duy nhất (2619 dòng / 89 hàm, "
 module" trộn company/job/auth/contact/application/audit_log/stats).
 Đã tách theo domain (xem từng file con) để dễ tìm, dễ sửa, giảm
 conflict khi nhiều người cùng sửa. File này CHỈ re-export lại toàn bộ
-tên cũ để KHÔNG phải sửa bất kỳ chỗ nào đang `import db` /
-`import db as db_module` rồi gọi `db.xxx(...)` ở nơi khác trong repo —
-API bên ngoài giữ nguyên 100%, chỉ tổ chức lại bên trong.
+tên cũ (kể cả biến/hằng module-level như _pool, ACTION_LOG_RULES,
+alias get_or_create_province) để KHÔNG phải sửa bất kỳ chỗ nào đang
+`import db` / `import db as db_module` rồi gọi `db.xxx` ở nơi khác
+trong repo — API bên ngoài giữ nguyên 100%, chỉ tổ chức lại bên trong.
 """
 
 from db.connection import (
@@ -21,6 +22,7 @@ from db.connection import (
 )
 from db.lookups import (
     get_province_id,
+    get_or_create_province,
     get_level_id,
 )
 from db.companies import (
@@ -110,6 +112,7 @@ from db.applications import (
     list_saved_jobs_for_job,
 )
 from db.audit_logs import (
+    ACTION_LOG_RULES,
     NoteRequiredError,
     diff_changed_fields,
     log_action,
@@ -127,6 +130,7 @@ __all__ = [
     "close_pool",
     "apply_schema",
     "get_province_id",
+    "get_or_create_province",
     "get_level_id",
     "find_company_probe",
     "get_or_create_company_by_profile",
@@ -202,6 +206,7 @@ __all__ = [
     "list_saved_jobs_for_user",
     "delete_saved_job",
     "list_saved_jobs_for_job",
+    "ACTION_LOG_RULES",
     "NoteRequiredError",
     "diff_changed_fields",
     "log_action",

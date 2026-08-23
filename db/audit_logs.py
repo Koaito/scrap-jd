@@ -1,5 +1,5 @@
 """
-db.audit_logs — tách từ db.py (God module) theo domain, xem README/kế hoạch refactor.
+db.audit_logs — tách từ db.py (God module) theo domain.
 """
 
 import json
@@ -7,10 +7,50 @@ import logging
 from datetime import datetime, timezone
 from typing import Optional
 
-import psycopg2.extras
 import psycopg2
+import psycopg2.extras
 
 logger = logging.getLogger(__name__)
+
+
+ACTION_LOG_RULES: dict[str, dict] = {
+    "CREATE_JOB":     {"is_manual_log": False, "note_required": False},
+    "UPDATE_JOB":     {"is_manual_log": True,  "note_required": False},
+    "DELETE_JOB":     {"is_manual_log": True,  "note_required": False},
+    "CREATE_COMPANY": {"is_manual_log": False, "note_required": False},
+    "UPDATE_COMPANY": {"is_manual_log": True,  "note_required": False},
+    "DELETE_COMPANY": {"is_manual_log": True,  "note_required": True},
+    "CREATE_CONTACT": {"is_manual_log": True,  "note_required": False},
+    "UPDATE_CONTACT": {"is_manual_log": True,  "note_required": True},
+    "DELETE_CONTACT": {"is_manual_log": True,  "note_required": True},
+    "ASSIGN_CONTACT": {"is_manual_log": True,  "note_required": True},
+    # Học viên ứng tuyển (upload CV) / huỷ ứng tuyển — xem
+    # sql/migration_add_application_audit_log.sql. Cùng nhóm với
+    # CREATE_JOB/CREATE_COMPANY: log tự động, không bắt buộc note.
+    "APPLY_JOB":                {"is_manual_log": False, "note_required": False},
+    "WITHDRAW_JOB_APPLICATION": {"is_manual_log": False, "note_required": False},
+    # BUG FIX (08/2026): import_confirm() (api/routers/import_export.py)
+    # gọi log_action(action_type="BULK_IMPORT_JOB"/"BULK_IMPORT_COMPANY"/
+    # "BULK_IMPORT_CONTACT") nhưng 3 action_type này CHƯA TỪNG được đăng
+    # ký ở đây -> log_action() luôn raise KeyError ngay khi tra
+    # ACTION_LOG_RULES[action_type], SAU KHI execute_import() đã insert
+    # thành công job/company/contact trong transaction -> router bắt
+    # Exception rộng, conn.rollback() toàn bộ, trả 500 "Import failed due
+    # to database error" — staff thấy lỗi 500 dù dữ liệu đúng, không lưu
+    # được gì (đối chiếu log thật: KeyError: 'BULK_IMPORT_JOB' tại
+    # db.py::log_action, gọi từ import_export.py::import_confirm dòng 231).
+    #
+    # is_manual_log=True: đúng bản chất, đây là thao tác staff chủ động
+    # bấm "Xác nhận nhập dữ liệu" (không phải job tự động như CREATE_JOB
+    # qua crawl/APPLY_JOB), cùng nhóm với UPDATE_JOB/CREATE_CONTACT.
+    # note_required=True: khớp hành vi UI đã có sẵn — _dm_import.html bắt
+    # buộc nhập "Ghi chú lần nhập" (textarea required, nút Xác nhận bị
+    # disable tới khi có note) TRƯỚC KHI form có thể submit, nên tầng
+    # log_action() enforce lại đúng ràng buộc đó thay vì mâu thuẫn với UI.
+    "BULK_IMPORT_JOB":     {"is_manual_log": True, "note_required": True},
+    "BULK_IMPORT_COMPANY": {"is_manual_log": True, "note_required": True},
+    "BULK_IMPORT_CONTACT": {"is_manual_log": True, "note_required": True},
+}
 
 
 class NoteRequiredError(Exception):
@@ -96,6 +136,21 @@ def log_action(conn, *, actor_id: Optional[str], action_type: str,
             ),
         )
         return str(cur.fetchone()[0])
+
+
+_AUDIT_LOG_SELECT_COLUMNS = """
+        al.log_id, al.actor_id, u.full_name AS actor_name, al.action_type,
+        al.entity_type, al.entity_id, al.entity_label, al.company_id,
+        c.company_name, al.changes, al.is_manual_log, al.note_required,
+        al.note, al.note_updated_by, al.note_updated_at, al.created_at
+"""
+
+
+_AUDIT_LOG_FROM_JOINS = """
+    FROM audit_logs al
+    LEFT JOIN app_users u ON u.ss_user_id = al.actor_id
+    LEFT JOIN companies c ON c.company_id = al.company_id
+"""
 
 
 def list_audit_logs(conn, *, manual_only: bool = False,
