@@ -52,7 +52,14 @@ import psycopg2.extras
 
 from api.services import conflict_detector, company_resolver
 from api.services.entity_specs import field_options, field_widget_type, get_spec
-from api.services.validation_engine import ValidationResult
+from api.services.validation_engine import ValidationResult, validate_single_field
+
+# Contact: field nào (khi sửa) cần re-check trùng mờ ngay — xem
+# conflict_detector.find_duplicate_contacts() + apply_field_fix() bên
+# dưới. company_name KHÔNG nằm trong set này vì đổi company_name kéo
+# theo re-resolve company_id (khác flow), xử lý riêng, chưa làm ở bản
+# này (xem ghi chú "việc số 4" trong trao đổi thiết kế).
+_CONTACT_DUPLICATE_CHECK_FIELDS = {"work_email", "social_link", "phone_number"}
 
 PREVIEW_TTL = timedelta(hours=1)
 
@@ -243,6 +250,119 @@ def get_preview(conn, preview_id: str, *, requesting_user_id: str) -> dict:
         raise PreviewExpiredError(preview_id)
 
     return dict(row)
+
+
+def apply_field_fix(
+    conn, preview_row: dict, *, row_index: int, field_name: str, raw_value: str,
+) -> dict:
+    """Sửa TẠI CHỖ 1 field của 1 dòng trong preview_data đang lưu DB, rồi
+    lưu lại ngay (KHÔNG đợi staff bấm "Xác nhận nhập dữ liệu" ở bước
+    confirm) — dùng cho nút "Xác nhận" cạnh mỗi ô sửa trên bảng preview
+    (xem trao đổi thiết kế "việc số 2": staff sửa xong 1 ô, bấm xác nhận
+    ngay tại đó, biết lỗi/nghi ngờ trùng NGAY, không phải đợi tới cuối).
+
+    Làm 2 việc, THEO ĐÚNG THỨ TỰ:
+    1. Re-validate format field_name bằng validate_single_field() — Y HỆT
+       hàm dùng lúc build preview lẫn lúc confirm thật (import_executor.
+       _apply_field_fixes), để 3 nơi không lệch logic convert theo type.
+       Sai format -> trả lỗi ngay, KHÔNG lưu gì, KHÔNG re-check trùng
+       (dữ liệu chưa hợp lệ thì chưa có gì để so khớp).
+    2. Field hợp lệ -> ghi vào data, xoá khỏi field_errors/needs_field_fix
+       của dòng. Nếu field_name là 1 trong 3 cột định danh contact
+       (_CONTACT_DUPLICATE_CHECK_FIELDS) VÀ entity_type == "contact" ->
+       chạy conflict_detector.find_duplicate_contacts() ngay (match mờ,
+       tối thiểu 1/3 trong work_email/social_link/phone_number, cùng
+       company_id — company_id lấy từ company_resolution đã resolve lúc
+       build preview, KHÔNG re-resolve lại company_name ở đây):
+         - Có match -> conflict_status chuyển "conflict" (tái dùng đúng
+           UI Skip/Update/Create có sẵn cho case conflict thường, KHÔNG
+           làm UI riêng) + gắn existing_record/duplicate_match (match_score
+           + matched_fields) để FE hiển thị mức tin cậy.
+         - Hết match (vd staff sửa lại email khác đi) mà dòng đang ở
+           đúng trạng thái do lần re-check trước gây ra (need tự set lại
+           - xem is_reverted bên dưới) -> tự revert về "no_conflict",
+           tránh staff phải tự nhớ bỏ chọn.
+
+    Trả full row entry (dict) đã cập nhật — router build FieldVerifyResponse
+    trực tiếp từ đây, KHÔNG cần đọc lại nguyên preview.
+
+    LƯU Ý: hàm này TỰ COMMIT (conn.commit()) vì lưu ngay khi staff bấm
+    "Xác nhận" tại ô, không gộp chung transaction với bước confirm cuối
+    — nếu raise lỗi validate thì KHÔNG commit gì (giữ nguyên preview cũ)."""
+    preview_data = preview_row["preview_data"]
+    rows = preview_data["rows"]
+    row = next((r for r in rows if r["row_index"] == row_index), None)
+    if row is None:
+        raise ValueError(f"row_index {row_index} không có trong preview này.")
+
+    entity_type = preview_row["entity_type"]
+    spec = get_spec(entity_type)
+
+    raw = (raw_value or "").strip()
+    if raw == "":
+        return {
+            "row": row,
+            "field_error": {
+                "rule": "required",
+                "message": f"Cột '{field_name}' là bắt buộc, không được để trống.",
+            },
+        }
+
+    value, err = validate_single_field(spec, field_name, raw)
+    if err is not None:
+        return {"row": row, "field_error": err}
+
+    # Field hợp lệ -> ghi vào data, xoá lỗi cũ của field này (nếu có).
+    row["data"][field_name] = value
+    field_errors = row.get("field_errors") or {}
+    field_errors.pop(field_name, None)
+    row["field_errors"] = field_errors
+    row["needs_field_fix"] = bool(field_errors)
+
+    duplicate_match = None
+    was_conflict_from_duplicate_check = row.get("duplicate_match") is not None
+
+    if entity_type == "contact" and field_name in _CONTACT_DUPLICATE_CHECK_FIELDS:
+        company_id = (row.get("company_resolution") or {}).get("company_id")
+        matches = conflict_detector.find_duplicate_contacts(
+            conn,
+            company_id=company_id,
+            work_email=row["data"].get("work_email"),
+            social_link=row["data"].get("social_link"),
+            phone_number=row["data"].get("phone_number"),
+        )
+        if matches:
+            best = matches[0]
+            duplicate_match = {
+                "match_score": best["match_score"],
+                "matched_fields": best["matched_fields"],
+            }
+            row["conflict_status"] = "conflict"
+            row["existing_record"] = _jsonable(best["existing_record"])
+            row["duplicate_match"] = duplicate_match
+        elif was_conflict_from_duplicate_check:
+            # Dòng trước đó bị đánh dấu "conflict" do CHÍNH re-check này
+            # (không phải do build_preview ban đầu) và giờ hết match sau
+            # khi sửa -> tự revert, không bắt staff tự nhớ đổi lại. Nếu
+            # dòng vốn "conflict"/"conflict_inactive" từ build_preview
+            # đầu tiên (duplicate_match=None gốc) thì KHÔNG đụng tới ở
+            # đây (ngoài phạm vi field_name vừa sửa).
+            row["conflict_status"] = "no_conflict"
+            row["existing_record"] = None
+            row["duplicate_match"] = None
+
+    _save_preview_data(conn, preview_row["preview_id"], preview_data)
+    conn.commit()
+
+    return {"row": row, "field_error": None}
+
+
+def _save_preview_data(conn, preview_id: str, preview_data: dict) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE import_previews SET preview_data = %s WHERE preview_id = %s",
+            (json.dumps(preview_data, default=str), preview_id),
+        )
 
 
 def delete_preview(conn, preview_id: str) -> None:

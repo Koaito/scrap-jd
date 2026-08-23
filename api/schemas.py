@@ -993,6 +993,54 @@ class RowResolution(BaseModel):
     )
 
 
+class FieldVerifyRequest(BaseModel):
+    """Body cho POST /import/{entity_type}/preview/{preview_id}/rows/
+    {row_index}/verify-field — staff sửa 1 ô trên bảng preview rồi bấm
+    nút "Xác nhận" cạnh ô đó (thêm 08/2026, xem trao đổi thiết kế
+    "cảnh báo trùng contact sau khi sửa field lỗi").
+
+    Re-validate format field_name NGAY (dùng đúng validate_single_field()
+    dùng lúc build preview) + với contact, re-check trùng mờ theo
+    company_id + tối thiểu 1/3 trong (work_email, social_link,
+    phone_number) — xem preview_manager.apply_field_fix()."""
+    model_config = ConfigDict(extra="forbid")
+
+    field_name: str = Field(..., description="Tên field vừa sửa, vd 'work_email'")
+    value: str = Field(..., description="Giá trị mới (string thô, giống format trong file gốc)")
+
+
+class DuplicateMatchOut(BaseModel):
+    """Kết quả match mờ khi phát hiện dòng vừa sửa trùng với 1 contact đã
+    có trong DB — chỉ có giá trị khi conflict_status chuyển sang
+    "conflict" NGAY TẠI apply_field_fix() (khác conflict phát hiện lúc
+    build preview ban đầu, vốn không có field này)."""
+    match_score: float = Field(
+        ..., description="Số cột khớp / 3 (0.33 / 0.67 / 1.0) — càng cao càng chắc trùng."
+    )
+    matched_fields: list[str] = Field(
+        ..., description="Các cột khớp, trong (work_email, social_link, phone_number)."
+    )
+
+
+class FieldVerifyResponse(BaseModel):
+    """Response cho POST .../verify-field.
+
+    field_error != None -> field vẫn KHÔNG hợp lệ sau khi sửa (giữ
+    nguyên field_errors/needs_field_fix cũ trong preview, KHÔNG lưu gì
+    mới) — FE hiện lỗi ngay tại ô, không cho staff tưởng đã xác nhận
+    thành công.
+
+    field_error == None -> đã lưu field mới vào preview. row trả về là
+    TOÀN BỘ entry của dòng đó sau khi cập nhật (đúng cấu trúc 1 phần tử
+    trong ImportUploadResponse.rows) — FE ghi đè PREVIEW_DATA[row_index]
+    bằng row này, tự cập nhật lại UI (field_errors còn lại, conflict_status
+    mới nếu có, duplicate_match nếu phát hiện trùng)."""
+    row: dict
+    field_error: Optional[dict] = Field(
+        None, description="{'rule','message'} nếu vẫn lỗi, None nếu đã hợp lệ và đã lưu."
+    )
+
+
 class ImportConfirmRequest(BaseModel):
     """Body cho POST /import/{entity_type}/confirm
     

@@ -105,3 +105,97 @@ def detect_contact_conflict(conn, company_id: str, contact_name: str, work_email
 
     status = "conflict" if row["is_active"] else "conflict_inactive"
     return {"conflict_status": status, "existing_record": dict(row)}
+
+
+def find_duplicate_contacts(
+    conn,
+    *,
+    company_id: str,
+    work_email: Optional[str],
+    social_link: Optional[str],
+    phone_number: Optional[str],
+    exclude_contact_id: Optional[str] = None,
+) -> list[dict]:
+    """Match MỜ (khác hẳn detect_contact_conflict ở trên vốn match cứng
+    company_id + contact_name + email cho lần build preview đầu tiên) —
+    dùng cho tính năng "cảnh báo trùng ngay khi staff sửa field lỗi tại
+    chỗ" (xem preview_manager.apply_field_fix()). Quyết định thiết kế đã
+    chốt qua trao đổi với staff:
+
+    - Tiêu chí: CÙNG company_id, VÀ khớp ít nhất 1/3 trong
+      (work_email, social_link, phone_number) — so khớp case-insensitive,
+      đã strip khoảng trắng thừa. contact_status KHÔNG tính vào điểm
+      match (chỉ là trạng thái làm việc, không phải định danh liên hệ).
+    - match_score = số cột khớp / 3 (0.33 / 0.67 / 1.0) — điểm càng cao
+      càng chắc là cùng 1 người, để FE hiển thị mức độ tin cậy cho staff
+      tự quyết định thay vì chặn cứng.
+    - Trả list (không phải 1 record) vì lý thuyết có thể khớp nhiều
+      contact khác nhau cùng lúc (vd trùng phone với người A, trùng email
+      với người B) — caller (preview_manager) tự chọn record match_score
+      cao nhất nếu chỉ cần 1.
+    - exclude_contact_id: dùng khi sửa 1 contact ĐANG tồn tại trong DB
+      (không phải import) để không tự-match với chính nó — hiện tại
+      import flow chưa cần (contact trong file luôn là "chưa tồn tại
+      trong DB" cho tới khi staff bấm Update), giữ tham số optional để
+      tái dùng cho mục đích khác sau này (vd form sửa contact trực tiếp).
+    """
+    company_id = (company_id or "").strip() or None
+    work_email = (work_email or "").strip() or None
+    social_link = (social_link or "").strip() or None
+    phone_number = (phone_number or "").strip() or None
+
+    if not company_id or not any([work_email, social_link, phone_number]):
+        # Không đủ cơ sở để so khớp mờ — thiếu company_id (không biết so
+        # trong phạm vi công ty nào) hoặc cả 3 cột định danh đều rỗng.
+        return []
+
+    where_clauses = ["company_id = %s"]
+    params: list = [company_id]
+
+    match_clauses = []
+    if work_email:
+        match_clauses.append("lower(trim(work_email)) = lower(%s)")
+        params.append(work_email)
+    if social_link:
+        match_clauses.append("lower(trim(social_link)) = lower(%s)")
+        params.append(social_link)
+    if phone_number:
+        match_clauses.append("trim(phone_number) = trim(%s)")
+        params.append(phone_number)
+
+    where_clauses.append("(" + " OR ".join(match_clauses) + ")")
+
+    if exclude_contact_id:
+        where_clauses.append("contact_id != %s")
+        params.append(exclude_contact_id)
+
+    query = f"SELECT * FROM company_contacts WHERE {' AND '.join(where_clauses)}"
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(query, params)
+        rows = cur.fetchall()
+
+    results = []
+    for row in rows:
+        matched_fields = []
+        if work_email and row.get("work_email") and row["work_email"].strip().lower() == work_email.lower():
+            matched_fields.append("work_email")
+        if social_link and row.get("social_link") and row["social_link"].strip().lower() == social_link.lower():
+            matched_fields.append("social_link")
+        if phone_number and row.get("phone_number") and row["phone_number"].strip() == phone_number.strip():
+            matched_fields.append("phone_number")
+
+        if not matched_fields:
+            # Không nên xảy ra (query đã lọc theo đúng OR ở trên) — giữ
+            # lại như lớp phòng thủ, bỏ qua record không giải thích được
+            # thay vì báo match_score sai.
+            continue
+
+        results.append({
+            "existing_record": dict(row),
+            "matched_fields": matched_fields,
+            "match_score": round(len(matched_fields) / 3, 2),
+        })
+
+    results.sort(key=lambda r: r["match_score"], reverse=True)
+    return results

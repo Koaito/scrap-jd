@@ -21,6 +21,8 @@ from api.deps import get_db, require_role
 from api.schemas import (
     CompanySuggestionOut,
     CompanySuggestionsResponse,
+    FieldVerifyRequest,
+    FieldVerifyResponse,
     ImportConfirmRequest,
     ImportConfirmResult,
     ImportUploadResponse,
@@ -178,6 +180,46 @@ def get_company_suggestions(
             for s in suggestions
         ]
     )
+
+
+@router.post(
+    "/import/{entity_type}/preview/{preview_id}/rows/{row_index}/verify-field",
+    response_model=FieldVerifyResponse,
+)
+def verify_field(
+    entity_type: str,
+    preview_id: str,
+    row_index: int,
+    payload: FieldVerifyRequest,
+    conn=Depends(get_db),
+    user: dict = Depends(require_role("ss_team")),
+):
+    """Staff sửa 1 ô lỗi trên bảng preview, bấm nút "Xác nhận" cạnh ô đó
+    -> re-validate format field_name NGAY + (contact) re-check trùng mờ
+    ngay tại đó, KHÔNG đợi tới bước confirm cuối cùng mới biết (xem
+    preview_manager.apply_field_fix() cho toàn bộ logic + lý do thiết
+    kế)."""
+    _check_entity_type(entity_type)
+    preview_row = _load_owned_preview(conn, preview_id, user["sub"])
+
+    if preview_row["entity_type"] != entity_type:
+        raise HTTPException(
+            status_code=400,
+            detail=f"preview_id này thuộc entity_type '{preview_row['entity_type']}', không phải '{entity_type}'.",
+        )
+
+    try:
+        result = preview_manager.apply_field_fix(
+            conn,
+            preview_row,
+            row_index=row_index,
+            field_name=payload.field_name,
+            raw_value=payload.value,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    return FieldVerifyResponse(row=result["row"], field_error=result["field_error"])
 
 
 # ------------------------------------------------------------------
