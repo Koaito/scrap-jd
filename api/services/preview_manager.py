@@ -12,8 +12,20 @@ Cấu trúc JSONB preview_data lưu trong DB:
       "row_index": 0,
       "data": {...cleaned fields từ validation_engine...},
       "conflict_status": "no_conflict" | "conflict" | "conflict_inactive"
-                          | "pending_company_resolution",
+                          | "pending_company_resolution" | "conflict_in_batch",
       "existing_record": {...} | null,
+      "duplicate_match": {"match_score":..., "matched_fields":[...]} | null,
+                          # (chỉ Contact) match mờ với DB — chỉ có giá trị
+                          # khi conflict_status chuyển "conflict" NGAY TẠI
+                          # apply_field_fix() (xem hàm đó), null nếu chưa
+                          # từng re-check hoặc conflict do build_preview.
+      "duplicate_in_batch": {"match_score":..., "matched_fields":[...],
+                              "other_row_index": N} | null,
+                          # (chỉ Contact, thêm 08/2026) match mờ với 1
+                          # dòng KHÁC trong CHÍNH file này (không phải
+                          # DB) — xem conflict_detector.
+                          # find_duplicate_rows_in_batch(). Chỉ có giá
+                          # trị khi conflict_status == "conflict_in_batch".
       "company_resolution": {                # CHỈ có ở entity job/contact
         "status": "resolved" | "needs_resolution",
         "company_id": "<uuid>" | null,
@@ -37,6 +49,7 @@ Cấu trúc JSONB preview_data lưu trong DB:
   ],
   "summary": {"total_rows": N, "new_records": N, "conflicts": N,
               "conflicts_inactive": N, "pending_company_resolution": N,
+              "conflicts_in_batch": N, "pending_level_resolution": N,
               "pending_field_fix": N,
               "id_field": "job_id" | "company_id" | "contact_id"}
 }
@@ -91,6 +104,7 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
         "conflicts": 0,
         "conflicts_inactive": 0,
         "pending_company_resolution": 0,
+        "conflicts_in_batch": 0,
         "pending_level_resolution": 0,
         "pending_field_fix": 0,
         # id_field: tên cột PK thật của entity (vd "job_id") — thêm
@@ -185,33 +199,69 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
 
         entry.setdefault("existing_record", None)
         entry["existing_record"] = _jsonable(entry.get("existing_record"))
-
-        status = entry["conflict_status"]
-        if status == "no_conflict":
-            summary["new_records"] += 1
-        elif status == "conflict":
-            summary["conflicts"] += 1
-        elif status == "conflict_inactive":
-            summary["conflicts_inactive"] += 1
-        elif status == "pending_company_resolution":
-            summary["pending_company_resolution"] += 1
-
-        # Cộng dồn ĐỘC LẬP với conflict_status ở trên (xem comment
-        # needs_level_resolve phía trên) — 1 dòng "no_conflict" vẫn có
-        # thể cần chọn lại level, nên đếm bằng if riêng, KHÔNG phải
-        # elif nối vào chuỗi if/elif conflict_status.
-        if entry.get("needs_level_resolve"):
-            summary["pending_level_resolution"] += 1
-
-        # Cộng dồn ĐỘC LẬP tương tự pending_level_resolution ở trên — 1
-        # dòng có thể vừa "no_conflict"/"conflict"/... vừa cần sửa field
-        # khác cùng lúc.
-        if entry.get("needs_field_fix"):
-            summary["pending_field_fix"] += 1
+        # duplicate_match/duplicate_in_batch (08/2026): mặc định None cho
+        # MỌI dòng ngay lúc build — build_preview() KHÔNG BAO GIỜ tự gán
+        # 2 field này (chỉ apply_field_fix() mới gán, xem hàm đó), nhưng
+        # cần có mặt sẵn với giá trị None để FE luôn có key để đọc, và để
+        # apply_field_fix() không phải tự kiểm tra "key có tồn tại chưa"
+        # mỗi lần đọc/ghi (row.get(...) vẫn an toàn dù thiếu key, nhưng
+        # để tường minh cấu trúc JSONB đồng nhất mọi dòng ngay từ đầu).
+        entry.setdefault("duplicate_match", None)
+        entry.setdefault("duplicate_in_batch", None)
 
         rows_out.append(entry)
 
+    summary.update(_count_summary_fields(rows_out))
     return {"rows": rows_out, "summary": summary}
+
+
+def _count_summary_fields(rows: list[dict]) -> dict:
+    """Đếm các field summary phụ thuộc trực tiếp vào nội dung `rows`
+    (conflict_status + needs_level_resolve/needs_field_fix) — TÁCH RIÊNG
+    khỏi build_preview() để apply_field_fix() dùng LẠI được nguyên hàm
+    này khi cần tính lại summary sau khi sửa 1 ô (thay vì tự cộng/trừ
+    tay ở nhiều điểm rẽ nhánh trong apply_field_fix, dễ lệch số khi 1
+    lần sửa ảnh hưởng conflict_status của CẢ dòng đang sửa lẫn dòng kia
+    bị match batch — xem apply_field_fix()). Quét lại toàn bộ rows mỗi
+    lần gọi (preview tối đa 5000 dòng, chi phí không đáng kể) thay vì
+    cộng dồn tăng-dần — LUÔN ĐÚNG, không rủi ro lệch số do quên nhánh
+    nào đó.
+
+    KHÔNG bao gồm "total_rows"/"id_field" (2 field đó không đổi khi sửa
+    field, không cần tính lại) — caller tự set/giữ nguyên."""
+    counts = {
+        "new_records": 0,
+        "conflicts": 0,
+        "conflicts_inactive": 0,
+        "pending_company_resolution": 0,
+        "conflicts_in_batch": 0,
+        "pending_level_resolution": 0,
+        "pending_field_fix": 0,
+    }
+    for entry in rows:
+        status = entry["conflict_status"]
+        if status == "no_conflict":
+            counts["new_records"] += 1
+        elif status == "conflict":
+            counts["conflicts"] += 1
+        elif status == "conflict_inactive":
+            counts["conflicts_inactive"] += 1
+        elif status == "pending_company_resolution":
+            counts["pending_company_resolution"] += 1
+        elif status == "conflict_in_batch":
+            counts["conflicts_in_batch"] += 1
+
+        # Cộng dồn ĐỘC LẬP với conflict_status ở trên (xem comment
+        # needs_level_resolve trong build_preview) — 1 dòng "no_conflict"
+        # vẫn có thể cần chọn lại level, nên đếm bằng if riêng, KHÔNG
+        # phải elif nối vào chuỗi if/elif conflict_status.
+        if entry.get("needs_level_resolve"):
+            counts["pending_level_resolution"] += 1
+
+        if entry.get("needs_field_fix"):
+            counts["pending_field_fix"] += 1
+
+    return counts
 
 
 def save_preview(conn, *, user_id: str, entity_type: str, preview_data: dict) -> str:
@@ -270,21 +320,40 @@ def apply_field_fix(
     2. Field hợp lệ -> ghi vào data, xoá khỏi field_errors/needs_field_fix
        của dòng. Nếu field_name là 1 trong 3 cột định danh contact
        (_CONTACT_DUPLICATE_CHECK_FIELDS) VÀ entity_type == "contact" ->
-       chạy conflict_detector.find_duplicate_contacts() ngay (match mờ,
-       tối thiểu 1/3 trong work_email/social_link/phone_number, cùng
-       company_id — company_id lấy từ company_resolution đã resolve lúc
-       build preview, KHÔNG re-resolve lại company_name ở đây):
-         - Có match -> conflict_status chuyển "conflict" (tái dùng đúng
-           UI Skip/Update/Create có sẵn cho case conflict thường, KHÔNG
-           làm UI riêng) + gắn existing_record/duplicate_match (match_score
-           + matched_fields) để FE hiển thị mức tin cậy.
-         - Hết match (vd staff sửa lại email khác đi) mà dòng đang ở
-           đúng trạng thái do lần re-check trước gây ra (need tự set lại
-           - xem is_reverted bên dưới) -> tự revert về "no_conflict",
-           tránh staff phải tự nhớ bỏ chọn.
+       chạy 2 loại match, THEO THỨ TỰ ƯU TIÊN (DB trước, batch sau —
+       tránh 2 loại conflict chồng lên nhau gây rối UI, vì DB-match đã
+       có existing_record thật để Update ngay, "chắc" hơn 1 dòng khác
+       trong file mà bản thân cũng chưa chắc đúng):
+         a. conflict_detector.find_duplicate_contacts() — match mờ VỚI
+            DB, company_id lấy từ company_resolution đã resolve lúc
+            build preview (KHÔNG re-resolve lại company_name ở đây).
+            Có match -> conflict_status "conflict" (tái dùng UI
+            Skip/Update/Create có sẵn) + existing_record/duplicate_match.
+         b. CHỈ khi (a) không có gì: conflict_detector.
+            find_duplicate_rows_in_batch() — match mờ với 1 dòng KHÁC
+            TRONG CHÍNH file này (quét toàn bộ rows, KHÔNG loại trừ
+            dòng đã Skip — xem docstring hàm đó). Có match -> XỬ LÝ 2
+            CHIỀU: conflict_status của dòng đang sửa VÀ dòng bị match
+            đều chuyển "conflict_in_batch" (nếu dòng kia CHƯA có gì
+            "nặng" hơn — conflict/conflict_inactive/pending_company_
+            resolution từ trước, DB/company-resolution vẫn ưu tiên hơn
+            batch-match ở dòng kia), gắn duplicate_in_batch cho CẢ 2
+            dòng (other_row_index trỏ chéo nhau), lưu preview_data 1
+            LẦN duy nhất cho cả 2 thay đổi.
+       Hết match ở CẢ (a) và (b) -> tự revert conflict_status về
+       "no_conflict" NẾU trạng thái hiện tại là do CHÍNH lần re-check
+       trước gây ra (không đụng tới nếu dòng vốn conflict/conflict_inactive/
+       conflict_in_batch từ build_preview hoặc từ 1 lần sửa field KHÁC).
+       Nếu dòng ĐANG trỏ batch-match sang 1 dòng khác (trước khi sửa)
+       mà giờ không còn match nữa (đổi field, hoặc DB-match giờ ưu tiên
+       hơn) -> gỡ liên kết NGƯỢC ở dòng kia luôn (_clear_batch_link),
+       tránh để dòng kia trỏ treo sang dữ liệu CŨ của dòng này.
 
-    Trả full row entry (dict) đã cập nhật — router build FieldVerifyResponse
-    trực tiếp từ đây, KHÔNG cần đọc lại nguyên preview.
+    Trả full row entry (dict) đã cập nhật của DÒNG ĐANG SỬA — router
+    build FieldVerifyResponse trực tiếp từ đây. LƯU Ý: nếu case (b) xảy
+    ra, dòng KIA cũng bị đổi trong preview_data đã lưu DB nhưng KHÔNG
+    nằm trong response này — FE phải tự nhận biết (vd load lại preview,
+    hoặc BE trả thêm ở lần mở rộng sau) rằng 1 dòng khác cũng vừa đổi.
 
     LƯU Ý: hàm này TỰ COMMIT (conn.commit()) vì lưu ngay khi staff bấm
     "Xác nhận" tại ô, không gộp chung transaction với bước confirm cuối
@@ -319,42 +388,106 @@ def apply_field_fix(
     row["field_errors"] = field_errors
     row["needs_field_fix"] = bool(field_errors)
 
-    duplicate_match = None
-    was_conflict_from_duplicate_check = row.get("duplicate_match") is not None
-
     if entity_type == "contact" and field_name in _CONTACT_DUPLICATE_CHECK_FIELDS:
+        was_conflict_from_db_check = row.get("duplicate_match") is not None
+        was_conflict_in_batch = row.get("conflict_status") == "conflict_in_batch"
+        prev_batch_link = row.get("duplicate_in_batch")
+
+        # Dòng đang sửa TRƯỚC ĐÓ trỏ batch-match sang 1 dòng khác -> gỡ
+        # liên kết NGƯỢC ở dòng kia trước khi tính lại (nếu vẫn còn
+        # match sau khi tính lại, sẽ được set lại ở nhánh (b) bên dưới —
+        # đơn giản hơn cố giữ lại liên kết cũ rồi so sánh diff).
+        if prev_batch_link:
+            _clear_batch_link(rows, prev_batch_link["other_row_index"], row_index)
+
         company_id = (row.get("company_resolution") or {}).get("company_id")
-        matches = conflict_detector.find_duplicate_contacts(
-            conn,
-            company_id=company_id,
-            work_email=row["data"].get("work_email"),
-            social_link=row["data"].get("social_link"),
-            phone_number=row["data"].get("phone_number"),
+        work_email = row["data"].get("work_email")
+        social_link = row["data"].get("social_link")
+        phone_number = row["data"].get("phone_number")
+
+        # (a) DB-match — ưu tiên trước.
+        db_matches = conflict_detector.find_duplicate_contacts(
+            conn, company_id=company_id, work_email=work_email,
+            social_link=social_link, phone_number=phone_number,
         )
-        if matches:
-            best = matches[0]
-            duplicate_match = {
-                "match_score": best["match_score"],
-                "matched_fields": best["matched_fields"],
-            }
+        if db_matches:
+            best = db_matches[0]
             row["conflict_status"] = "conflict"
             row["existing_record"] = _jsonable(best["existing_record"])
-            row["duplicate_match"] = duplicate_match
-        elif was_conflict_from_duplicate_check:
-            # Dòng trước đó bị đánh dấu "conflict" do CHÍNH re-check này
-            # (không phải do build_preview ban đầu) và giờ hết match sau
-            # khi sửa -> tự revert, không bắt staff tự nhớ đổi lại. Nếu
-            # dòng vốn "conflict"/"conflict_inactive" từ build_preview
-            # đầu tiên (duplicate_match=None gốc) thì KHÔNG đụng tới ở
-            # đây (ngoài phạm vi field_name vừa sửa).
-            row["conflict_status"] = "no_conflict"
-            row["existing_record"] = None
-            row["duplicate_match"] = None
+            row["duplicate_match"] = {
+                "match_score": best["match_score"], "matched_fields": best["matched_fields"],
+            }
+            row["duplicate_in_batch"] = None
+        else:
+            # Hết DB-match -> revert phần do DB-match gây ra trước đó
+            # (nếu có), rồi mới xét batch-match.
+            if was_conflict_from_db_check:
+                row["conflict_status"] = "no_conflict"
+                row["existing_record"] = None
+                row["duplicate_match"] = None
 
+            # (b) Batch-match — CHỈ chạy khi (a) không có gì.
+            batch_matches = conflict_detector.find_duplicate_rows_in_batch(
+                rows, row_index=row_index, company_id=company_id,
+                work_email=work_email, social_link=social_link, phone_number=phone_number,
+            )
+            if batch_matches:
+                best = batch_matches[0]
+                other_index = best["row_index"]
+                other_row = next(r for r in rows if r["row_index"] == other_index)
+
+                link_for_this = {
+                    "match_score": best["match_score"], "matched_fields": best["matched_fields"],
+                    "other_row_index": other_index,
+                }
+                row["duplicate_in_batch"] = link_for_this
+                if row["conflict_status"] not in ("conflict", "conflict_inactive"):
+                    row["conflict_status"] = "conflict_in_batch"
+
+                other_row["duplicate_in_batch"] = {
+                    "match_score": best["match_score"], "matched_fields": best["matched_fields"],
+                    "other_row_index": row_index,
+                }
+                # Dòng KIA giữ nguyên conflict_status nếu đang "nặng" hơn
+                # batch-match (conflict/conflict_inactive/pending_company_
+                # resolution từ build_preview hoặc từ 1 lần sửa khác) —
+                # batch-match chỉ HẠ xuống conflict_in_batch cho dòng
+                # đang "no_conflict".
+                if other_row["conflict_status"] == "no_conflict":
+                    other_row["conflict_status"] = "conflict_in_batch"
+            else:
+                row["duplicate_in_batch"] = None
+                if was_conflict_in_batch:
+                    row["conflict_status"] = "no_conflict"
+
+    preview_data["summary"].update(_count_summary_fields(rows))
     _save_preview_data(conn, preview_row["preview_id"], preview_data)
     conn.commit()
 
     return {"row": row, "field_error": None}
+
+
+def _clear_batch_link(rows: list[dict], other_row_index: int, expect_pointer_to: int) -> None:
+    """Gỡ duplicate_in_batch phía DÒNG KIA khi dòng đang sửa KHÔNG còn
+    trỏ tới nó nữa (dữ liệu vừa đổi khác đi, hoặc DB-match giờ được ưu
+    tiên thay batch-match) — CHỈ gỡ nếu dòng kia ĐANG THẬT SỰ trỏ ngược
+    lại đúng dòng này (`expect_pointer_to`), tránh xoá nhầm liên kết
+    dòng kia đã kịp đổi sang match 1 dòng thứ 3 khác từ 1 lần sửa khác.
+    Nếu conflict_status của dòng kia là DO CHÍNH batch-match này gây ra
+    (đang "conflict_in_batch") -> revert về "no_conflict" luôn, tránh
+    treo trạng thái không còn đúng. GIỚI HẠN: chỉ xử lý đúng 1 cặp
+    (2 dòng) — trường hợp 3+ dòng cùng match nhau (A-B-C) không được xử
+    lý triệt để ở mức revert này, staff cần tự re-check lại các dòng
+    liên quan nếu gặp case hiếm này."""
+    other_row = next((r for r in rows if r["row_index"] == other_row_index), None)
+    if other_row is None:
+        return
+    link = other_row.get("duplicate_in_batch")
+    if not link or link.get("other_row_index") != expect_pointer_to:
+        return
+    other_row["duplicate_in_batch"] = None
+    if other_row.get("conflict_status") == "conflict_in_batch":
+        other_row["conflict_status"] = "no_conflict"
 
 
 def _save_preview_data(conn, preview_id: str, preview_data: dict) -> None:

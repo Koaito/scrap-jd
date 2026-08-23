@@ -68,6 +68,52 @@ def execute_import(
         resolution = resolutions.get(str(row_index), {})
         action = resolution.get("action", "skip")
 
+        # conflict_in_batch (08/2026, hiện chỉ Contact — xem preview_
+        # manager.apply_field_fix() + conflict_detector.
+        # find_duplicate_rows_in_batch()): dòng KHÔNG trùng gì trong DB
+        # nhưng trùng với 1 dòng KHÁC trong CHÍNH file import. KHÁC mọi
+        # status khác ở trên — KHÔNG cho phép mặc định Skip âm thầm khi
+        # thiếu resolution (default action="skip" ở dòng trên vốn hợp lý
+        # cho "conflict" thường theo Requirement 5.6, nhưng ở đây im
+        # lặng bỏ qua rất dễ làm mất 1 trong 2 dòng dữ liệu thật mà staff
+        # không hề hay biết) -> resolutions BẮT BUỘC có entry TƯỜNG MINH
+        # cho row_index này, dù ý staff có là Skip đi nữa.
+        #
+        # action hợp lệ ở đây: "skip" (dòng này là dòng trùng, bỏ qua —
+        # dòng kia staff tự resolve riêng theo entry của chính nó) hoặc
+        # "create" (giữ dòng này, xác nhận 2 dòng là 2 người khác nhau —
+        # chạy BÌNH THƯỜNG qua _apply_conflict_action() ở dưới, vì case
+        # này KHÔNG có existing_record thật để tạo xung đột gì thêm).
+        # "update" KHÔNG hợp lệ — không có existing_record (dòng "kia"
+        # chỉ là 1 dòng khác trong file, không phải record đã có trong
+        # DB, không có gì để update).
+        #
+        # LƯU Ý CHƯA CHỐT: hiện TẠM dùng lại đúng 2 giá trị "skip"/
+        # "create" có sẵn (KHÔNG thêm action enum riêng) — vì xét kỹ,
+        # 2 outcome thực thi của case này giống HỆT nhánh "conflict"
+        # thường (skip/create không đụng existing_record). Nếu FE muốn
+        # 1 action tên riêng (vd "keep_this"/"import_both") để phân biệt
+        # rõ trong UI/audit log, hoặc muốn hành vi "1 lần chọn tự áp
+        # dụng cho CẢ 2 dòng" (staff chỉ bấm 1 nút cho cả cặp thay vì
+        # phải resolve riêng từng dòng) thì cần bàn thêm — CHƯA implement
+        # phần tự động lan truyền quyết định sang dòng kia ở đây.
+        if status == "conflict_in_batch":
+            if str(row_index) not in resolutions:
+                other_index = (row.get("duplicate_in_batch") or {}).get("other_row_index")
+                other_label = f"dòng {other_index + 1}" if isinstance(other_index, int) else "1 dòng khác"
+                raise RowResolutionError(
+                    f"Dòng {row_index + 1}: phát hiện trùng với {other_label} trong "
+                    f"cùng file import — cần staff tự chọn rõ ràng (Skip nếu đây là "
+                    f"dòng trùng lặp, hoặc Create nếu xác nhận đây là người khác) "
+                    f"trước khi xác nhận, không được để mặc định."
+                )
+            if action == "update":
+                raise RowResolutionError(
+                    f"Dòng {row_index + 1}: action 'update' không hợp lệ cho dòng "
+                    f"conflict_in_batch — dòng trùng nằm trong CHÍNH file import, "
+                    f"không phải record đã có trong DB, không có gì để update."
+                )
+
         # needs_level_resolve (chỉ Job, 08/2026 — xem preview_manager.py::
         # build_preview): level_code trong file không khớp danh sách hợp
         # lệ (dù đã chuẩn hoá hoa/thường) -> validation_engine.py đã set
@@ -137,7 +183,11 @@ def execute_import(
                 )
             continue
 
-        # status in ("conflict", "conflict_inactive")
+        # status in ("conflict", "conflict_inactive", "conflict_in_batch")
+        # — conflict_in_batch không có existing_record thật (luôn None,
+        # xem preview_manager.apply_field_fix()), nhưng vẫn chạy qua
+        # ĐÚNG _apply_conflict_action() vì action skip/create không đụng
+        # existing_record; action=update đã bị chặn ở check phía trên.
         existing = row.get("existing_record")
         _apply_conflict_action(
             conn, entity_type, data, existing, status, action, resolution, actor_id, summary,

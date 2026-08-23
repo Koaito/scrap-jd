@@ -959,7 +959,14 @@ class RowResolution(BaseModel):
     
     action: str = Field(
         ..., 
-        description="skip | create | update"
+        description="skip | create | update. Riêng dòng conflict_status="
+                     "'conflict_in_batch' (thêm 08/2026, trùng với 1 dòng KHÁC "
+                     "trong CHÍNH file import, không phải DB — xem "
+                     "BatchDuplicateMatchOut): chỉ nhận skip (dòng này là dòng "
+                     "trùng) hoặc create (xác nhận 2 dòng là 2 người khác nhau); "
+                     "'update' không hợp lệ (không có existing_record để update) "
+                     "và resolution cho dòng này là BẮT BUỘC tường minh, "
+                     "KHÔNG được để mặc định (xem import_executor.execute_import)."
     )
     company_id: Optional[str] = Field(
         None, 
@@ -1022,6 +1029,36 @@ class DuplicateMatchOut(BaseModel):
     )
 
 
+class BatchDuplicateMatchOut(BaseModel):
+    """Kết quả match mờ khi phát hiện dòng vừa sửa trùng với 1 dòng KHÁC
+    TRONG CHÍNH file đang import (thêm 08/2026) — khác DuplicateMatchOut
+    ở trên vốn so với record ĐÃ CÓ trong DB. Xem conflict_detector.
+    find_duplicate_rows_in_batch() + preview_manager.apply_field_fix().
+
+    Chỉ có giá trị khi conflict_status của dòng chuyển "conflict_in_batch"
+    — dòng này KHÔNG có existing_record thật (existing_record vẫn null),
+    other_row_index mới là thứ FE cần để biết đang trùng với dòng nào
+    trong bảng preview (không phải record DB)."""
+    match_score: float = Field(
+        ..., description="Số cột khớp / 3 (0.33 / 0.67 / 1.0) — càng cao càng chắc trùng."
+    )
+    matched_fields: list[str] = Field(
+        ..., description="Các cột khớp, trong (work_email, social_link, phone_number)."
+    )
+    other_row_index: int = Field(
+        ...,
+        description="row_index của dòng KIA trong CÙNG file bị phát hiện trùng "
+                     "(khớp key trong preview_data['rows']) — FE dùng để "
+                     "highlight/liên kết sang dòng đó trên bảng preview. Khi 1 "
+                     "dòng nhận duplicate_in_batch mới, dòng có row_index này "
+                     "CŨNG bị cập nhật duplicate_in_batch/conflict_status trong "
+                     "preview đã lưu DB (xử lý 2 chiều), dù response của "
+                     "verify-field chỉ trả về đúng dòng vừa sửa — FE cần tự "
+                     "biết dòng kia cũng vừa đổi (vd tải lại preview nếu cần "
+                     "hiển thị chính xác ngay lập tức)."
+    )
+
+
 class FieldVerifyResponse(BaseModel):
     """Response cho POST .../verify-field.
 
@@ -1034,7 +1071,11 @@ class FieldVerifyResponse(BaseModel):
     TOÀN BỘ entry của dòng đó sau khi cập nhật (đúng cấu trúc 1 phần tử
     trong ImportUploadResponse.rows) — FE ghi đè PREVIEW_DATA[row_index]
     bằng row này, tự cập nhật lại UI (field_errors còn lại, conflict_status
-    mới nếu có, duplicate_match nếu phát hiện trùng)."""
+    mới nếu có, duplicate_match nếu phát hiện trùng DB, duplicate_in_batch
+    (xem BatchDuplicateMatchOut) nếu phát hiện trùng với 1 dòng KHÁC
+    trong CHÍNH file — LƯU Ý: case duplicate_in_batch ảnh hưởng 2 CHIỀU,
+    dòng other_row_index cũng vừa đổi trong preview đã lưu DB dù KHÔNG
+    nằm trong response này)."""
     row: dict
     field_error: Optional[dict] = Field(
         None, description="{'rule','message'} nếu vẫn lỗi, None nếu đã hợp lệ và đã lưu."
