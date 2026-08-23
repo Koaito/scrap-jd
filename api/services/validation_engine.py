@@ -304,6 +304,37 @@ def _validate_job_business_rules(cleaned: dict, row_number: int, field_errors: d
         }
 
 
+def check_job_salary_business_rules(data: dict) -> dict:
+    """Public wrapper cho _validate_job_business_rules(), dùng NGOÀI
+    validate_dataframe() — cụ thể ở preview_manager.py::apply_field_fix()
+    (staff sửa 1 ô salary_min/salary_max tại chỗ trên preview, bấm "Xác
+    nhận").
+
+    BUG (phát hiện 08/2026 qua staff test): apply_field_fix() TRƯỚC ĐÂY
+    chỉ gọi validate_single_field() để check TYPE của field đang sửa (vd
+    salary_min phải là số nguyên) — số âm hay số nhỏ hơn salary_min vẫn
+    là "số nguyên hợp lệ" về type nên pass thẳng, không hề chạy lại rule
+    liên trường "salary_min >= 0" / "salary_max >= salary_min". Hậu quả:
+    staff sửa 1 ô salary sai logic (vd salary_min=-5000000000) qua nút
+    "Xác nhận" tại ô, hệ thống báo hợp lệ, dòng đó lọt tới bước confirm,
+    rồi mới vỡ ở tầng DB (constraint CHECK, nếu có) hoặc — tệ hơn — ghi
+    thẳng số vô lý vào DB nếu bảng không có CHECK constraint.
+
+    Trả field_errors MỚI dạng {"salary_min": {...}, "salary_max": {...}}
+    (rỗng nếu hợp lệ) — CHỈ đánh giá salary_min/salary_max đang có sẵn
+    trong `data` (đã convert qua validate_single_field(), tức đã là
+    int/None), không tự parse lại từ string. Dùng chung message/rule
+    NGUYÊN VĂN với _validate_job_business_rules() (gọi lại chính hàm đó
+    với field_errors rỗng rồi trả ra) để 2 nơi không lệch câu chữ khi sau
+    này sửa rule."""
+    field_errors: dict = {}
+    # row_number không có ý nghĩa ở context sửa 1 ô tại chỗ (không phải
+    # dòng N trong file gốc theo nghĩa cũ) — dùng "?" cho rõ đây là re-check
+    # tại chỗ, không phải lỗi lúc build preview ban đầu.
+    _validate_job_business_rules(data, "?", field_errors)
+    return field_errors
+
+
 def _extra_optional_fields(entity_type: str) -> set[str]:
     """Field optional KHÔNG nằm trong required/enum/date/number/email
     (vd matching_industry, province_name của Job — text tự do, chỉ cần

@@ -65,7 +65,11 @@ import psycopg2.extras
 
 from api.services import conflict_detector, company_resolver
 from api.services.entity_specs import field_options, field_widget_type, get_spec
-from api.services.validation_engine import ValidationResult, validate_single_field
+from api.services.validation_engine import (
+    ValidationResult,
+    check_job_salary_business_rules,
+    validate_single_field,
+)
 
 # Contact: field nào (khi sửa) cần re-check trùng mờ ngay — xem
 # conflict_detector.find_duplicate_contacts() + apply_field_fix() bên
@@ -381,8 +385,58 @@ def apply_field_fix(
     if err is not None:
         return {"row": row, "field_error": err}
 
-    # Field hợp lệ -> ghi vào data, xoá lỗi cũ của field này (nếu có).
+    # Field hợp lệ VỀ TYPE -> ghi tạm vào data để re-check business rule
+    # liên trường (nếu có) TRƯỚC KHI xoá field_errors của field này —
+    # tránh xoá lỗi rồi mới phát hiện vi phạm rule khác, dễ để lọt dòng
+    # sai qua bước xác nhận tại chỗ.
     row["data"][field_name] = value
+
+    # BUG FIX (08/2026, phát hiện qua staff test): field hợp lệ về TYPE
+    # (vd salary_min là số nguyên) KHÔNG có nghĩa hợp lệ về BUSINESS RULE
+    # liên trường (salary_min >= 0, salary_max >= salary_min) — trước đây
+    # apply_field_fix() chỉ check type rồi coi như xong, số âm hay
+    # salary_max < salary_min vẫn lọt qua nút "Xác nhận" tại ô, kéo theo
+    # lọt luôn tới bước confirm (có thể vỡ ở tầng DB nếu có CHECK
+    # constraint, hoặc tệ hơn là ghi số vô lý vào DB nếu không có). Field
+    # vừa sửa KHÔNG lỗi type nhưng VI PHẠM business rule -> trả lỗi ngay,
+    # KHÔNG ghi đè field_errors gốc của dòng (row["data"] đã tạm ghi giá
+    # trị mới ở trên nhưng field_errors CHƯA xoá field_name này, giữ
+    # nguyên trạng thái needs_field_fix=true cho tới khi staff sửa đúng).
+    if entity_type == "job" and field_name in ("salary_min", "salary_max"):
+        salary_rule_errors = check_job_salary_business_rules(row["data"])
+        if field_name in salary_rule_errors:
+            # Field ĐANG sửa tự nó vi phạm rule (vd staff gõ salary_min
+            # âm) -> trả lỗi ngay tại ô này, KHÔNG ghi gì thêm khác.
+            return {"row": row, "field_error": salary_rule_errors[field_name]}
+        other_field = "salary_max" if field_name == "salary_min" else "salary_min"
+        if other_field in salary_rule_errors:
+            # Field ĐANG sửa tự nó hợp lệ, nhưng sau khi ghi giá trị mới,
+            # field KIA (đã có sẵn trong data, không phải field đang sửa)
+            # giờ vi phạm rule (vd salary_min mới > salary_max cũ đã lưu
+            # từ trước, vốn không lỗi) — dòng phải quay lại needs_field_fix
+            # cho field kia, KHÔNG được coi dòng này "vừa sửa xong" như
+            # bình thường. Trả lỗi rõ ràng thay vì im lặng chấp nhận field
+            # đang sửa rồi để lộ vi phạm ở field khác staff không hay biết.
+            field_errors = row.get("field_errors") or {}
+            field_errors[other_field] = salary_rule_errors[other_field]
+            row["field_errors"] = field_errors
+            row["needs_field_fix"] = True
+            return {
+                "row": row,
+                "field_error": {
+                    "rule": salary_rule_errors[other_field]["rule"],
+                    "message": (
+                        salary_rule_errors[other_field]["message"]
+                        + f" (cột '{other_field}' cần được sửa lại tương ứng)"
+                    ),
+                },
+            }
+        # Field vừa sửa tự nó ổn (vd staff sửa salary_max hợp lệ, nhưng
+        # RULE có thể vẫn báo lỗi ở field KIA — salary_min cũ đang âm từ
+        # trước) -> field_name không nằm trong salary_rule_errors nghĩa
+        # là rule liên trường đã pass CHO CẢ CẶP tại thời điểm này, an
+        # toàn để xoá lỗi field_name khỏi field_errors ở bước dưới.
+
     field_errors = row.get("field_errors") or {}
     field_errors.pop(field_name, None)
     row["field_errors"] = field_errors
