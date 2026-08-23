@@ -31,7 +31,13 @@ inactive" đã chốt, + "conflict_in_batch" thêm 08/2026):
                                   sang dòng kia trong preview_data["rows"]),
                                   staff tự chọn Skip (dòng này là dòng
                                   trùng) hoặc Create (xác nhận 2 dòng là
-                                  2 người khác nhau).
+                                  2 người khác nhau) CHO TỪNG DÒNG, hoặc
+                                  (thêm 08/2026) dùng 1 action LAN TRUYỀN
+                                  "keep_this"/"keep_other"/"import_both"
+                                  áp dụng 1 lần cho CẢ CẶP — xem
+                                  api/services/import_executor.py::
+                                  BATCH_PROPAGATING_ACTIONS +
+                                  _expand_conflict_in_batch_resolutions().
 """
 
 from typing import Optional

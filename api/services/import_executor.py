@@ -22,6 +22,34 @@ from api.services.validation_engine import validate_single_field
 from constants import LEVEL_CODE_VALUES
 
 
+BATCH_PROPAGATING_ACTIONS: dict[str, dict[str, str]] = {
+    # "keep_this"   : giữ dòng đang gửi resolution, bỏ dòng kia (2 dòng
+    #                 là CÙNG 1 người, dòng này là bản đúng).
+    # "keep_other"  : ngược lại — bỏ dòng đang gửi, giữ dòng kia.
+    # "import_both" : xác nhận 2 dòng là 2 người KHÁC NHAU, giữ cả 2 (match
+    #                 mờ chỉ là trùng ngẫu nhiên 1 vài field, không phải
+    #                 trùng người).
+    #
+    # THIẾT KẾ MỞ RỘNG (thêm 08/2026 — xem _expand_conflict_in_batch_
+    # resolutions() bên dưới): đây là NGUỒN SỰ THẬT DUY NHẤT khai báo mọi
+    # action lan truyền + hiệu ứng của nó lên dòng đang gửi ("self") và
+    # dòng bị match ("other") trong 1 cặp conflict_in_batch. Muốn thêm 1
+    # action lan truyền mới trong tương lai (vd 1 action "cả 2 là chi
+    # nhánh của cùng 1 công ty, gộp thông tin") — CHỈ cần thêm 1 entry
+    # {"self": <skip|create>, "other": <skip|create>} vào dict này, KHÔNG
+    # cần sửa bất kỳ nhánh if/elif nào ở _expand_conflict_in_batch_
+    # resolutions() hay _apply_conflict_action(): 2 hàm đó chỉ đọc action
+    # THUẦN (skip/create/update) đã được chuẩn hoá, không bao giờ tự biết
+    # tên action lan truyền là gì. "self"/"other" hiện chỉ nhận "skip"
+    # hoặc "create" — "update" KHÔNG hợp lệ ở đây vì conflict_in_batch
+    # không có existing_record thật (xem check action=="update" phía
+    # dưới trong execute_import).
+    "keep_this": {"self": "create", "other": "skip"},
+    "keep_other": {"self": "skip", "other": "create"},
+    "import_both": {"self": "create", "other": "create"},
+}
+
+
 class RowResolutionError(Exception):
     """1 dòng thiếu thông tin bắt buộc để thực thi (vd action=Update cho
     dòng pending_company_resolution mà staff chưa chọn company_id nào,
@@ -49,7 +77,10 @@ def execute_import(
     resolutions: dict[str, dict],
     actor_id: str,
 ) -> ImportSummary:
-    """resolutions: {str(row_index): {"action": "skip"|"update"|"create",
+    """resolutions: {str(row_index): {"action": "skip"|"update"|"create"
+    (dòng conflict_status="conflict_in_batch" nhận thêm 3 giá trị action
+    LAN TRUYỀN — xem BATCH_PROPAGATING_ACTIONS +
+    _expand_conflict_in_batch_resolutions() bên dưới),
     "company_id": "<uuid>" (optional, cho dòng pending_company_resolution),
     "confirm_reactivate": bool (optional, cho dòng conflict_inactive),
     "level_code": "<Intern|Fresher|...|Manager>" (optional, BẮT BUỘC nếu
@@ -59,6 +90,14 @@ def execute_import(
     Requirement 5.6: dòng conflict KHÔNG có resolution -> mặc định Skip.
     Dòng no_conflict KHÔNG cần resolution -> LUÔN tạo mới (Requirement 6.3).
     """
+    # conflict_in_batch — action lan truyền (thêm 08/2026): giãn resolutions
+    # TRƯỚC KHI vào vòng lặp chính, để mọi logic bên dưới (check "thiếu
+    # resolution", check action=="update", _apply_conflict_action, ...)
+    # KHÔNG cần biết gì về action lan truyền — chúng chỉ thấy action
+    # skip/create/update thuần, y hệt trước khi có tính năng này. Xem
+    # docstring _expand_conflict_in_batch_resolutions() để hiểu đầy đủ.
+    resolutions = _expand_conflict_in_batch_resolutions(preview_rows, resolutions)
+
     summary = ImportSummary()
 
     for row in preview_rows:
@@ -79,24 +118,33 @@ def execute_import(
         # không hề hay biết) -> resolutions BẮT BUỘC có entry TƯỜNG MINH
         # cho row_index này, dù ý staff có là Skip đi nữa.
         #
-        # action hợp lệ ở đây: "skip" (dòng này là dòng trùng, bỏ qua —
-        # dòng kia staff tự resolve riêng theo entry của chính nó) hoặc
-        # "create" (giữ dòng này, xác nhận 2 dòng là 2 người khác nhau —
-        # chạy BÌNH THƯỜNG qua _apply_conflict_action() ở dưới, vì case
-        # này KHÔNG có existing_record thật để tạo xung đột gì thêm).
-        # "update" KHÔNG hợp lệ — không có existing_record (dòng "kia"
-        # chỉ là 1 dòng khác trong file, không phải record đã có trong
-        # DB, không có gì để update).
+        # Có 2 CÁCH để entry đó tồn tại lúc chạy tới đây (đã bị
+        # _expand_conflict_in_batch_resolutions() ở đầu hàm chuẩn hoá hết
+        # về skip/create thuần trước khi tới vòng lặp này):
+        #   (1) staff/FE tự gửi resolution RIÊNG cho CẢ 2 dòng trong cặp
+        #       (action "skip" hoặc "create" cho từng dòng độc lập) —
+        #       cách gốc, vẫn được hỗ trợ nguyên vẹn.
+        #   (2) staff/FE chỉ gửi 1 resolution DUY NHẤT dùng action LAN
+        #       TRUYỀN (BATCH_PROPAGATING_ACTIONS: "keep_this"/
+        #       "keep_other"/"import_both") cho 1 trong 2 dòng — backend
+        #       tự suy ra + điền resolution cho dòng kia (lấy dòng kia từ
+        #       duplicate_in_batch.other_row_index). Nếu CẢ 2 dòng cùng
+        #       được gửi resolution (dù thuần hay lan truyền) mà mâu
+        #       thuẫn nhau (vd dòng này "keep_this" nhưng dòng kia lại
+        #       "create" — tức cả 2 cùng đòi giữ) thì
+        #       _expand_conflict_in_batch_resolutions() đã raise
+        #       RowResolutionError từ trước khi tới được đây.
         #
-        # LƯU Ý CHƯA CHỐT: hiện TẠM dùng lại đúng 2 giá trị "skip"/
-        # "create" có sẵn (KHÔNG thêm action enum riêng) — vì xét kỹ,
-        # 2 outcome thực thi của case này giống HỆT nhánh "conflict"
-        # thường (skip/create không đụng existing_record). Nếu FE muốn
-        # 1 action tên riêng (vd "keep_this"/"import_both") để phân biệt
-        # rõ trong UI/audit log, hoặc muốn hành vi "1 lần chọn tự áp
-        # dụng cho CẢ 2 dòng" (staff chỉ bấm 1 nút cho cả cặp thay vì
-        # phải resolve riêng từng dòng) thì cần bàn thêm — CHƯA implement
-        # phần tự động lan truyền quyết định sang dòng kia ở đây.
+        # action hợp lệ ở TẦNG NÀY (sau khi đã giãn) chỉ còn "skip" (dòng
+        # này là dòng trùng, bỏ qua) hoặc "create" (giữ dòng này, chạy
+        # BÌNH THƯỜNG qua _apply_conflict_action() ở dưới, vì case này
+        # KHÔNG có existing_record thật để tạo xung đột gì thêm). "update"
+        # KHÔNG hợp lệ — không có existing_record (dòng "kia" chỉ là 1
+        # dòng khác trong file, không phải record đã có trong DB, không
+        # có gì để update) — action lan truyền không bao giờ tự sinh ra
+        # "update" (xem BATCH_PROPAGATING_ACTIONS, chỉ map về skip/create),
+        # nên check bên dưới chỉ còn bắt được trường hợp staff GỬI TAY
+        # action="update" trực tiếp.
         if status == "conflict_in_batch":
             if str(row_index) not in resolutions:
                 other_index = (row.get("duplicate_in_batch") or {}).get("other_row_index")
@@ -104,8 +152,10 @@ def execute_import(
                 raise RowResolutionError(
                     f"Dòng {row_index + 1}: phát hiện trùng với {other_label} trong "
                     f"cùng file import — cần staff tự chọn rõ ràng (Skip nếu đây là "
-                    f"dòng trùng lặp, hoặc Create nếu xác nhận đây là người khác) "
-                    f"trước khi xác nhận, không được để mặc định."
+                    f"dòng trùng lặp, Create nếu xác nhận đây là người khác, hoặc dùng "
+                    f"1 action lan truyền 'keep_this'/'keep_other'/'import_both' cho "
+                    f"CẢ CẶP qua resolution của 1 trong 2 dòng) trước khi xác nhận, "
+                    f"không được để mặc định."
                 )
             if action == "update":
                 raise RowResolutionError(
@@ -194,6 +244,172 @@ def execute_import(
         )
 
     return summary
+
+
+def _expand_conflict_in_batch_resolutions(
+    preview_rows: list[dict], resolutions: dict[str, dict],
+) -> dict[str, dict]:
+    """Giãn (expand) resolutions gốc từ staff/FE: mọi entry dùng 1 action
+    LAN TRUYỀN trong BATCH_PROPAGATING_ACTIONS ("keep_this"/"keep_other"/
+    "import_both") cho 1 dòng conflict_status="conflict_in_batch" sẽ được:
+
+    1. Chuẩn hoá action của CHÍNH dòng đó về "skip"/"create" thuần (theo
+       effect["self"]), để mọi logic execute_import() phía sau (kể cả
+       _apply_conflict_action()) không cần biết action lan truyền là gì.
+    2. Tự tạo (hoặc đối chiếu, nếu đã có sẵn) resolution cho dòng KIA
+       (lấy từ row["duplicate_in_batch"]["other_row_index"]) theo
+       effect["other"] — staff KHÔNG BẮT BUỘC phải tự gửi resolution cho
+       dòng kia nữa (khác hành vi gốc trước 08/2026, vốn bắt buộc gửi đủ
+       2 entry riêng — cách đó VẪN được hỗ trợ song song, xem bên dưới).
+
+    Thuần Python, KHÔNG đụng DB (giống find_duplicate_rows_in_batch()) —
+    chỉ đọc preview_rows (đã có sẵn duplicate_in_batch từ preview_manager)
+    + resolutions do caller truyền vào, KHÔNG mutate resolutions gốc (trả
+    dict MỚI) để an toàn nếu caller còn dùng resolutions gốc cho việc
+    khác (vd log/audit nguyên văn request staff gửi).
+
+    Quy tắc AN TOÀN (ưu tiên báo lỗi rõ ràng hơn đoán sai dữ liệu):
+    - Action lan truyền CHỈ hợp lệ cho dòng đang ở đúng conflict_status=
+      "conflict_in_batch" và có duplicate_in_batch.other_row_index trỏ
+      tới 1 dòng CÒN TỒN TẠI trong preview_rows.
+    - Liên kết PHẢI mutual (dòng kia cũng đang trỏ ngược lại đúng dòng
+      này) — bảo vệ case 3+ dòng cùng match nhau (A-B-C), vốn CHƯA được
+      xử lý triệt để ở tầng detect (xem conflict_detector.
+      find_duplicate_rows_in_batch()/preview_manager._clear_batch_link()
+      docstring). Không mutual -> raise, bắt staff resolve riêng từng
+      dòng bằng skip/create thuần (an toàn hơn tự suy luận sai).
+    - Nếu dòng kia CŨNG có resolution riêng (staff gửi đủ cả 2, theo
+      cách gốc, hoặc gửi cả 2 dưới dạng action lan truyền) mà HIỆU LỰC
+      (effective action skip/create thật sự, sau khi tự quy đổi nếu bản
+      thân nó cũng là action lan truyền) mâu thuẫn với action lan truyền
+      của dòng đang xét -> raise RowResolutionError, KHÔNG tự chọn bên
+      nào đúng.
+    - Kết quả nhất quán dù duyệt theo thứ tự nào (idempotent): nếu CẢ 2
+      dòng trong 1 cặp đều gửi action lan truyền tương thích nhau (vd
+      dòng A "keep_this" và dòng B "keep_other" — cùng ngụ ý A=create,
+      B=skip), hàm này không báo lỗi, dù dòng nào được xử lý trước.
+    """
+    rows_by_index = {r["row_index"]: r for r in preview_rows}
+    expanded = {key: dict(value) for key, value in resolutions.items()}
+
+    def _effective_self_action(raw_action) -> Optional[str]:
+        """Quy action bất kỳ (thuần hoặc lan truyền) về hiệu lực THẬT SỰ
+        của nó lên chính dòng sở hữu action đó — dùng để so sánh 2 phía
+        của 1 cặp có mâu thuẫn hay không. Trả None nếu raw_action không
+        nhận diện được (vd giá trị rác/sai chính tả) — để lại cho check
+        action hợp lệ thông thường ở execute_import() xử lý, hàm này
+        không cần tự báo lỗi thay."""
+        if raw_action in ("skip", "create", "update"):
+            return raw_action
+        if raw_action in BATCH_PROPAGATING_ACTIONS:
+            return BATCH_PROPAGATING_ACTIONS[raw_action]["self"]
+        return None
+
+    for row_key, resolution in resolutions.items():
+        action = resolution.get("action")
+        if action not in BATCH_PROPAGATING_ACTIONS:
+            continue
+
+        try:
+            row_index = int(row_key)
+        except (TypeError, ValueError):
+            raise RowResolutionError(
+                f"Resolution key '{row_key}' không phải row_index hợp lệ."
+            )
+
+        row = rows_by_index.get(row_index)
+        if row is None:
+            raise RowResolutionError(
+                f"Dòng {row_key}: không tồn tại trong preview này (dữ liệu "
+                f"preview có thể đã lệch, hãy tải lại)."
+            )
+        row_label = row_index + 1
+
+        if row.get("conflict_status") != "conflict_in_batch":
+            raise RowResolutionError(
+                f"Dòng {row_label}: action '{action}' chỉ áp dụng cho dòng có "
+                f"conflict_status='conflict_in_batch' (trùng với 1 dòng khác "
+                f"trong CHÍNH file import) — dòng này đang ở trạng thái "
+                f"'{row.get('conflict_status')}', dùng action skip/update/"
+                f"create như bình thường."
+            )
+
+        link = row.get("duplicate_in_batch") or {}
+        other_index = link.get("other_row_index")
+        if other_index is None:
+            raise RowResolutionError(
+                f"Dòng {row_label}: thiếu duplicate_in_batch.other_row_index — "
+                f"không xác định được dòng kia để áp dụng action lan truyền "
+                f"'{action}'."
+            )
+
+        other_row = rows_by_index.get(other_index)
+        other_label = other_index + 1
+        if other_row is None:
+            raise RowResolutionError(
+                f"Dòng {row_label}: dòng liên kết (dòng {other_label}) không "
+                f"tồn tại trong preview này — dữ liệu preview có thể đã lệch, "
+                f"hãy tải lại."
+            )
+
+        other_link = other_row.get("duplicate_in_batch") or {}
+        mutual = (
+            other_row.get("conflict_status") == "conflict_in_batch"
+            and other_link.get("other_row_index") == row_index
+        )
+        if not mutual:
+            raise RowResolutionError(
+                f"Dòng {row_label}: liên kết trùng-trong-batch với dòng "
+                f"{other_label} không còn khớp 2 chiều (có thể dòng "
+                f"{other_label} đã đổi sang match 1 dòng khác từ 1 lần sửa "
+                f"field khác) — không thể tự áp dụng action lan truyền "
+                f"'{action}' một cách an toàn. Hãy resolve riêng từng dòng "
+                f"bằng action skip/create."
+            )
+
+        effect = BATCH_PROPAGATING_ACTIONS[action]
+        self_action = effect["self"]
+        other_action = effect["other"]
+
+        # (1) Chuẩn hoá entry của CHÍNH dòng này về action thuần.
+        expanded[row_key] = {**resolution, "action": self_action}
+
+        # (2) Đối chiếu/điền resolution cho dòng KIA.
+        other_key = str(other_index)
+        other_original = resolutions.get(other_key)
+        if other_original is not None:
+            other_original_action = other_original.get("action")
+            other_effective = _effective_self_action(other_original_action)
+            if other_effective is not None and other_effective != other_action:
+                raise RowResolutionError(
+                    f"Dòng {row_label} và dòng {other_label} đang trùng nhau "
+                    f"trong CHÍNH file import, nhưng resolution mâu thuẫn "
+                    f"nhau: dòng {row_label} chọn action '{action}' (ngụ ý "
+                    f"dòng {other_label} phải là '{other_action}'), trong khi "
+                    f"dòng {other_label} lại được gửi resolution action="
+                    f"'{other_original_action}' (hiệu lực '{other_effective}'). "
+                    f"Sửa lại cho khớp nhau, hoặc chỉ gửi resolution cho 1 "
+                    f"trong 2 dòng và để backend tự áp dụng cho dòng còn lại."
+                )
+            # Khớp nhau (hoặc other_original_action không nhận diện được,
+            # để check action hợp lệ thông thường phía dưới tự bắt lỗi) —
+            # chuẩn hoá luôn entry dòng kia về action thuần, GIỮ nguyên
+            # các field khác staff đã gửi riêng cho dòng đó (vd field_fixes
+            # nếu dòng kia cũng đang needs_field_fix).
+            expanded[other_key] = {
+                **other_original,
+                "action": other_effective or other_original_action,
+            }
+        else:
+            # Dòng kia KHÔNG có resolution riêng -> tự suy ra + điền vào,
+            # đúng tinh thần action lan truyền: staff chỉ cần 1 lựa chọn
+            # cho cả cặp. "_propagated_from" chỉ để debug/audit (vd log
+            # lỗi RowResolutionError sau đó, như _apply_field_fixes() nếu
+            # dòng kia vẫn còn needs_field_fix chưa được sửa) — KHÔNG có ý
+            # nghĩa gì với logic thực thi phía dưới, an toàn nếu bị bỏ qua.
+            expanded[other_key] = {"action": other_action, "_propagated_from": row_index}
+
+    return expanded
 
 
 def _apply_conflict_action(conn, entity_type, data, existing, status, action, resolution, actor_id, summary):

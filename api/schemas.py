@@ -954,7 +954,24 @@ class RowResolution(BaseModel):
     kích hoạt lại record inactive" không bao giờ chạy được, dù cả
     frontend lẫn import_executor.py đều đã code đúng phần của mình.
     Sửa lại enum + bổ sung field cho khớp đúng những gì
-    import_executor.py thực sự đọc."""
+    import_executor.py thực sự đọc.
+
+    Thêm 08/2026 (action lan truyền cho conflict_in_batch): dòng
+    conflict_status="conflict_in_batch" (trùng với 1 dòng KHÁC trong
+    CHÍNH file import, không phải DB — xem BatchDuplicateMatchOut) giờ
+    nhận thêm 3 giá trị action, mỗi giá trị áp dụng cho CẢ CẶP 2 dòng
+    trùng nhau CHỈ TỪ 1 resolution duy nhất (backend tự điền resolution
+    cho dòng kia qua duplicate_in_batch.other_row_index — xem
+    import_executor.BATCH_PROPAGATING_ACTIONS +
+    _expand_conflict_in_batch_resolutions()):
+      - "keep_this"   : giữ dòng đang gửi resolution này, bỏ dòng kia
+                        (2 dòng là CÙNG 1 người, dòng này đúng).
+      - "keep_other"  : ngược lại — bỏ dòng đang gửi, giữ dòng kia.
+      - "import_both" : xác nhận 2 dòng là 2 người KHÁC NHAU, giữ cả 2.
+    Vẫn có thể tiếp tục gửi resolution RIÊNG cho từng dòng bằng
+    skip/create như trước (không bắt buộc dùng action lan truyền) — nếu
+    gửi cả 2 kiểu cho 1 cặp mà mâu thuẫn nhau, backend raise 422 rõ
+    nguyên nhân thay vì tự đoán."""
     model_config = ConfigDict(extra="forbid")
     
     action: str = Field(
@@ -962,11 +979,16 @@ class RowResolution(BaseModel):
         description="skip | create | update. Riêng dòng conflict_status="
                      "'conflict_in_batch' (thêm 08/2026, trùng với 1 dòng KHÁC "
                      "trong CHÍNH file import, không phải DB — xem "
-                     "BatchDuplicateMatchOut): chỉ nhận skip (dòng này là dòng "
-                     "trùng) hoặc create (xác nhận 2 dòng là 2 người khác nhau); "
-                     "'update' không hợp lệ (không có existing_record để update) "
-                     "và resolution cho dòng này là BẮT BUỘC tường minh, "
-                     "KHÔNG được để mặc định (xem import_executor.execute_import)."
+                     "BatchDuplicateMatchOut): nhận skip/create như trên "
+                     "(resolve RIÊNG từng dòng trong cặp) HOẶC 1 trong 3 action "
+                     "LAN TRUYỀN 'keep_this'/'keep_other'/'import_both' (áp dụng "
+                     "1 lần cho CẢ CẶP, chỉ cần gửi cho 1 trong 2 dòng — backend "
+                     "tự điền resolution cho dòng kia, xem import_executor."
+                     "BATCH_PROPAGATING_ACTIONS); 'update' không hợp lệ (không có "
+                     "existing_record để update) và resolution cho dòng này là "
+                     "BẮT BUỘC tường minh (trực tiếp hoặc do lan truyền từ dòng "
+                     "kia), KHÔNG được để mặc định (xem "
+                     "import_executor.execute_import)."
     )
     company_id: Optional[str] = Field(
         None, 
@@ -1038,7 +1060,12 @@ class BatchDuplicateMatchOut(BaseModel):
     Chỉ có giá trị khi conflict_status của dòng chuyển "conflict_in_batch"
     — dòng này KHÔNG có existing_record thật (existing_record vẫn null),
     other_row_index mới là thứ FE cần để biết đang trùng với dòng nào
-    trong bảng preview (không phải record DB)."""
+    trong bảng preview (không phải record DB). FE dùng other_row_index
+    này để tự gửi resolution cho dòng kia theo cách cũ (skip/create
+    riêng từng dòng), HOẶC (thêm 08/2026) chỉ cần gửi 1 resolution với
+    action lan truyền (keep_this/keep_other/import_both — xem
+    RowResolution.action) cho MỘT trong 2 dòng, backend tự áp dụng cho
+    dòng kia."""
     match_score: float = Field(
         ..., description="Số cột khớp / 3 (0.33 / 0.67 / 1.0) — càng cao càng chắc trùng."
     )
