@@ -319,8 +319,8 @@ def _extra_optional_fields(entity_type: str) -> set[str]:
     if entity_type == "job":
         return {"matching_industry", "province_name", "currency", "ss_team_notes"}
     if entity_type == "company":
-        return {"website", "industry", "company_size", "address", "province_name",
-                "fanpage_url", "linkedin_url"}
+        return {"tax_id", "website", "industry", "company_size", "address",
+                "province_name", "fanpage_url", "linkedin_url"}
     if entity_type == "contact":
         return {"social_link", "phone_number", "found_source"}
     return set()
