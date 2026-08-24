@@ -18,7 +18,7 @@ from typing import Optional
 import db as db_module
 from api.services import company_resolver, conflict_detector
 from api.services.entity_specs import get_spec
-from api.services.validation_engine import validate_single_field
+from api.services.validation_engine import check_job_salary_business_rules, validate_single_field
 from constants import LEVEL_CODE_VALUES
 
 
@@ -479,17 +479,23 @@ def _apply_field_fixes(entity_type: str, row: dict, data: dict, resolution: dict
     # phạm LẠI sau khi áp field_fixes (vd staff sửa salary_min lớn hơn
     # salary_max cũ vẫn giữ nguyên) dù từng field riêng lẻ giờ hợp lệ về
     # type — re-check để không lọt 1 job có salary_max < salary_min vào DB.
+    #
+    # GỘP VỀ 1 NGUỒN (08/2026): TRƯỚC ĐÂY đoạn này tự viết tay lại y hệt
+    # rule salary_min>=0 / salary_max>=salary_min — bản thứ 3 của CÙNG 1
+    # rule đã có sẵn ở validation_engine.py (_validate_job_business_rules,
+    # dùng lúc build preview) và đã được preview_manager.py::apply_field_
+    # fix() gọi đúng qua check_job_salary_business_rules(). Y HỆT loại lỗi
+    # "quên sửa 1 trong N chỗ" từng gặp (tax_id/level_code) — giờ gọi
+    # THẲNG check_job_salary_business_rules() như 2 nơi kia, để rule salary
+    # chỉ còn tồn tại ở ĐÚNG 1 chỗ (validation_engine.py), sửa rule sau
+    # này chỉ cần sửa 1 nơi. Giữ nguyên THỨ TỰ ưu tiên lỗi (salary_min
+    # trước, salary_max sau) và NGUYÊN VĂN message như hành vi cũ.
     if entity_type == "job":
-        salary_min = data.get("salary_min")
-        salary_max = data.get("salary_max")
-        if salary_min is not None and salary_min < 0:
-            raise RowResolutionError(
-                f"Dòng {row_label}, cột 'salary_min': phải >= 0, nhận được {salary_min}"
-            )
-        if salary_min is not None and salary_max is not None and salary_max < salary_min:
-            raise RowResolutionError(
-                f"Dòng {row_label}: salary_max ({salary_max}) phải >= salary_min ({salary_min})"
-            )
+        salary_rule_errors = check_job_salary_business_rules(data, row_label)
+        if "salary_min" in salary_rule_errors:
+            raise RowResolutionError(salary_rule_errors["salary_min"]["message"])
+        if "salary_max" in salary_rule_errors:
+            raise RowResolutionError(salary_rule_errors["salary_max"]["message"])
 
 
 def _recheck_conflict(conn, entity_type, data) -> tuple[str, Optional[dict]]:

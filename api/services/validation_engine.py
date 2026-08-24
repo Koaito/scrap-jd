@@ -304,11 +304,17 @@ def _validate_job_business_rules(cleaned: dict, row_number: int, field_errors: d
         }
 
 
-def check_job_salary_business_rules(data: dict) -> dict:
+def check_job_salary_business_rules(data: dict, row_number: object = "?") -> dict:
     """Public wrapper cho _validate_job_business_rules(), dùng NGOÀI
-    validate_dataframe() — cụ thể ở preview_manager.py::apply_field_fix()
-    (staff sửa 1 ô salary_min/salary_max tại chỗ trên preview, bấm "Xác
-    nhận").
+    validate_dataframe() — ở preview_manager.py::apply_field_fix() (staff
+    sửa 1 ô salary_min/salary_max tại chỗ trên preview, bấm "Xác nhận")
+    VÀ import_executor.py::_apply_field_fixes() (staff sửa field_fixes
+    rồi bấm "Xác nhận nhập dữ liệu" ở bước confirm cuối).
+
+    row_number: mặc định "?" (context sửa 1 ô tại chỗ, không có ý nghĩa
+    "dòng N trong file gốc" — dùng ở preview_manager.py). Truyền số dòng
+    THẬT (vd row_index + 1) khi gọi từ ngữ cảnh CÓ biết rõ dòng nào
+    trong file — xem import_executor.py::_apply_field_fixes().
 
     BUG (phát hiện 08/2026 qua staff test): apply_field_fix() TRƯỚC ĐÂY
     chỉ gọi validate_single_field() để check TYPE của field đang sửa (vd
@@ -320,18 +326,28 @@ def check_job_salary_business_rules(data: dict) -> dict:
     rồi mới vỡ ở tầng DB (constraint CHECK, nếu có) hoặc — tệ hơn — ghi
     thẳng số vô lý vào DB nếu bảng không có CHECK constraint.
 
+    BUG THỨ 2 (phát hiện 08/2026, cùng loại nhưng Ở NƠI KHÁC): import_
+    executor.py::_apply_field_fixes() (bước confirm cuối, KHÁC apply_
+    field_fix() ở preview_manager.py vốn chạy lúc staff sửa TẠI CHỖ trên
+    preview) TỪNG tự viết tay lại y hệt rule salary này thay vì gọi hàm
+    NÀY — 3 nơi cùng biết luật salary (validate_dataframe() lúc build
+    preview, apply_field_fix() lúc sửa tại chỗ, _apply_field_fixes() lúc
+    confirm) nhưng chỉ 2/3 gọi qua đây, 1/3 viết tay riêng. Y HỆT loại
+    lỗi "quên sửa 1 trong N chỗ" từng gặp (tax_id thiếu trong _extra_
+    optional_fields, level_code không nằm trong enum_fields thường) —
+    chưa vỡ lần này, nhưng sẽ vỡ ngay khi rule salary đổi (vd thêm giới
+    hạn salary_max tối đa) mà ai đó chỉ sửa ở đây rồi quên bản viết tay
+    kia. Đã gộp về ĐÚNG 1 nguồn (hàm này) cho cả 3 nơi.
+
     Trả field_errors MỚI dạng {"salary_min": {...}, "salary_max": {...}}
     (rỗng nếu hợp lệ) — CHỈ đánh giá salary_min/salary_max đang có sẵn
     trong `data` (đã convert qua validate_single_field(), tức đã là
     int/None), không tự parse lại từ string. Dùng chung message/rule
     NGUYÊN VĂN với _validate_job_business_rules() (gọi lại chính hàm đó
-    với field_errors rỗng rồi trả ra) để 2 nơi không lệch câu chữ khi sau
-    này sửa rule."""
+    với field_errors rỗng rồi trả ra) để mọi nơi không lệch câu chữ khi
+    sau này sửa rule."""
     field_errors: dict = {}
-    # row_number không có ý nghĩa ở context sửa 1 ô tại chỗ (không phải
-    # dòng N trong file gốc theo nghĩa cũ) — dùng "?" cho rõ đây là re-check
-    # tại chỗ, không phải lỗi lúc build preview ban đầu.
-    _validate_job_business_rules(data, "?", field_errors)
+    _validate_job_business_rules(data, row_number, field_errors)
     return field_errors
 
 
