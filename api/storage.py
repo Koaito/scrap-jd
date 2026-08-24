@@ -80,7 +80,11 @@ def get_signed_url(cv_path: str, expires_in: int = 3600) -> Optional[str]:
             signed = res.json().get("signedURL", "")
             if signed:
                 if signed.startswith("/"):
-                    return f"{SUPABASE_URL}{signed}"
+                    # Supabase trả về path KHÔNG có tiền tố "/storage/v1"
+                    # (vd "/object/sign/cv-files/...") — phải tự thêm vào,
+                    # nếu không URL cuối cùng sẽ thiếu "/storage/v1" và
+                    # Storage API trả lỗi "requested path is invalid".
+                    return f"{SUPABASE_URL}/storage/v1{signed}"
                 return signed
     except Exception as exc:
         logger.error("Lỗi khi tạo signed URL: %s", exc)
