@@ -135,7 +135,7 @@ def get_cv_signed_url(
     if not db_module.is_valid_uuid(application_id):
         raise HTTPException(status_code=400, detail="application_id không hợp lệ.")
     
-    with conn.cursor() as cur:
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT cv_url FROM job_applications WHERE application_id = %s", (application_id,))
         row = cur.fetchone()
     
