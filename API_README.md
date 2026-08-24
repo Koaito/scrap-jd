@@ -1,10 +1,13 @@
 # API Layer (FastAPI) — hướng dẫn chạy
 
 Lớp API này **bọc ngoài** codebase crawler hiện có (`adapters/`, `normalize.py`,
-`db.py`, `pipeline.py`) — không sửa gì các file đó ngoại trừ thêm 1 nhóm
-hàm query mới cuối `db.py` (mục "QUERY LAYER CHO API"). `main.py` (CLI
-crawl cũ) giữ nguyên 100%, chạy song song không xung đột với API. Quy
-trình crawl/vá dữ liệu xem `README.md`; file này chỉ nói về lớp API.
+`db/`, `pipeline.py`) — không sửa gì các file đó ngoại trừ thêm 1 nhóm
+hàm query mới riêng cho API (nằm rải theo domain trong `db/`, ví dụ
+`db/jobs.py`, `db/companies.py`... — trước 08/2026 gộp chung 1 file
+`db.py` duy nhất, đã tách theo domain, xem "Kiến trúc" trong
+`README.md`). `main.py` (CLI crawl cũ) giữ nguyên 100%, chạy song song
+không xung đột với API. Quy trình crawl/vá dữ liệu xem `README.md`; file
+này chỉ nói về lớp API.
 
 ## Mục lục
 
@@ -359,8 +362,8 @@ trả về trong response của `GET`/`POST`/`PATCH` tương ứng.
 ## Connection pool
 
 `api/deps.py:get_db()` mượn/trả connection từ 1 pool đã mở sẵn
-(`psycopg2.pool.ThreadedConnectionPool`, xem `db.py`) thay vì mở
-connection mới mỗi request. Pool khởi tạo 1 lần lúc app khởi động
+(`psycopg2.pool.ThreadedConnectionPool`, xem `db/connection.py`) thay vì
+mở connection mới mỗi request. Pool khởi tạo 1 lần lúc app khởi động
 (`api/app.py`, `lifespan`), đóng lại lúc app tắt.
 
 Kích thước pool cấu hình qua `DB_POOL_MIN`/`DB_POOL_MAX` trong `.env`

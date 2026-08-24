@@ -85,7 +85,13 @@ config.py                        <- ngành/category muốn crawl, delay, model A
 models.py                        <- RawJobRecord: khuôn dữ liệu chung mọi adapter phải trả về
 adapters/                        <- topcv.py, vietnamworks.py, careerviet.py (implement BaseAdapter)
 normalize.py                     <- dùng chung: parse lương, suy luận level, deadline, work_type
-db.py                            <- dùng chung: mọi thao tác PostgreSQL
+db/                               <- dùng chung: mọi thao tác PostgreSQL, tách theo domain (08/2026,
+                                     trước đó gộp chung 1 file db.py duy nhất — xem "Lịch sử bug đã sửa"
+                                     nếu tìm tài liệu cũ nhắc "db.py")
+  connection.py                  <- mở/đóng connection, connection pool (ThreadedConnectionPool)
+  jobs.py, companies.py, contacts.py, auth.py, audit_logs.py,
+  applications.py, stats.py, lookups.py  <- CRUD + query theo từng domain
+  __init__.py                    <- re-export toàn bộ tên cũ, `import db` dùng y hệt trước khi tách
 pipeline.py                      <- nối adapter -> normalize -> db
 main.py                          <- CLI chạy crawl
 
@@ -101,9 +107,18 @@ api/                              <- lớp API FastAPI (chi tiết xem API_READM
   security.py                     <- băm mật khẩu, ký/verify JWT access + refresh token
   email_service.py                <- gửi email xác thực + quên mật khẩu qua Resend
   deps.py                         <- get_db(), get_current_user(), require_role()
-  schemas.py                      <- Pydantic models (request/response JSON)
-  crawl_runner.py                 <- chạy pipeline crawl ở nền, theo dõi qua run_id
+  schemas/                        <- Pydantic models (request/response JSON), tách theo domain (08/2026,
+                                     trước đó gộp chung 1 file schemas.py duy nhất)
+    jobs.py, companies.py, stats.py, crawl.py, auth.py, contacts.py,
+    applications.py, audit_logs.py, import_export.py  <- schema theo từng domain
+    __init__.py                  <- re-export toàn bộ tên cũ, `from api.schemas import X` dùng y hệt
+                                     trước khi tách
+  crawl_runner.py                <- chạy pipeline crawl ở nền, theo dõi qua run_id
   routers/                        <- jobs.py, companies.py, contacts.py, crawl.py, meta.py, auth.py, me.py
+  services/                       <- entity_specs.py (khai báo field/rule theo entity, gồm cả
+                                     cross-field business rule — xem CrossFieldRule), validation_engine.py,
+                                     preview_manager.py, import_executor.py, conflict_detector.py,
+                                     company_resolver.py — logic luồng import CSV/XLSX
 
 sql/schema.sql                   <- schema PostgreSQL đầy đủ (chạy 1 lần cho DB mới)
 sql/migration_*.sql              <- vá DB cũ đã tạo trước khi có tính năng mới
@@ -112,7 +127,7 @@ tests/                            <- test parser + logic, không cần DB/intern
 
 Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implement
 `fetch_jobs()`, khai báo trong `SOURCES` ở `main.py` — không cần sửa
-`normalize.py`, `db.py`, `pipeline.py`.
+`normalize.py`, `db/`, `pipeline.py`.
 
 ---
 
@@ -386,7 +401,7 @@ sẵn trong `config.py`.
 
 Thêm hẳn 1 **nguồn** crawl mới (ITviec...): viết `adapters/itviec.py`
 implement `fetch_jobs()` (dựa theo `adapters/base.py`), khai báo trong
-`SOURCES` ở `main.py` — không cần sửa `normalize.py`, `db.py`,
+`SOURCES` ở `main.py` — không cần sửa `normalize.py`, `db/`,
 `pipeline.py`.
 
 ## Debug khi nguồn crawl đổi giao diện
