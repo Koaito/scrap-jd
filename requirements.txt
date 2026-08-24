@@ -1,7 +1,19 @@
-# requests>=2.31.0 -- ĐÃ THAY bằng curl_cffi (08/2026): adapter TopCV cần
-# giả lập TLS fingerprint Chrome thật để vượt qua chặn 403 của WAF, mà
-# requests thuần không làm được. Không còn file nào khác trong project
-# dùng `requests` trực tiếp nên bỏ hẳn, không giữ song song 2 thư viện.
+# requests>=2.31.0 -- ĐÃ THAY bằng curl_cffi (08/2026) CHO CÁC ADAPTER
+# CRAWL: TopCV cần giả lập TLS fingerprint Chrome thật để vượt qua chặn
+# 403 của WAF, mà requests thuần không làm được.
+#
+# NHƯNG api/storage.py (thêm sau, phần upload CV) lại tự `import
+# requests` trực tiếp — ĐANG chạy được là "ăn theo" requests vốn được
+# cài ngầm bởi 1 thư viện khác bên dưới (vd resend/tavily-python/
+# google-genai cũng dùng requests nội bộ), KHÔNG phải vì đã khai báo ở
+# đây. Rủi ro: gỡ/đổi phiên bản thư viện kia trong tương lai có thể vô
+# tình làm mất `requests`, khiến api/storage.py lỗi ImportError ngay
+# lúc khởi động (kéo theo sập luôn api/routers/me.py vì import
+# storage). Khai báo tường minh lại ở đây để không phụ thuộc may rủi.
+# (Cân nhắc sau: đổi api/storage.py sang `from curl_cffi import
+# requests` như 3 adapter kia để chỉ cần đúng 1 thư viện HTTP duy nhất
+# — chưa đổi ngay vì không phải lỗi đang gặp, tránh sửa nhiều thứ cùng lúc.)
+requests>=2.31.0
 curl_cffi>=0.7.0
 beautifulsoup4>=4.12.0
 psycopg2-binary>=2.9.9
@@ -46,3 +58,7 @@ openpyxl>=3.1.0
 # Dùng cho APScheduler chạy cleanup task định kỳ (dọn import_previews
 # hết hạn, xem api/services/preview_cleanup.py) — thêm 08/2026.
 apscheduler>=3.10.4
+
+# Test dependencies (pytest + httpx cho TestClient FastAPI)
+pytest>=8.0.0
+httpx>=0.27.0

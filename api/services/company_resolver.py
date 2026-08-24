@@ -83,6 +83,24 @@ def resolve_company(conn, company_name: str, tax_id: Optional[str] = None) -> Co
     return CompanyResolution(status="needs_resolution", suggestions=suggestions)
 
 
+def get_company(conn, company_id: str) -> Optional[dict]:
+    """Tra 1 company theo company_id — dùng cho resolve-company (staff tự
+    chọn 1 công ty trong modal ở bước preview, xem preview_manager.py::
+    resolve_company_selection()) khi cần biết TÊN THẬT của company vừa
+    chọn (chứ không phải company_name gốc gõ trong file, có thể lệch —
+    vd file ghi "FPT" nhưng staff chọn company "FPT Software") để detect
+    conflict cho đúng (detect_job_conflict() match theo company_name dạng
+    text, không dùng company_id trực tiếp — xem conflict_detector.py).
+
+    Trả None nếu company_id không tồn tại (case hiếm: preview cũ, company
+    vừa bị xoá giữa chừng) — caller tự quyết định xử lý (hiện tại:
+    preview_manager raise ValueError, router trả 404)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT * FROM companies WHERE company_id = %s", (company_id,))
+        row = cur.fetchone()
+    return dict(row) if row else None
+
+
 def suggest_companies(conn, company_name: str) -> list[CompanySuggestion]:
     """Gợi ý company có tên TƯƠNG TỰ company_name, dùng pg_trgm
     similarity() — cần extension pg_trgm + index gin_trgm_ops (xem

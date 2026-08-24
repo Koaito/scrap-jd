@@ -56,6 +56,25 @@ def get_db() -> Iterator:
     conn = db_module.get_pooled_connection()
     try:
         yield conn
+    except Exception:
+        # BUG FIX (08/2026): thiếu rollback() khi route phía trên raise
+        # exception giữa chừng (sau khi đã chạy 1 vài lệnh ghi nhưng
+        # CHƯA tới conn.commit()) khiến connection bị TRẢ VỀ POOL trong
+        # lúc transaction còn đang mở (uncommitted) hoặc bị Postgres
+        # đánh dấu "aborted" (nếu 1 lệnh SQL nào đó lỗi). ThreadedConnectionPool
+        # .putconn() KHÔNG tự rollback — request TIẾP THEO mượn lại đúng
+        # connection này (rất dễ xảy ra vì pool nhỏ) sẽ kế thừa transaction
+        # dở dang đó: hoặc bị lỗi "current transaction is aborted" ngay ở
+        # câu lệnh đầu tiên (500 mù mờ, không liên quan gì request đó),
+        # hoặc tệ hơn — ghi/đọc của request mới bị GỘP chung transaction
+        # với phần dữ liệu mồ côi của request cũ, khiến hành vi trông như
+        # "chạy được nhưng dữ liệu không nhất quán" tuỳ connection nào bị
+        # trúng. Đây là nguyên nhân gốc của nhiều lỗi 500/hành vi chờn
+        # vờn khó tái hiện rải rác khắp API (không riêng gì 1 route).
+        # rollback() đưa connection về trạng thái sạch TRƯỚC KHI trả về
+        # pool, đảm bảo request sau luôn mượn được connection "mới tinh".
+        conn.rollback()
+        raise
     finally:
         db_module.release_connection(conn)
 

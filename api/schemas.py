@@ -11,7 +11,7 @@ mục đích khác nhau, gộp chung sẽ rối khi 1 bên cần đổi mà bên
 from datetime import date, datetime
 from typing import Optional
 import re
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 # ------------------------------------------------------------------
@@ -94,6 +94,8 @@ class ParsedContent(BaseModel):
     lợi/kỹ năng, xem lịch sử trao đổi). Lưu nguyên vào
     job_postings.parsed_content (JSONB), KHÔNG có cột riêng nào cho
     từng field — đây là field tự do, không filter/index theo được."""
+    model_config = ConfigDict(extra="forbid")
+    
     job_description: Optional[str] = None
     requirements: Optional[str] = None
     perks: Optional[str] = None
@@ -101,6 +103,8 @@ class ParsedContent(BaseModel):
 
 
 class JobCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     job_title: str = Field(..., min_length=1)
     company_id: str = Field(..., description="company_id đã có trong DB — dùng GET /companies?keyword= để tìm, hoặc POST /companies để tạo mới nếu công ty chưa tồn tại")
     matching_industry: Optional[str] = Field(default=None, examples=["Data Analysis"])
@@ -129,6 +133,8 @@ class JobUpdate(BaseModel):
     """Mọi field optional — chỉ gửi field muốn sửa, field không gửi giữ
     nguyên giá trị cũ. Dùng field job_status='CLOSED' để "xoá mềm" 1 job
     (xem chi tiết trong docstring db.update_job())."""
+    model_config = ConfigDict(extra="forbid")
+    
     job_title: Optional[str] = Field(default=None, min_length=1)
     matching_industry: Optional[str] = None
     level_code: Optional[str] = Field(default=None, description="Intern | Fresher | Junior | Middle | Senior | Lead | Manager")
@@ -221,6 +227,8 @@ class CompanyCreate(BaseModel):
     được crawl từ TopCV/VietnamWorks trước đó) — route tự động dùng
     LẠI company đã có đó, KHÔNG tạo bản ghi trùng (tái dùng đúng
     get_or_create_company_by_profile() đã dùng cho pipeline crawl)."""
+    model_config = ConfigDict(extra="forbid")
+    
     company_name: str = Field(..., min_length=1)
     tax_id: Optional[str] = Field(default=None, description="Mã số thuế — nếu điền đúng, tự match với công ty đã crawl trước đó (nếu có), tránh tạo trùng")
     website: Optional[str] = None
@@ -253,6 +261,8 @@ class CompanyUpdate(BaseModel):
 
     KHÔNG có field để xoá công ty (chưa có is_active/soft-delete —
     xem lịch sử trao đổi, việc này để sau)."""
+    model_config = ConfigDict(extra="forbid")
+    
     company_name: Optional[str] = Field(default=None, min_length=1)
     tax_id: Optional[str] = None
     website: Optional[str] = None
@@ -367,6 +377,8 @@ class EngagementStatsOut(BaseModel):
 # ------------------------------------------------------------------
 
 class CrawlRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     source: str = Field(..., examples=["topcv", "vietnamworks"])
     category: str = Field(..., examples=["data-analyst", "data-engineer", "software-engineering"])
     # Optional (khác bản cũ default=3) — để phân biệt được "không truyền
@@ -409,6 +421,8 @@ class CrawlStatusOut(BaseModel):
 # ------------------------------------------------------------------
 
 class LoginRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     email: str = Field(..., min_length=1)
     password: str = Field(..., min_length=1)
 
@@ -421,6 +435,8 @@ class TokenPairOut(BaseModel):
 
 
 class RefreshRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     refresh_token: str = Field(..., min_length=1)
 
 
@@ -431,6 +447,8 @@ class AccessTokenOut(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     # Optional: KHÔNG bắt buộc khi must_change_password=True (tài khoản
     # mới tạo/vừa bị admin reset — người dùng chưa từng có mật khẩu
     # "thật" của riêng họ để xác nhận, chỉ có mật khẩu tạm admin đưa).
@@ -480,6 +498,8 @@ class UserCreateByAdmin(BaseModel):
     (security.generate_temp_password()), trả về ĐÚNG 1 LẦN trong response
     (xem UserCreatedOut) — admin tự đưa cho người dùng qua kênh khác
     (Slack/nói miệng), KHÔNG có luồng gửi email."""
+    model_config = ConfigDict(extra="forbid")
+    
     full_name: str = Field(..., min_length=1)
     email: str = Field(..., min_length=1)
     role: str = Field(default="user", description="user | ss_team | admin")
@@ -494,6 +514,8 @@ class UserCreatedOut(UserOut):
 
 class UserRoleUpdate(BaseModel):
     """Body cho PATCH /auth/users/{id}/role (admin-only, thêm 08/2026)."""
+    model_config = ConfigDict(extra="forbid")
+    
     role: str = Field(..., description="user | ss_team | admin")
 
 
@@ -503,6 +525,8 @@ class UserActiveStatusUpdate(BaseModel):
     TẠM THỜI tự hết hạn do sai mật khẩu nhiều lần, xem
     sql/migration_add_auth.sql). Dùng khi 1 người rời nhóm/vi phạm và cần
     chặn đăng nhập ngay lập tức, không chờ tự hết hạn."""
+    model_config = ConfigDict(extra="forbid")
+    
     is_active: bool = Field(..., description="true = kích hoạt lại, false = vô hiệu hoá")
 
 
@@ -519,6 +543,8 @@ _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 class RegisterRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    
     full_name: str = Field(..., min_length=1)
     email: str = Field(..., min_length=1)
     password: str = Field(..., min_length=8)
@@ -527,9 +553,6 @@ class RegisterRequest(BaseModel):
     # vì không khai báo ở đây, không phải vì cố tình optional-và-bỏ-qua.
     phone: Optional[str] = Field(default=None, max_length=30)
     track: Optional[str] = Field(default=None, max_length=100)
-
-    class Config:
-        str_strip_whitespace = True  # tự trim khoảng trắng thừa TRƯỚC khi validate email/full_name
 
     def model_post_init(self, __context) -> None:
         # Pydantic v2: EmailStr cần cài thêm 'email-validator' (chưa có
@@ -550,14 +573,20 @@ class RegisterOut(BaseModel):
 
 
 class ResendVerificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     email: str = Field(..., min_length=1)
 
 
 class ForgotPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     email: str = Field(..., min_length=1)
 
 
 class ResetPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     token: str = Field(..., min_length=1)
     new_password: str = Field(..., min_length=8)
 
@@ -605,6 +634,8 @@ class CompanyContactWithCompanyOut(CompanyContactOut):
 
 
 class CompanyContactCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     contact_name: str = Field(..., min_length=1)
     job_title: Optional[str] = None
     work_email: Optional[str] = None
@@ -631,11 +662,20 @@ class CompanyContactUpdate(BaseModel):
     thiếu note khi có thay đổi thật -> 422, KHÔNG lưu, KHÔNG ghi log.
     Nếu body không đổi field nào (patch rỗng hoặc trùng giá trị cũ) thì
     note không bắt buộc, vì bản chất chưa có gì để "giải thích lý do sửa"."""
+    model_config = ConfigDict(extra="forbid")
+    
     contact_name: Optional[str] = None
     job_title: Optional[str] = None
     work_email: Optional[str] = None
     social_link: Optional[str] = None
     phone_number: Optional[str] = None
+    # BUG FIX (08/2026): found_source CÓ trong CompanyContactCreate (tạo
+    # mới) nhưng bị THIẾU hẳn ở đây từ đầu — nghĩa là "Nguồn tìm thấy"
+    # chỉ nhập được lúc tạo, sau đó KHÔNG BAO GIỜ sửa được qua PATCH dù
+    # UI (add_contact.html, dùng chung cho cả thêm/sửa) vẫn có ô nhập
+    # này ở form sửa. extra="forbid" bên dưới khiến nếu FE có lỡ gửi
+    # field này lên cũng bị 422 luôn, chứ không phải chỉ bị "bỏ qua êm".
+    found_source: Optional[str] = None
     contact_status: Optional[str] = Field(
         None, description="UNCONTACTED | EMAIL_SENT | RESPONDED | IN_PARTNERSHIP"
     )
@@ -658,6 +698,8 @@ class ContactAssignUpdate(BaseModel):
 
     note: BẮT BUỘC nếu assigned_ss_user thực sự đổi giá trị so với hiện
     tại (gán mới/đổi người/bỏ gán) — cùng nhóm CHẶN CỨNG với sửa contact."""
+    model_config = ConfigDict(extra="forbid")
+    
     assigned_ss_user: Optional[str] = Field(
         None, description="ss_user_id của thành viên ss_team/admin phụ trách contact này — null để bỏ gán (chưa ai phụ trách)."
     )
@@ -692,6 +734,8 @@ class ContactDeleteRequest(BaseModel):
 # ------------------------------------------------------------------
 
 class JobApplicationCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     job_id: str
     note: Optional[str] = None
 
@@ -706,8 +750,6 @@ class JobApplicationOut(BaseModel):
     job_status: Optional[str] = None
     company_name: str
     cv_url: Optional[str] = None
-<<<<<<< HEAD
-=======
 
     class Config:
         from_attributes = True
@@ -730,7 +772,6 @@ class JobApplicantOut(BaseModel):
     email: str
     phone: Optional[str] = None
     cv_url: Optional[str] = None
->>>>>>> 7d96241e0ac0b305d464549c4c8db02d84509e1e
 
     class Config:
         from_attributes = True
@@ -757,6 +798,8 @@ class JobSaverOut(BaseModel):
 
 
 class SavedJobCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    
     job_id: str
 
 
@@ -842,6 +885,8 @@ class AuditLogNoteUpdate(BaseModel):
 
     Chỉ actor_id GỐC của log mới gọi được route này — kiểm tra ở router,
     không ở schema."""
+    model_config = ConfigDict(extra="forbid")
+    
     note: str = Field(..., min_length=1, description="Nội dung note mới.")
 
     @field_validator("note")
@@ -884,20 +929,211 @@ class ImportUploadResponse(BaseModel):
     """
     preview_id: str
     entity_type: str
-    summary: dict  # {"total": int, "ready": int, "needs_resolution": int, ...}
+    summary: dict  # {"total_rows", "new_records", "conflicts", "conflicts_inactive",
+                    #  "pending_company_resolution", "pending_level_resolution",
+                    #  "id_field"} — xem
+                    # api/services/preview_manager.py::build_preview() cho cấu
+                    # trúc đầy đủ + comment đầu file (nguồn sự thật thật sự,
+                    # dict comment ở đây chỉ để đọc lướt nhanh).
     rows: list[dict]  # Chi tiết từng dòng import
 
 
 class RowResolution(BaseModel):
-    """Resolution cho 1 dòng cần xử lý thủ công - dùng trong ImportConfirmRequest"""
+    """Resolution cho 1 dòng cần xử lý thủ công - dùng trong ImportConfirmRequest.
+
+    Sửa 08/2026 (fix bug reactivate không hoạt động): action enum ở đây
+    TRƯỚC ĐÂY là "create_new | use_existing | skip" và field
+    "confirm_reactivate" hoàn toàn không tồn tại — trong khi
+    api/services/import_executor.py (nơi thực thi thật) lại đọc
+    action là "skip"|"create"|"update" và đọc resolution.get(
+    "confirm_reactivate") cho dòng conflict_inactive (xem
+    RowResolutionError docstring + dòng 121-124 file đó). Vì router
+    convert RowResolution -> dict bằng .model_dump() (xem
+    api/routers/import_export.py), field lạ "confirm_reactivate" gửi
+    từ frontend bị Pydantic ÂM THẦM loại bỏ — nghĩa là flow "ghi đè +
+    kích hoạt lại record inactive" không bao giờ chạy được, dù cả
+    frontend lẫn import_executor.py đều đã code đúng phần của mình.
+    Sửa lại enum + bổ sung field cho khớp đúng những gì
+    import_executor.py thực sự đọc.
+
+    Thêm 08/2026 (action lan truyền cho conflict_in_batch): dòng
+    conflict_status="conflict_in_batch" (trùng với 1 dòng KHÁC trong
+    CHÍNH file import, không phải DB — xem BatchDuplicateMatchOut) giờ
+    nhận thêm 3 giá trị action, mỗi giá trị áp dụng cho CẢ CẶP 2 dòng
+    trùng nhau CHỈ TỪ 1 resolution duy nhất (backend tự điền resolution
+    cho dòng kia qua duplicate_in_batch.other_row_index — xem
+    import_executor.BATCH_PROPAGATING_ACTIONS +
+    _expand_conflict_in_batch_resolutions()):
+      - "keep_this"   : giữ dòng đang gửi resolution này, bỏ dòng kia
+                        (2 dòng là CÙNG 1 người, dòng này đúng).
+      - "keep_other"  : ngược lại — bỏ dòng đang gửi, giữ dòng kia.
+      - "import_both" : xác nhận 2 dòng là 2 người KHÁC NHAU, giữ cả 2.
+    Vẫn có thể tiếp tục gửi resolution RIÊNG cho từng dòng bằng
+    skip/create như trước (không bắt buộc dùng action lan truyền) — nếu
+    gửi cả 2 kiểu cho 1 cặp mà mâu thuẫn nhau, backend raise 422 rõ
+    nguyên nhân thay vì tự đoán."""
+    model_config = ConfigDict(extra="forbid")
+    
     action: str = Field(
         ..., 
-        description="create_new | use_existing | skip"
+        description="skip | create | update. Riêng dòng conflict_status="
+                     "'conflict_in_batch' (thêm 08/2026, trùng với 1 dòng KHÁC "
+                     "trong CHÍNH file import, không phải DB — xem "
+                     "BatchDuplicateMatchOut): nhận skip/create như trên "
+                     "(resolve RIÊNG từng dòng trong cặp) HOẶC 1 trong 3 action "
+                     "LAN TRUYỀN 'keep_this'/'keep_other'/'import_both' (áp dụng "
+                     "1 lần cho CẢ CẶP, chỉ cần gửi cho 1 trong 2 dòng — backend "
+                     "tự điền resolution cho dòng kia, xem import_executor."
+                     "BATCH_PROPAGATING_ACTIONS); 'update' không hợp lệ (không có "
+                     "existing_record để update) và resolution cho dòng này là "
+                     "BẮT BUỘC tường minh (trực tiếp hoặc do lan truyền từ dòng "
+                     "kia), KHÔNG được để mặc định (xem "
+                     "import_executor.execute_import)."
     )
     company_id: Optional[str] = Field(
         None, 
-        description="Bắt buộc nếu action='use_existing'"
+        description="Bắt buộc nếu dòng needs_company_resolve và action='create'/'update'"
     )
+    confirm_reactivate: bool = Field(
+        False,
+        description="Bắt buộc =true nếu action='update' cho dòng conflict_status="
+                     "'conflict_inactive' (ghi đè + kích hoạt lại record đã ngừng "
+                     "hoạt động) — xem import_executor.RowResolutionError.",
+    )
+    level_code: Optional[str] = Field(
+        None,
+        description="Bắt buộc (1 trong LEVEL_CODE_VALUES — xem constants.py) nếu "
+                     "dòng needs_level_resolve=true (Job, level_code trong file "
+                     "không khớp danh sách hợp lệ dù đã chuẩn hoá hoa/thường) — "
+                     "staff chọn lại qua dropdown tĩnh ở FE, xem "
+                     "import_executor.RowResolutionError.",
+    )
+    field_fixes: Optional[dict[str, str]] = Field(
+        None,
+        description="Thêm 08/2026: map field_name -> giá trị staff đã sửa trực "
+                     "tiếp trên bảng preview, BẮT BUỘC chứa đủ mọi field còn "
+                     "trong needs_field_fix/field_errors của dòng này nếu "
+                     "action != 'skip' (xem preview_manager.build_preview -> "
+                     "entry['field_errors']). Giá trị LUÔN là string thô "
+                     "(giống format trong file gốc, vd ngày 'YYYY-MM-DD') — "
+                     "import_executor.py::_apply_field_fixes() re-validate lại "
+                     "bằng đúng validate_single_field() dùng lúc build preview, "
+                     "không tin ngầm dữ liệu FE gửi lên.",
+    )
+
+
+class FieldVerifyRequest(BaseModel):
+    """Body cho POST /import/{entity_type}/preview/{preview_id}/rows/
+    {row_index}/verify-field — staff sửa 1 ô trên bảng preview rồi bấm
+    nút "Xác nhận" cạnh ô đó (thêm 08/2026, xem trao đổi thiết kế
+    "cảnh báo trùng contact sau khi sửa field lỗi").
+
+    Re-validate format field_name NGAY (dùng đúng validate_single_field()
+    dùng lúc build preview) + với contact, re-check trùng mờ theo
+    company_id + tối thiểu 1/3 trong (work_email, social_link,
+    phone_number) — xem preview_manager.apply_field_fix()."""
+    model_config = ConfigDict(extra="forbid")
+
+    field_name: str = Field(..., description="Tên field vừa sửa, vd 'work_email'")
+    value: str = Field(..., description="Giá trị mới (string thô, giống format trong file gốc)")
+
+
+class DuplicateMatchOut(BaseModel):
+    """Kết quả match mờ khi phát hiện dòng vừa sửa trùng với 1 contact đã
+    có trong DB — chỉ có giá trị khi conflict_status chuyển sang
+    "conflict" NGAY TẠI apply_field_fix() (khác conflict phát hiện lúc
+    build preview ban đầu, vốn không có field này)."""
+    match_score: float = Field(
+        ..., description="Số cột khớp / 3 (0.33 / 0.67 / 1.0) — càng cao càng chắc trùng."
+    )
+    matched_fields: list[str] = Field(
+        ..., description="Các cột khớp, trong (work_email, social_link, phone_number)."
+    )
+
+
+class BatchDuplicateMatchOut(BaseModel):
+    """Kết quả match mờ khi phát hiện dòng vừa sửa trùng với 1 dòng KHÁC
+    TRONG CHÍNH file đang import (thêm 08/2026) — khác DuplicateMatchOut
+    ở trên vốn so với record ĐÃ CÓ trong DB. Xem conflict_detector.
+    find_duplicate_rows_in_batch() + preview_manager.apply_field_fix().
+
+    Chỉ có giá trị khi conflict_status của dòng chuyển "conflict_in_batch"
+    — dòng này KHÔNG có existing_record thật (existing_record vẫn null),
+    other_row_index mới là thứ FE cần để biết đang trùng với dòng nào
+    trong bảng preview (không phải record DB). FE dùng other_row_index
+    này để tự gửi resolution cho dòng kia theo cách cũ (skip/create
+    riêng từng dòng), HOẶC (thêm 08/2026) chỉ cần gửi 1 resolution với
+    action lan truyền (keep_this/keep_other/import_both — xem
+    RowResolution.action) cho MỘT trong 2 dòng, backend tự áp dụng cho
+    dòng kia."""
+    match_score: float = Field(
+        ..., description="Số cột khớp / 3 (0.33 / 0.67 / 1.0) — càng cao càng chắc trùng."
+    )
+    matched_fields: list[str] = Field(
+        ..., description="Các cột khớp, trong (work_email, social_link, phone_number)."
+    )
+    other_row_index: int = Field(
+        ...,
+        description="row_index của dòng KIA trong CÙNG file bị phát hiện trùng "
+                     "(khớp key trong preview_data['rows']) — FE dùng để "
+                     "highlight/liên kết sang dòng đó trên bảng preview. Khi 1 "
+                     "dòng nhận duplicate_in_batch mới, dòng có row_index này "
+                     "CŨNG bị cập nhật duplicate_in_batch/conflict_status trong "
+                     "preview đã lưu DB (xử lý 2 chiều), dù response của "
+                     "verify-field chỉ trả về đúng dòng vừa sửa — FE cần tự "
+                     "biết dòng kia cũng vừa đổi (vd tải lại preview nếu cần "
+                     "hiển thị chính xác ngay lập tức)."
+    )
+
+
+class FieldVerifyResponse(BaseModel):
+    """Response cho POST .../verify-field.
+
+    field_error != None -> field vẫn KHÔNG hợp lệ sau khi sửa (giữ
+    nguyên field_errors/needs_field_fix cũ trong preview, KHÔNG lưu gì
+    mới) — FE hiện lỗi ngay tại ô, không cho staff tưởng đã xác nhận
+    thành công.
+
+    field_error == None -> đã lưu field mới vào preview. row trả về là
+    TOÀN BỘ entry của dòng đó sau khi cập nhật (đúng cấu trúc 1 phần tử
+    trong ImportUploadResponse.rows) — FE ghi đè PREVIEW_DATA[row_index]
+    bằng row này, tự cập nhật lại UI (field_errors còn lại, conflict_status
+    mới nếu có, duplicate_match nếu phát hiện trùng DB, duplicate_in_batch
+    (xem BatchDuplicateMatchOut) nếu phát hiện trùng với 1 dòng KHÁC
+    trong CHÍNH file — LƯU Ý: case duplicate_in_batch ảnh hưởng 2 CHIỀU,
+    dòng other_row_index cũng vừa đổi trong preview đã lưu DB dù KHÔNG
+    nằm trong response này)."""
+    row: dict
+    field_error: Optional[dict] = Field(
+        None, description="{'rule','message'} nếu vẫn lỗi, None nếu đã hợp lệ và đã lưu."
+    )
+
+
+class ResolveCompanyRequest(BaseModel):
+    """Body cho POST /import/{entity_type}/preview/{preview_id}/rows/
+    {row_index}/resolve-company — staff chọn 1 công ty (hoặc "Tạo công ty
+    mới") trong modal chọn công ty ở bước preview, cho dòng
+    conflict_status="pending_company_resolution" (chỉ job/contact — xem
+    api/services/preview_manager.py::resolve_company_selection()).
+
+    Re-check conflict NGAY với company_id thật vừa chọn, thay vì để treo
+    tới lúc confirm (xem trao đổi thiết kế "vấn đề 2 & 3", 08/2026)."""
+    model_config = ConfigDict(extra="forbid")
+
+    company_id: Optional[str] = Field(
+        None,
+        description="UUID công ty staff chọn trong danh sách gợi ý. "
+        "None (hoặc '__new__') = staff xác nhận không công ty nào đúng, "
+        "sẽ tạo công ty mới theo company_name trong file.",
+    )
+
+
+class ResolveCompanyResponse(BaseModel):
+    """Response cho POST .../resolve-company — row trả về là TOÀN BỘ entry
+    của dòng đó sau khi cập nhật (đúng cấu trúc 1 phần tử trong
+    ImportUploadResponse.rows, cùng shape FieldVerifyResponse.row) — FE ghi
+    đè PREVIEW_DATA[row_index] bằng row này rồi renderPage() lại."""
+    row: dict
 
 
 class ImportConfirmRequest(BaseModel):
@@ -905,6 +1141,8 @@ class ImportConfirmRequest(BaseModel):
     
     Staff xác nhận import sau khi đã xem preview và resolve các dòng cần xử lý
     """
+    model_config = ConfigDict(extra="forbid")
+    
     preview_id: str
     note: str = Field(
         ..., 

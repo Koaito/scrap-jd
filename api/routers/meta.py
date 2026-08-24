@@ -4,6 +4,7 @@ import db as db_module
 from api.deps import get_db
 from api.schemas import EngagementStatsOut, StatsOut
 from config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES
+import constants
 
 router = APIRouter(tags=["meta"])
 
@@ -47,4 +48,33 @@ def get_sources():
     return {
         "topcv": {key: cfg["label"] for key, cfg in TOPCV_CATEGORIES.items()},
         "vietnamworks": {key: cfg["label"] for key, cfg in VIETNAMWORKS_CATEGORIES.items()},
+    }
+
+
+@router.get("/enums")
+def get_enums():
+    """Danh sách tất cả enum values dùng trong hệ thống — frontend fetch
+    động để build map VN ↔ backend codes, thay vì hardcode ~10 dict
+    _MAP trong crawler_client.py.
+
+    Thêm 08/2026 để fix vấn đề: mỗi khi backend đổi enum (như EXPIRED ->
+    CLOSED trong JOB_STATUS_VALUES), phải nhớ sửa ở 2 nơi. Giờ frontend
+    gọi route này lúc khởi động hoặc khi cần, tự động sync với backend
+    thật, không bị lệch.
+
+    Response format: {"enum_name": ["VALUE1", "VALUE2", ...]}
+    Frontend tự quyết định có map sang tiếng Việt hay không (có thể
+    hardcode map VN ở frontend, nhưng ít nhất danh sách values luôn đúng)."""
+    return {
+        "job_status": constants.JOB_STATUS_VALUES,
+        "work_type": constants.WORK_TYPE_VALUES,
+        "salary_type": constants.SALARY_TYPE_VALUES,
+        "salary_period": constants.SALARY_PERIOD_VALUES,
+        "level_code": constants.LEVEL_CODE_VALUES,
+        "currency": constants.CURRENCY_VALUES,
+        "contact_status": constants.CONTACT_STATUS_VALUES,
+        "partnership_potential": constants.PARTNERSHIP_POTENTIAL_VALUES,
+        "user_role": constants.USER_ROLE_VALUES,
+        "entity_type": constants.ENTITY_TYPE_VALUES,
+        "action_type": constants.ACTION_TYPE_VALUES,
     }

@@ -29,7 +29,8 @@ khi ứng tuyển là hành động 1 chiều, ít lý do bấm nhiều lần li
 
 from typing import Optional
 import psycopg2.errors
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
+import psycopg2.extras
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
 
 import db as db_module
 from api import storage as cv_storage
@@ -99,6 +100,17 @@ def apply_to_job(
         conn.rollback()
         raise HTTPException(status_code=500, detail=str(exc))
 
+    # Ghi audit log CÙNG transaction với việc tạo application + upload CV
+    # (trước commit) — xem docstring db.log_action(). APPLY_JOB không
+    # thuộc log thủ công, không cần note (xem db.ACTION_LOG_RULES).
+    # entity_type='APPLICATION' + entity_id=application_id (KHÔNG dùng
+    # entity_type='JOB' vì 1 job có nhiều lượt ứng tuyển khác nhau).
+    db_module.log_action(
+        conn, actor_id=user["sub"], action_type="APPLY_JOB",
+        entity_type="APPLICATION", entity_id=application_id,
+        entity_label=job["job_title"], company_id=job["company_id"],
+    )
+
     conn.commit()
 
     applications = db_module.list_applications_for_user(conn, user["sub"])
@@ -123,7 +135,7 @@ def get_cv_signed_url(
     if not db_module.is_valid_uuid(application_id):
         raise HTTPException(status_code=400, detail="application_id không hợp lệ.")
     
-    with conn.cursor() as cur:
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT cv_url FROM job_applications WHERE application_id = %s", (application_id,))
         row = cur.fetchone()
     
@@ -137,11 +149,16 @@ def get_cv_signed_url(
     return {"signed_url": signed_url}
 
 
-<<<<<<< HEAD
-=======
 @router.delete("/applications/{job_id}", status_code=204)
 def withdraw_application(
     job_id: str,
+    note: Optional[str] = Query(
+        None,
+        description="Lý do huỷ ứng tuyển — học viên tự ghi, không bắt buộc. "
+                    "Lưu vào audit_logs.note (WITHDRAW_JOB_APPLICATION) để "
+                    "team SS xem lại sau, KHÔNG lưu vào job_applications vì "
+                    "record đó bị xoá thật ngay trong request này.",
+    ),
     user: dict = Depends(require_role("user")),
     conn=Depends(get_db),
 ):
@@ -152,9 +169,14 @@ def withdraw_application(
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
 
-    with conn.cursor() as cur:
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            "SELECT cv_url FROM job_applications WHERE ss_user_id = %s AND job_id = %s",
+            """
+            SELECT ja.application_id, ja.cv_url, jp.job_title, jp.company_id
+            FROM job_applications ja
+            JOIN job_postings jp ON jp.job_id = ja.job_id
+            WHERE ja.ss_user_id = %s AND ja.job_id = %s
+            """,
             (user["sub"], job_id),
         )
         row = cur.fetchone()
@@ -162,13 +184,29 @@ def withdraw_application(
     deleted = db_module.delete_job_application(conn, ss_user_id=user["sub"], job_id=job_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Bạn chưa ứng tuyển job này.")
+
+    # Ghi audit log CÙNG transaction với việc xoá job_applications (trước
+    # commit) — xem docstring db.log_action(). WITHDRAW_JOB_APPLICATION
+    # không thuộc log thủ công, không bắt buộc note (xem db.ACTION_LOG_RULES)
+    # — nhưng vẫn NHẬN note nếu học viên có ghi lý do huỷ (log_action() tự
+    # strip/None-hoá chuỗi rỗng, xem docstring). entity_id vẫn dùng
+    # application_id dù record đã bị xoá thật khỏi job_applications —
+    # audit_logs.entity_id là snapshot, không có FK ràng buộc tới
+    # job_applications (xem migration_add_application_audit_log.sql).
+    if row:
+        db_module.log_action(
+            conn, actor_id=user["sub"], action_type="WITHDRAW_JOB_APPLICATION",
+            entity_type="APPLICATION", entity_id=str(row["application_id"]),
+            entity_label=row["job_title"], company_id=row["company_id"],
+            note=note,
+        )
+
     conn.commit()
 
     # Dọn dẹp file PDF trên storage
     if row and row.get("cv_url"):
         cv_storage.delete_cv(row["cv_url"])
 
->>>>>>> 7d96241e0ac0b305d464549c4c8db02d84509e1e
     return None
 
 
