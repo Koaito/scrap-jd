@@ -17,8 +17,8 @@ from typing import Optional
 
 import db as db_module
 from api.services import company_resolver, conflict_detector
-from api.services.entity_specs import get_spec
-from api.services.validation_engine import check_job_salary_business_rules, validate_single_field
+from api.services.entity_specs import check_cross_field_rules, get_spec
+from api.services.validation_engine import validate_single_field
 from constants import LEVEL_CODE_VALUES
 
 
@@ -475,27 +475,25 @@ def _apply_field_fixes(entity_type: str, row: dict, data: dict, resolution: dict
             )
         data[fname] = value
 
-    # Business rule liên trường (Job: salary_min/salary_max) có thể bị vi
-    # phạm LẠI sau khi áp field_fixes (vd staff sửa salary_min lớn hơn
+    # Business rule liên trường (vd Job: salary_min/salary_max) có thể bị
+    # vi phạm LẠI sau khi áp field_fixes (vd staff sửa salary_min lớn hơn
     # salary_max cũ vẫn giữ nguyên) dù từng field riêng lẻ giờ hợp lệ về
-    # type — re-check để không lọt 1 job có salary_max < salary_min vào DB.
+    # type — re-check để không lọt 1 dòng vi phạm rule liên trường vào DB.
     #
-    # GỘP VỀ 1 NGUỒN (08/2026): TRƯỚC ĐÂY đoạn này tự viết tay lại y hệt
-    # rule salary_min>=0 / salary_max>=salary_min — bản thứ 3 của CÙNG 1
-    # rule đã có sẵn ở validation_engine.py (_validate_job_business_rules,
-    # dùng lúc build preview) và đã được preview_manager.py::apply_field_
-    # fix() gọi đúng qua check_job_salary_business_rules(). Y HỆT loại lỗi
-    # "quên sửa 1 trong N chỗ" từng gặp (tax_id/level_code) — giờ gọi
-    # THẲNG check_job_salary_business_rules() như 2 nơi kia, để rule salary
-    # chỉ còn tồn tại ở ĐÚNG 1 chỗ (validation_engine.py), sửa rule sau
-    # này chỉ cần sửa 1 nơi. Giữ nguyên THỨ TỰ ưu tiên lỗi (salary_min
-    # trước, salary_max sau) và NGUYÊN VĂN message như hành vi cũ.
-    if entity_type == "job":
-        salary_rule_errors = check_job_salary_business_rules(data, row_label)
-        if "salary_min" in salary_rule_errors:
-            raise RowResolutionError(salary_rule_errors["salary_min"]["message"])
-        if "salary_max" in salary_rule_errors:
-            raise RowResolutionError(salary_rule_errors["salary_max"]["message"])
+    # GỘP VỀ 1 NGUỒN (08/2026): rule liên trường giờ khai báo ở ĐÚNG 1 chỗ
+    # (EntitySpec.cross_field_rules, xem entity_specs.py::CrossFieldRule) —
+    # TRƯỚC ĐÂY đoạn này tự viết tay lại y hệt rule salary_min>=0/
+    # salary_max>=salary_min (bản thứ 3 của CÙNG 1 rule, 2 bản kia ở
+    # validation_engine.py lúc build preview và preview_manager.py lúc sửa
+    # tại chỗ) — Y HỆT loại lỗi "quên sửa 1 trong N chỗ" từng gặp (tax_id/
+    # level_code). Giờ KHÔNG hardcode entity_type == "job" nữa — gọi
+    # check_cross_field_rules() cho MỌI entity, no-op tự nhiên nếu spec
+    # không có cross_field_rules nào (Company/Contact hiện tại). Giữ
+    # nguyên THỨ TỰ ưu tiên lỗi (dict giữ insertion order, rule salary tự
+    # set salary_min trước salary_max) và NGUYÊN VĂN message như hành vi cũ.
+    rule_errors = check_cross_field_rules(spec, data, row_label)
+    for err in rule_errors.values():
+        raise RowResolutionError(err["message"])
 
 
 def _recheck_conflict(conn, entity_type, data) -> tuple[str, Optional[dict]]:

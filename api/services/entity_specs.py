@@ -13,9 +13,35 @@ headers matching the database schema field names") — CHỈ 2 ngoại lệ cố
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from constants import LEVEL_CODE_VALUES
+
+
+@dataclass
+class CrossFieldRule:
+    """1 rule nghiệp vụ liên trường (đọc/set lỗi lên NHIỀU field cùng lúc,
+    khác enum_fields/date_fields/... vốn chỉ gắn được cho 1 field đơn lẻ).
+
+    Thêm 08/2026 (thay cho `if entity_type == "job": ...` rải rác ở
+    validation_engine.py/preview_manager.py/import_executor.py — 3 nơi
+    cùng cần biết rule salary tồn tại nhưng phải tự hardcode entity_type
+    đúng loại lỗi "quên sửa 1 trong N chỗ" đã gặp với tax_id/level_code).
+    Khai báo rule ở ĐÚNG 1 nơi (trong EntitySpec.cross_field_rules của
+    entity liên quan) — 3 nơi kia gọi qua run_cross_field_rules()/
+    check_cross_field_rules() bên dưới, không cần biết rule cụ thể là gì
+    hay entity_type có bao nhiêu domain. Thêm rule liên trường mới (cho
+    Job/Company/Contact) chỉ cần thêm 1 CrossFieldRule vào spec tương ứng.
+
+    fields: các field mà rule ĐỌC và có thể set lỗi lên — dùng để biết
+        rule này có LIÊN QUAN tới 1 field cụ thể hay không (vd
+        preview_manager.apply_field_fix() cần biết sửa field nào thì
+        phải re-chạy rule nào, KHÔNG chạy mọi rule cho mọi field sửa).
+    check: hàm (data, row_number, field_errors) -> None, MUTATE field_errors
+        trực tiếp — giữ đúng chữ ký hàm rule salary cũ để hành vi không đổi.
+    """
+    fields: tuple[str, ...]
+    check: Callable[[dict, object, dict], None]
 
 
 @dataclass
@@ -74,6 +100,46 @@ class EntitySpec:
     # chỉ áp dụng cho Job trước, Company/Contact chưa có field tương tự).
     strict_enum_fields: dict[str, list[str]] = field(default_factory=dict)
 
+    # Rule nghiệp vụ liên trường của entity này (vd Job: salary_min/
+    # salary_max) — xem docstring CrossFieldRule ở trên. Rỗng cho
+    # Company/Contact hiện tại (chưa có rule liên trường nào).
+    cross_field_rules: list[CrossFieldRule] = field(default_factory=list)
+
+
+def _check_job_salary_business_rules(data: dict, row_number, field_errors: dict) -> None:
+    """salary_min >= 0 (nếu có), salary_max >= salary_min (nếu cả 2 có) —
+    Requirement business rule Job, xem design.md. Ghi thẳng vào
+    field_errors (không reject cả file) — chỉ set khi salary_min/
+    salary_max ĐÃ parse được thành số (None nghĩa là field đó đã có lỗi
+    type_number riêng rồi, khỏi kiểm tra chồng thêm business rule lên 1
+    giá trị chưa hợp lệ).
+
+    GỘP VỀ 1 NGUỒN (08/2026): rule này TỪNG bị viết tay lại tới 3 lần
+    (validate_dataframe() lúc build preview, apply_field_fix() lúc staff
+    sửa tại chỗ trên preview, _apply_field_fixes() lúc confirm cuối) —
+    y hệt loại lỗi "quên sửa 1 trong N chỗ" từng gặp với tax_id/
+    level_code. Giờ tồn tại ĐÚNG 1 chỗ ở đây, khai báo qua
+    JOB_SPEC.cross_field_rules bên dưới — 3 nơi kia gọi qua
+    run_cross_field_rules()/check_cross_field_rules(), không tự biết
+    rule cụ thể là gì hay entity_type nào có rule liên trường."""
+    salary_min = data.get("salary_min")
+    salary_max = data.get("salary_max")
+
+    if salary_min is not None and salary_min < 0:
+        field_errors["salary_min"] = {
+            "rule": "business_rule_non_negative",
+            "message": f"Dòng {row_number}, cột 'salary_min': phải >= 0, nhận được {salary_min}",
+        }
+
+    if salary_min is not None and salary_max is not None and salary_max < salary_min:
+        field_errors["salary_max"] = {
+            "rule": "business_rule_salary_range",
+            "message": (
+                f"Dòng {row_number}: salary_max ({salary_max}) phải >= "
+                f"salary_min ({salary_min})"
+            ),
+        }
+
 
 JOB_SPEC = EntitySpec(
     id_field="job_id",
@@ -100,6 +166,9 @@ JOB_SPEC = EntitySpec(
     strict_enum_fields={
         "level_code": LEVEL_CODE_VALUES,
     },
+    cross_field_rules=[
+        CrossFieldRule(fields=("salary_min", "salary_max"), check=_check_job_salary_business_rules),
+    ],
 )
 
 COMPANY_SPEC = EntitySpec(
@@ -194,3 +263,44 @@ def field_options(entity_type: str, field_name: str) -> Optional[list[str]]:
     if field_name in spec.strict_enum_fields:
         return list(spec.strict_enum_fields[field_name])
     return None
+
+
+# Thêm 08/2026 (gộp cross-field rule vào EntitySpec — xem CrossFieldRule ở
+# trên): 3 hàm dưới đây thay cho `if entity_type == "job": ...` hardcode ở
+# validation_engine.py/preview_manager.py/import_executor.py. Cả 3 nơi giờ
+# gọi qua đây, KHÔNG cần biết Job có rule salary hay entity_type nào có
+# rule liên trường gì — thêm rule mới cho Company/Contact chỉ cần thêm 1
+# CrossFieldRule vào spec tương ứng (entity_specs.py), không phải sửa lại
+# 3 nơi gọi.
+def run_cross_field_rules(spec: EntitySpec, data: dict, row_number, field_errors: dict) -> None:
+    """Chạy MỌI cross_field_rules của spec, MUTATE field_errors trực tiếp —
+    dùng lúc build preview (validate_dataframe() đã có sẵn field_errors
+    của dòng, chỉ cần bổ sung thêm lỗi liên trường nếu có)."""
+    for rule in spec.cross_field_rules:
+        rule.check(data, row_number, field_errors)
+
+
+def check_cross_field_rules(spec: EntitySpec, data: dict, row_number: object = "?") -> dict:
+    """Như run_cross_field_rules() nhưng trả field_errors MỚI (rỗng nếu
+    hợp lệ) thay vì mutate — dùng NGOÀI validate_dataframe(), ở nơi CHƯA
+    có sẵn field_errors của dòng để mutate vào (preview_manager.py::
+    apply_field_fix() sửa 1 ô tại chỗ, import_executor.py::
+    _apply_field_fixes() lúc confirm cuối).
+
+    row_number: mặc định "?" (context sửa 1 ô tại chỗ, không có ý nghĩa
+    "dòng N trong file gốc"). Truyền số dòng thật (vd row_index + 1) khi
+    gọi từ ngữ cảnh có biết rõ dòng nào trong file."""
+    field_errors: dict = {}
+    run_cross_field_rules(spec, data, row_number, field_errors)
+    return field_errors
+
+
+def cross_field_rule_fields(spec: EntitySpec) -> set[str]:
+    """Hợp mọi field xuất hiện trong bất kỳ cross_field_rules nào của spec
+    — dùng để biết 1 field vừa sửa có CẦN re-chạy rule liên trường hay
+    không (preview_manager.py::apply_field_fix()), KHÔNG hardcode entity_
+    type=="job" hay tên field salary_min/salary_max ở nơi gọi."""
+    result: set[str] = set()
+    for rule in spec.cross_field_rules:
+        result.update(rule.fields)
+    return result

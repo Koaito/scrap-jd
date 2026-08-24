@@ -50,7 +50,7 @@ from typing import Optional
 
 import pandas as pd
 
-from api.services.entity_specs import EntitySpec, get_spec
+from api.services.entity_specs import EntitySpec, get_spec, run_cross_field_rules
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
@@ -264,9 +264,15 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
             # Text field — giữ nguyên string đã strip.
             cleaned[f] = val_str
 
-        # Business rule liên trường (không gắn với 1 field đơn lẻ):
-        if entity_type == "job":
-            _validate_job_business_rules(cleaned, row_number, field_errors)
+        # Business rule liên trường (không gắn với 1 field đơn lẻ) — thêm
+        # 08/2026 (gộp vào EntitySpec.cross_field_rules, xem entity_specs.py::
+        # CrossFieldRule): TRƯỚC ĐÂY hardcode `if entity_type == "job":
+        # _validate_job_business_rules(...)` ở đây — chỉ Job có rule liên
+        # trường nên KHÔNG hardcode chặn theo entity_type nữa, gọi thẳng
+        # run_cross_field_rules() cho MỌI entity — no-op tự nhiên cho
+        # Company/Contact (spec.cross_field_rules rỗng), không cần if/elif
+        # riêng khi sau này Company/Contact có rule liên trường mới.
+        run_cross_field_rules(spec, cleaned, row_number, field_errors)
 
         cleaned["_row_index"] = int(idx)  # 0-based, dùng làm khoá nội bộ preview
         if field_errors:
@@ -276,79 +282,6 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
     if errors:
         return ValidationResult(is_valid=False, errors=errors)
     return ValidationResult(is_valid=True, errors=[], cleaned_rows=cleaned_rows)
-
-
-def _validate_job_business_rules(cleaned: dict, row_number: int, field_errors: dict) -> None:
-    """salary_min >= 0 (nếu có), salary_max >= salary_min (nếu cả 2 có) —
-    Requirement business rule Job, xem design.md. Ghi thẳng vào
-    field_errors của dòng (không còn reject cả file) — chỉ set khi
-    salary_min/salary_max ĐÃ parse được thành số (None nghĩa là field đó
-    đã có lỗi type_number riêng rồi, khỏi kiểm tra chồng thêm business
-    rule lên 1 giá trị chưa hợp lệ)."""
-    salary_min = cleaned.get("salary_min")
-    salary_max = cleaned.get("salary_max")
-
-    if salary_min is not None and salary_min < 0:
-        field_errors["salary_min"] = {
-            "rule": "business_rule_non_negative",
-            "message": f"Dòng {row_number}, cột 'salary_min': phải >= 0, nhận được {salary_min}",
-        }
-
-    if salary_min is not None and salary_max is not None and salary_max < salary_min:
-        field_errors["salary_max"] = {
-            "rule": "business_rule_salary_range",
-            "message": (
-                f"Dòng {row_number}: salary_max ({salary_max}) phải >= "
-                f"salary_min ({salary_min})"
-            ),
-        }
-
-
-def check_job_salary_business_rules(data: dict, row_number: object = "?") -> dict:
-    """Public wrapper cho _validate_job_business_rules(), dùng NGOÀI
-    validate_dataframe() — ở preview_manager.py::apply_field_fix() (staff
-    sửa 1 ô salary_min/salary_max tại chỗ trên preview, bấm "Xác nhận")
-    VÀ import_executor.py::_apply_field_fixes() (staff sửa field_fixes
-    rồi bấm "Xác nhận nhập dữ liệu" ở bước confirm cuối).
-
-    row_number: mặc định "?" (context sửa 1 ô tại chỗ, không có ý nghĩa
-    "dòng N trong file gốc" — dùng ở preview_manager.py). Truyền số dòng
-    THẬT (vd row_index + 1) khi gọi từ ngữ cảnh CÓ biết rõ dòng nào
-    trong file — xem import_executor.py::_apply_field_fixes().
-
-    BUG (phát hiện 08/2026 qua staff test): apply_field_fix() TRƯỚC ĐÂY
-    chỉ gọi validate_single_field() để check TYPE của field đang sửa (vd
-    salary_min phải là số nguyên) — số âm hay số nhỏ hơn salary_min vẫn
-    là "số nguyên hợp lệ" về type nên pass thẳng, không hề chạy lại rule
-    liên trường "salary_min >= 0" / "salary_max >= salary_min". Hậu quả:
-    staff sửa 1 ô salary sai logic (vd salary_min=-5000000000) qua nút
-    "Xác nhận" tại ô, hệ thống báo hợp lệ, dòng đó lọt tới bước confirm,
-    rồi mới vỡ ở tầng DB (constraint CHECK, nếu có) hoặc — tệ hơn — ghi
-    thẳng số vô lý vào DB nếu bảng không có CHECK constraint.
-
-    BUG THỨ 2 (phát hiện 08/2026, cùng loại nhưng Ở NƠI KHÁC): import_
-    executor.py::_apply_field_fixes() (bước confirm cuối, KHÁC apply_
-    field_fix() ở preview_manager.py vốn chạy lúc staff sửa TẠI CHỖ trên
-    preview) TỪNG tự viết tay lại y hệt rule salary này thay vì gọi hàm
-    NÀY — 3 nơi cùng biết luật salary (validate_dataframe() lúc build
-    preview, apply_field_fix() lúc sửa tại chỗ, _apply_field_fixes() lúc
-    confirm) nhưng chỉ 2/3 gọi qua đây, 1/3 viết tay riêng. Y HỆT loại
-    lỗi "quên sửa 1 trong N chỗ" từng gặp (tax_id thiếu trong _extra_
-    optional_fields, level_code không nằm trong enum_fields thường) —
-    chưa vỡ lần này, nhưng sẽ vỡ ngay khi rule salary đổi (vd thêm giới
-    hạn salary_max tối đa) mà ai đó chỉ sửa ở đây rồi quên bản viết tay
-    kia. Đã gộp về ĐÚNG 1 nguồn (hàm này) cho cả 3 nơi.
-
-    Trả field_errors MỚI dạng {"salary_min": {...}, "salary_max": {...}}
-    (rỗng nếu hợp lệ) — CHỈ đánh giá salary_min/salary_max đang có sẵn
-    trong `data` (đã convert qua validate_single_field(), tức đã là
-    int/None), không tự parse lại từ string. Dùng chung message/rule
-    NGUYÊN VĂN với _validate_job_business_rules() (gọi lại chính hàm đó
-    với field_errors rỗng rồi trả ra) để mọi nơi không lệch câu chữ khi
-    sau này sửa rule."""
-    field_errors: dict = {}
-    _validate_job_business_rules(data, row_number, field_errors)
-    return field_errors
 
 
 def _extra_optional_fields(entity_type: str) -> set[str]:
