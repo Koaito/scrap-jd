@@ -156,7 +156,13 @@ JOB_SPEC = EntitySpec(
     # UUID tay, resolve qua tax_id trước, fallback gợi ý tên tương tự).
     required_fields=["job_title", "company_name", "deadline"],
     enum_fields={
-        "job_status": ["OPEN", "EXPIRED", "CLOSED"],
+        # EXPIRED đã bị loại khỏi job_status_enum trong DB (xem
+        # sql/migration_remove_expired_job_status.sql, 08/2026 — gộp
+        # "job hết hạn tự nhiên" vào chung CLOSED, không tách riêng
+        # nữa). Giữ EXPIRED ở đây sẽ khiến import/export filter chấp
+        # nhận 1 giá trị DB thật không còn ghi được nữa — sửa cho khớp
+        # constants.JOB_STATUS_VALUES.
+        "job_status": ["OPEN", "CLOSED"],
         "work_type": ["FULL_TIME", "PART_TIME", "INTERNSHIP", "OTHER"],
         "salary_type": ["RANGE", "EXACT", "UPTO", "STARTING_FROM", "NEGOTIABLE", "UNPAID"],
         "salary_period": ["MONTH", "YEAR"],
