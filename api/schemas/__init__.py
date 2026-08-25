@@ -110,6 +110,7 @@ from api.schemas.import_export import (
     ResolveCompanyResponse,
     ImportConfirmRequest,
     ImportConfirmResult,
+    ExportPreviewResponse,
 )
 
 __all__ = [
@@ -141,5 +142,5 @@ __all__ = [
     "CompanySuggestionOut", "CompanySuggestionsResponse", "ImportUploadResponse",
     "RowResolution", "FieldVerifyRequest", "DuplicateMatchOut", "BatchDuplicateMatchOut",
     "FieldVerifyResponse", "ResolveCompanyRequest", "ResolveCompanyResponse",
-    "ImportConfirmRequest", "ImportConfirmResult",
+    "ImportConfirmRequest", "ImportConfirmResult", "ExportPreviewResponse",
 ]

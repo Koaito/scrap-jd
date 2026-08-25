@@ -275,3 +275,32 @@ class ImportConfirmResult(BaseModel):
     created: int
     updated: int
     skipped: int
+
+
+# ------------------------------------------------------------------
+# Export — bước preview (thêm 08/2026: filter status/khoảng ngày/
+# company/limit-N-mới-nhất + xem trước trước khi tải file thật — xem
+# api/services/export_query.py::ExportFilters cho ý nghĩa từng filter,
+# đây chỉ là response schema cho GET /export/{entity_type}/preview).
+# ------------------------------------------------------------------
+
+class ExportPreviewResponse(BaseModel):
+    """Response cho GET /export/{entity_type}/preview — staff xem trước
+    TỔNG số dòng sẽ xuất (đã áp mọi filter, CHƯA áp limit-N-mới-nhất, để
+    staff biết filter đang khớp bao nhiêu record thật) và 1 mẫu dữ liệu
+    (đã áp limit-N-mới-nhất nếu có) để xem hình dạng file trước khi bấm
+    tải. columns lấy từ entity_specs.py, dùng chung 1 nguồn với export
+    thật — đảm bảo preview hiện đúng cột sẽ có trong file tải về."""
+    entity_type: str
+    total_matching: int = Field(
+        ..., description="Tổng số dòng khớp filter (KHÔNG tính limit)."
+    )
+    will_export: int = Field(
+        ..., description="Số dòng THỰC TẾ sẽ có trong file (đã áp limit nếu có)."
+    )
+    columns: list[str]
+    sample_rows: list[dict] = Field(
+        default_factory=list,
+        description="Tối đa 20 dòng đầu (theo created_at DESC, đã áp mọi filter "
+                     "kể cả limit) để staff xem trước hình dạng dữ liệu.",
+    )
