@@ -202,3 +202,74 @@ def has_active_run(conn, source: str) -> bool:
             (source,),
         )
         return cur.fetchone() is not None
+
+
+def reconcile_orphaned_runs(conn) -> int:
+    """Đánh dấu 'error' MỌI dòng đang 'queued'/'running' — gọi ĐÚNG 1
+    LẦN lúc app khởi động (api/app.py::lifespan, TRƯỚC khi nhận request
+    nào), KHÔNG gọi ở nơi khác.
+
+    LÝ DO AN TOÀN GỌI VÔ ĐIỀU KIỆN: kiến trúc hiện tại là 1 process
+    (không Celery/RQ), BackgroundTasks của FastAPI SỐNG CÙNG VÒNG ĐỜI
+    process — khi process cũ dừng (deploy mới, Render sleep dậy...),
+    MỌI background task đang chạy dở cũng biến mất theo, không có gì
+    "tiếp tục chạy" ở process mới cả. Nên bất kỳ dòng nào còn
+    'queued'/'running' tại thời điểm process MỚI khởi động chắc chắn là
+    mồ côi (orphaned) từ 1 lần chạy trước đã chết dở — không tồn tại
+    trường hợp dòng đó vẫn đang thực sự được xử lý bởi 1 process khác.
+
+    Trả về số dòng đã reconcile (dùng để log, không bắt buộc xử lý)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE crawl_runs
+            SET status = 'error',
+                error = 'Server khởi động lại giữa chừng lượt crawl này (process cũ đã dừng, tự động đánh dấu lỗi để giải phóng nguồn).',
+                finished_at = now()
+            WHERE status IN ('queued', 'running')
+            RETURNING run_id
+            """
+        )
+        count = cur.rowcount
+    conn.commit()
+    return count
+
+
+def reconcile_stale_runs(conn, timeout_minutes: int) -> int:
+    """Đánh dấu 'error' các dòng 'queued'/'running' đã quá `timeout_minutes`
+    kể từ started_at MÀ CHƯA đổi trạng thái — gọi ĐỊNH KỲ qua APScheduler
+    (api/services/crawl_watchdog.py), KHÁC reconcile_orphaned_runs()
+    (chỉ gọi 1 lần lúc khởi động).
+
+    Bắt trường hợp reconcile_orphaned_runs() KHÔNG bắt được: process
+    KHÔNG restart nhưng riêng 1 background task bị TREO (vd network
+    treo vô hạn không timeout, thread bị deadlock) — process vẫn sống,
+    vẫn nhận request bình thường, nên "lúc khởi động" không xảy ra để
+    reconcile_orphaned_runs() có cơ hội chạy lại.
+
+    timeout_minutes: xem CRAWL_STALE_TIMEOUT_MINUTES (config.py) — PHẢI
+    đủ lớn hơn thời gian 1 lượt crawl HỢP LỆ có thể chạy (worst case
+    max_jobs=1000), nếu không sẽ tự huỷ nhầm crawl vẫn đang chạy bình
+    thường."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE crawl_runs
+            SET status = 'error',
+                error = %s,
+                finished_at = now()
+            WHERE status IN ('queued', 'running')
+              AND started_at < now() - (%s || ' minutes')::interval
+            RETURNING run_id
+            """,
+            (
+                f"Lượt crawl treo quá {timeout_minutes} phút không cập nhật "
+                f"trạng thái, tự động đánh dấu lỗi để giải phóng nguồn — có "
+                f"thể do process bị treo/kill giữa chừng.",
+                timeout_minutes,
+            ),
+        )
+        count = cur.rowcount
+    conn.commit()
+    return count
+

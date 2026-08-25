@@ -64,6 +64,8 @@ from api.auth import require_api_key
 from api.rate_limit import limiter
 from api.routers import auth, companies, contacts, crawl, jobs, me, meta, audit_logs, import_export
 from api.services.preview_cleanup import CLEANUP_INTERVAL_MINUTES, run_cleanup_once
+from api.services.crawl_watchdog import run_crawl_watchdog_once
+from config import CRAWL_WATCHDOG_INTERVAL_MINUTES
 
 logging.basicConfig(
     level=logging.INFO,
@@ -87,6 +89,24 @@ async def lifespan(app: FastAPI):
     bị bỏ "treo" phía Postgres khi Render restart/deploy lại server."""
     db_module.init_pool()
 
+    # 08/2026 (xem sql/migration_add_crawl_runs.sql +
+    # api/services/crawl_watchdog.py): reconcile CÁC LƯỢT CRAWL MỒ CÔI
+    # từ lần chạy process TRƯỚC (còn kẹt 'queued'/'running' vì process
+    # đó dừng đột ngột) — PHẢI chạy TRƯỚC yield (trước khi nhận request
+    # nào), để không có cửa sổ thời gian nào UNIQUE INDEX
+    # idx_crawl_runs_one_active_per_source còn bị "khoá" bởi dữ liệu cũ
+    # trong lúc server mới đã bắt đầu nhận request.
+    _startup_conn = db_module.get_pooled_connection()
+    try:
+        _orphaned = db_module.reconcile_orphaned_crawl_runs(_startup_conn)
+        if _orphaned:
+            logging.getLogger(__name__).warning(
+                "Khởi động: đã reconcile %d lượt crawl mồ côi từ lần chạy trước.",
+                _orphaned,
+            )
+    finally:
+        db_module.release_connection(_startup_conn)
+
     # Cleanup task định kỳ cho import_previews hết hạn (Requirement 9)
     # — BackgroundScheduler chạy TRONG process này (không cần service
     # ngoài kiểu cron/Celery riêng), đủ cho quy mô hiện tại (1 instance,
@@ -97,6 +117,13 @@ async def lifespan(app: FastAPI):
     # gì), chỉ hơi thừa công, không cần sửa gì thêm nếu scale sau này).
     scheduler = BackgroundScheduler()
     scheduler.add_job(run_cleanup_once, "interval", minutes=CLEANUP_INTERVAL_MINUTES)
+    # Watchdog crawl treo (08/2026) — DÙNG CHUNG scheduler này, không
+    # tạo thêm process/thread riêng. Đây là LỚP DỰ PHÒNG THỨ 2, bổ sung
+    # cho reconcile_orphaned_crawl_runs() ở trên (chỉ bắt được lúc
+    # server RESTART) — watchdog này bắt thêm trường hợp process không
+    # restart nhưng 1 task bị treo giữa chừng (xem docstring
+    # api/services/crawl_watchdog.py).
+    scheduler.add_job(run_crawl_watchdog_once, "interval", minutes=CRAWL_WATCHDOG_INTERVAL_MINUTES)
     scheduler.start()
 
     yield

@@ -219,6 +219,27 @@ DB_POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
 DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "20"))
 
 # ------------------------------------------------------------------
+# Crawl watchdog (08/2026, xem api/services/crawl_watchdog.py +
+# sql/migration_add_crawl_runs.sql) — phát hiện lượt crawl bị TREO
+# (process bị kill giữa chừng, network timeout vô hạn...) rồi tự đánh
+# dấu 'error' để giải phóng UNIQUE INDEX idx_crawl_runs_one_active_per_source,
+# tránh 1 nguồn bị "khoá" crawl mãi mãi.
+#
+# CRAWL_STALE_TIMEOUT_MINUTES: ước lượng THỜI GIAN TỐI ĐA 1 lượt crawl
+# hợp lệ có thể chạy, cộng buffer an toàn — worst case max_jobs=1000
+# (giới hạn ở CrawlRequest.max_jobs, xem api/schemas/crawl.py),
+# REQUEST_DELAY_SECONDS=5s/job -> ~1000*5s ≈ 83 phút riêng phần
+# fetch detail, CHƯA kể trang danh sách + enrich company. 120 phút mặc
+# định đã dư buffer so với ước lượng đó — chỉnh qua env nếu sau này
+# max_jobs tối đa đổi khác.
+CRAWL_STALE_TIMEOUT_MINUTES = int(os.getenv("CRAWL_STALE_TIMEOUT_MINUTES", "120"))
+
+# Tần suất watchdog quét bảng crawl_runs — không cần nhanh (đây là lớp
+# dự phòng, không phải cơ chế chính), 10 phút đủ để giải phóng nguồn bị
+# treo trong thời gian hợp lý mà không tốn tài nguyên quét liên tục.
+CRAWL_WATCHDOG_INTERVAL_MINUTES = int(os.getenv("CRAWL_WATCHDOG_INTERVAL_MINUTES", "10"))
+
+# ------------------------------------------------------------------
 # Enrich API Config
 # ------------------------------------------------------------------
 TAVILY_API_KEY = os.getenv("TAVILY_API_KEY", "")

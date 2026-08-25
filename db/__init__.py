@@ -129,6 +129,8 @@ from db.crawl_runs import (
     get_run as get_crawl_run,
     list_runs as list_crawl_runs,
     has_active_run as crawl_source_has_active_run,
+    reconcile_orphaned_runs as reconcile_orphaned_crawl_runs,
+    reconcile_stale_runs as reconcile_stale_crawl_runs,
 )
 
 __all__ = [
@@ -231,5 +233,7 @@ __all__ = [
     "get_crawl_run",
     "list_crawl_runs",
     "crawl_source_has_active_run",
+    "reconcile_orphaned_crawl_runs",
+    "reconcile_stale_crawl_runs",
 ]
 
