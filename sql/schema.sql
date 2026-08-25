@@ -388,6 +388,39 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 );
 
 -- ============================================================
+-- 2d. LỊCH SỬ + TRẠNG THÁI CRAWL (crawl_runs) — xem
+-- sql/migration_add_crawl_runs.sql để biết đầy đủ lý do thiết kế.
+--
+-- THAY THẾ _RUNS (dict RAM cũ trong api/crawl_runner.py) — sống bền qua
+-- restart server, đồng bộ được nếu chạy nhiều worker uvicorn.
+-- ============================================================
+
+DO $$ BEGIN
+    CREATE TYPE crawl_status_enum AS ENUM ('queued', 'running', 'done', 'error');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+CREATE TABLE IF NOT EXISTS crawl_runs (
+    run_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    source        VARCHAR(50)  NOT NULL,
+    category      VARCHAR(100) NOT NULL,
+    pages         INT NOT NULL,
+    max_jobs      INT,
+    status        crawl_status_enum NOT NULL DEFAULT 'queued',
+    stats         JSONB,
+    error         TEXT,
+    triggered_by  UUID REFERENCES app_users(ss_user_id),
+    started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at   TIMESTAMPTZ
+);
+
+-- Mỗi source tối đa 1 dòng 'queued'/'running' cùng lúc — xem
+-- migration_add_crawl_runs.sql để biết đầy đủ lý do (LỚP CHẶN THỨ 2,
+-- lớp chính là SELECT check ở db/crawl_runs.py::create_run()).
+CREATE UNIQUE INDEX IF NOT EXISTS idx_crawl_runs_one_active_per_source
+    ON crawl_runs(source)
+    WHERE status IN ('queued', 'running');
+
+-- ============================================================
 -- 3. INDEXES
 -- ============================================================
 
@@ -413,6 +446,10 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_actor      ON audit_logs(actor_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_manual     ON audit_logs(is_manual_log, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_pending_note ON audit_logs(is_manual_log)
     WHERE note_required = true AND note IS NULL;
+CREATE INDEX IF NOT EXISTS idx_crawl_runs_status       ON crawl_runs(status);
+CREATE INDEX IF NOT EXISTS idx_crawl_runs_started_at   ON crawl_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_crawl_runs_source       ON crawl_runs(source);
+CREATE INDEX IF NOT EXISTS idx_crawl_runs_triggered_by ON crawl_runs(triggered_by);
 
 -- ============================================================
 -- 4. TRIGGERS — updated_at tự động

@@ -42,9 +42,30 @@ class CrawlStatusOut(BaseModel):
     category: str
     pages: int
     max_jobs: Optional[int] = None
+    # 08/2026 (xem sql/migration_add_crawl_runs.sql) — admin nào bấm
+    # crawl. NULL dành sẵn cho crawl tự động theo lịch sau này (không
+    # ai bấm), không phải lỗi dữ liệu — cùng quy ước actor_id ở
+    # AuditLogOut.
+    triggered_by: Optional[str] = None
+    triggered_by_name: Optional[str] = Field(
+        default=None, description="full_name của admin đã bấm crawl, join sống "
+                                   "TẠI THỜI ĐIỂM TRUY VẤN — null nếu triggered_by "
+                                   "null hoặc tài khoản đã bị xoá.",
+    )
     started_at: datetime
     finished_at: Optional[datetime] = None
     stats: Optional[dict] = None
     error: Optional[str] = None
 
+
+# ------------------------------------------------------------------
+# Lịch sử crawl — GET /crawl (08/2026, phương án "bảng crawl_runs
+# riêng", xem sql/migration_add_crawl_runs.sql)
+# ------------------------------------------------------------------
+
+class PaginatedCrawlRuns(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[CrawlStatusOut]
 

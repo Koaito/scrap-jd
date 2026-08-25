@@ -120,6 +120,16 @@ from db.audit_logs import (
     get_audit_log_by_id,
     update_audit_log_note,
 )
+from db.crawl_runs import (
+    ActiveCrawlExistsError,
+    create_run as create_crawl_run,
+    mark_running as mark_crawl_run_running,
+    mark_done as mark_crawl_run_done,
+    mark_error as mark_crawl_run_error,
+    get_run as get_crawl_run,
+    list_runs as list_crawl_runs,
+    has_active_run as crawl_source_has_active_run,
+)
 
 __all__ = [
     "is_valid_uuid",
@@ -213,5 +223,13 @@ __all__ = [
     "list_audit_logs",
     "get_audit_log_by_id",
     "update_audit_log_note",
+    "ActiveCrawlExistsError",
+    "create_crawl_run",
+    "mark_crawl_run_running",
+    "mark_crawl_run_done",
+    "mark_crawl_run_error",
+    "get_crawl_run",
+    "list_crawl_runs",
+    "crawl_source_has_active_run",
 ]
 

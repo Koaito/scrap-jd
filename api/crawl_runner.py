@@ -5,43 +5,52 @@ lúc crawl xong (crawl thật có thể mất vài phút - vài chục phút tu�
 trang, HTTP request giữ lâu vậy sẽ timeout ở phía client/proxy).
 
 CÁCH HOẠT ĐỘNG:
-  1. POST /crawl -> tạo 1 run_id (uuid4), lưu status "queued" vào
-     _RUNS (dict trong RAM), trả về run_id NGAY LẬP TỨC.
+  1. POST /crawl -> start_crawl() insert 1 dòng status='queued' vào
+     bảng crawl_runs (Postgres), trả về run_id NGAY LẬP TỨC.
   2. FastAPI BackgroundTasks chạy execute() sau khi response đã trả -
      execute() tự mở connection DB riêng (không dùng chung connection
-     của request gốc, vì request đó đã kết thúc), gọi thẳng
-     pipeline.run_pipeline() y hệt main.py CLI đang làm.
+     của request gốc, vì request đó đã kết thúc), đổi status ->
+     'running', gọi thẳng pipeline.run_pipeline() y hệt main.py CLI
+     đang làm, rồi đổi status -> 'done'/'error'.
   3. Client gọi GET /crawl/{run_id} để poll tiến độ, đọc "status" +
-     "stats" khi xong.
+     "stats" khi xong — đọc thẳng từ bảng crawl_runs.
 
 max_jobs (08/2026, khớp với --max-jobs đã có ở CLI): body POST /crawl
 có thể kèm "max_jobs" để giới hạn TỔNG SỐ JD thay vì tính theo trang —
 xem resolve_effective_pages() để biết cách "pages" tự được tính lại khi
 chỉ truyền "max_jobs" mà không truyền "pages".
 
-GIỚI HẠN ĐÃ BIẾT (chấp nhận được ở quy mô hiện tại — 1 process, ít
-người dùng nội bộ; KHÔNG phù hợp nếu deploy nhiều worker/instance):
-  - _RUNS lưu trong RAM của process -> mất hết nếu restart server, và
-    KHÔNG đồng bộ nếu chạy nhiều worker uvicorn (--workers > 1) vì mỗi
-    worker có RAM riêng, request tạo run ở worker A nhưng poll trúng
-    worker B sẽ không thấy.
-  - Không giới hạn số crawl chạy song song -> nếu gọi API dồn dập nhiều
-    lần, có thể có nhiều pipeline chạy cùng lúc, tốn tài nguyên/network
-    hơn dự tính (adapter TopCV/VNW vẫn tự có REQUEST_DELAY_SECONDS
-    riêng, không đến mức dội request quá nhanh, nhưng vẫn nên tự giới
-    hạn ở phía frontend, vd disable nút "Crawl" khi đang chạy).
+08/2026 — ĐỔI TỪ _RUNS (dict RAM) SANG bảng crawl_runs (Postgres, xem
+sql/migration_add_crawl_runs.sql), giải quyết 2 giới hạn cũ:
+  - _RUNS mất hết nếu restart server -> crawl_runs sống bền qua restart.
+  - _RUNS KHÔNG đồng bộ nếu chạy nhiều worker uvicorn (mỗi worker RAM
+    riêng) -> mọi worker giờ đọc/ghi CHUNG 1 bảng Postgres.
+  - Đồng thời enforce "mỗi nguồn tối đa 1 lượt crawl đang chạy" Ở TẦNG
+    DB (UNIQUE INDEX có điều kiện, xem migration) thay vì chỉ dựa vào
+    disable nút ở frontend như trước — xem db.ActiveCrawlExistsError.
+
+GIỚI HẠN CÒN LẠI (chấp nhận được ở quy mô hiện tại — ít người dùng nội
+bộ; KHÔNG phù hợp nếu cần queue thật với retry/backoff):
+  - Không có cơ chế phát hiện "run kẹt mãi ở running" nếu process bị
+    kill CỨNG giữa chừng (vd Render OOM-kill) — mark_error() nằm trong
+    finally nên bắt được exception Python bình thường, nhưng không bắt
+    được process bị giết từ bên ngoài. Dòng đó sẽ đứng yên ở 'running'
+    mãi (và do UNIQUE INDEX, nguồn đó sẽ bị "khoá" không crawl lại được
+    tới khi có người tự sửa tay status trong DB) — chấp nhận đánh đổi
+    này vì tần suất Render bị OOM-kill giữa 1 lượt crawl là rất hiếm ở
+    quy mô hiện tại; nếu cần chặt hơn, thêm 1 job định kỳ tự đổi
+    'running' quá X phút chưa xong thành 'error'.
 
 NÂNG CẤP SAU (chỉ làm khi thật sự cần, đừng làm sớm — đúng tinh thần
 "free-tier, rẻ, an toàn trước" xuyên suốt project):
-  - Cần chạy nhiều worker / cần chạy được cả khi server restart -> đổi
-    sang queue thật (Celery + Redis, hoặc RQ) thay cho dict RAM này.
+  - Cần retry/backoff, hàng đợi ưu tiên -> đổi sang queue thật (Celery +
+    Redis, hoặc RQ) thay cho BackgroundTasks + bảng này.
   - Cần lịch crawl tự động định kỳ -> thêm APScheduler hoặc cron gọi
-    thẳng main.py (không cần qua API).
+    thẳng main.py (không cần qua API) — triggered_by=NULL đã dành sẵn
+    chỗ cho trường hợp này (xem sql/migration_add_crawl_runs.sql).
 """
 
 import logging
-import uuid
-from datetime import datetime, timezone
 from typing import Optional
 
 import db as db_module
@@ -62,12 +71,30 @@ _SOURCE_ADAPTERS = {
     "vietnamworks": VietnamWorksAdapter,
 }
 
-# dict trong RAM: run_id -> thông tin lượt crawl. Xem giới hạn ở docstring trên.
-_RUNS: dict[str, dict] = {}
-
 
 def get_run(run_id: str) -> Optional[dict]:
-    return _RUNS.get(run_id)
+    """Đọc 1 lượt crawl từ bảng crawl_runs — dùng cho GET /crawl/{run_id}.
+    Tự mở/đóng connection riêng (route gọi hàm này KHÔNG truyền conn
+    xuống, giữ chữ ký y hệt bản cũ để không phải sửa router nhiều hơn
+    cần thiết)."""
+    conn = db_module.get_connection()
+    try:
+        return db_module.get_crawl_run(conn, run_id)
+    finally:
+        conn.close()
+
+
+def list_runs(*, source: Optional[str] = None, status: Optional[str] = None,
+               triggered_by: Optional[str] = None, limit: int = 50, offset: int = 0):
+    """Đọc danh sách lịch sử crawl — dùng cho GET /crawl."""
+    conn = db_module.get_connection()
+    try:
+        return db_module.list_crawl_runs(
+            conn, source=source, status=status, triggered_by=triggered_by,
+            limit=limit, offset=offset,
+        )
+    finally:
+        conn.close()
 
 
 def resolve_effective_pages(pages: Optional[int], max_jobs: Optional[int]) -> int:
@@ -88,55 +115,65 @@ def resolve_effective_pages(pages: Optional[int], max_jobs: Optional[int]) -> in
 
 
 def start_crawl(source: str, category: str, pages: Optional[int],
-                 max_jobs: Optional[int] = None) -> str:
-    """Tạo 1 run mới, trả về run_id NGAY (chưa chạy thật) — nơi gọi
-    (route) chịu trách nhiệm add background task gọi execute() sau."""
-    run_id = str(uuid.uuid4())
+                 max_jobs: Optional[int] = None,
+                 triggered_by: Optional[str] = None) -> str:
+    """Tạo 1 run mới (INSERT vào crawl_runs, status='queued'), trả về
+    run_id NGAY (chưa chạy thật) — nơi gọi (route) chịu trách nhiệm add
+    background task gọi execute() sau.
+
+    triggered_by: ss_user_id của admin đang gọi POST /crawl (user["sub"]
+    từ JWT) — router PHẢI truyền giá trị này xuống (trước đây route gọi
+    hàm này KHÔNG truyền user xuống dù đã có sẵn từ Depends(require_admin),
+    audit_logs/crawl_runs sẽ không biết ai bấm nếu quên bước này).
+
+    Raise db.ActiveCrawlExistsError nếu source này đang có 1 lượt
+    'queued'/'running' chưa xong — router bắt lỗi này để trả 409
+    (xem api/routers/crawl.py)."""
     effective_pages = resolve_effective_pages(pages, max_jobs)
-    _RUNS[run_id] = {
-        "run_id": run_id,
-        "status": "queued",
-        "source": source,
-        "category": category,
-        "pages": effective_pages,
-        "max_jobs": max_jobs,
-        "started_at": datetime.now(timezone.utc),
-        "finished_at": None,
-        "stats": None,
-        "error": None,
-    }
-    return run_id
+    conn = db_module.get_connection()
+    try:
+        return db_module.create_crawl_run(
+            conn, source=source, category=category, pages=effective_pages,
+            max_jobs=max_jobs, triggered_by=triggered_by,
+        )
+    finally:
+        conn.close()
 
 
 def execute(run_id: str) -> None:
     """Chạy pipeline THẬT — gọi từ BackgroundTasks, KHÔNG gọi trực tiếp
-    trong request handler. Tự mở/đóng connection riêng."""
-    run = _RUNS.get(run_id)
-    if run is None:
-        logger.error("execute() gọi với run_id không tồn tại: %s", run_id)
-        return
+    trong request handler. Tự mở/đóng connection riêng.
 
-    adapter_cls = _SOURCE_ADAPTERS.get(run["source"])
-    if adapter_cls is None:
-        run["status"] = "error"
-        run["error"] = f"Source '{run['source']}' không tồn tại."
-        run["finished_at"] = datetime.now(timezone.utc)
-        return
-
-    run["status"] = "running"
+    Dùng 1 connection DUY NHẤT cho cả việc ghi trạng thái (mark_running/
+    mark_done/mark_error) LẪN chạy run_pipeline() — run_pipeline() tự
+    quản lý transaction insert job/company của riêng nó (xem
+    pipeline.py), các hàm mark_*() ở db/crawl_runs.py tự commit() ngay
+    sau mỗi lần gọi (xem docstring db/crawl_runs.py) nên không xung đột
+    với transaction của run_pipeline()."""
     conn = db_module.get_connection()
     try:
-        adapter = adapter_cls()
-        stats = run_pipeline(
-            adapter, conn, run["category"], run["pages"],
-            max_jobs=run.get("max_jobs"),
-        )
-        run["stats"] = stats
-        run["status"] = "done"
-    except Exception as exc:  # noqa: BLE001 - ghi lại lỗi vào run, không làm chết background task
-        logger.error("Crawl run %s lỗi: %s", run_id, exc)
-        run["status"] = "error"
-        run["error"] = str(exc)
+        run = db_module.get_crawl_run(conn, run_id)
+        if run is None:
+            logger.error("execute() gọi với run_id không tồn tại: %s", run_id)
+            return
+
+        adapter_cls = _SOURCE_ADAPTERS.get(run["source"])
+        if adapter_cls is None:
+            db_module.mark_crawl_run_error(
+                conn, run_id, f"Source '{run['source']}' không tồn tại.",
+            )
+            return
+
+        db_module.mark_crawl_run_running(conn, run_id)
+        try:
+            adapter = adapter_cls()
+            stats = run_pipeline(
+                adapter, conn, run["category"], run["pages"],
+                max_jobs=run.get("max_jobs"),
+            )
+            db_module.mark_crawl_run_done(conn, run_id, stats)
+        except Exception as exc:  # noqa: BLE001 - ghi lại lỗi vào run, không làm chết background task
+            logger.error("Crawl run %s lỗi: %s", run_id, exc)
+            db_module.mark_crawl_run_error(conn, run_id, str(exc))
     finally:
         conn.close()
-        run["finished_at"] = datetime.now(timezone.utc)
