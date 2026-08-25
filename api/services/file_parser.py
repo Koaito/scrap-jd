@@ -106,7 +106,20 @@ def generate_export_file(rows: list[dict], columns: list[str], file_format: str)
 
     buffer = BytesIO()
     if file_format == "csv":
-        df.to_csv(buffer, index=False, encoding="utf-8")
+        # utf-8-sig (KHÔNG phải "utf-8" trần) — thêm BOM (Byte Order Mark,
+        # 3 byte EF BB BF) ở đầu file CSV. Thiếu BOM, file CSV UTF-8 vẫn
+        # ĐÚNG về mặt byte, nhưng Excel (mặc định trên máy Windows/macOS
+        # tiếng Việt) không tự nhận ra là UTF-8 khi mở .csv — nó đoán theo
+        # bảng mã ANSI/Windows-1252 của hệ thống, khiến mọi ký tự tiếng
+        # Việt (chiếm 2-3 byte trong UTF-8) bị tách lẻ từng byte rồi map
+        # sai sang ký tự Latin-1/cp1252, ra chữ rác kiểu "Việt Nam" ->
+        # "Viá»‡t Nam" (staff báo lỗi 08/2026, xem ảnh chụp export CSV).
+        # Có BOM, Excel tự động nhận diện UTF-8 và hiển thị đúng ngay khi
+        # double-click mở file — không cần import CSV thủ công/tự chọn
+        # encoding UTF-8 mỗi lần. XLSX (nhánh dưới) KHÔNG bị lỗi này —
+        # openpyxl lưu text trong XML Unicode chuẩn (<sharedStrings.xml>),
+        # không phụ thuộc Excel đoán bảng mã, nên không cần sửa gì.
+        df.to_csv(buffer, index=False, encoding="utf-8-sig")
     elif file_format == "xlsx":
         with pd.ExcelWriter(buffer, engine="openpyxl") as writer:
             df.to_excel(writer, index=False, sheet_name="Sheet1")
