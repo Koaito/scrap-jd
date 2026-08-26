@@ -130,7 +130,6 @@ CareerViet KHÔNG chặn theo TLS fingerprint gì cả, có thể đổi lại
 
 import json
 import re
-import time
 import logging
 from datetime import datetime
 from typing import Iterator, Optional
@@ -141,7 +140,7 @@ from bs4 import BeautifulSoup
 
 from adapters.base import BaseAdapter
 from models import RawJobRecord
-from config import CAREERVIET_CATEGORIES, DEFAULT_HEADERS, REQUEST_DELAY_SECONDS
+from config import CAREERVIET_CATEGORIES, DEFAULT_HEADERS
 
 logger = logging.getLogger(__name__)
 
@@ -202,12 +201,14 @@ class CareerVietAdapter(BaseAdapter):
     source_name = "CareerViet"
 
     def __init__(self, session: Optional["requests.Session"] = None):
-        # impersonate="chrome124" — xem docstring đầu file mục "QUYẾT
-        # ĐỊNH đã chốt" (dùng lại curl_cffi của TopCV, chưa có bằng
-        # chứng cần TLS fingerprint giả lập nhưng không mất gì khi bật).
-        self.session = session or requests.Session(impersonate="chrome124")
-        self.session.headers.update(DEFAULT_HEADERS)
-        self._last_request_time: Optional[float] = None
+        # Session curl_cffi + throttle/retry dùng chung giờ nằm ở
+        # BaseAdapter.__init__() (xem adapters/base.py) — impersonate=
+        # "chrome124" vẫn dùng lại y hệt TopCV như quyết định đã chốt
+        # trước đây (chưa có bằng chứng CareerViet cần TLS fingerprint
+        # giả lập, nhưng không mất gì khi bật). CareerViet dùng đúng
+        # delay mặc định (REQUEST_DELAY_SECONDS), không cần jitter
+        # riêng như TopCV nên không truyền delay_seconds/jitter_seconds.
+        super().__init__(session=session, headers=DEFAULT_HEADERS)
 
         # Cache dữ liệu chi tiết job (work_type/deadline/mô tả/yêu cầu/
         # phúc lợi/kỹ năng) build sẵn NGAY TRONG fetch_jobs() (xem
@@ -393,57 +394,11 @@ class CareerVietAdapter(BaseAdapter):
 
         return result
 
-    # ------------------------------------------------------------------
-    # HTTP layer (throttle + retry) — mọi request đều đi qua đây, giống
-    # nguyên tắc đã áp dụng ở TopCVAdapter._fetch_html().
-    # ------------------------------------------------------------------
-    def _fetch_html(self, url: str, max_retries: int = 3) -> Optional[str]:
-        self._throttle()
-        for attempt in range(1, max_retries + 1):
-            try:
-                resp = self.session.get(url, timeout=20)
-                if resp.status_code in (429, 403):
-                    wait = REQUEST_DELAY_SECONDS * (2 ** attempt)
-                    logger.warning(
-                        "%d tại %s (lần %d/%d) -> chờ %.1fs",
-                        resp.status_code, url, attempt, max_retries, wait,
-                    )
-                    time.sleep(wait)
-                    self._last_request_time = time.monotonic()
-                    continue
-                resp.raise_for_status()
-                self._last_request_time = time.monotonic()
-                return resp.text
-            except requests.exceptions.RequestException as exc:
-                # SỬA 08/2026: TRƯỚC ĐÂY return None ngay ở lần lỗi đầu
-                # tiên, không thử lại — trong khi lỗi kết nối kiểu
-                # "curl: (92) HTTP/2 stream reset by server" (WAF/anti-bot
-                # chặn tầng kết nối, KHÔNG có status code nên không rơi
-                # vào nhánh 429/403 phía trên) đã xác nhận là TẠM THỜI: 4
-                # URL CareerViet fail liên tiếp trong 1 lần chạy test lại
-                # load bình thường khi fetch lại thủ công ngay sau đó, và
-                # cũng những URL đó chạy trót lọt ở lần chạy trước —
-                # KHÔNG PHẢI trang đã đổi/hết dữ liệu như log cũ suy đoán
-                # sai. Giờ retry giống nhánh 429/403: backoff tăng dần,
-                # chỉ thật sự bỏ cuộc sau khi hết max_retries.
-                wait = REQUEST_DELAY_SECONDS * (2 ** attempt)
-                logger.warning(
-                    "Lỗi kết nối tại %s (lần %d/%d): %s -> chờ %.1fs rồi thử lại",
-                    url, attempt, max_retries, exc, wait,
-                )
-                time.sleep(wait)
-                self._last_request_time = time.monotonic()
-                continue
-        logger.error("Bỏ cuộc sau %d lần liên tiếp (429/403/lỗi kết nối): %s", max_retries, url)
-        return None
-
-    def _throttle(self):
-        if self._last_request_time is None:
-            return
-        elapsed = time.monotonic() - self._last_request_time
-        remaining = REQUEST_DELAY_SECONDS - elapsed
-        if remaining > 0:
-            time.sleep(remaining)
+    # _fetch_html()/_throttle() giờ dùng chung từ BaseAdapter (xem
+    # adapters/base.py) — bug "lỗi kết nối không status code trước đây
+    # bỏ cuộc ngay không thử lại" đã được sửa Ở ĐÚNG 1 CHỖ đó, áp dụng
+    # tự động cho cả CareerViet lẫn TopCV/VietnamWorks, không cần vá lại
+    # thủ công lần nữa như trước (xem docstring BaseAdapter.__init__()).
 
     # ------------------------------------------------------------------
     # Listing: chỉ lấy DANH SÁCH URL job chi tiết (xem docstring #2)

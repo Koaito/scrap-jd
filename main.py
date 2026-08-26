@@ -16,23 +16,18 @@ import logging
 import sys
 
 import db
-from adapters.topcv import TopCVAdapter
-from adapters.vietnamworks import VietnamWorksAdapter
-from adapters.careerviet import CareerVietAdapter
 from pipeline import run_pipeline
 from config import (
     TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, CAREERVIET_CATEGORIES,
     DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
 )
-
-# Đăng ký nguồn crawl ở đây — thêm nguồn mới sau này (ITviec...) chỉ cần
-# thêm 1 dòng vào dict này, không sửa gì logic cmd_crawl() bên dưới.
-SOURCES = {
-    "topcv": {"adapter_cls": TopCVAdapter, "categories": TOPCV_CATEGORIES},
-    "vietnamworks": {"adapter_cls": VietnamWorksAdapter, "categories": VIETNAMWORKS_CATEGORIES},
-    "careerviet": {"adapter_cls": CareerVietAdapter, "categories": CAREERVIET_CATEGORIES},
-}
-DEFAULT_SOURCE = "topcv"
+# SOURCES/DEFAULT_SOURCE giờ sống ở 1 nguồn sự thật duy nhất
+# (sources_registry.py) — xem docstring file đó để biết lý do (trước
+# đây bị khai báo lặp lại thủ công ở đây + 3 nơi khác trong api/, dễ
+# lệch, đã từng gây bug CareerViet "crawl được nhưng không hiện trên
+# web"). Thêm nguồn crawl mới -> sửa sources_registry.py, KHÔNG sửa
+# file này.
+from sources_registry import SOURCES, DEFAULT_SOURCE
 
 logging.basicConfig(
     level=logging.INFO,

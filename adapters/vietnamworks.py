@@ -180,9 +180,11 @@ class VietnamWorksAdapter(BaseAdapter):
     source_name = "VietnamWorks"
 
     def __init__(self, session: Optional[requests.Session] = None):
-        self.session = session or requests.Session(impersonate="chrome124")
-        self.session.headers.update(VNW_HEADERS)
-        self._last_request_time: Optional[float] = None
+        # Session curl_cffi + throttle/retry dùng chung giờ nằm ở
+        # BaseAdapter.__init__() (xem adapters/base.py) — VietnamWorks
+        # dùng đúng delay mặc định (REQUEST_DELAY_SECONDS), không cần
+        # jitter riêng như TopCV.
+        super().__init__(session=session, headers=VNW_HEADERS)
 
         # Cache job detail đã có sẵn từ fetch_jobs() (search API trả kèm
         # jobDescription/jobRequirement luôn) -> fetch_job_full_detail()
@@ -274,17 +276,13 @@ class VietnamWorksAdapter(BaseAdapter):
                 break
 
     # ------------------------------------------------------------------
-    # Internal — HTTP (throttle + retry dùng chung cho cả POST search lẫn
-    # GET trang công ty, giống nguyên tắc "mọi request qua 1 cửa" của TopCV)
+    # Internal — HTTP. _throttle() dùng chung từ BaseAdapter (xem
+    # adapters/base.py). _post_json() bên dưới là phần RIÊNG của
+    # VietnamWorks (API JSON, không phải GET-HTML) nên không rút lên
+    # BaseAdapter được — vẫn tận dụng lại _throttle() dùng chung để giữ
+    # đúng 1 nơi kiểm soát nhịp độ request cho cả 2 kiểu (JSON API +
+    # GET-HTML company profile qua _fetch_html() cũng dùng chung).
     # ------------------------------------------------------------------
-    def _throttle(self):
-        if self._last_request_time is None:
-            return
-        elapsed = time.monotonic() - self._last_request_time
-        remaining = REQUEST_DELAY_SECONDS - elapsed
-        if remaining > 0:
-            time.sleep(remaining)
-
     def _post_json(self, url: str, body: dict, max_retries: int = 3) -> Optional[dict]:
         self._throttle()
         for attempt in range(1, max_retries + 1):
@@ -313,39 +311,9 @@ class VietnamWorksAdapter(BaseAdapter):
         logger.error("Bỏ cuộc sau %d lần liên tiếp bị chặn (429/403): %s", max_retries, url)
         return None
 
-    def _fetch_html(self, url: str, max_retries: int = 3) -> Optional[str]:
-        """Dùng cho trang công ty (SSR) — GET thường, không phải API JSON."""
-        self._throttle()
-        for attempt in range(1, max_retries + 1):
-            try:
-                resp = self.session.get(url, timeout=20)
-                if resp.status_code in (429, 403):
-                    wait = REQUEST_DELAY_SECONDS * (2 ** attempt)
-                    logger.warning(
-                        "%d tại %s (lần %d/%d) -> chờ %.1fs",
-                        resp.status_code, url, attempt, max_retries, wait,
-                    )
-                    time.sleep(wait)
-                    self._last_request_time = time.monotonic()
-                    continue
-                resp.raise_for_status()
-                self._last_request_time = time.monotonic()
-                return resp.text
-            except requests.exceptions.RequestException as exc:
-                # SỬA 08/2026 (đồng bộ với careerviet.py) — retry cả lỗi
-                # kết nối không có status code (VD: HTTP/2 stream reset,
-                # timeout...), không bỏ cuộc ngay ở lần lỗi đầu tiên như
-                # trước, vì đã xác nhận loại lỗi này có thể chỉ tạm thời.
-                wait = REQUEST_DELAY_SECONDS * (2 ** attempt)
-                logger.warning(
-                    "Lỗi kết nối tại %s (lần %d/%d): %s -> chờ %.1fs rồi thử lại",
-                    url, attempt, max_retries, exc, wait,
-                )
-                time.sleep(wait)
-                self._last_request_time = time.monotonic()
-                continue
-        logger.error("Bỏ cuộc sau %d lần liên tiếp (429/403/lỗi kết nối): %s", max_retries, url)
-        return None
+    # _fetch_html() (dùng cho trang công ty SSR — GET thường, khác
+    # _post_json() ở trên vốn gọi API JSON) giờ dùng chung từ
+    # BaseAdapter (xem adapters/base.py), không override riêng nữa.
 
     # ------------------------------------------------------------------
     # Parse response search -> list job dict

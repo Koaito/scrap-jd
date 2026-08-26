@@ -3,7 +3,15 @@ from fastapi import APIRouter, Depends
 import db as db_module
 from api.deps import get_db
 from api.schemas import EngagementStatsOut, StatsOut
-from config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, CAREERVIET_CATEGORIES
+# CATEGORIES_BY_SOURCE từ sources_registry.py (nguồn sự thật duy nhất)
+# — trước đây get_sources() bên dưới hardcode riêng từng nguồn
+# (TOPCV_CATEGORIES/VIETNAMWORKS_CATEGORIES/CAREERVIET_CATEGORIES), và
+# chính đây là 1 trong 4 nơi từng bị "quên" thêm CareerViet dù CLI đã
+# crawl được (xem docstring sources_registry.py). Giờ vòng lặp bên dưới
+# tự động chạy qua MỌI nguồn trong registry, không hardcode tên nguồn
+# nào nữa -> thêm nguồn mới vào registry là endpoint này tự khớp theo,
+# không cần sửa file này nữa.
+from sources_registry import CATEGORIES_BY_SOURCE
 import constants
 
 router = APIRouter(tags=["meta"])
@@ -44,18 +52,17 @@ def get_engagement_stats(conn=Depends(get_db)):
 def get_sources():
     """Danh sách source + category có sẵn để crawl — frontend dùng để
     render dropdown cho form POST /crawl, không cần hard-code lại phía
-    frontend, luôn khớp với config.py hiện hành."""
+    frontend, luôn khớp với sources_registry.py hiện hành.
+
+    08/2026 — VIẾT LẠI để lặp qua CATEGORIES_BY_SOURCE (sources_registry.py)
+    thay vì liệt kê thủ công từng nguồn (topcv/vietnamworks/careerviet).
+    Bản cũ từng "quên" thêm careerviet ở đúng chỗ này dù backend đã
+    crawl được qua CLI (xem docstring sources_registry.py) — với vòng
+    lặp này, thêm 1 nguồn mới vào registry là endpoint tự động trả về
+    đúng, không còn khả năng quên hardcode ở đây nữa."""
     return {
-        "topcv": {key: cfg["label"] for key, cfg in TOPCV_CATEGORIES.items()},
-        "vietnamworks": {key: cfg["label"] for key, cfg in VIETNAMWORKS_CATEGORIES.items()},
-        # 08/2026 — THÊM careerviet: adapters/careerviet.py đã crawl
-        # được từ trước và đã đăng ký ở api/crawl_runner.py +
-        # api/routers/crawl.py (xem lịch sử trao đổi), nhưng riêng
-        # GET /sources này (endpoint khác, frontend dùng để build
-        # dropdown/checkbox nguồn) bị bỏ sót — kết quả là trang /crawl
-        # phía frontend không hiện card CareerViet dù backend đã crawl
-        # được qua CLI, giờ đã khớp đủ 3 nguồn.
-        "careerviet": {key: cfg["label"] for key, cfg in CAREERVIET_CATEGORIES.items()},
+        source: {key: cfg["label"] for key, cfg in categories.items()}
+        for source, categories in CATEGORIES_BY_SOURCE.items()
     }
 
 

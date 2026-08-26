@@ -21,8 +21,6 @@ ra 0 job, xem README mục "Debug khi TopCV đổi giao diện" để tự sửa
 """
 
 import re
-import time
-import random
 import logging
 from typing import Iterator, Optional
 from urllib.parse import urljoin, urlsplit, urlunsplit, parse_qsl, urlencode
@@ -96,16 +94,18 @@ class TopCVAdapter(BaseAdapter):
     source_name = "TopCV"
 
     def __init__(self, session: Optional[requests.Session] = None):
-        # impersonate="chrome124" -> giả lập TLS fingerprint của Chrome
-        # 124 (khớp với User-Agent Chrome/124.0.0.0 trong DEFAULT_HEADERS
-        # ở config.py). Đây là phần THAY THẾ requests.Session() thường.
-        self.session = session or requests.Session(impersonate="chrome124")
-        self.session.headers.update(DEFAULT_HEADERS)
-        # Mốc thời gian của request GẦN NHẤT (bất kể listing/job
-        # detail/company profile) — dùng để throttle MỌI request ở 1
-        # chỗ duy nhất trong _fetch_html(), thay vì rải rác time.sleep()
-        # ở từng nơi gọi (dễ quên, dễ sót -> vẫn bị 429 dù đã tăng delay).
-        self._last_request_time: Optional[float] = None
+        # Session curl_cffi (impersonate="chrome124" -> giả lập TLS
+        # fingerprint Chrome) + throttle/retry dùng chung giờ nằm ở
+        # BaseAdapter.__init__() (xem docstring ở adapters/base.py) —
+        # TopCV chỉ còn truyền riêng delay/jitter cao hơn mức mặc định,
+        # vì đang bị chặn 403 theo IP reputation khi crawl từ server,
+        # xem docstring đầy đủ ở config.py::TOPCV_REQUEST_DELAY_SECONDS.
+        super().__init__(
+            session=session,
+            headers=DEFAULT_HEADERS,
+            delay_seconds=TOPCV_REQUEST_DELAY_SECONDS,
+            jitter_seconds=TOPCV_REQUEST_JITTER_SECONDS,
+        )
 
     # ------------------------------------------------------------------
     # Public API (bắt buộc theo BaseAdapter)
@@ -171,78 +171,9 @@ class TopCVAdapter(BaseAdapter):
         sep = "&" if "?" in base_url else "?"
         return base_url if page == 1 else f"{base_url}{sep}page={page}"
 
-    def _fetch_html(self, url: str, max_retries: int = 3) -> Optional[str]:
-        """MỌI request HTTP của adapter (listing, job detail, company
-        profile) đều phải đi qua đây -> throttle + retry-backoff áp
-        dụng đồng đều, không phụ thuộc nơi gọi có nhớ delay hay không.
-
-        Lỗi cũ: delay chỉ được sleep() giữa các trang listing trong
-        fetch_jobs(), trong khi fetch_job_full_detail() và
-        fetch_company_profile() (gọi cho MỖI job / MỖI công ty mới
-        trong pipeline.py) gọi thẳng _fetch_html() không qua throttle
-        -> bắn hàng chục request liên tiếp không nghỉ dù config đã tăng
-        delay lên 4s."""
-        self._throttle()
-
-        for attempt in range(1, max_retries + 1):
-            try:
-                resp = self.session.get(url, timeout=20)
-                if resp.status_code in (429, 403):
-                    # 429 = rate limit theo cửa sổ thời gian.
-                    # 403 = WAF/Cloudflare chặn theo fingerprint request
-                    # (có thể do thiếu header giống trình duyệt thật, HOẶC
-                    # IP tạm thời bị đánh dấu do crawl dồn dập trước đó) —
-                    # cả 2 trường hợp đều ĐÁNG thử lại sau khi chờ, thay vì
-                    # bỏ cuộc ngay ở request đầu tiên.
-                    wait = TOPCV_REQUEST_DELAY_SECONDS * (2 ** attempt)
-                    logger.warning(
-                        "%d %s tại %s (lần %d/%d) -> chờ %.1fs",
-                        resp.status_code,
-                        "Too Many Requests" if resp.status_code == 429 else "Forbidden",
-                        url, attempt, max_retries, wait,
-                    )
-                    time.sleep(wait)
-                    self._last_request_time = time.monotonic()
-                    continue
-                resp.raise_for_status()
-                self._last_request_time = time.monotonic()
-                return resp.text
-            except requests.exceptions.RequestException as exc:
-                # SỬA 08/2026 (đồng bộ với careerviet.py/vietnamworks.py) —
-                # retry cả lỗi kết nối không có status code (VD: HTTP/2
-                # stream reset, timeout...), không bỏ cuộc ngay ở lần lỗi
-                # đầu tiên như trước, vì đã xác nhận loại lỗi này có thể
-                # chỉ tạm thời (WAF chặn tạm do request dồn dập).
-                wait = TOPCV_REQUEST_DELAY_SECONDS * (2 ** attempt)
-                logger.warning(
-                    "Lỗi kết nối tại %s (lần %d/%d): %s -> chờ %.1fs rồi thử lại",
-                    url, attempt, max_retries, exc, wait,
-                )
-                time.sleep(wait)
-                self._last_request_time = time.monotonic()
-                continue
-
-        logger.error("Bỏ cuộc sau %d lần liên tiếp (429/403/lỗi kết nối): %s", max_retries, url)
-        return None
-
-    def _throttle(self):
-        """Đảm bảo khoảng cách tối thiểu TOPCV_REQUEST_DELAY_SECONDS
-        (+ jitter ngẫu nhiên) giữa MỌI request, bất kể là listing, job
-        detail hay company profile.
-
-        08/2026: thêm jitter (TOPCV_REQUEST_JITTER_SECONDS) — random.
-        uniform(0, jitter) cộng thêm mỗi lần, để khoảng cách giữa các
-        request KHÔNG cố định tăm tắp (vd luôn đúng 12.0s) — pattern
-        đều đặn kiểu đó dễ bị WAF nhận diện là bot hơn khoảng dao động
-        tự nhiên. Xem docstring TOPCV_REQUEST_DELAY_SECONDS ở config.py
-        để biết đầy đủ lý do (chặn theo IP khi crawl từ Render)."""
-        min_delay = TOPCV_REQUEST_DELAY_SECONDS + random.uniform(0, TOPCV_REQUEST_JITTER_SECONDS)
-        if self._last_request_time is None:
-            return
-        elapsed = time.monotonic() - self._last_request_time
-        remaining = min_delay - elapsed
-        if remaining > 0:
-            time.sleep(remaining)
+    # _fetch_html()/_throttle() giờ dùng chung từ BaseAdapter (xem
+    # adapters/base.py) — TopCV không còn override riêng, chỉ khác biệt
+    # qua delay_seconds/jitter_seconds truyền ở __init__() phía trên.
 
     # Tracking params TopCV gắn vào MỌI link job trong trang kết quả tìm
     # kiếm, đổi giá trị theo TỪNG PHIÊN tải trang (không phải 1 phần định
