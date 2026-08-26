@@ -62,10 +62,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import db as db_module
 from api.auth import require_api_key
 from api.rate_limit import limiter
-from api.routers import auth, companies, contacts, crawl, jobs, me, meta, audit_logs, import_export
+from api.routers import auth, companies, contacts, crawl, jobs, maintenance, me, meta, audit_logs, import_export
 from api.services.preview_cleanup import CLEANUP_INTERVAL_MINUTES, run_cleanup_once
 from api.services.crawl_watchdog import run_crawl_watchdog_once
-from config import CRAWL_WATCHDOG_INTERVAL_MINUTES
+from api.services.maintenance_watchdog import run_maintenance_watchdog_once
+from config import CRAWL_WATCHDOG_INTERVAL_MINUTES, MAINTENANCE_WATCHDOG_INTERVAL_MINUTES
 
 logging.basicConfig(
     level=logging.INFO,
@@ -107,6 +108,21 @@ async def lifespan(app: FastAPI):
     finally:
         db_module.release_connection(_startup_conn)
 
+    # 08/2026 (xem sql/migration_add_maintenance_runs.sql) — reconcile
+    # CÁC LƯỢT CHẠY BẢO TRÌ MỒ CÔI từ lần chạy process TRƯỚC, đối xứng
+    # reconcile_orphaned_crawl_runs() ở trên, cùng lý do PHẢI chạy TRƯỚC
+    # yield.
+    _startup_conn2 = db_module.get_pooled_connection()
+    try:
+        _orphaned_maintenance = db_module.reconcile_orphaned_maintenance_runs(_startup_conn2)
+        if _orphaned_maintenance:
+            logging.getLogger(__name__).warning(
+                "Khởi động: đã reconcile %d lượt chạy bảo trì mồ côi từ lần chạy trước.",
+                _orphaned_maintenance,
+            )
+    finally:
+        db_module.release_connection(_startup_conn2)
+
     # Cleanup task định kỳ cho import_previews hết hạn (Requirement 9)
     # — BackgroundScheduler chạy TRONG process này (không cần service
     # ngoài kiểu cron/Celery riêng), đủ cho quy mô hiện tại (1 instance,
@@ -124,6 +140,10 @@ async def lifespan(app: FastAPI):
     # restart nhưng 1 task bị treo giữa chừng (xem docstring
     # api/services/crawl_watchdog.py).
     scheduler.add_job(run_crawl_watchdog_once, "interval", minutes=CRAWL_WATCHDOG_INTERVAL_MINUTES)
+    # Watchdog bảo trì treo (08/2026) — đối xứng watchdog crawl ở trên,
+    # DÙNG CHUNG scheduler này, xem docstring
+    # api/services/maintenance_watchdog.py.
+    scheduler.add_job(run_maintenance_watchdog_once, "interval", minutes=MAINTENANCE_WATCHDOG_INTERVAL_MINUTES)
     scheduler.start()
 
     yield
@@ -224,6 +244,7 @@ app.include_router(companies.router, dependencies=_require_key)
 app.include_router(contacts.router, dependencies=_require_key)
 app.include_router(contacts.all_contacts_router, dependencies=_require_key)
 app.include_router(crawl.router, dependencies=_require_key)
+app.include_router(maintenance.router, dependencies=_require_key)
 app.include_router(meta.router, dependencies=_require_key)
 app.include_router(auth.router, dependencies=_require_key)
 app.include_router(me.router, dependencies=_require_key)

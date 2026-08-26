@@ -145,6 +145,27 @@ from db.crawl_batches import (
     get_batch_with_items as get_crawl_batch_with_items,
     list_batches as list_crawl_batches,
 )
+# 08/2026 (xem sql/migration_add_maintenance_runs.sql) — "Bảo trì dữ
+# liệu" từ web dưới quyền admin, đối xứng db.crawl_runs ở trên nhưng
+# generic hoá theo job_type thay vì source, cho 5 script:
+# backfill_company_profiles.py, enrich_company_profile_from_website.py,
+# enrich_company_web_info.py, get_company_fb_linkedin_link.py,
+# check_expired_source_jobs.py — xem api/maintenance_runner.py.
+from db.maintenance_runs import (
+    ActiveMaintenanceRunExistsError,
+    create_run as create_maintenance_run,
+    mark_running as mark_maintenance_run_running,
+    mark_done as mark_maintenance_run_done,
+    mark_error as mark_maintenance_run_error,
+    get_run as get_maintenance_run,
+    list_runs as list_maintenance_runs,
+    has_active_run as maintenance_job_type_has_active_run,
+    reconcile_orphaned_runs as reconcile_orphaned_maintenance_runs,
+    reconcile_stale_runs as reconcile_stale_maintenance_runs,
+    append_log as append_maintenance_run_log,
+    get_logs as get_maintenance_run_logs,
+    get_latest_run_per_job_type as get_latest_maintenance_run_per_job_type,
+)
 
 __all__ = [
     "is_valid_uuid",
@@ -259,5 +280,18 @@ __all__ = [
     "get_crawl_batch",
     "get_crawl_batch_with_items",
     "list_crawl_batches",
+    "ActiveMaintenanceRunExistsError",
+    "create_maintenance_run",
+    "mark_maintenance_run_running",
+    "mark_maintenance_run_done",
+    "mark_maintenance_run_error",
+    "get_maintenance_run",
+    "list_maintenance_runs",
+    "maintenance_job_type_has_active_run",
+    "reconcile_orphaned_maintenance_runs",
+    "reconcile_stale_maintenance_runs",
+    "append_maintenance_run_log",
+    "get_maintenance_run_logs",
+    "get_latest_maintenance_run_per_job_type",
 ]
 

@@ -66,6 +66,18 @@ from api.schemas.crawl import (
     CrawlBatchSummaryOut,
     PaginatedCrawlBatches,
 )
+# 08/2026 (xem lịch sử trao đổi "phương án B — generic runner dùng
+# chung") — "Bảo trì dữ liệu" từ web, đối xứng crawl.py ở trên.
+from api.schemas.maintenance import (
+    MAINTENANCE_JOB_TYPES,
+    MAINTENANCE_JOB_TYPES_REQUIRE_LIMIT,
+    MaintenanceRunRequest,
+    MaintenanceAccepted,
+    MaintenanceStatusOut,
+    PaginatedMaintenanceRuns,
+    MaintenanceLogOut,
+    MaintenanceLogsOut,
+)
 from api.schemas.auth import (
     LoginRequest,
     TokenPairOut,
@@ -135,6 +147,9 @@ __all__ = [
     "CrawlLogOut", "CrawlLogsOut",
     "CrawlBatchRequest", "CrawlBatchAccepted", "CrawlBatchStatusOut",
     "CrawlBatchSummaryOut", "PaginatedCrawlBatches",
+    "MAINTENANCE_JOB_TYPES", "MAINTENANCE_JOB_TYPES_REQUIRE_LIMIT",
+    "MaintenanceRunRequest", "MaintenanceAccepted", "MaintenanceStatusOut",
+    "PaginatedMaintenanceRuns", "MaintenanceLogOut", "MaintenanceLogsOut",
     # auth
     "LoginRequest", "TokenPairOut", "RefreshRequest", "AccessTokenOut",
     "ChangePasswordRequest", "UserOut", "UserCreateByAdmin", "UserCreatedOut",

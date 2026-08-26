@@ -256,6 +256,17 @@ CRAWL_STALE_TIMEOUT_MINUTES = int(os.getenv("CRAWL_STALE_TIMEOUT_MINUTES", "120"
 # treo trong thời gian hợp lý mà không tốn tài nguyên quét liên tục.
 CRAWL_WATCHDOG_INTERVAL_MINUTES = int(os.getenv("CRAWL_WATCHDOG_INTERVAL_MINUTES", "10"))
 
+# 08/2026 (xem sql/migration_add_maintenance_runs.sql,
+# api/services/maintenance_watchdog.py) — đối xứng CRAWL_STALE_TIMEOUT_MINUTES/
+# CRAWL_WATCHDOG_INTERVAL_MINUTES ở trên nhưng cho 5 job bảo trì dữ liệu
+# (backfill/enrich/check_expired). 180 phút mặc định (dài hơn crawl) vì
+# enrich_company_web_info.py/get_company_fb_linkedin_link.py gọi
+# Tavily+Gemini cho TỪNG company — chậm hơn hẳn crawl page-by-page, chỉnh
+# qua env nếu limit tối đa cho phép (5000, xem MaintenanceRunRequest.limit)
+# khiến 1 lượt chạy vượt quá con số này.
+MAINTENANCE_STALE_TIMEOUT_MINUTES = int(os.getenv("MAINTENANCE_STALE_TIMEOUT_MINUTES", "180"))
+MAINTENANCE_WATCHDOG_INTERVAL_MINUTES = int(os.getenv("MAINTENANCE_WATCHDOG_INTERVAL_MINUTES", "10"))
+
 # ------------------------------------------------------------------
 # Enrich API Config
 # ------------------------------------------------------------------
