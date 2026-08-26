@@ -56,6 +56,34 @@ class CrawlStatusOut(BaseModel):
     finished_at: Optional[datetime] = None
     stats: Optional[dict] = None
     error: Optional[str] = None
+    # 08/2026 (xem sql/migration_add_crawl_progress_logs.sql) — snapshot
+    # tiến độ MỚI NHẤT, ghi đè liên tục trong lúc status='running'
+    # ({"fetched": int, "inserted": int, "last_update": iso str}).
+    # None khi chưa có heartbeat nào (vd status vẫn 'queued', hoặc lượt
+    # crawl chạy TRƯỚC KHI tính năng này tồn tại) — frontend coi None
+    # như "chưa có số liệu" chứ không phải lỗi.
+    progress: Optional[dict] = None
+
+
+# ------------------------------------------------------------------
+# Log live — GET /crawl/{run_id}/logs (08/2026, xem docstring
+# sql/migration_add_crawl_progress_logs.sql và api/crawl_runner.py::
+# _RunLogHandler)
+# ------------------------------------------------------------------
+
+class CrawlLogOut(BaseModel):
+    id: int
+    level: str
+    message: str
+    created_at: datetime
+
+
+class CrawlLogsOut(BaseModel):
+    # last_id: id LỚN NHẤT trong "items" (0 nếu rỗng) — client dùng đúng
+    # giá trị này làm after_id cho lần poll KẾ TIẾP, không tự cộng dồn ở
+    # phía client (tránh lệch nếu có dòng bị bỏ sót do limit).
+    last_id: int
+    items: list[CrawlLogOut]
 
 
 # ------------------------------------------------------------------

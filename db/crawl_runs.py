@@ -76,6 +76,65 @@ def create_run(conn, *, source: str, category: str, pages: int,
     return run_id
 
 
+def update_progress(conn, run_id: str, progress: dict) -> None:
+    """Ghi ĐÈ (không cộng dồn) snapshot tiến độ mới nhất — gọi liên tục
+    (mỗi trang fetch xong 1 lần) trong lúc execute() đang chạy pipeline
+    thật, xem docstring migration_add_crawl_progress_logs.sql.
+
+    progress: dict gọn kiểu {"page": int, "fetched": int,
+    "inserted": int, "last_update": iso str} — KHÔNG có shape cố định
+    bắt buộc ở tầng DB (JSONB), pipeline.py là nơi quyết định đúng các
+    key này, xem docstring run_pipeline() tham số on_progress.
+
+    Tự commit ngay (cùng lý do các hàm mark_*() khác trong module này
+    — execute() chạy nền, không có request/response bao quanh để commit
+    hộ) nhưng dùng connection RIÊNG với connection đang chạy
+    run_pipeline() sẽ KHÔNG áp dụng ở đây — cùng 1 conn, chỉ là 1
+    UPDATE + commit() độc lập, không mở transaction lồng nhau."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE crawl_runs SET progress = %s WHERE run_id = %s",
+            (json.dumps(progress, ensure_ascii=False, default=str), run_id),
+        )
+    conn.commit()
+
+
+def append_log(conn, run_id: str, level: str, message: str) -> None:
+    """Thêm 1 dòng log live cho run_id — gọi từ logging.Handler gắn tạm
+    thời trong execute() (xem api/crawl_runner.py::_RunLogHandler), bắt
+    MỌI log do pipeline.py/adapters/*.py phát ra qua logger chuẩn
+    (logging.getLogger(__name__)) trong lúc lượt crawl này đang chạy —
+    không cần sửa từng file logger.info() rải rác thành 2 lời gọi.
+
+    Tự commit ngay mỗi dòng (chấp nhận nhiều round-trip DB nhỏ, đổi lấy
+    log không bị mất nếu process bị kill giữa chừng — khớp tinh thần
+    "ghi ngay, không gom batch" của cả module này)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO crawl_run_logs (run_id, level, message) VALUES (%s, %s, %s)",
+            (run_id, level, message),
+        )
+    conn.commit()
+
+
+def get_logs(conn, run_id: str, after_id: int = 0, limit: int = 500):
+    """Trả list[dict] các dòng log có id > after_id, sắp CŨ -> MỚI (đúng
+    thứ tự đọc như terminal thật) — dùng cho GET
+    /crawl/{run_id}/logs?after_id=N (poll tăng dần, xem docstring index
+    idx_crawl_run_logs_run_id_id).
+
+    limit: chặn trần 1 lần trả về (phòng client poll sau khi bỏ lỡ rất
+    lâu, hoặc lượt crawl log quá nhiều dòng) — client tự gọi lại với
+    after_id mới nếu còn thiếu, không cần backend trả hết 1 lần."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT id, level, message, created_at FROM crawl_run_logs "
+            "WHERE run_id = %s AND id > %s ORDER BY id ASC LIMIT %s",
+            (run_id, after_id, limit),
+        )
+        return cur.fetchall()
+
+
 def mark_running(conn, run_id: str) -> None:
     """Đổi status 'queued' -> 'running' — gọi ngay khi execute() bắt đầu
     chạy pipeline thật (TRƯỚC khi gọi run_pipeline(), có thể mất vài
@@ -129,7 +188,7 @@ _CRAWL_RUN_SELECT_COLUMNS = """
         cr.run_id, cr.source, cr.category, cr.pages, cr.max_jobs,
         cr.status, cr.stats, cr.error, cr.triggered_by,
         u.full_name AS triggered_by_name,
-        cr.started_at, cr.finished_at
+        cr.started_at, cr.finished_at, cr.progress
 """
 
 _CRAWL_RUN_FROM_JOINS = """

@@ -88,7 +88,7 @@ from urllib.parse import urljoin, urlsplit
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 
-from adapters.base import BaseAdapter
+from adapters.base import BaseAdapter, CrawlBlockedError
 from models import RawJobRecord
 from config import (
     VIETNAMWORKS_CATEGORIES,
@@ -218,6 +218,19 @@ class VietnamWorksAdapter(BaseAdapter):
             logger.info("Fetching VNW page %d cho query=%r", page, query)
             data = self._post_json(VNW_SEARCH_URL, body)
             if data is None:
+                if page == 0:
+                    # VNW đánh số trang từ 0 -> page 0 chính là TRANG ĐẦU
+                    # TIÊN. Thất bại ngay ở đây sau khi hết retry rất có
+                    # thể là bị chặn (403/429/lỗi kết nối liên tục), KHÔNG
+                    # PHẢI "hết job" — đồng bộ với topcv.py, xem docstring
+                    # CrawlBlockedError. Trang sau (page >= 1) thất bại vẫn
+                    # giữ nguyên break như cũ.
+                    raise CrawlBlockedError(
+                        f"Không lấy được response trang đầu tiên (page=0, "
+                        f"query={query!r}) sau khi hết retry — khả năng bị "
+                        f"VietnamWorks chặn (403/429/lỗi kết nối liên tục), "
+                        f"không phải hết job."
+                    )
                 logger.warning("Không lấy được response trang %d, dừng lại.", page)
                 break
 

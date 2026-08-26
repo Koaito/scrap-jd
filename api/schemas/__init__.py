@@ -58,6 +58,8 @@ from api.schemas.crawl import (
     CrawlAccepted,
     CrawlStatusOut,
     PaginatedCrawlRuns,
+    CrawlLogOut,
+    CrawlLogsOut,
 )
 from api.schemas.auth import (
     LoginRequest,
@@ -125,6 +127,7 @@ __all__ = [
     "MonthlyCountOut", "MonthlyEngagementOut", "EngagementStatsOut",
     # crawl
     "CrawlRequest", "CrawlAccepted", "CrawlStatusOut", "PaginatedCrawlRuns",
+    "CrawlLogOut", "CrawlLogsOut",
     # auth
     "LoginRequest", "TokenPairOut", "RefreshRequest", "AccessTokenOut",
     "ChangePasswordRequest", "UserOut", "UserCreateByAdmin", "UserCreatedOut",

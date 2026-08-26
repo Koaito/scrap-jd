@@ -4,6 +4,26 @@ from typing import Iterator, Optional
 from models import RawJobRecord
 
 
+class CrawlBlockedError(Exception):
+    """Raise khi TRANG ĐẦU TIÊN (page 1, hoặc page 0 với adapter đánh số
+    từ 0 như VietnamWorks) của 1 lượt crawl không lấy được HTML/response
+    sau khi đã hết retry (403/429/lỗi kết nối liên tục) — đây là tín hiệu
+    RẤT CÓ THỂ bị chặn (WAF/rate-limit), KHÁC HẲN với "chạy xong nhưng
+    đúng là hết job" (0 job mới nhưng có lấy được HTML).
+
+    QUAN TRỌNG: chỉ raise ở TRANG ĐẦU. Các trang SAU (page >= 2/1) thất
+    bại vẫn giữ nguyên hành vi cũ (break, coi là hết trang/tạm dừng bình
+    thường) — không phải mọi lần fetch thất bại giữa chừng đều là bị
+    chặn, có thể chỉ là đã hết dữ liệu thật.
+
+    KHÔNG bị pipeline.run_pipeline() nuốt mất (nó raise ra ngoài vòng
+    for, không nằm trong try/except bọc từng job) — lan thẳng lên
+    api/crawl_runner.py::execute(), nơi bắt bằng except Exception chung
+    và ghi status='error' + error message thay vì 'done' với stats toàn
+    số 0, để UI (bảng Lịch sử crawl) phân biệt được 2 tình huống: "bị
+    chặn ngay từ đầu" vs "chạy xong, đúng là 0 job mới"."""
+
+
 class BaseAdapter(ABC):
     """
     Mọi adapter nguồn (TopCV, ITviec, VietnamWorks, ...) phải kế thừa class

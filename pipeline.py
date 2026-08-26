@@ -67,13 +67,25 @@ def _build_parsed_content_and_raw(job_detail: dict):
 
 
 def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
-                  max_jobs: "int | None" = None) -> dict:
+                  max_jobs: "int | None" = None, on_progress=None) -> dict:
     """
     max_jobs: giới hạn TỔNG SỐ JD sẽ crawl (đếm theo raw record nhận được
     từ adapter, không phân biệt sau đó có insert được hay không) — dùng
     khi muốn crawl 1 lượng nhỏ để test/lấy mẫu mà không cần quan tâm mỗi
     trang có bao nhiêu job. None (mặc định) -> không giới hạn, crawl hết
     max_pages như cũ.
+
+    on_progress: callback tùy chọn, kiểu fn(dict) -> None, gọi lại SAU
+    MỖI JOB xử lý xong (không phải sau mỗi trang — adapter.fetch_jobs()
+    không lộ ranh giới trang ra ngoài dạng dễ bắt, còn "sau mỗi job" đã
+    đủ mịn cho mục đích hiển thị tiến độ real-time, xem lịch sử trao đổi
+    "phương án Heartbeat"). Callback nhận dict {"fetched", "inserted"} —
+    y hệt 2 khóa tương ứng trong `stats` tại THỜI ĐIỂM gọi (không phải
+    bản sao, không được sửa dict này). Lỗi bên trong callback (vd DB
+    tạm mất kết nối lúc ghi progress) KHÔNG được để làm hỏng cả lượt
+    crawl đang chạy tốt — bọc try/except, chỉ log lại. None (mặc định)
+    -> không heartbeat gì cả, giữ hành vi cũ nguyên vẹn (vd khi gọi từ
+    main.py CLI, không cần heartbeat).
 
     Cách dừng: adapter.fetch_jobs() là generator sinh job THEO TỪNG TRANG
     (xem adapters/topcv.py, adapters/vietnamworks.py) — dừng vòng lặp
@@ -302,5 +314,11 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             conn.rollback()
             stats["errors"] += 1
             logger.error("Lỗi xử lý job '%s': %s", raw.job_title, exc)
+
+        if on_progress is not None:
+            try:
+                on_progress({"fetched": stats["fetched"], "inserted": stats["inserted"]})
+            except Exception:  # noqa: BLE001 - heartbeat lỗi không được làm hỏng crawl
+                logger.exception("on_progress callback lỗi, bỏ qua và crawl tiếp tục")
 
     return stats

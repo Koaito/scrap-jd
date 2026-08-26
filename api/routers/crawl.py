@@ -5,7 +5,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 import db as db_module
 from api import crawl_runner
 from api.deps import require_admin, require_role
-from api.schemas import CrawlAccepted, CrawlRequest, CrawlStatusOut, PaginatedCrawlRuns
+from api.schemas import CrawlAccepted, CrawlLogsOut, CrawlRequest, CrawlStatusOut, PaginatedCrawlRuns
 from config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES
 
 router = APIRouter(prefix="/crawl", tags=["crawl"])
@@ -115,3 +115,24 @@ def get_crawl_status(run_id: str, user: dict = Depends(require_role("ss_team")))
     if run is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy run_id này")
     return run
+
+
+@router.get("/{run_id}/logs", response_model=CrawlLogsOut)
+def get_crawl_logs(
+    run_id: str,
+    after_id: int = Query(0, ge=0, description="Chỉ lấy dòng log có id > after_id (poll tăng dần)"),
+    limit: int = Query(500, ge=1, le=2000),
+    user: dict = Depends(require_role("ss_team")),
+):
+    """Khu "Xem log live" ở trang /crawl — poll endpoint này lặp lại
+    (vd mỗi 2 giây) với after_id = last_id của lần gọi trước, để chỉ
+    tải các dòng MỚI thay vì tải lại toàn bộ log mỗi lần (log 1 lượt
+    crawl có thể lên tới hàng trăm/nghìn dòng).
+
+    Cùng mức quyền 'ss_team' như GET /crawl/{run_id} (đọc log không tốn
+    tài nguyên hơn đọc status, không cần chặt hơn)."""
+    if not db_module.is_valid_uuid(run_id):
+        raise HTTPException(status_code=400, detail=f"run_id '{run_id}' không đúng định dạng UUID.")
+    items = crawl_runner.get_logs(run_id, after_id=after_id, limit=limit)
+    last_id = items[-1]["id"] if items else after_id
+    return CrawlLogsOut(last_id=last_id, items=items)

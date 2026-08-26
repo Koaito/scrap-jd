@@ -38,7 +38,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit, parse_qsl, urlencode
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 
-from adapters.base import BaseAdapter
+from adapters.base import BaseAdapter, CrawlBlockedError
 from models import RawJobRecord
 from config import TOPCV_CATEGORIES, DEFAULT_HEADERS, REQUEST_DELAY_SECONDS
 
@@ -120,6 +120,20 @@ class TopCVAdapter(BaseAdapter):
 
             html = self._fetch_html(page_url)
             if html is None:
+                if page == 1:
+                    # Trang ĐẦU TIÊN thất bại sau khi hết retry -> rất có
+                    # thể bị TopCV chặn (403/429/lỗi kết nối liên tục),
+                    # KHÔNG PHẢI "hết job" (làm gì có trang nào lấy được
+                    # để biết còn/hết job). Raise thay vì chỉ log+break,
+                    # để execute() (api/crawl_runner.py) ghi status='error'
+                    # thay vì 'done' với 0 job mới -> UI không hiển thị
+                    # nhầm "Hoàn tất" cho 1 lượt crawl thực chất bị chặn
+                    # hoàn toàn. Xem docstring CrawlBlockedError.
+                    raise CrawlBlockedError(
+                        f"Không lấy được HTML trang 1 ({page_url}) sau khi "
+                        f"hết retry — khả năng bị TopCV chặn (403/429/lỗi "
+                        f"kết nối liên tục), không phải hết job."
+                    )
                 logger.warning("Không lấy được HTML trang %d, dừng lại.", page)
                 break
 
