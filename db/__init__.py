@@ -136,6 +136,15 @@ from db.crawl_runs import (
     get_logs as get_crawl_run_logs,
     get_latest_run as get_latest_crawl_run,
 )
+from db.crawl_batches import (
+    create_batch as create_crawl_batch,
+    advance_batch as advance_crawl_batch,
+    mark_done as mark_crawl_batch_done,
+    mark_error as mark_crawl_batch_error,
+    get_batch as get_crawl_batch,
+    get_batch_with_items as get_crawl_batch_with_items,
+    list_batches as list_crawl_batches,
+)
 
 __all__ = [
     "is_valid_uuid",
@@ -243,5 +252,12 @@ __all__ = [
     "append_crawl_run_log",
     "get_crawl_run_logs",
     "get_latest_crawl_run",
+    "create_crawl_batch",
+    "advance_crawl_batch",
+    "mark_crawl_batch_done",
+    "mark_crawl_batch_error",
+    "get_crawl_batch",
+    "get_crawl_batch_with_items",
+    "list_crawl_batches",
 ]
 

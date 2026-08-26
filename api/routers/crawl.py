@@ -5,7 +5,10 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 import db as db_module
 from api import crawl_runner
 from api.deps import require_admin, require_role
-from api.schemas import CrawlAccepted, CrawlLogsOut, CrawlRequest, CrawlStatusOut, PaginatedCrawlRuns
+from api.schemas import (
+    CrawlAccepted, CrawlBatchAccepted, CrawlBatchRequest, CrawlBatchStatusOut,
+    CrawlLogsOut, CrawlRequest, CrawlStatusOut, PaginatedCrawlBatches, PaginatedCrawlRuns,
+)
 from config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES
 
 router = APIRouter(prefix="/crawl", tags=["crawl"])
@@ -69,6 +72,108 @@ def trigger_crawl(
 
     background_tasks.add_task(crawl_runner.execute, run_id)
     return CrawlAccepted(run_id=run_id, status="queued")
+
+
+@router.post("/batch", response_model=CrawlBatchAccepted, status_code=202)
+def trigger_crawl_batch(
+    payload: CrawlBatchRequest,
+    background_tasks: BackgroundTasks,
+    user: dict = Depends(require_admin),
+):
+    """08/2026 (xem docstring sql/migration_add_crawl_batches.sql) —
+    "crawl nhiều category liên tục": tick nhiều category cùng lúc cho 1
+    nguồn, bấm 1 lần, hệ thống tự crawl TUẦN TỰ hết — thay cho việc gõ
+    tay nhiều lệnh `python main.py crawl` nối tiếp nhau.
+
+    Chỉ tạo + kích hoạt CATEGORY ĐẦU TIÊN ngay trong request này (giống
+    hệt POST /crawl đơn lẻ) — các category còn lại tự động được tạo +
+    chạy nối tiếp bởi CHÍNH background task đó (xem
+    api/crawl_runner.py::execute()), KHÔNG cần request/background task
+    nào khác cho các category sau.
+
+    CÙNG mức quyền 'admin' như POST /crawl đơn lẻ (kích hoạt crawl tốn
+    tài nguyên thật, không nới lỏng gì thêm chỉ vì gộp nhiều category).
+
+    Trả 409 NGAY nếu source này đang có 1 lượt 'queued'/'running' chưa
+    xong — giống hệt POST /crawl đơn lẻ (category đầu tiên của batch
+    cũng phải qua đúng UNIQUE INDEX này, xem crawl_runner.start_batch())."""
+    if payload.source not in crawl_runner._SOURCE_ADAPTERS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Source '{payload.source}' không tồn tại. "
+                   f"Có sẵn: {list(crawl_runner._SOURCE_ADAPTERS.keys())}",
+        )
+    valid_categories = _CATEGORIES_BY_SOURCE[payload.source]
+    unknown = [c for c in payload.categories if c not in valid_categories]
+    if unknown:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Category {unknown} không tồn tại cho source '{payload.source}'. "
+                   f"Có sẵn: {list(valid_categories.keys())}",
+        )
+
+    # Loại category trùng lặp (giữ đúng thứ tự xuất hiện đầu tiên) —
+    # người dùng tick nhầm trùng 1 ô trên UI không phải lỗi cần chặn cả
+    # request, chỉ cần âm thầm crawl 1 lần cho category đó.
+    seen: set = set()
+    categories: list = []
+    for c in payload.categories:
+        if c not in seen:
+            seen.add(c)
+            categories.append(c)
+
+    try:
+        batch_id, first_run_id = crawl_runner.start_batch(
+            payload.source, categories, payload.pages,
+            max_jobs=payload.max_jobs, triggered_by=user["sub"],
+        )
+    except db_module.ActiveCrawlExistsError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+    background_tasks.add_task(crawl_runner.execute, first_run_id)
+    return CrawlBatchAccepted(batch_id=batch_id, first_run_id=first_run_id, status="running")
+
+
+@router.get("/batch", response_model=PaginatedCrawlBatches)
+def list_crawl_batches(
+    source: Optional[str] = Query(None, description="Lọc theo nguồn, vd 'topcv'"),
+    status: Optional[str] = Query(None, description="running | done | error"),
+    triggered_by: Optional[str] = Query(None, description="Lọc theo ss_user_id admin đã bấm"),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    user: dict = Depends(require_role("ss_team")),
+):
+    """Lịch sử batch — đối xứng GET /crawl (lịch sử run đơn lẻ). ĐẶT
+    TRƯỚC GET /{run_id} không bắt buộc về mặt kỹ thuật (khác số lượng
+    segment path: "/crawl/batch" so với "/crawl/{run_id}" — FastAPI
+    không nhầm 2 pattern này) nhưng đặt gần POST /crawl/batch để dễ đọc
+    theo nhóm tính năng."""
+    if status is not None and status not in _VALID_CRAWL_STATUSES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"status '{status}' không hợp lệ — có sẵn: {sorted(_VALID_CRAWL_STATUSES)}",
+        )
+    if triggered_by is not None and not db_module.is_valid_uuid(triggered_by):
+        raise HTTPException(status_code=400, detail=f"triggered_by '{triggered_by}' không đúng định dạng UUID.")
+
+    rows, total = crawl_runner.list_batches(
+        source=source, status=status, triggered_by=triggered_by,
+        limit=limit, offset=offset,
+    )
+    return PaginatedCrawlBatches(total=total, limit=limit, offset=offset, items=rows)
+
+
+@router.get("/batch/{batch_id}", response_model=CrawlBatchStatusOut)
+def get_crawl_batch(batch_id: str, user: dict = Depends(require_role("ss_team"))):
+    """Poll tiến độ TỔNG của 1 batch — trả kèm "items" (từng run con
+    theo đúng thứ tự category) + "total"/"completed" để frontend hiện
+    kiểu "2/6 category xong" mà không cần tự đếm lại từ GET /crawl."""
+    if not db_module.is_valid_uuid(batch_id):
+        raise HTTPException(status_code=400, detail=f"batch_id '{batch_id}' không đúng định dạng UUID.")
+    batch = crawl_runner.get_batch(batch_id)
+    if batch is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy batch_id này")
+    return batch
 
 
 @router.get("", response_model=PaginatedCrawlRuns)

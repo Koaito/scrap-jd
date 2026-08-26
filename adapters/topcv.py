@@ -22,6 +22,7 @@ ra 0 job, xem README mục "Debug khi TopCV đổi giao diện" để tự sửa
 
 import re
 import time
+import random
 import logging
 from typing import Iterator, Optional
 from urllib.parse import urljoin, urlsplit, urlunsplit, parse_qsl, urlencode
@@ -40,7 +41,14 @@ from bs4 import BeautifulSoup
 
 from adapters.base import BaseAdapter, CrawlBlockedError
 from models import RawJobRecord
-from config import TOPCV_CATEGORIES, DEFAULT_HEADERS, REQUEST_DELAY_SECONDS
+from config import (
+    TOPCV_CATEGORIES, DEFAULT_HEADERS,
+    # 08/2026: dùng delay RIÊNG cho TopCV (cao hơn REQUEST_DELAY_SECONDS
+    # dùng chung cho VietnamWorks/CareerViet) — TopCV đang bị chặn 403
+    # theo IP khi crawl chạy từ server Render, xem docstring 2 hằng số
+    # này ở config.py để biết đầy đủ lý do + hướng dứt điểm (proxy).
+    TOPCV_REQUEST_DELAY_SECONDS, TOPCV_REQUEST_JITTER_SECONDS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -168,9 +176,9 @@ class TopCVAdapter(BaseAdapter):
         profile) đều phải đi qua đây -> throttle + retry-backoff áp
         dụng đồng đều, không phụ thuộc nơi gọi có nhớ delay hay không.
 
-        Lỗi cũ: REQUEST_DELAY_SECONDS chỉ được sleep() giữa các trang
-        listing trong fetch_jobs(), trong khi fetch_job_full_detail()
-        và fetch_company_profile() (gọi cho MỖI job / MỖI công ty mới
+        Lỗi cũ: delay chỉ được sleep() giữa các trang listing trong
+        fetch_jobs(), trong khi fetch_job_full_detail() và
+        fetch_company_profile() (gọi cho MỖI job / MỖI công ty mới
         trong pipeline.py) gọi thẳng _fetch_html() không qua throttle
         -> bắn hàng chục request liên tiếp không nghỉ dù config đã tăng
         delay lên 4s."""
@@ -186,7 +194,7 @@ class TopCVAdapter(BaseAdapter):
                     # IP tạm thời bị đánh dấu do crawl dồn dập trước đó) —
                     # cả 2 trường hợp đều ĐÁNG thử lại sau khi chờ, thay vì
                     # bỏ cuộc ngay ở request đầu tiên.
-                    wait = REQUEST_DELAY_SECONDS * (2 ** attempt)
+                    wait = TOPCV_REQUEST_DELAY_SECONDS * (2 ** attempt)
                     logger.warning(
                         "%d %s tại %s (lần %d/%d) -> chờ %.1fs",
                         resp.status_code,
@@ -205,7 +213,7 @@ class TopCVAdapter(BaseAdapter):
                 # stream reset, timeout...), không bỏ cuộc ngay ở lần lỗi
                 # đầu tiên như trước, vì đã xác nhận loại lỗi này có thể
                 # chỉ tạm thời (WAF chặn tạm do request dồn dập).
-                wait = REQUEST_DELAY_SECONDS * (2 ** attempt)
+                wait = TOPCV_REQUEST_DELAY_SECONDS * (2 ** attempt)
                 logger.warning(
                     "Lỗi kết nối tại %s (lần %d/%d): %s -> chờ %.1fs rồi thử lại",
                     url, attempt, max_retries, exc, wait,
@@ -218,12 +226,21 @@ class TopCVAdapter(BaseAdapter):
         return None
 
     def _throttle(self):
-        """Đảm bảo khoảng cách tối thiểu REQUEST_DELAY_SECONDS giữa
-        MỌI request, bất kể là listing, job detail hay company profile."""
+        """Đảm bảo khoảng cách tối thiểu TOPCV_REQUEST_DELAY_SECONDS
+        (+ jitter ngẫu nhiên) giữa MỌI request, bất kể là listing, job
+        detail hay company profile.
+
+        08/2026: thêm jitter (TOPCV_REQUEST_JITTER_SECONDS) — random.
+        uniform(0, jitter) cộng thêm mỗi lần, để khoảng cách giữa các
+        request KHÔNG cố định tăm tắp (vd luôn đúng 12.0s) — pattern
+        đều đặn kiểu đó dễ bị WAF nhận diện là bot hơn khoảng dao động
+        tự nhiên. Xem docstring TOPCV_REQUEST_DELAY_SECONDS ở config.py
+        để biết đầy đủ lý do (chặn theo IP khi crawl từ Render)."""
+        min_delay = TOPCV_REQUEST_DELAY_SECONDS + random.uniform(0, TOPCV_REQUEST_JITTER_SECONDS)
         if self._last_request_time is None:
             return
         elapsed = time.monotonic() - self._last_request_time
-        remaining = REQUEST_DELAY_SECONDS - elapsed
+        remaining = min_delay - elapsed
         if remaining > 0:
             time.sleep(remaining)
 

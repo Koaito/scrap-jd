@@ -38,12 +38,21 @@ class ActiveCrawlExistsError(Exception):
 
 
 def create_run(conn, *, source: str, category: str, pages: int,
-                max_jobs: Optional[int], triggered_by: Optional[str]) -> str:
+                max_jobs: Optional[int], triggered_by: Optional[str],
+                batch_id: Optional[str] = None,
+                batch_position: Optional[int] = None) -> str:
     """Tạo 1 dòng crawl_runs mới, status='queued', trả về run_id (str).
 
     Tự commit ngay (xem docstring module) — gọi TRƯỚC KHI add background
     task, để chắc chắn dòng đã nằm trong DB trước khi execute() (chạy
-    nền, có thể bắt đầu gần như ngay lập tức) cố tìm lại nó."""
+    nền, có thể bắt đầu gần như ngay lập tức) cố tìm lại nó.
+
+    batch_id/batch_position (08/2026, xem docstring
+    sql/migration_add_crawl_batches.sql): CHỈ truyền khi run này là 1
+    category trong 1 batch "crawl nhiều category liên tục" — mặc định
+    None nghĩa là run đơn lẻ như trước giờ, KHÔNG đổi hành vi gì cho
+    mọi lời gọi cũ (POST /crawl đơn lẻ) đang không truyền 2 tham số
+    này."""
     with conn.cursor() as cur:
         # SELECT ... FOR UPDATE không cần thiết ở đây: UNIQUE INDEX có
         # điều kiện ở DB đã là lớp chặn CUỐI đảm bảo tính đúng đắn dù có
@@ -65,11 +74,11 @@ def create_run(conn, *, source: str, category: str, pages: int,
 
         cur.execute(
             """
-            INSERT INTO crawl_runs (source, category, pages, max_jobs, triggered_by)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO crawl_runs (source, category, pages, max_jobs, triggered_by, batch_id, batch_position)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING run_id
             """,
-            (source, category, pages, max_jobs, triggered_by),
+            (source, category, pages, max_jobs, triggered_by, batch_id, batch_position),
         )
         run_id = str(cur.fetchone()[0])
     conn.commit()
@@ -188,7 +197,8 @@ _CRAWL_RUN_SELECT_COLUMNS = """
         cr.run_id, cr.source, cr.category, cr.pages, cr.max_jobs,
         cr.status, cr.stats, cr.error, cr.triggered_by,
         u.full_name AS triggered_by_name,
-        cr.started_at, cr.finished_at, cr.progress
+        cr.started_at, cr.finished_at, cr.progress,
+        cr.batch_id, cr.batch_position
 """
 
 _CRAWL_RUN_FROM_JOINS = """

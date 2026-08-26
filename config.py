@@ -169,6 +169,22 @@ DEFAULT_MAX_PAGES = 3
 # Độ trễ giữa các request (giây)
 REQUEST_DELAY_SECONDS = 5.0
 
+# 08/2026: TopCV bắt đầu trả 403 liên tục khi crawl chạy TỪ SERVER RENDER
+# (IP datacenter), trong khi CÙNG code chạy từ máy cá nhân (IP dân dụng)
+# vẫn qua bình thường -> khả năng cao là chặn theo UY TÍN IP (IP
+# reputation), KHÔNG PHẢI thiếu header/TLS fingerprint (2 cái đó adapter
+# đã xử lý đúng, xem adapters/topcv.py). Hướng dứt điểm là dùng proxy IP
+# dân dụng (chưa có kinh phí, xem lịch sử trao đổi) — TẠM THỜI trong lúc
+# chưa có proxy, tăng delay + thêm jitter ngẫu nhiên riêng cho TopCV để
+# giảm khả năng bị đánh dấu "hành vi bot" lại, KHÔNG áp dụng cho
+# VietnamWorks/CareerViet (2 nguồn đó chưa có dấu hiệu bị chặn tương tự,
+# tăng delay chung sẽ làm chậm crawl không cần thiết).
+TOPCV_REQUEST_DELAY_SECONDS = float(os.getenv("TOPCV_REQUEST_DELAY_SECONDS", "12.0"))
+# Biên độ +/- ngẫu nhiên cộng vào TOPCV_REQUEST_DELAY_SECONDS mỗi request
+# (giây) — né việc khoảng cách giữa các request đều tăm tắp (dễ nhận diện
+# bot hơn khoảng cách có dao động tự nhiên như người dùng thật).
+TOPCV_REQUEST_JITTER_SECONDS = float(os.getenv("TOPCV_REQUEST_JITTER_SECONDS", "4.0"))
+
 DEFAULT_HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
