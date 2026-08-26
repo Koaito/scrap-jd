@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends
 import db as db_module
 from api.deps import get_db
 from api.schemas import EngagementStatsOut, StatsOut
-from config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES
+from config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, CAREERVIET_CATEGORIES
 import constants
 
 router = APIRouter(tags=["meta"])
@@ -48,6 +48,14 @@ def get_sources():
     return {
         "topcv": {key: cfg["label"] for key, cfg in TOPCV_CATEGORIES.items()},
         "vietnamworks": {key: cfg["label"] for key, cfg in VIETNAMWORKS_CATEGORIES.items()},
+        # 08/2026 — THÊM careerviet: adapters/careerviet.py đã crawl
+        # được từ trước và đã đăng ký ở api/crawl_runner.py +
+        # api/routers/crawl.py (xem lịch sử trao đổi), nhưng riêng
+        # GET /sources này (endpoint khác, frontend dùng để build
+        # dropdown/checkbox nguồn) bị bỏ sót — kết quả là trang /crawl
+        # phía frontend không hiện card CareerViet dù backend đã crawl
+        # được qua CLI, giờ đã khớp đủ 3 nguồn.
+        "careerviet": {key: cfg["label"] for key, cfg in CAREERVIET_CATEGORIES.items()},
     }
 
 
