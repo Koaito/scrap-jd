@@ -101,6 +101,24 @@ def list_crawl_runs(
     return PaginatedCrawlRuns(total=total, limit=limit, offset=offset, items=rows)
 
 
+@router.get("/latest-log-run", response_model=Optional[CrawlStatusOut])
+def get_latest_log_run(user: dict = Depends(require_role("ss_team"))):
+    """Trả lượt crawl GẦN NHẤT (bất kể status) — khung "Log live" ở
+    frontend gọi endpoint này lúc mở trang /crawl để luôn có 1 run_id
+    hiện log, kể cả khi không có lượt nào đang chạy (hiện log của lượt
+    gần nhất đã xong/lỗi thay vì để trống, xem lịch sử trao đổi "khung
+    Log live luôn hiện cố định trên trang").
+
+    ĐẶT TRƯỚC route GET /{run_id} bên dưới trong file này — FastAPI
+    match theo THỨ TỰ ĐĂNG KÝ, nếu để sau thì "/latest-log-run" sẽ bị
+    hiểu nhầm thành run_id="latest-log-run" (path param nuốt mất route
+    cố định phía sau nó).
+
+    Trả null (không phải 404) nếu bảng crawl_runs rỗng hoàn toàn (chưa
+    từng crawl lần nào) — đây là trạng thái hợp lệ, không phải lỗi."""
+    return crawl_runner.get_latest_run()
+
+
 @router.get("/{run_id}", response_model=CrawlStatusOut)
 def get_crawl_status(run_id: str, user: dict = Depends(require_role("ss_team"))):
     """Poll tiến độ/kết quả 1 lượt crawl.

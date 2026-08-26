@@ -168,6 +168,18 @@ def list_runs(*, source: Optional[str] = None, status: Optional[str] = None,
         conn.close()
 
 
+def get_latest_run() -> Optional[dict]:
+    """Đọc lượt crawl GẦN NHẤT (bất kể status) — dùng cho GET
+    /crawl/latest-log-run, để khung "Log live" ở frontend luôn có 1
+    run_id để hiện log ngay cả khi không có lượt nào đang chạy (xem
+    lịch sử trao đổi "khung Log live luôn hiện cố định trên trang")."""
+    conn = db_module.get_connection()
+    try:
+        return db_module.get_latest_crawl_run(conn)
+    finally:
+        conn.close()
+
+
 def get_logs(run_id: str, after_id: int = 0, limit: int = 500):
     """Đọc các dòng log MỚI (id > after_id) của 1 lượt crawl — dùng cho
     GET /crawl/{run_id}/logs?after_id=N (xem db.get_crawl_run_logs)."""

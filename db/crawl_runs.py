@@ -197,6 +197,25 @@ _CRAWL_RUN_FROM_JOINS = """
 """
 
 
+def get_latest_run(conn) -> Optional[dict]:
+    """Trả 1 dict crawl_runs GẦN NHẤT theo started_at (bất kể status —
+    queued/running/done/error đều tính), hoặc None nếu chưa từng crawl
+    lần nào — dùng cho GET /crawl/latest-log-run (08/2026, xem lịch sử
+    trao đổi "khung Log live luôn hiện cố định trên trang").
+
+    Khác get_run()/list_runs() (đều lọc theo run_id/điều kiện cụ thể):
+    hàm này KHÔNG có tham số lọc — luôn trả đúng 1 dòng mới nhất, để
+    frontend luôn có 1 run_id để load log khi mở trang /crawl, kể cả
+    lúc không có lượt nào đang chạy (hiện log của lượt gần nhất đã
+    xong/lỗi, thay vì để khung log trống)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            f"SELECT {_CRAWL_RUN_SELECT_COLUMNS} {_CRAWL_RUN_FROM_JOINS} "
+            f"ORDER BY cr.started_at DESC LIMIT 1",
+        )
+        return cur.fetchone()
+
+
 def get_run(conn, run_id: str) -> Optional[dict]:
     """Trả 1 dict crawl_runs đầy đủ hoặc None — dùng cho GET
     /crawl/{run_id} (poll tiến độ)."""

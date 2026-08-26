@@ -134,6 +134,7 @@ from db.crawl_runs import (
     update_progress as update_crawl_run_progress,
     append_log as append_crawl_run_log,
     get_logs as get_crawl_run_logs,
+    get_latest_run as get_latest_crawl_run,
 )
 
 __all__ = [
@@ -241,5 +242,6 @@ __all__ = [
     "update_crawl_run_progress",
     "append_crawl_run_log",
     "get_crawl_run_logs",
+    "get_latest_crawl_run",
 ]
 
