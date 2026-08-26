@@ -179,7 +179,7 @@ ra ngay, không đợi access token 30 phút tự hết hạn).
 | GET | `/crawl/{run_id}` | Theo dõi tiến độ/kết quả 1 lượt crawl | API key |
 | GET | `/stats` | Tổng job/công ty/đơn ứng tuyển (`total_applications`), tỷ lệ có social, phân bố ngành/nguồn | API key |
 | GET | `/stats/engagement` | Thêm 08/2026 — mọi job đang OPEN kèm `application_count`/`saved_count` (lọc "JD ế" phía client), + `monthly` (ứng tuyển/lưu job tháng này vs tháng trước, để tính % chênh lệch) | API key |
-| GET | `/sources` | Danh sách source/category có sẵn (đọc từ `config.py`) — frontend render dropdown | API key |
+| GET | `/sources` | Danh sách source/category có sẵn (đọc từ `sources_registry.py`, phái sinh từ `config.py::JOB_CATEGORIES` — 08/2026, xem README.md#thêm-ngành--nguồn-crawl-mới) — frontend render dropdown | API key |
 | GET | `/health` | Health check | API key |
 | POST | `/auth/register` | Tự đăng ký (phone/track cho học viên, luôn role `user`), gửi email xác thực | **KHÔNG cần API key** |
 | GET | `/auth/verify-email?token=` | Kích hoạt tài khoản — bấm từ link trong email, trả HTML | **KHÔNG cần API key** |

@@ -8,128 +8,129 @@ logic pipeline hay adapter.
 import os
 
 # ------------------------------------------------------------------
-# Danh sách "category" TopCV có thể crawl.
-# Đã tinh chỉnh: Loại bỏ các category trùng lặp/bao hàm (software-engineer, fullstack-developer)
+# 08/2026 — ĐẢO CẤU TRÚC category-first (trước đây là 3 dict riêng
+# TOPCV_CATEGORIES / VIETNAMWORKS_CATEGORIES / CAREERVIET_CATEGORIES,
+# mỗi dict tự lặp lại "label" + "matching_industry" cho từng category).
+#
+# Lý do đảo: 3 dict cũ có CÙNG bộ key (data-analyst, data-engineer...)
+# nhưng là 3 bản khai báo độc lập -> dễ lệch dữ liệu khi sửa 1 nơi quên
+# nơi kia. Hậu quả thực tế đã xảy ra: TopCV/VietnamWorks có category
+# "ui-ux-design", còn CareerViet thì không (CareerViet không có kết quả
+# thật cho keyword này — xem xác nhận bên dưới) — với 3 dict riêng thì
+# việc "CareerViet thiếu 1 category" trông giống thiếu sót/bug hơn là
+# 1 lựa chọn có chủ đích, vì không có nơi nào so sánh chéo được cả 3
+# nguồn cho cùng 1 category.
+#
+# JOB_CATEGORIES bên dưới là NGUỒN SỰ THẬT DUY NHẤT: mỗi category khai
+# báo 1 lần (label + matching_industry dùng chung cho mọi nguồn), và 1
+# sub-dict "sources" liệt kê nguồn nào crawl được category này kèm field
+# đặc thù của nguồn đó (url/query/keyword). Nguồn nào KHÔNG có category
+# này thì đơn giản là KHÔNG xuất hiện trong "sources" — nhìn 1 chỗ là
+# thấy ngay category nào phủ đủ 3 nguồn, category nào thiếu ở đâu.
+#
+# TOPCV_CATEGORIES / VIETNAMWORKS_CATEGORIES / CAREERVIET_CATEGORIES bên
+# dưới JOB_CATEGORIES là 3 "view" TỰ ĐỘNG SINH RA từ JOB_CATEGORIES (xem
+# hàm _categories_for_source) — giữ NGUYÊN hình dạng {key: {label, url/
+# query/keyword, matching_industry}} như trước, để adapters/topcv.py,
+# adapters/vietnamworks.py, adapters/careerviet.py, main.py và
+# sources_registry.py KHÔNG cần sửa gì (chúng chỉ import 3 tên biến này
+# như cũ). Nói cách khác: sửa TẬN GỐC ở JOB_CATEGORIES, phần còn lại của
+# codebase tự động thấy thay đổi.
 # ------------------------------------------------------------------
-TOPCV_CATEGORIES = {
+JOB_CATEGORIES = {
     "data-analyst": {
         "label": "Data Analyst",
-        "url": "https://www.topcv.vn/tim-viec-lam-data-analyst-cr257cb261cl145",
         "matching_industry": "Data Analysis",
+        "sources": {
+            "topcv": {"url": "https://www.topcv.vn/tim-viec-lam-data-analyst-cr257cb261cl145"},
+            "vietnamworks": {"query": "data analyst"},
+            "careerviet": {"keyword": "data-analyst"},
+        },
     },
     "data-engineer": {
         "label": "Data Engineer",
-        "url": "https://www.topcv.vn/tim-viec-lam-data-engineer-cr257cb261cl285",
         "matching_industry": "Data Engineer",
+        "sources": {
+            "topcv": {"url": "https://www.topcv.vn/tim-viec-lam-data-engineer-cr257cb261cl285"},
+            "vietnamworks": {"query": "data engineer"},
+            "careerviet": {"keyword": "data-engineer"},
+        },
     },
     "data-scientist": {
         "label": "Data Scientist",
-        "url": "https://www.topcv.vn/tim-viec-lam-data-scientist",
         "matching_industry": "Data Scientist",
+        "sources": {
+            "topcv": {"url": "https://www.topcv.vn/tim-viec-lam-data-scientist"},
+            "vietnamworks": {"query": "data scientist"},
+            "careerviet": {"keyword": "data-scientist"},
+        },
     },
     "software-engineering": {
         "label": "Software Engineering",
-        "url": "https://www.topcv.vn/tim-viec-lam-software-engineering-cr257cb258",
         "matching_industry": "Code",
+        "sources": {
+            "topcv": {"url": "https://www.topcv.vn/tim-viec-lam-software-engineering-cr257cb258"},
+            "vietnamworks": {"query": "software engineer"},
+            "careerviet": {"keyword": "software-engineer"},
+        },
     },
     "business-analyst": {
         "label": "Business Analysis",
-        "url": "https://www.topcv.vn/tim-viec-lam-business-analyst",
         "matching_industry": "Business Analysis",
+        "sources": {
+            "topcv": {"url": "https://www.topcv.vn/tim-viec-lam-business-analyst"},
+            "vietnamworks": {"query": "business analyst"},
+            "careerviet": {"keyword": "business-analyst"},
+        },
     },
     "ui-ux-design": {
         "label": "UI/UX Design",
-        "url": "https://www.topcv.vn/tim-viec-lam-ui-ux-design-cr826cb827cl317",
         "matching_industry": "UI/UX Design",
+        "sources": {
+            "topcv": {"url": "https://www.topcv.vn/tim-viec-lam-ui-ux-design-cr826cb827cl317"},
+            "vietnamworks": {"query": "ui ux design"},
+            # CareerViet: KHÔNG có "careerviet" ở đây (có chủ đích, không
+            # phải thiếu sót) — đã tự kiểm tra thật bằng
+            # https://careerviet.vn/viec-lam/ui-ux-design-k-vi.html
+            # (08/2026), keyword không tồn tại trên CareerViet (trang
+            # không có kết quả, không phải ra job linh tinh) -> thêm vào
+            # sẽ khiến fetch_jobs() chạy vô ích cho category này. Nếu sau
+            # này CareerViet có category UI/UX dưới slug khác, thêm lại
+            # tại đây kèm keyword đã xác nhận đúng.
+        },
     },
 }
 
 # Ngành mặc định khi không truyền --category
 DEFAULT_CATEGORY = "data-analyst"
 
-# ------------------------------------------------------------------
-# VietnamWorks — danh sách category khớp key 1:1 với TOPCV_CATEGORIES
-# ------------------------------------------------------------------
-VIETNAMWORKS_CATEGORIES = {
-    "data-analyst": {
-        "label": "Data Analyst",
-        "query": "data analyst",
-        "matching_industry": "Data Analysis",
-    },
-    "data-engineer": {
-        "label": "Data Engineer",
-        "query": "data engineer",
-        "matching_industry": "Data Engineer",
-    },
-    "data-scientist": {
-        "label": "Data Scientist",
-        "query": "data scientist",
-        "matching_industry": "Data Scientist",
-    },
-    "software-engineering": {
-        "label": "Software Engineering",
-        "query": "software engineer",
-        "matching_industry": "Code",
-    },
-    "business-analyst": {
-        "label": "Business Analysis",
-        "query": "business analyst",
-        "matching_industry": "Business Analysis",
-    },
-    "ui-ux-design": {
-        "label": "UI/UX Design",
-        "query": "ui ux design",
-        "matching_industry": "UI/UX Design",
-    },
-}
 
-# ------------------------------------------------------------------
-# CareerViet.vn — danh sách category khớp key 1:1 với TOPCV_CATEGORIES /
-# VIETNAMWORKS_CATEGORIES. "keyword" dùng để build URL search dạng
-# https://careerviet.vn/viec-lam/<keyword>-k-vi.html.
-# ĐÃ xác nhận hoạt động thật, ra đúng job theo ngành — TOÀN BỘ 5/5
-# category còn lại: "data-engineer", "business-analyst",
-# "data-analyst", "data-scientist", "software-engineer" (+ "vinfast"
-# test công ty, không phải category thật).
-# ĐÃ BỎ "ui-ux-design": tự kiểm tra thật bằng
-# https://careerviet.vn/viec-lam/ui-ux-design-k-vi.html -> keyword
-# không tồn tại trên CareerViet, xem comment ngay phía dưới.
+def _categories_for_source(source_key):
+    """Sinh view {category_key: {label, matching_industry, <field nguồn>}}
+    từ JOB_CATEGORIES cho 1 nguồn cụ thể — chỉ gồm category mà nguồn đó
+    THỰC SỰ có trong "sources" (xem docstring khối JOB_CATEGORIES ở
+    trên). Dùng để tạo TOPCV_CATEGORIES/VIETNAMWORKS_CATEGORIES/
+    CAREERVIET_CATEGORIES bên dưới mà không cần khai báo lại thủ công.
+    """
+    result = {}
+    for cat_key, cat in JOB_CATEGORIES.items():
+        source_fields = cat["sources"].get(source_key)
+        if source_fields is None:
+            continue
+        result[cat_key] = {
+            "label": cat["label"],
+            **source_fields,
+            "matching_industry": cat["matching_industry"],
+        }
+    return result
 
-# ------------------------------------------------------------------
-CAREERVIET_CATEGORIES = {
-    "data-analyst": {
-        "label": "Data Analyst",
-        "keyword": "data-analyst",
-        "matching_industry": "Data Analysis",
-    },
-    "data-engineer": {
-        "label": "Data Engineer",
-        "keyword": "data-engineer",
-        "matching_industry": "Data Engineer",
-    },
-    "data-scientist": {
-        "label": "Data Scientist",
-        "keyword": "data-scientist",
-        "matching_industry": "Data Scientist",
-    },
-    "software-engineering": {
-        "label": "Software Engineering",
-        "keyword": "software-engineer",
-        "matching_industry": "Code",
-    },
-    "business-analyst": {
-        "label": "Business Analysis",
-        "keyword": "business-analyst",
-        "matching_industry": "Business Analysis",
-    },
-    # "ui-ux-design" ĐÃ BỎ (08/2026) — đã tự kiểm tra thật bằng
-    # https://careerviet.vn/viec-lam/ui-ux-design-k-vi.html, keyword
-    # không tồn tại trên CareerViet (không phải chỉ ra job linh tinh,
-    # mà trang không có kết quả) -> để nguyên trong dict sẽ khiến
-    # fetch_jobs() chạy vô ích cho category này. Nếu sau này CareerViet
-    # có thêm category UI/UX (dưới slug khác), thêm lại tại đây kèm
-    # keyword đã xác nhận đúng.
-}
+
+# 3 view phái sinh — giữ NGUYÊN tên biến + hình dạng cũ, mọi nơi khác
+# trong codebase (adapters/*, main.py, sources_registry.py) import các
+# tên này y hệt trước khi đảo cấu trúc, không cần sửa gì thêm.
+TOPCV_CATEGORIES = _categories_for_source("topcv")
+VIETNAMWORKS_CATEGORIES = _categories_for_source("vietnamworks")
+CAREERVIET_CATEGORIES = _categories_for_source("careerviet")
 
 # API search job của VietnamWorks
 VNW_SEARCH_URL = "https://ms.vietnamworks.com/job-search/v1.0/search"

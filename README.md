@@ -81,9 +81,16 @@ lại nhiều lần an toàn, không tốn thêm gì cho công ty đã đủ d�
 ## Kiến trúc
 
 ```
-config.py                        <- ngành/category muốn crawl, delay, model AI...
+config.py                        <- ngành/category muốn crawl (JOB_CATEGORIES), delay, model AI...
+sources_registry.py              <- (08/2026) nguồn sự thật DUY NHẤT cho việc đăng ký "nguồn crawl"
+                                     (SOURCES/SOURCE_ADAPTERS/CATEGORIES_BY_SOURCE) — main.py và cả
+                                     api/ (crawl_runner.py, routers/crawl.py, routers/meta.py) đều
+                                     import từ đây, thêm nguồn mới chỉ cần sửa 1 chỗ (xem mục
+                                     "Thêm ngành / nguồn crawl mới" bên dưới)
 models.py                        <- RawJobRecord: khuôn dữ liệu chung mọi adapter phải trả về
-adapters/                        <- topcv.py, vietnamworks.py, careerviet.py (implement BaseAdapter)
+adapters/                        <- base.py (BaseAdapter: session/_throttle()/_fetch_html() dùng
+                                     chung, 08/2026) + topcv.py, vietnamworks.py, careerviet.py
+                                     (mỗi adapter chỉ còn logic parse riêng)
 normalize.py                     <- dùng chung: parse lương, suy luận level, deadline, work_type
 db/                               <- dùng chung: mọi thao tác PostgreSQL, tách theo domain (08/2026,
                                      trước đó gộp chung 1 file db.py duy nhất — xem "Lịch sử bug đã sửa"
@@ -126,8 +133,11 @@ tests/                            <- test parser + logic, không cần DB/intern
 ```
 
 Muốn thêm nguồn crawl mới (ITviec...): viết `adapters/itviec.py` implement
-`fetch_jobs()`, khai báo trong `SOURCES` ở `main.py` — không cần sửa
-`normalize.py`, `db/`, `pipeline.py`.
+`fetch_jobs()`, khai báo 1 dòng trong `SOURCES` ở `sources_registry.py`
+(08/2026 — nguồn sự thật DUY NHẤT cho việc đăng ký nguồn, `main.py` và
+toàn bộ `api/` import từ đây, không còn khai báo rời rạc ở 4 nơi như
+trước) — không cần sửa `normalize.py`, `db/`, `pipeline.py`. Chi tiết ở
+mục [Thêm ngành / nguồn crawl mới](#thêm-ngành--nguồn-crawl-mới).
 
 ---
 
@@ -383,26 +393,73 @@ SELECT * FROM v_duplicate_job_candidates;
 
 ## Thêm ngành / nguồn crawl mới
 
-Mở `config.py`, thêm vào `TOPCV_CATEGORIES` (hoặc
-`VIETNAMWORKS_CATEGORIES`/`CAREERVIET_CATEGORIES`):
+### Thêm ngành (category) mới cho nguồn đã có
+
+08/2026 — `config.py` đã đảo cấu trúc **category-first**: thay vì 3 dict
+riêng `TOPCV_CATEGORIES`/`VIETNAMWORKS_CATEGORIES`/`CAREERVIET_CATEGORIES`
+(dễ lệch dữ liệu, ví dụ TopCV/VietnamWorks có `ui-ux-design` nhưng
+CareerViet thì không mà không có chỗ nào so sánh chéo được), giờ chỉ có
+1 dict `JOB_CATEGORIES` khai báo mỗi category **1 lần**, kèm sub-dict
+`sources` liệt kê nguồn nào crawl được category đó:
 
 ```python
 "business-analyst": {
-    "label": "Business Analyst",
-    "url": "https://www.topcv.vn/tim-viec-lam-business-analyst-<mã-category-thật>",
+    "label": "Business Analysis",
     "matching_industry": "Business Analysis",
+    "sources": {
+        "topcv": {"url": "https://www.topcv.vn/tim-viec-lam-business-analyst-<mã-category-thật>"},
+        "vietnamworks": {"query": "business analyst"},
+        "careerviet": {"keyword": "business-analyst"},
+    },
 },
 ```
 
-Lấy URL category TopCV thật: vào https://www.topcv.vn/viec-lam → "Danh
-mục Nghề" → chọn ngành → copy URL kết quả. Với VietnamWorks chỉ cần
-`query` (chuỗi tìm kiếm); với CareerViet chỉ cần `keyword` — xem ví dụ có
-sẵn trong `config.py`.
+- Lấy URL category TopCV thật: vào https://www.topcv.vn/viec-lam → "Danh
+  mục Nghề" → chọn ngành → copy URL kết quả.
+- VietnamWorks chỉ cần `query` (chuỗi tìm kiếm); CareerViet chỉ cần
+  `keyword` (build URL dạng `careerviet.vn/viec-lam/<keyword>-k-vi.html`
+  — nhớ tự kiểm tra URL đó có ra kết quả thật trước khi thêm).
+- Nguồn nào **không** crawl được category này thì đơn giản là **bỏ qua
+  key đó** trong `sources` (xem ví dụ `ui-ux-design` thiếu `careerviet`
+  trong `config.py`) — không cần thêm dict rỗng hay giá trị giả.
 
-Thêm hẳn 1 **nguồn** crawl mới (ITviec...): viết `adapters/itviec.py`
-implement `fetch_jobs()` (dựa theo `adapters/base.py`), khai báo trong
-`SOURCES` ở `main.py` — không cần sửa `normalize.py`, `db/`,
-`pipeline.py`.
+`TOPCV_CATEGORIES`/`VIETNAMWORKS_CATEGORIES`/`CAREERVIET_CATEGORIES` vẫn
+còn trong `config.py` như trước — giờ là 3 "view" **tự sinh ra** từ
+`JOB_CATEGORIES` (hàm `_categories_for_source()`), adapter/main.py vẫn
+import 3 tên này y hệt cũ, không cần sửa gì ở tầng adapter khi thêm
+category.
+
+### Thêm hẳn 1 nguồn crawl mới (ITviec...)
+
+08/2026 — việc đăng ký nguồn đã gộp về **1 module duy nhất**
+`sources_registry.py` (trước đây phải sửa thủ công độc lập ở 4 nơi
+backend — `main.py::SOURCES`, `api/crawl_runner.py::_SOURCE_ADAPTERS`,
+`api/routers/crawl.py::_CATEGORIES_BY_SOURCE`,
+`api/routers/meta.py::get_sources()` — quên 1 trong 4 chỗ chính là
+nguyên nhân bug CareerViet "crawl được nhưng không hiện trên web" gặp
+trước đó). Các bước:
+
+1. Thêm `CATEGORIES` tương ứng cho nguồn mới vào `config.py` (theo cấu
+   trúc `sources` như trên, hoặc 1 dict `{key: {..., "matching_industry": ...}}`
+   riêng nếu nguồn mới không dùng chung bộ category với 3 nguồn kia).
+2. Viết `adapters/itviec.py`, kế thừa `BaseAdapter` (`adapters/base.py`)
+   — `__init__`, `_throttle()`, `_fetch_html()` (session `curl_cffi`,
+   retry/backoff) đã có sẵn ở lớp cha, chỉ cần implement `fetch_jobs()`
+   với logic parse riêng của ITviec.
+3. Thêm đúng **1 entry** vào dict `SOURCES` trong `sources_registry.py`:
+
+   ```python
+   "itviec": {"adapter_cls": ITViecAdapter, "categories": ITVIEC_CATEGORIES},
+   ```
+
+Xong — `main.py` (CLI) và toàn bộ `api/` (crawl runner, router `/crawl`,
+router `/sources`) tự động thấy nguồn mới, **không cần sửa** `main.py`,
+`api/crawl_runner.py`, `api/routers/crawl.py`, `api/routers/meta.py`,
+`normalize.py`, `db/`, `pipeline.py`.
+
+Ngoại lệ còn lại (không tránh được vì là 2 repo tách biệt): frontend
+`mindx-jobs` vẫn cần tự thêm nhãn hiển thị ở
+`blueprints/crawl.py::_SOURCE_LABELS`.
 
 ## Debug khi nguồn crawl đổi giao diện
 
