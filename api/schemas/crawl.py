@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class CrawlRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     
-    source: str = Field(..., examples=["topcv", "vietnamworks"])
+    source: str = Field(..., examples=["topcv", "vietnamworks", "careerviet"])
     category: str = Field(..., examples=["data-analyst", "data-engineer", "software-engineering"])
     # Optional (khác bản cũ default=3) — để phân biệt được "không truyền
     # pages" với "truyền đúng giá trị mặc định", giống cách main.py CLI
@@ -81,7 +81,7 @@ class CrawlStatusOut(BaseModel):
 class CrawlBatchRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    source: str = Field(..., examples=["topcv", "vietnamworks"])
+    source: str = Field(..., examples=["topcv", "vietnamworks", "careerviet"])
     # Đúng THỨ TỰ sẽ crawl (tuần tự, category[0] chạy trước) — trùng
     # tên bị loại ở router (giữ lần xuất hiện ĐẦU), không raise lỗi, vì
     # người dùng tick nhầm trùng 1 category trên UI không phải lỗi

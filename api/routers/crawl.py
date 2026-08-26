@@ -9,13 +9,20 @@ from api.schemas import (
     CrawlAccepted, CrawlBatchAccepted, CrawlBatchRequest, CrawlBatchStatusOut,
     CrawlLogsOut, CrawlRequest, CrawlStatusOut, PaginatedCrawlBatches, PaginatedCrawlRuns,
 )
-from config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES
+from config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, CAREERVIET_CATEGORIES
 
 router = APIRouter(prefix="/crawl", tags=["crawl"])
 
+# 08/2026 — THÊM "careerviet" (xem chú thích tương ứng ở
+# api/crawl_runner.py::_SOURCE_ADAPTERS). CAREERVIET_CATEGORIES chỉ có
+# 5/6 category (thiếu "ui-ux-design" — đã xác nhận keyword này không
+# tồn tại trên CareerViet, xem comment trong config.py), không cần xử
+# lý gì thêm ở đây vì route validate category theo ĐÚNG dict của từng
+# source (khác dict -> khác tập category hợp lệ, tự nhiên đúng).
 _CATEGORIES_BY_SOURCE = {
     "topcv": TOPCV_CATEGORIES,
     "vietnamworks": VIETNAMWORKS_CATEGORIES,
+    "careerviet": CAREERVIET_CATEGORIES,
 }
 
 _VALID_CRAWL_STATUSES = {"queued", "running", "done", "error"}

@@ -71,6 +71,7 @@ import db as db_module
 from pipeline import run_pipeline
 from adapters.topcv import TopCVAdapter
 from adapters.vietnamworks import VietnamWorksAdapter
+from adapters.careerviet import CareerVietAdapter
 from config import DEFAULT_MAX_PAGES
 
 logger = logging.getLogger(__name__)
@@ -80,9 +81,19 @@ logger = logging.getLogger(__name__)
 # ra 1 module dùng chung (vd sources_registry.py) để main.py và API đều
 # import từ đó, tránh lệch nhau — chưa làm ở bản khung này để giữ đơn
 # giản, không sửa main.py hiện có.
+#
+# 08/2026 — THÊM "careerviet": adapters/careerviet.py đã xong Phần 1+2
+# (discovery + code, xem docstring đầu file đó) và ĐÃ được đăng ký ở
+# main.py (CLI) từ trước, nhưng CHƯA từng lộ ra qua API/web (thiếu đúng
+# ở đây) — người dùng bấm crawl trên trang /crawl chỉ thấy TopCV/
+# VietnamWorks dù CareerViet đã crawl được qua CLI. Thêm dòng dưới +
+# CAREERVIET_CATEGORIES ở api/routers/crawl.py là đủ để cả 3 nguồn dùng
+# chung 1 luồng POST /crawl, /crawl/batch, GET /crawl/{run_id} hiện có
+# (không route/logic nào trong file này hardcode tên nguồn cụ thể).
 _SOURCE_ADAPTERS = {
     "topcv": TopCVAdapter,
     "vietnamworks": VietnamWorksAdapter,
+    "careerviet": CareerVietAdapter,
 }
 
 
