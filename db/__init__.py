@@ -101,6 +101,13 @@ from db.contacts import (
     ContactHasLinksError,
     hard_delete_company_contact,
 )
+from db.email_templates import (
+    list_email_templates,
+    get_email_template_by_id,
+    create_email_template,
+    patch_email_template,
+    delete_email_template,
+)
 from db.applications import (
     create_job_application,
     list_applications_for_user,

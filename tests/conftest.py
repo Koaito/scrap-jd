@@ -116,6 +116,30 @@ def make_company_record(company_id: str, company_name: str = "Công ty Test") ->
     }
 
 
+def make_email_template_record(
+    template_id: str,
+    title: str = "Giới thiệu MindX",
+    **overrides,
+) -> dict[str, Any]:
+    """Helper tạo dict giả lập row email_templates từ DB — dùng cho
+    tests/test_api_email_templates.py (thêm 08/2026, xem
+    sql/migration_add_email_templates.sql)."""
+    base = {
+        "template_id": uuid.UUID(template_id) if isinstance(template_id, str) else template_id,
+        "title": title,
+        "description": "Mở lời làm quen lần đầu.",
+        "body": "Tiêu đề: ...\n\n{{LOI_CHAO}}\n\n...",
+        "recommended_for": ["UNCONTACTED"],
+        "display_order": 1,
+        "created_at": datetime.now(timezone.utc),
+        "updated_at": datetime.now(timezone.utc),
+        "created_by": str(uuid.uuid4()),
+        "updated_by": None,
+    }
+    base.update(overrides)
+    return base
+
+
 def make_preview_record(
     preview_id: str, user_id: str, entity_type: str = "contact"
 ) -> dict[str, Any]:

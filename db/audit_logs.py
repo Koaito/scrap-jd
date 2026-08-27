@@ -50,6 +50,16 @@ ACTION_LOG_RULES: dict[str, dict] = {
     "BULK_IMPORT_JOB":     {"is_manual_log": True, "note_required": True},
     "BULK_IMPORT_COMPANY": {"is_manual_log": True, "note_required": True},
     "BULK_IMPORT_CONTACT": {"is_manual_log": True, "note_required": True},
+    # Mẫu email liên hệ doanh nghiệp (thêm 08/2026, xem
+    # sql/migration_add_email_templates.sql + lịch sử trao đổi "chia
+    # phần danh sách contact thành 2 phần"). Theo đúng yêu cầu đã chốt:
+    # tạo mới không bắt buộc note (giống CREATE_CONTACT), còn sửa/xoá
+    # BẮT BUỘC note (giống UPDATE_CONTACT/DELETE_CONTACT) — vì mẫu email
+    # dùng chung cho cả team, sửa/xoá cần giải thích lý do để ss_team
+    # khác hiểu vì sao nội dung mẫu thay đổi hoặc biến mất.
+    "CREATE_EMAIL_TEMPLATE": {"is_manual_log": True, "note_required": False},
+    "UPDATE_EMAIL_TEMPLATE": {"is_manual_log": True, "note_required": True},
+    "DELETE_EMAIL_TEMPLATE": {"is_manual_log": True, "note_required": True},
 }
 
 

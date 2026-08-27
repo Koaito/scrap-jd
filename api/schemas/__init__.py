@@ -104,6 +104,14 @@ from api.schemas.contacts import (
     ContactAssignUpdate,
     ContactDeleteRequest,
 )
+from api.schemas.email_templates import (
+    EmailTemplateOut,
+    PlaceholderHelpOut,
+    EmailTemplateCreate,
+    EmailTemplateUpdate,
+    EmailTemplateDeleteRequest,
+    PLACEHOLDER_HELP,
+)
 from api.schemas.applications import (
     JobApplicationCreate,
     JobApplicationOut,
@@ -159,6 +167,9 @@ __all__ = [
     # contacts
     "CompanyContactOut", "CompanyContactWithCompanyOut", "CompanyContactCreate",
     "CompanyContactUpdate", "ContactAssignUpdate", "ContactDeleteRequest",
+    # email templates
+    "EmailTemplateOut", "PlaceholderHelpOut", "EmailTemplateCreate",
+    "EmailTemplateUpdate", "EmailTemplateDeleteRequest", "PLACEHOLDER_HELP",
     # applications / saved jobs
     "JobApplicationCreate", "JobApplicationOut", "JobApplicantOut", "JobSaverOut",
     "SavedJobCreate", "SavedJobOut",

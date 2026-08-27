@@ -62,7 +62,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import db as db_module
 from api.auth import require_api_key
 from api.rate_limit import limiter
-from api.routers import auth, companies, contacts, crawl, jobs, maintenance, me, meta, audit_logs, import_export
+from api.routers import auth, companies, contacts, crawl, jobs, maintenance, me, meta, audit_logs, import_export, email_templates
 from api.services.preview_cleanup import CLEANUP_INTERVAL_MINUTES, run_cleanup_once
 from api.services.crawl_watchdog import run_crawl_watchdog_once
 from api.services.maintenance_watchdog import run_maintenance_watchdog_once
@@ -250,6 +250,7 @@ app.include_router(auth.router, dependencies=_require_key)
 app.include_router(me.router, dependencies=_require_key)
 app.include_router(audit_logs.router, dependencies=_require_key)
 app.include_router(import_export.router, dependencies=_require_key)
+app.include_router(email_templates.router, dependencies=_require_key)
 
 # auth.public_router: register/verify-email/resend-verification — CỐ Ý
 # KHÔNG kèm dependencies=_require_key (xem docstring đầu file).
