@@ -15,6 +15,13 @@ import pytest
 from fastapi import HTTPException, UploadFile
 
 from api.routers.import_export import _check_entity_type, _VALID_ENTITY_TYPES, router
+from api.services.file_parser import FileTooLargeError, UnsupportedFileFormatError
+from api.services.import_executor import RowResolutionError
+from api.services.preview_manager import (
+    PreviewExpiredError,
+    PreviewNotFoundError,
+    PreviewOwnershipError,
+)
 from conftest import (
     make_preview_record,
     mock_conn,
@@ -83,6 +90,19 @@ def test_export_entity_success_csv(mock_conn, ss_team_user):
                 response = export_entity(
                     entity_type="job",
                     format="csv",
+                    # filter_params dùng Depends(_export_filter_params)
+                    # trong route thật (FastAPI tự resolve khi gọi qua
+                    # HTTP) — gọi hàm TRỰC TIẾP như unit test ở đây thì
+                    # không có DI nào chạy, phải tự truyền dict thay
+                    # thế, ĐỦ 7 KEY giống hệt _export_filter_params()
+                    # trả về (_build_export_filters() nhận qua
+                    # **filter_params, thiếu key nào là TypeError thiếu
+                    # positional argument).
+                    filter_params={
+                        "status": None, "is_active": None, "company_id": None,
+                        "date_field": "created_at", "from_date": None,
+                        "to_date": None, "limit": None,
+                    },
                     conn=mock_conn,
                     user=ss_team_user,
                 )
@@ -110,6 +130,11 @@ def test_export_entity_success_xlsx(mock_conn, ss_team_user):
                 response = export_entity(
                     entity_type="contact",
                     format="xlsx",
+                    filter_params={  # xem giải thích ở test_export_entity_success_csv
+                        "status": None, "is_active": None, "company_id": None,
+                        "date_field": "created_at", "from_date": None,
+                        "to_date": None, "limit": None,
+                    },
                     conn=mock_conn,
                     user=ss_team_user,
                 )
@@ -142,9 +167,14 @@ async def test_import_preview_invalid_entity_type(mock_conn, ss_team_user):
 async def test_import_preview_unsupported_file_format(mock_conn, ss_team_user):
     """Import file không hỗ trợ (không phải CSV/XLSX) -> 400"""
     with patch("api.routers.import_export.file_parser") as mock_file_parser:
-        mock_file_parser.parse_file.side_effect = (
-            mock_file_parser.UnsupportedFileFormatError()
-        )
+        # Gán class exception THẬT (không phải mock_file_parser.Xxx tự
+        # sinh) — xem giải thích chi tiết ở test_hard_delete_contact_has_links
+        # (test_api_contacts.py): patch cả module thì .side_effect gán
+        # bằng exception giả sẽ không raise, và `except
+        # file_parser.UnsupportedFileFormatError` trong router cũng cần
+        # khớp đúng class này.
+        mock_file_parser.UnsupportedFileFormatError = UnsupportedFileFormatError
+        mock_file_parser.parse_file.side_effect = UnsupportedFileFormatError()
 
         from api.routers.import_export import import_preview
 
@@ -165,7 +195,15 @@ async def test_import_preview_unsupported_file_format(mock_conn, ss_team_user):
 async def test_import_preview_file_too_large(mock_conn, ss_team_user):
     """Import file quá 5000 dòng -> 400"""
     with patch("api.routers.import_export.file_parser") as mock_file_parser:
-        mock_file_parser.parse_file.side_effect = mock_file_parser.FileTooLargeError()
+        # UnsupportedFileFormatError CŨNG phải gán thật dù test này
+        # không raise nó, vì router có except UnsupportedFileFormatError
+        # đứng TRƯỚC except FileTooLargeError — Python cần cả 2 là
+        # class Exception hợp lệ để đánh giá tuần tự except, không chỉ
+        # class đang thật sự raise (xem test_get_import_preview_not_found
+        # để hiểu rõ cơ chế này).
+        mock_file_parser.UnsupportedFileFormatError = UnsupportedFileFormatError
+        mock_file_parser.FileTooLargeError = FileTooLargeError
+        mock_file_parser.parse_file.side_effect = FileTooLargeError(row_count=5001)
 
         from api.routers.import_export import import_preview
 
@@ -275,20 +313,25 @@ async def test_import_preview_success(mock_conn, ss_team_user, test_preview_id):
 
 def test_get_import_preview_invalid_preview_id(mock_conn, ss_team_user):
     """GET preview với preview_id không đúng UUID -> 400"""
-    with patch("api.routers.import_export._load_owned_preview") as mock_load:
-        with patch("api.routers.import_export.db_module") as mock_db:
-            mock_db.is_valid_uuid.return_value = False
+    # KHÔNG patch _load_owned_preview() ở đây (khác 3 test bên dưới) —
+    # chính hàm này mới là nơi thật sự gọi db_module.is_valid_uuid() và
+    # raise 400 (xem source). Patch cả 2 như bản cũ khiến
+    # _load_owned_preview bị thay bằng MagicMock rỗng, patch db_module
+    # trở nên vô nghĩa vì code thật không bao giờ chạy tới -> test
+    # không bao giờ raise được HTTPException.
+    with patch("api.routers.import_export.db_module") as mock_db:
+        mock_db.is_valid_uuid.return_value = False
 
-            from api.routers.import_export import get_import_preview
+        from api.routers.import_export import get_import_preview
 
-            with pytest.raises(HTTPException) as exc_info:
-                get_import_preview(
-                    entity_type="contact",
-                    preview_id="not-a-uuid",
-                    conn=mock_conn,
-                    user=ss_team_user,
-                )
-            assert exc_info.value.status_code == 400
+        with pytest.raises(HTTPException) as exc_info:
+            get_import_preview(
+                entity_type="contact",
+                preview_id="not-a-uuid",
+                conn=mock_conn,
+                user=ss_team_user,
+            )
+        assert exc_info.value.status_code == 400
 
 
 def test_get_import_preview_not_found(mock_conn, ss_team_user, test_preview_id):
@@ -298,9 +341,20 @@ def test_get_import_preview_not_found(mock_conn, ss_team_user, test_preview_id):
     ) as mock_preview_mgr:
         with patch("api.routers.import_export.db_module") as mock_db:
             mock_db.is_valid_uuid.return_value = True
-            mock_preview_mgr.get_preview.side_effect = (
-                mock_preview_mgr.PreviewNotFoundError()
-            )
+            # xem giải thích ở test_import_preview_unsupported_file_format
+            # — CẢ 3 class phải gán thật (không chỉ class đang raise):
+            # _load_owned_preview() có 3 except clause nối tiếp
+            # (NotFound/Ownership/Expired), Python cần match TUẦN TỰ
+            # từng except — muốn match được except đầu tiên (đúng
+            # trường hợp raise ở đây) thì except đó phải là class hợp
+            # lệ, nhưng 2 except SAU cũng phải là class hợp lệ để
+            # Python còn tiếp tục đánh giá nếu except đầu KHÔNG khớp
+            # (test_get_import_preview_ownership_error/_expired bên
+            # dưới minh hoạ đúng trường hợp này).
+            mock_preview_mgr.PreviewNotFoundError = PreviewNotFoundError
+            mock_preview_mgr.PreviewOwnershipError = PreviewOwnershipError
+            mock_preview_mgr.PreviewExpiredError = PreviewExpiredError
+            mock_preview_mgr.get_preview.side_effect = PreviewNotFoundError()
 
             from api.routers.import_export import get_import_preview
 
@@ -323,9 +377,14 @@ def test_get_import_preview_ownership_error(
     ) as mock_preview_mgr:
         with patch("api.routers.import_export.db_module") as mock_db:
             mock_db.is_valid_uuid.return_value = True
-            mock_preview_mgr.get_preview.side_effect = (
-                mock_preview_mgr.PreviewOwnershipError()
-            )
+            # xem giải thích ở test_get_import_preview_not_found — cả 3
+            # class đều phải thật vì except NotFound (đứng TRƯỚC
+            # Ownership trong router) vẫn được Python đánh giá dù không
+            # khớp.
+            mock_preview_mgr.PreviewNotFoundError = PreviewNotFoundError
+            mock_preview_mgr.PreviewOwnershipError = PreviewOwnershipError
+            mock_preview_mgr.PreviewExpiredError = PreviewExpiredError
+            mock_preview_mgr.get_preview.side_effect = PreviewOwnershipError()
 
             from api.routers.import_export import get_import_preview
 
@@ -346,9 +405,14 @@ def test_get_import_preview_expired(mock_conn, ss_team_user, test_preview_id):
     ) as mock_preview_mgr:
         with patch("api.routers.import_export.db_module") as mock_db:
             mock_db.is_valid_uuid.return_value = True
-            mock_preview_mgr.get_preview.side_effect = (
-                mock_preview_mgr.PreviewExpiredError()
-            )
+            # xem giải thích ở test_get_import_preview_not_found — cả 3
+            # class đều phải thật vì 2 except NotFound/Ownership (đứng
+            # TRƯỚC Expired trong router) vẫn được Python đánh giá dù
+            # không khớp.
+            mock_preview_mgr.PreviewNotFoundError = PreviewNotFoundError
+            mock_preview_mgr.PreviewOwnershipError = PreviewOwnershipError
+            mock_preview_mgr.PreviewExpiredError = PreviewExpiredError
+            mock_preview_mgr.get_preview.side_effect = PreviewExpiredError()
 
             from api.routers.import_export import get_import_preview
 
@@ -424,9 +488,9 @@ def test_import_confirm_row_resolution_error(
             "api.routers.import_export.import_executor"
         ) as mock_executor:
             mock_load.return_value = preview_record
-            mock_executor.execute_import.side_effect = (
-                mock_executor.RowResolutionError("Invalid resolution")
-            )
+            # xem giải thích ở test_import_preview_unsupported_file_format
+            mock_executor.RowResolutionError = RowResolutionError
+            mock_executor.execute_import.side_effect = RowResolutionError("Invalid resolution")
 
             from api.routers.import_export import import_confirm
             from api.schemas import ImportConfirmRequest
@@ -453,6 +517,15 @@ def test_import_confirm_database_error(mock_conn, ss_team_user, test_preview_id)
             "api.routers.import_export.import_executor"
         ) as mock_executor:
             mock_load.return_value = preview_record
+            # RowResolutionError vẫn phải gán class THẬT dù test này
+            # KHÔNG raise nó — router có `except
+            # import_executor.RowResolutionError as exc:` bọc quanh
+            # execute_import(), Python cần class hợp lệ để so khớp
+            # except clause TRƯỚC KHI biết exception nào đang bay
+            # (không khớp thì mới rơi xuống except Exception chung bên
+            # dưới) — mock_executor.RowResolutionError mặc định không
+            # phải class Exception nên khớp except sẽ lỗi TypeError.
+            mock_executor.RowResolutionError = RowResolutionError
             mock_executor.execute_import.side_effect = Exception("DB error")
 
             from api.routers.import_export import import_confirm

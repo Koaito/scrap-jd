@@ -66,6 +66,107 @@ def _build_parsed_content_and_raw(job_detail: dict):
     return parsed_content, raw_jd_content
 
 
+def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: dict) -> None:
+    """Xử lý job ĐÃ TỪNG crawl trước đó (source_url trùng) — tách ra từ
+    run_pipeline() (08/2026, xem lịch sử trao đổi refactor pipeline.py)
+    thuần vì lý do đọc/test dễ hơn, KHÔNG đổi hành vi: bản gốc đây là
+    bước (1) trong 1 hàm ~250 dòng làm hết mọi việc.
+
+    Job đã crawl trước đó thì KHÔNG insert lại, nhưng job cũ có thể còn
+    thiếu work_type/deadline/parsed_content (nếu được crawl từ trước
+    khi các field này tồn tại) -> vá thêm rồi bỏ qua phần insert, không
+    dừng cả job này như 1 lỗi.
+
+    Luôn cộng stats["skipped_duplicate"] (job này chắc chắn KHÔNG được
+    insert mới, có vá được hay không không ảnh hưởng điều đó) — người
+    gọi (run_pipeline) luôn `continue` ngay sau khi gọi hàm này."""
+    existing_job_id = job_probe[0]
+    if db.job_needs_detail_enrichment(job_probe):
+        detail = adapter.fetch_job_full_detail(raw.source_url)
+        if detail is None:
+            # Fetch thất bại thật sự — KHÔNG update gì cả (khác
+            # với "update bằng rỗng"), để job này vẫn được
+            # job_needs_detail_enrichment() nhận diện là còn
+            # thiếu và tự thử lại ở lần crawl kế tiếp.
+            stats["skipped_fetch_failed"] += 1
+            logger.warning(
+                "Bỏ qua vá job cũ (fetch chi tiết thất bại): %s @ %s",
+                raw.job_title, raw.source_url,
+            )
+        else:
+            new_work_type = normalize.normalize_work_type(detail.get("work_type", ""))
+            new_deadline = normalize.normalize_deadline(detail.get("deadline_text", ""))
+            new_parsed_content, _ = _build_parsed_content_and_raw(detail)
+
+            db.update_job_fields(
+                conn, existing_job_id,
+                work_type=new_work_type,
+                deadline=new_deadline,
+                parsed_content=new_parsed_content,
+            )
+            conn.commit()
+            if new_work_type or new_deadline or new_parsed_content:
+                stats["updated_existing"] += 1
+                logger.info(
+                    "Đã vá work_type/deadline/parsed_content cho job cũ: %s",
+                    raw.job_title,
+                )
+    stats["skipped_duplicate"] += 1
+
+
+def _resolve_company(adapter: BaseAdapter, conn, raw, company_name: str, province_id) -> str:
+    """Tìm hoặc tạo company ứng với job đang xử lý, kèm enrich profile
+    nếu cần — tách ra từ run_pipeline() (08/2026, xem docstring
+    _handle_existing_job() ở trên để biết lý do tách chung), nguyên bản
+    là bước (3b) trong vòng lặp chính. KHÔNG đổi hành vi.
+
+    "probe" chỉ tra cứu THEO TÊN để BIẾT trước công ty này đã đủ
+    thông tin (tax_id + website) chưa — không dùng để match chính
+    thức, vì tên có thể trùng/lệch giữa các lần đăng tin. Việc
+    match chính thức nằm ở get_or_create_company_by_profile()
+    bên dưới, ưu tiên theo tax_id.
+
+    Trả về company_id (str)."""
+    probe = db.find_company_probe(conn, company_name)
+    profile = {}
+    if raw.company_url and db.probe_needs_enrichment(probe):
+        profile = adapter.fetch_company_profile(raw.company_url) or {}
+
+    company_id = db.get_or_create_company_by_profile(
+        conn, company_name, province_id, tax_id=profile.get("tax_id", "")
+    )
+
+    # LUÔN ghi lại source_profile_url khi có raw.company_url, KỂ
+    # CẢ KHI probe_needs_enrichment() ở trên trả False (công ty đã
+    # đủ 4 field, không cần fetch_company_profile() lần này) — xem
+    # docstring update_company_profile() mục "source_profile_url"
+    # để biết lý do: đây là "địa chỉ để backfill sau này", không
+    # phải nội dung cần đủ/thiếu, nên tách hẳn khỏi điều kiện
+    # if profile (vốn chỉ true khi VỪA enrich xong 4 field kia).
+    # Thiếu bước này thì công ty đã "đủ" từ sớm (crawl trước khi
+    # có cột này, hoặc crawl trước khi sửa parser Brand Pro) sẽ
+    # KHÔNG BAO GIỜ có source_profile_url dù job vẫn đang active
+    # -> mất luôn khả năng backfill dù đang có sẵn URL đúng ngay
+    # trong tay ở request này.
+    if raw.company_url:
+        db.update_company_profile(
+            conn, company_id, source_profile_url=raw.company_url,
+        )
+
+    if profile:
+        db.update_company_profile(
+            conn, company_id,
+            tax_id=profile.get("tax_id", ""),
+            website=profile.get("real_website", ""),
+            products_services=profile.get("description", ""),
+            industry=profile.get("industry", ""),
+            company_size=profile.get("company_size", ""),
+            address=profile.get("address", ""),
+        )
+
+    return company_id
+
+
 def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
                   max_jobs: "int | None" = None, on_progress=None) -> dict:
     """
@@ -123,38 +224,7 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             # như 1 lỗi.
             job_probe = db.get_job_probe_by_source_url(conn, raw.source_url)
             if job_probe is not None:
-                existing_job_id = job_probe[0]
-                if db.job_needs_detail_enrichment(job_probe):
-                    detail = adapter.fetch_job_full_detail(raw.source_url)
-                    if detail is None:
-                        # Fetch thất bại thật sự — KHÔNG update gì cả (khác
-                        # với "update bằng rỗng"), để job này vẫn được
-                        # job_needs_detail_enrichment() nhận diện là còn
-                        # thiếu và tự thử lại ở lần crawl kế tiếp.
-                        stats["skipped_fetch_failed"] += 1
-                        logger.warning(
-                            "Bỏ qua vá job cũ (fetch chi tiết thất bại): %s @ %s",
-                            raw.job_title, raw.source_url,
-                        )
-                    else:
-                        new_work_type = normalize.normalize_work_type(detail.get("work_type", ""))
-                        new_deadline = normalize.normalize_deadline(detail.get("deadline_text", ""))
-                        new_parsed_content, _ = _build_parsed_content_and_raw(detail)
-
-                        db.update_job_fields(
-                            conn, existing_job_id,
-                            work_type=new_work_type,
-                            deadline=new_deadline,
-                            parsed_content=new_parsed_content,
-                        )
-                        conn.commit()
-                        if new_work_type or new_deadline or new_parsed_content:
-                            stats["updated_existing"] += 1
-                            logger.info(
-                                "Đã vá work_type/deadline/parsed_content cho job cũ: %s",
-                                raw.job_title,
-                            )
-                stats["skipped_duplicate"] += 1
+                _handle_existing_job(adapter, conn, raw, job_probe, stats)
                 continue
 
             # 2) Chuẩn hóa (phần DÙNG CHUNG, không quan tâm nguồn)
@@ -208,48 +278,9 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             province_id = db.get_or_create_province(conn, raw.province_text)
             level_id = db.get_level_id(conn, level_code)
 
-            # 3b) Quyết định có cần crawl sâu vào trang công ty không.
-            # "probe" chỉ tra cứu THEO TÊN để BIẾT trước công ty này đã đủ
-            # thông tin (tax_id + website) chưa — không dùng để match chính
-            # thức, vì tên có thể trùng/lệch giữa các lần đăng tin. Việc
-            # match chính thức nằm ở get_or_create_company_by_profile()
-            # bên dưới, ưu tiên theo tax_id.
-            probe = db.find_company_probe(conn, company_name)
-            profile = {}
-            if raw.company_url and db.probe_needs_enrichment(probe):
-                profile = adapter.fetch_company_profile(raw.company_url) or {}
-
-            company_id = db.get_or_create_company_by_profile(
-                conn, company_name, province_id, tax_id=profile.get("tax_id", "")
-            )
-
-            # LUÔN ghi lại source_profile_url khi có raw.company_url, KỂ
-            # CẢ KHI probe_needs_enrichment() ở trên trả False (công ty đã
-            # đủ 4 field, không cần fetch_company_profile() lần này) — xem
-            # docstring update_company_profile() mục "source_profile_url"
-            # để biết lý do: đây là "địa chỉ để backfill sau này", không
-            # phải nội dung cần đủ/thiếu, nên tách hẳn khỏi điều kiện
-            # if profile (vốn chỉ true khi VỪA enrich xong 4 field kia).
-            # Thiếu bước này thì công ty đã "đủ" từ sớm (crawl trước khi
-            # có cột này, hoặc crawl trước khi sửa parser Brand Pro) sẽ
-            # KHÔNG BAO GIỜ có source_profile_url dù job vẫn đang active
-            # -> mất luôn khả năng backfill dù đang có sẵn URL đúng ngay
-            # trong tay ở request này.
-            if raw.company_url:
-                db.update_company_profile(
-                    conn, company_id, source_profile_url=raw.company_url,
-                )
-
-            if profile:
-                db.update_company_profile(
-                    conn, company_id,
-                    tax_id=profile.get("tax_id", ""),
-                    website=profile.get("real_website", ""),
-                    products_services=profile.get("description", ""),
-                    industry=profile.get("industry", ""),
-                    company_size=profile.get("company_size", ""),
-                    address=profile.get("address", ""),
-                )
+            # 3b) Quyết định có cần crawl sâu vào trang công ty không +
+            # tìm/tạo company tương ứng — xem docstring _resolve_company().
+            company_id = _resolve_company(adapter, conn, raw, company_name, province_id)
 
             # 3c) Chống trùng kiểu "đăng lại dưới URL khác" — job_probe ở
             # bước (1) chỉ bắt được trùng THEO source_url, không bắt được

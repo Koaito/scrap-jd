@@ -11,7 +11,7 @@ import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 
 from api.routers.contacts import (
@@ -20,6 +20,7 @@ from api.routers.contacts import (
     all_contacts_router,
     router,
 )
+from db.contacts import ContactHasLinksError
 from conftest import (
     make_company_record,
     make_contact_record,
@@ -103,7 +104,7 @@ def test_list_all_contacts_invalid_contact_status(
 
         with pytest.raises(HTTPException) as exc_info:
             list_all_contacts(
-                request=MagicMock(),
+                request=MagicMock(spec=Request),
                 contact_status="INVALID_STATUS",
                 include_inactive=False,
                 company_id=None,
@@ -126,7 +127,7 @@ def test_list_all_contacts_invalid_company_id(mock_conn, ss_team_user):
 
         with pytest.raises(HTTPException) as exc_info:
             list_all_contacts(
-                request=MagicMock(),
+                request=MagicMock(spec=Request),
                 contact_status=None,
                 include_inactive=False,
                 company_id="not-a-uuid",
@@ -152,7 +153,7 @@ def test_list_all_contacts_company_not_found(
 
         with pytest.raises(HTTPException) as exc_info:
             list_all_contacts(
-                request=MagicMock(),
+                request=MagicMock(spec=Request),
                 contact_status=None,
                 include_inactive=False,
                 company_id=test_company_id,
@@ -178,7 +179,7 @@ def test_list_all_contacts_success(mock_conn, ss_team_user, test_company_id):
         from api.routers.contacts import list_all_contacts
 
         result = list_all_contacts(
-            request=MagicMock(),
+            request=MagicMock(spec=Request),
             contact_status="UNCONTACTED",
             include_inactive=False,
             company_id=test_company_id,
@@ -516,8 +517,19 @@ def test_hard_delete_contact_has_links(
             test_contact_id, test_company_id, is_active=False
         )
         mock_db.get_company_contact_by_id.return_value = existing
+        # QUAN TRỌNG: patch("...db_module") mock TOÀN BỘ module, kể cả
+        # class exception — mock_db.ContactHasLinksError mặc định chỉ
+        # là 1 MagicMock tự sinh (KHÔNG phải class Exception thật), gọi
+        # nó ra 1 MagicMock instance chứ không phải exception, nên gán
+        # instance đó vào .side_effect sẽ KHÔNG raise gì cả (mock chỉ
+        # return giá trị đó). Phải gán lại mock_db.ContactHasLinksError
+        # = class THẬT trước, để cả (a) .side_effect raise đúng và (b)
+        # `except db_module.ContactHasLinksError` trong router khớp
+        # đúng class đang được raise (router dùng CHUNG object đã bị
+        # patch này).
+        mock_db.ContactHasLinksError = ContactHasLinksError
         mock_db.hard_delete_company_contact.side_effect = (
-            mock_db.ContactHasLinksError("Contact có job links")
+            ContactHasLinksError("Contact có job links")
         )
 
         from api.routers.contacts import hard_delete_contact

@@ -59,6 +59,12 @@ openpyxl>=3.1.0
 # hết hạn, xem api/services/preview_cleanup.py) — thêm 08/2026.
 apscheduler>=3.10.4
 
-# Test dependencies (pytest + httpx cho TestClient FastAPI)
+# Test dependencies (pytest + httpx cho TestClient FastAPI). pytest-asyncio:
+# 5 test ở tests/test_api_import_export.py test route `async def
+# import_preview()` (đọc UploadFile) nên phải đánh dấu
+# @pytest.mark.asyncio — thiếu plugin này pytest KHÔNG chạy được test
+# async (báo "async def functions are not natively supported"), thêm
+# 08/2026 lúc rà lại CI (xem .github/workflows/test.yml).
 pytest>=8.0.0
+pytest-asyncio>=0.24,<1.0
 httpx>=0.27.0
