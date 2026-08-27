@@ -1,0 +1,49 @@
+name: Test
+
+# Thêm 08/2026 — trước đây repo có sẵn 54 test (tests/, chạy qua
+# `pytest`, DB được mock hoàn toàn nên KHÔNG cần Postgres thật để chạy
+# — xem tests/conftest.py) nhưng KHÔNG có workflow nào chạy chúng.
+# Render tự deploy khi có push lên nhánh chính (theo dõi trực tiếp qua
+# Render Dashboard, không qua GitHub Actions trong repo này) — nghĩa là
+# trước đây code sai vẫn lên production được miễn là push thành công,
+# test suite chỉ chạy tay khi ai đó nhớ chạy trước khi push.
+#
+# Workflow này KHÔNG tự deploy gì (Render vẫn tự lo phần đó như cũ) —
+# chỉ chạy test trên mỗi push/PR để lộ rõ trạng thái pass/fail ngay
+# trên GitHub, làm cơ sở để bật "Require status checks to pass" ở
+# Branch protection rule sau này nếu muốn chặn hẳn merge/push khi test
+# đỏ (chưa bật sẵn ở đây — cần quyền admin repo để cấu hình, ngoài
+# phạm vi 1 file workflow).
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Cài dependency (app + test)
+        run: |
+          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
+
+      - name: Chạy test
+        # JWT_SECRET_KEY: api/security.py raise RuntimeError ngay lúc
+        # import nếu thiếu biến này (xem .env.example) — giá trị dưới
+        # đây chỉ để test chạy được, KHÔNG phải secret thật, không dùng
+        # để ký token nào ngoài phạm vi CI run này. mock_conn (xem
+        # tests/conftest.py) khiến DB thật KHÔNG bao giờ được gọi.
+        env:
+          JWT_SECRET_KEY: ci_placeholder_jwt_secret_not_used_in_production
+        run: pytest
