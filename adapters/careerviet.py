@@ -523,10 +523,24 @@ class CareerVietAdapter(BaseAdapter):
 
         salary_text = info.get("Lương") or self._extract_salary_from_jsonld(jsonld)
 
+        # jobLocation (schema.org JobPosting) hợp lệ ở CẢ 2 dạng: 1 object
+        # Place DUY NHẤT, HOẶC 1 LIST nhiều Place (job đăng tuyển nhiều địa
+        # điểm cùng lúc) — bug thật gặp 08/2026 (crawl CareerViet lỗi
+        # "'list' object has no attribute 'get'"): trước đây code chỉ xử
+        # lý dạng object đơn, .get("address") thẳng trên jobLocation ->
+        # crash ngay khi gặp job đăng NHIỀU địa điểm (jobLocation là list).
+        # Lấy Place ĐẦU TIÊN trong list nếu có nhiều (đủ dùng cho
+        # province_text hiển thị 1 tỉnh/thành, không cần liệt kê hết).
+        job_location = jsonld.get("jobLocation")
+        if isinstance(job_location, list):
+            job_location = job_location[0] if job_location else {}
+        if not isinstance(job_location, dict):
+            job_location = {}
+
         province_text = (
             self._extract_province_from_map(soup)
             or _clean(
-                ((jsonld.get("jobLocation") or {}).get("address") or {}).get(
+                (job_location.get("address") or {}).get(
                     "addressLocality", ""
                 )
             )
