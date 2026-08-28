@@ -471,7 +471,8 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
               level_code: Optional[str] = None, work_type: Optional[str] = None,
               keyword: Optional[str] = None, job_status: Optional[str] = None,
               created_by: Optional[str] = None,
-              limit: int = 50, offset: int = 0):
+              limit: int = 50, offset: int = 0,
+              include_content: bool = False):
     """Trả (list[dict] job, total_count) — dùng cho GET /jobs.
 
     Mọi filter đều optional, bỏ qua field nào = None. `keyword` so khớp
@@ -485,6 +486,17 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
     "theo dõi hoạt động" nội bộ (08/2026), KHÔNG khớp job crawl tự động
     (created_by luôn NULL với job crawl, nên filter này không bao giờ
     trả về job crawl dù truyền UUID nào).
+
+    include_content: mặc định False — GIỮ NGUYÊN hành vi cũ, KHÔNG select
+    cột parsed_content (JSONB, có thể dài ~2000 ký tự/job) để list nhẹ
+    payload cho phần lớn use-case (route public GET /jobs, kể cả trang
+    tuyển dụng công khai, đa số chỉ cần tên/lương/company, không cần mô
+    tả đầy đủ). Truyền True khi CẦN đủ nội dung (job_description/
+    requirements/perks/required_skills) ngay ở list, thay vì phải gọi
+    riêng get_job_by_id() cho từng job — vd tab "Tình trạng dữ liệu"
+    (08/2026, xem thảo luận: trước đây tab này gọi list_jobs() mặc định
+    và báo sai 100% job thiếu nội dung, dù dữ liệu có đủ trong DB, chỉ
+    vì list không trả cột này).
 
     limit/offset: phân trang chuẩn — FastAPI route validate limit tối
     đa (tránh client xin limit=999999 kéo sập DB), hàm này KHÔNG tự
@@ -524,8 +536,16 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
                     f"{where_clause}", params)
         total = cur.fetchone()["total"]
 
+        # include_content=True: thêm jp.parsed_content vào SELECT list —
+        # KHÔNG dùng chung _JOB_LIST_BASE_QUERY (hằng số dựng sẵn không
+        # có cột này) mà chèn thêm cột ngay trước FROM, giữ nguyên mọi
+        # cột khác + thứ tự JOIN/WHERE/ORDER BY như cũ.
+        select_columns = (
+            f"{_JOB_SELECT_COLUMNS}, jp.parsed_content" if include_content
+            else _JOB_SELECT_COLUMNS
+        )
         cur.execute(
-            f"{_JOB_LIST_BASE_QUERY} {where_clause} "
+            f"SELECT {select_columns} {_JOB_FROM_JOINS} {where_clause} "
             f"ORDER BY jp.created_at DESC LIMIT %s OFFSET %s",
             params + [limit, offset],
         )

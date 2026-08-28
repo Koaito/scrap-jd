@@ -23,6 +23,15 @@ def list_jobs(
     created_by: Optional[str] = Query(
         None, description="Lọc job do 1 thành viên ss_team/admin cụ thể TỰ NHẬP TAY (ss_user_id) — job crawl tự động (created_by NULL trong DB) không bao giờ khớp filter này."
     ),
+    include_content: bool = Query(
+        False,
+        description="Mặc định false (giữ nguyên hành vi cũ, KHÔNG trả parsed_content "
+                    "để payload nhẹ — route này public, kể cả trang tuyển dụng công "
+                    "khai gọi). Truyền true khi cần đủ nội dung JD (job_description/"
+                    "requirements/perks/required_skills) ngay ở list, thay vì gọi "
+                    "riêng GET /jobs/{job_id} cho từng job — vd tab 'Tình trạng dữ "
+                    "liệu' (08/2026).",
+    ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     conn=Depends(get_db),
@@ -49,6 +58,7 @@ def list_jobs(
         created_by=created_by,
         limit=limit,
         offset=offset,
+        include_content=include_content,
     )
     return PaginatedJobs(total=total, limit=limit, offset=offset, items=rows)
 

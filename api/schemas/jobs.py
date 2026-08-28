@@ -56,6 +56,13 @@ class JobOut(BaseModel):
         description="ss_user_id người sửa job này GẦN NHẤT qua PATCH /jobs/{id}. "
                     "null = chưa từng bị sửa qua route có JWT.",
     )
+    parsed_content: Optional[dict] = Field(
+        default=None,
+        description="Mô tả JD chi tiết (job_description/requirements/perks/required_skills). "
+                    "CHỈ có giá trị khi GET /jobs được gọi kèm include_content=true — mặc "
+                    "định null (kể cả khi DB có dữ liệu) để giữ payload nhẹ cho các use-case "
+                    "không cần nội dung đầy đủ (thêm 08/2026, xem docstring list_jobs()).",
+    )
 
     class Config:
         from_attributes = True
