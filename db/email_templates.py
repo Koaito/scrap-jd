@@ -17,6 +17,30 @@ import psycopg2.extras
 logger = logging.getLogger(__name__)
 
 
+def _parse_pg_enum_array(raw) -> list[str]:
+    """psycopg2 tự parse được mảng các kiểu built-in (int[], text[]...)
+    nhưng KHÔNG tự parse mảng enum tự định nghĩa (vd contact_status_enum[]
+    của cột recommended_for) — driver trả về nguyên chuỗi thô dạng Postgres
+    array literal, ví dụ '{UNCONTACTED}' hoặc '{UNCONTACTED,RESPONDED}',
+    thay vì list Python. Nếu không parse lại, Pydantic (EmailTemplateOut.
+    recommended_for: list[str]) sẽ validate fail → FastAPI raise
+    ResponseValidationError → 500.
+
+    Hàm này convert chuỗi thô đó thành list[str] thật. Nếu input đã là
+    list sẵn (vd psycopg2 phiên bản/khác cấu hình tự parse được, hoặc gọi
+    lại hàm này 2 lần) thì trả nguyên, không xử lý gì thêm."""
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    s = str(raw).strip()
+    if s.startswith("{") and s.endswith("}"):
+        s = s[1:-1]
+    if not s:
+        return []
+    return [item.strip().strip('"') for item in s.split(",") if item.strip()]
+
+
 def list_email_templates(conn):
     """Toàn bộ mẫu, sắp theo display_order rồi tới created_at (mẫu mới
     thêm chưa chỉnh display_order sẽ rơi xuống cuối theo đúng thứ tự tạo,
@@ -25,13 +49,19 @@ def list_email_templates(conn):
         cur.execute(
             "SELECT * FROM email_templates ORDER BY display_order ASC, created_at ASC"
         )
-        return cur.fetchall()
+        rows = cur.fetchall()
+        for row in rows:
+            row["recommended_for"] = _parse_pg_enum_array(row.get("recommended_for"))
+        return rows
 
 
 def get_email_template_by_id(conn, template_id: str):
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM email_templates WHERE template_id = %s", (template_id,))
-        return cur.fetchone()
+        row = cur.fetchone()
+        if row is not None:
+            row["recommended_for"] = _parse_pg_enum_array(row.get("recommended_for"))
+        return row
 
 
 def create_email_template(
