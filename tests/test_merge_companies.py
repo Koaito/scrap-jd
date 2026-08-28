@@ -130,7 +130,7 @@ def test_conflict_triggers_merge() -> bool:
         ok = False
         print(f"  !! SAI: UPDATE website phải nhắm vào company-EXISTING, nhưng params={website_update[0][1]}")
 
-    print(f"  Các query đã gọi (theo thứ tự):")
+    print("  Các query đã gọi (theo thứ tự):")
     for q, p in queries_with_params:
         print(f"    {q}  params={p}")
     print()

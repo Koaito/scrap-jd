@@ -18,8 +18,7 @@ import sys
 import db
 from pipeline import run_pipeline
 from config import (
-    TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, CAREERVIET_CATEGORIES,
-    DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
+    TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
 )
 # SOURCES/DEFAULT_SOURCE giờ sống ở 1 nguồn sự thật duy nhất
 # (sources_registry.py) — xem docstring file đó để biết lý do (trước
@@ -42,6 +41,40 @@ def cmd_init_db(args):
     try:
         db.apply_schema(conn)
         print("✅ Đã tạo/cập nhật schema trong database.")
+    finally:
+        conn.close()
+
+
+def cmd_migrate(args):
+    """Chạy MỌI migration_*.sql (sql/) chưa được áp dụng cho DB đang
+    kết nối — xem docstring db.apply_migrations()/db.connection để biết
+    cơ chế tracking (bảng schema_migrations) và lý do an toàn chạy lại
+    trên DB đã tồn tại từ trước (mọi migration đều idempotent).
+
+    --check: CHỈ liệt kê migration còn thiếu, KHÔNG chạy gì — dùng để
+    kiểm tra trước khi deploy (vd script CI/CD có thể gọi lệnh này,
+    exit code khác 0 nếu còn migration chưa chạy, để chặn deploy sớm
+    thay vì phát hiện lỗi sau khi code mới đã lên production mà DB
+    chưa kịp cập nhật)."""
+    conn = db.get_connection()
+    try:
+        if args.check:
+            pending = db.list_pending_migrations(conn)
+            if not pending:
+                print("✅ DB đã theo kịp mọi migration (sql/) — không có gì cần chạy.")
+                return
+            print(f"⚠️  Còn {len(pending)} migration CHƯA áp dụng cho DB này:")
+            for filename in pending:
+                print(f"   - {filename}")
+            sys.exit(1)
+
+        applied = db.apply_migrations(conn)
+        if not applied:
+            print("✅ DB đã theo kịp mọi migration (sql/) — không có gì cần chạy.")
+        else:
+            print(f"✅ Đã áp dụng {len(applied)} migration mới:")
+            for filename in applied:
+                print(f"   - {filename}")
     finally:
         conn.close()
 
@@ -153,6 +186,15 @@ def main():
 
     sub.add_parser("init-db", help="Tạo bảng/schema trong PostgreSQL")
 
+    p_migrate = sub.add_parser(
+        "migrate",
+        help="Áp dụng các migration_*.sql (sql/) CHƯA chạy cho DB này (xem sql/README_MIGRATIONS.md)",
+    )
+    p_migrate.add_argument(
+        "--check", action="store_true",
+        help="Chỉ liệt kê migration còn thiếu, không chạy gì (exit code 1 nếu còn thiếu)",
+    )
+
     p_crawl = sub.add_parser("crawl", help="Crawl job từ TopCV/VietnamWorks và lưu vào DB")
     p_crawl.add_argument("--source", default=DEFAULT_SOURCE,
                           help=f"Nguồn cần crawl. Mặc định: {DEFAULT_SOURCE}. "
@@ -186,6 +228,8 @@ def main():
 
     if args.command == "init-db":
         cmd_init_db(args)
+    elif args.command == "migrate":
+        cmd_migrate(args)
     elif args.command == "crawl":
         cmd_crawl(args)
     elif args.command == "stats":

@@ -11,7 +11,6 @@ không đụng tới rule nghiệp vụ, và ngược lại).
 """
 
 from io import BytesIO
-from typing import Optional
 
 import pandas as pd
 from fastapi import UploadFile

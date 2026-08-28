@@ -34,9 +34,28 @@ jobs:
           python-version: "3.12"
 
       - name: Cài dependency (app + test)
-        run: |
-          pip install -r requirements.txt
-          pip install -r requirements-dev.txt
+        # requirements-dev.txt KHÔNG tồn tại trong repo (chưa từng được
+        # commit — xem `git log -- requirements-dev.txt`) — dòng
+        # `pip install -r requirements-dev.txt` cũ ở đây sẽ luôn FAIL
+        # ngay bước cài đặt (`ERROR: Could not open requirements file`),
+        # nghĩa là job "test" trên thực tế CHƯA BAO GIỜ chạy được tới
+        # bước pytest, dù workflow "trông như" đã bật. Toàn bộ dependency
+        # cho test (pytest, pytest-asyncio, httpx) ĐÃ có sẵn trong
+        # requirements.txt (xem comment cuối file đó) nên bỏ hẳn dòng
+        # thừa/sai, chỉ cần cài đúng 1 file là đủ.
+        run: pip install -r requirements.txt
+
+      - name: Cài ruff (linter)
+        # Thêm 08/2026 cùng đợt rà soát khả năng mở rộng — trước đây
+        # không có bước lint tự động nào, lỗi kiểu tham chiếu biến không
+        # tồn tại (xem commit xoá dead code ở db/companies.py, phát hiện
+        # NHỜ chạy ruff lần đầu) chỉ lộ ra khi có người tình cờ đọc đúng
+        # dòng code đó. Cấu hình rule ở ruff.toml (chỉ bật F + E9, xem
+        # comment trong file đó lý do chưa bật E/W style).
+        run: pip install ruff
+
+      - name: Chạy ruff
+        run: ruff check .
 
       - name: Chạy test
         # JWT_SECRET_KEY: api/security.py raise RuntimeError ngay lúc

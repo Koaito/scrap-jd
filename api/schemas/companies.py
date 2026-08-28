@@ -3,7 +3,7 @@ Companies — schema request/response cho POST/PATCH/DELETE/GET /companies.
 Tách từ api/schemas.py (08/2026) — xem docstring api/schemas/__init__.py.
 """
 
-from datetime import date, datetime
+from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 

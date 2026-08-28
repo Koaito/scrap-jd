@@ -274,25 +274,6 @@ def company_exists_by_id(conn, company_id: str) -> bool:
         return cur.fetchone() is not None
 
 
-
-    """Tra company_id ĐANG CÓ ĐÚNG tax_id này (nếu có). Dùng TRƯỚC khi
-    update_company_profile() ghi tax_id mới vào 1 company khác, để phát
-    hiện sớm case "2 company_id khác nhau hoá ra cùng 1 pháp nhân thật"
-    (vd 1 công ty được crawl từ TopCV VÀ VietnamWorks với 2 tên hơi khác
-    nhau, tạo 2 row riêng lúc get_or_create_company_by_profile(), rồi
-    enrich_company_web_info.py tra ra CÙNG 1 tax_id cho cả 2 row) — nếu
-    không bắt trước, UPDATE thẳng sẽ vi phạm uq_companies_tax_id (tax_id
-    unique) và làm crash transaction.
-
-    Trả None nếu tax_id rỗng hoặc chưa company nào có."""
-    if not tax_id:
-        return None
-    with conn.cursor() as cur:
-        cur.execute("SELECT company_id FROM companies WHERE tax_id = %s", (tax_id,))
-        row = cur.fetchone()
-        return str(row[0]) if row else None
-
-
 def merge_companies(conn, source_company_id: str, target_company_id: str) -> None:
     """Gộp source_company_id VÀO target_company_id (source biến mất khỏi
     DB sau khi gọi hàm này) — dùng khi phát hiện 2 company_id khác nhau

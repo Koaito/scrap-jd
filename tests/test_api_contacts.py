@@ -12,22 +12,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException, Request
-from fastapi.testclient import TestClient
 
 from api.routers.contacts import (
-    _VALID_CONTACT_STATUS,
     _validate_assignee,
-    all_contacts_router,
-    router,
 )
 from db.contacts import ContactHasLinksError
 from conftest import (
     make_company_record,
     make_contact_record,
-    mock_conn,
-    ss_team_user,
-    test_company_id,
-    test_contact_id,
 )
 
 
@@ -310,7 +302,7 @@ def test_update_contact_no_changes_no_note_required(
         from api.routers.contacts import update_contact
         from api.schemas import CompanyContactUpdate
 
-        result = update_contact(
+        update_contact(
             company_id=test_company_id,
             contact_id=test_contact_id,
             payload=CompanyContactUpdate(note=None),  # Không cần note
@@ -397,7 +389,7 @@ def test_assign_contact_no_change_no_note_required(
         from api.routers.contacts import assign_contact
         from api.schemas import ContactAssignUpdate
 
-        result = assign_contact(
+        assign_contact(
             company_id=test_company_id,
             contact_id=test_contact_id,
             payload=ContactAssignUpdate(assigned_ss_user=assignee_id, note=None),

@@ -20,7 +20,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
-from conftest import make_email_template_record, mock_conn, ss_team_user, admin_user, regular_user
+from conftest import make_email_template_record
 
 
 @pytest.fixture

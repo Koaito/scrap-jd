@@ -5,7 +5,6 @@ db.lookups — tách từ db.py (God module) theo domain.
 import logging
 from typing import Optional
 
-import psycopg2
 from province_alias import resolve_province_alias
 
 logger = logging.getLogger(__name__)

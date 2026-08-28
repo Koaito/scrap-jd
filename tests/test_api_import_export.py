@@ -8,13 +8,12 @@ Test coverage:
 - Error handling (422 validation errors, rollback on failure)
 """
 import io
-import uuid
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import HTTPException, UploadFile
 
-from api.routers.import_export import _check_entity_type, _VALID_ENTITY_TYPES, router
+from api.routers.import_export import _check_entity_type, _VALID_ENTITY_TYPES
 from api.services.file_parser import FileTooLargeError, UnsupportedFileFormatError
 from api.services.import_executor import RowResolutionError
 from api.services.preview_manager import (
@@ -24,9 +23,6 @@ from api.services.preview_manager import (
 )
 from conftest import (
     make_preview_record,
-    mock_conn,
-    ss_team_user,
-    test_preview_id,
 )
 
 

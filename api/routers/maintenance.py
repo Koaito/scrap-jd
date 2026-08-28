@@ -82,7 +82,7 @@ def trigger_maintenance_run(
 
 @router.get("", response_model=PaginatedMaintenanceRuns)
 def list_maintenance_runs(
-    job_type: Optional[str] = Query(None, description=f"Lọc theo job, vd 'check_expired_jobs'"),
+    job_type: Optional[str] = Query(None, description="Lọc theo job, vd 'check_expired_jobs'"),
     status: Optional[str] = Query(None, description="queued | running | done | error"),
     triggered_by: Optional[str] = Query(None, description="Lọc theo ss_user_id admin đã bấm"),
     limit: int = Query(50, ge=1, le=200),

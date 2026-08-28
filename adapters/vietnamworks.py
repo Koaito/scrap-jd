@@ -81,9 +81,9 @@ import json
 import logging
 import re
 import time
-from datetime import date, datetime
+from datetime import datetime
 from typing import Iterator, Optional
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import urljoin
 
 from curl_cffi import requests
 from bs4 import BeautifulSoup

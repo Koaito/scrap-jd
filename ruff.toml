@@ -1,0 +1,29 @@
+# Ruff (linter) — thêm 08/2026 khi rà soát khả năng mở rộng codebase.
+# Trước đây KHÔNG có type checker/linter tự động nào chạy trong CI — lỗi
+# như dead code tham chiếu biến không tồn tại (xem commit xoá dead code
+# ở db/companies.py, tìm ra chính NHỜ chạy ruff lần đầu) hay quên export
+# 1 hàm mới ở crawler_client/__init__.py (xem lịch sử commit gần đây) là
+# loại lỗi ruff bắt được NGAY lúc gõ code, không cần đợi CI/production
+# báo lỗi.
+#
+# Chỉ bật F (pyflakes: unused import, undefined name, dead code...) và
+# E9 (lỗi cú pháp) — CHƯA bật E/W (style pycodestyle: độ dài dòng, dấu
+# cách...) vì codebase hiện tại có phong cách riêng khá nhất quán, bật
+# E/W ngay sẽ ra hàng trăm lỗi style không thật sự quan trọng, làm loãng
+# tín hiệu của các lỗi F811/F821/F401 thật sự đáng chú ý. Có thể bật
+# thêm dần sau (I - import sort, UP - pyupgrade...) khi cần.
+target-version = "py312"
+line-length = 120
+
+[lint]
+select = ["E9", "F"]
+
+[lint.per-file-ignores]
+# F811 "redefinition" ở tests/ hầu hết là FALSE POSITIVE do pattern
+# pytest fixture chuẩn: 1 fixture (vd mock_conn, ss_team_user) được
+# import vào đầu file (để dùng trong conftest/nhiều test khác) RỒI xuất
+# hiện lại như tên tham số của từng hàm test — pyflakes không hiểu đây
+# là 2 việc khác nhau (dependency injection của pytest) nên báo nhầm là
+# "định nghĩa lại biến chưa dùng". Đây là cách ruff chính thức khuyến
+# nghị xử lý pattern này (xem docs pyflakes/ruff F811 + pytest).
+"tests/*" = ["F811"]

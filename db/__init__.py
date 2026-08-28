@@ -19,6 +19,8 @@ from db.connection import (
     release_connection,
     close_pool,
     apply_schema,
+    apply_migrations,
+    list_pending_migrations,
 )
 from db.lookups import (
     get_province_id,
@@ -182,7 +184,14 @@ __all__ = [
     "release_connection",
     "close_pool",
     "apply_schema",
+    "apply_migrations",
+    "list_pending_migrations",
     "get_province_id",
+    "list_email_templates",
+    "get_email_template_by_id",
+    "create_email_template",
+    "patch_email_template",
+    "delete_email_template",
     "get_or_create_province",
     "get_level_id",
     "find_company_probe",
