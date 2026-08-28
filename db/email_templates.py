@@ -69,12 +69,19 @@ def create_email_template(
     recommended_for: list[str], display_order: int, created_by: str,
 ) -> str:
     """Tạo mẫu mới. recommended_for là mảng contact_status_enum (có thể
-    rỗng — không gợi ý riêng cho trạng thái nào, giống 2/6 mẫu gốc)."""
+    rỗng — không gợi ý riêng cho trạng thái nào, giống 2/6 mẫu gốc).
+
+    Ép kiểu tường minh %s::contact_status_enum[] — psycopg2 KHÔNG tự suy
+    ra kiểu enum tùy biến từ list[str] Python (mặc định gửi xuống như
+    text[]), Postgres không tự cast ngầm nên INSERT sẽ lỗi
+    DatatypeMismatch nếu thiếu cast này (xem migration_add_email_templates.sql
+    dùng ARRAY[...]::contact_status_enum[] ở phần seed — cùng nguyên
+    nhân, chỉ khác là seed viết tay còn đây build từ list Python)."""
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO email_templates "
             "(title, description, body, recommended_for, display_order, created_by, updated_by) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING template_id",
+            "VALUES (%s, %s, %s, %s::contact_status_enum[], %s, %s, %s) RETURNING template_id",
             (title, description, body, recommended_for, display_order, created_by, created_by),
         )
         return cur.fetchone()[0]
@@ -104,7 +111,9 @@ def patch_email_template(
         fields.append("body = %s")
         values.append(body)
     if recommended_for is not None:
-        fields.append("recommended_for = %s")
+        # Cùng lý do cast tường minh như create_email_template() ở trên
+        # — thiếu ::contact_status_enum[] sẽ lỗi DatatypeMismatch y hệt.
+        fields.append("recommended_for = %s::contact_status_enum[]")
         values.append(recommended_for)
     if display_order is not None:
         fields.append("display_order = %s")
