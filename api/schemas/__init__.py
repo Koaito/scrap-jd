@@ -35,6 +35,11 @@ from api.schemas.jobs import (
     ParsedContent,
     JobCreate,
     JobUpdate,
+    JobHealthRow,
+    JobHealthListItem,
+    JobHealthBySource,
+    DuplicateJobGroup,
+    JobDataHealth,
 )
 from api.schemas.companies import (
     CompanyOut,
@@ -44,6 +49,8 @@ from api.schemas.companies import (
     CompanyCreate,
     CompanyUpdate,
     CompanyDeleteRequest,
+    FieldHealthRow,
+    CompanyDataHealth,
 )
 from api.schemas.stats import (
     IndustryCount,
@@ -145,9 +152,10 @@ from api.schemas.import_export import (
 __all__ = [
     # jobs
     "JobOut", "JobDetailOut", "PaginatedJobs", "ParsedContent", "JobCreate", "JobUpdate",
+    "JobHealthRow", "JobHealthListItem", "JobHealthBySource", "DuplicateJobGroup", "JobDataHealth",
     # companies
     "CompanyOut", "CompanyDetailOut", "PaginatedCompanies", "PartnershipSignals", "CompanyCreate",
-    "CompanyUpdate", "CompanyDeleteRequest",
+    "CompanyUpdate", "CompanyDeleteRequest", "FieldHealthRow", "CompanyDataHealth",
     # stats
     "IndustryCount", "SourceCount", "StatsOut", "JobEngagementOut",
     "MonthlyCountOut", "MonthlyEngagementOut", "EngagementStatsOut",

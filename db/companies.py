@@ -716,6 +716,93 @@ def get_partnership_signals(conn, company_ids: Optional[list] = None) -> dict:
     return signals
 
 
+# Field nào tính vào thống kê "thiếu dữ liệu" ở tab Tình trạng dữ liệu
+# (blueprints/crawl_status.py bên mindx-jobs) — PHẢI khớp field/label/
+# THỨ TỰ với COMPANY_HEALTH_FIELDS (crawler_client/companies.py bên
+# Flask). Trùng lặp CÓ CHỦ Ý — cùng lý do với _TARGET_INDUSTRIES ở trên
+# (2 repo riêng biệt, không import chéo được). Sửa 1 bên PHẢI sửa bên
+# kia. company_id không đưa vào vì luôn có sẵn, không có ý nghĩa thống
+# kê (giống comment gốc bên Flask).
+_COMPANY_HEALTH_FIELDS = [
+    ("tax_id", "Mã số thuế"),
+    ("website", "Website"),
+    ("industry", "Ngành"),
+    ("address", "Địa chỉ"),
+    ("company_size", "Quy mô"),
+    ("fanpage", "Fanpage"),
+    ("linkedin_company", "LinkedIn"),
+]
+
+
+def get_company_data_health(conn) -> dict:
+    """Thay thế cho việc frontend (blueprints/crawl_status.py bên
+    mindx-jobs) từng phải gọi list_all_companies() + list_all_contacts()
+    (kéo TOÀN BỘ company/contact về Flask rồi tự đếm field rỗng bằng
+    Python — count_missing_fields()/count_companies_without_contact() ở
+    crawler_client/) chỉ để vẽ 2 khối "Company thiếu dữ liệu theo từng
+    trường" + "Company chưa có contact" ở tab Tình trạng dữ liệu.
+
+    Tính bằng 1 lượt SQL duy nhất — COUNT(*) FILTER(...) cho từng field
+    trong _COMPANY_HEALTH_FIELDS + NOT EXISTS subquery cho "chưa có
+    contact active" — CHỈ trên company đang active (is_active=true,
+    khớp hành vi cũ: list_all_companies() mặc định KHÔNG trả company đã
+    xoá mềm). Chi phí không tăng theo tổng số company/contact serialize
+    qua network nữa — Postgres tự đếm, có index PK trên company_contacts
+    .company_id cho subquery NOT EXISTS.
+
+    "Thiếu" = cột NULL hoặc chuỗi rỗng — khớp cách _normalize_company()
+    bên Flask quy None -> "" rồi count_missing_fields() chỉ check falsy.
+
+    Trả dict:
+      company_health_rows: list[{"field","label","missing","total",
+        "pct_missing"}] — ĐÚNG THỨ TỰ _COMPANY_HEALTH_FIELDS.
+      company_health_total: tổng company active.
+      company_no_contact_missing / company_no_contact_total: số company
+        active chưa có contact active nào / tổng company active (2 số
+        này CÙNG company_health_total nếu không lọc gì thêm, tách riêng
+        để khớp đúng tên biến _status_tab_context() cũ đang dùng)."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE c.tax_id IS NULL OR c.tax_id = '') AS missing_tax_id,
+                COUNT(*) FILTER (WHERE c.website IS NULL OR c.website = '') AS missing_website,
+                COUNT(*) FILTER (WHERE c.industry IS NULL OR c.industry = '') AS missing_industry,
+                COUNT(*) FILTER (WHERE c.address IS NULL OR c.address = '') AS missing_address,
+                COUNT(*) FILTER (WHERE c.company_size IS NULL OR c.company_size = '') AS missing_company_size,
+                COUNT(*) FILTER (WHERE c.fanpage_url IS NULL OR c.fanpage_url = '') AS missing_fanpage,
+                COUNT(*) FILTER (WHERE c.linkedin_url IS NULL OR c.linkedin_url = '') AS missing_linkedin_company,
+                COUNT(*) FILTER (
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM company_contacts cc
+                        WHERE cc.company_id = c.company_id AND cc.is_active = true
+                    )
+                ) AS missing_contact
+            FROM companies c
+            WHERE c.is_active = true
+            """
+        )
+        row = cur.fetchone()
+
+    total = row["total"]
+    company_health_rows = []
+    for field, label in _COMPANY_HEALTH_FIELDS:
+        missing = row[f"missing_{field}"]
+        pct_missing = round(missing / total * 100) if total else 0
+        company_health_rows.append({
+            "field": field, "label": label, "missing": missing,
+            "total": total, "pct_missing": pct_missing,
+        })
+
+    return {
+        "company_health_rows": company_health_rows,
+        "company_health_total": total,
+        "company_no_contact_missing": row["missing_contact"],
+        "company_no_contact_total": total,
+    }
+
+
 def get_company_by_id(conn, company_id: str):
     """Trả 1 dict company đầy đủ hoặc None — dùng cho GET
     /companies/{company_id}. KHÔNG còn products_services (08/2026, xem

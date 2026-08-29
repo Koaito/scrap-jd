@@ -80,6 +80,53 @@ class PaginatedJobs(BaseModel):
     items: list[JobOut]
 
 
+class JobHealthRow(BaseModel):
+    """1 dòng thống kê "thiếu field" — dùng chung với company, xem
+    FieldHealthRow (api/schemas/companies.py). Định nghĩa RIÊNG (không
+    import chéo companies.py) để tránh phụ thuộc ngược lại companies.py
+    -> jobs.py (jobs.py hiện KHÔNG phụ thuộc companies.py, xem lưu ý ở
+    api/schemas/__init__.py — giữ nguyên hướng phụ thuộc 1 chiều đó)."""
+    field: str
+    label: str
+    missing: int
+    total: int
+    pct_missing: int
+
+
+class JobHealthListItem(BaseModel):
+    """1 job rút gọn trong expired_open_jobs/duplicate_job_groups[].jobs
+    — CHỈ đủ field cho bảng hiển thị (vị trí/công ty/deadline/nguồn +
+    link tới job_detail), KHÔNG kèm parsed_content."""
+    id: str
+    position: str
+    company: str
+    deadline: Optional[date] = None
+    source: str
+
+
+class JobHealthBySource(BaseModel):
+    source: str
+    total: int
+    rows: list[JobHealthRow]
+
+
+class DuplicateJobGroup(BaseModel):
+    company: str
+    position: str
+    jobs: list[JobHealthListItem]
+
+
+class JobDataHealth(BaseModel):
+    """GET /jobs/data-health — thay cho việc frontend tự đếm/group/tìm
+    trùng bằng Python trên list_all_jobs(include_content=True) kéo về
+    TOÀN BỘ job kèm parsed_content. Xem docstring db.get_job_data_health()."""
+    job_health_rows: list[JobHealthRow]
+    job_health_total: int
+    expired_open_jobs: list[JobHealthListItem]
+    job_health_by_source: list[JobHealthBySource]
+    duplicate_job_groups: list[DuplicateJobGroup]
+
+
 # ------------------------------------------------------------------
 # Ghi từ frontend (thêm 08/2026) — team tự thêm/sửa/đóng job qua web,
 # KHÔNG qua crawl. Company chọn từ danh sách ĐÃ CÓ trong DB (người dùng

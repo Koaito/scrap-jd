@@ -77,6 +77,27 @@ class PartnershipSignals(BaseModel):
     has_responded: bool
 
 
+class FieldHealthRow(BaseModel):
+    """1 dòng thống kê "thiếu field" — dùng chung cho cả company và job
+    (GET /companies/data-health, GET /jobs/data-health), khớp đúng dict
+    trả về từ count_missing_fields() bên Flask trước đây."""
+    field: str
+    label: str
+    missing: int
+    total: int
+    pct_missing: int
+
+
+class CompanyDataHealth(BaseModel):
+    """GET /companies/data-health — thay cho việc frontend tự đếm field
+    rỗng bằng Python trên list_all_companies()/list_all_contacts() kéo
+    về đầy đủ. Xem docstring db.get_company_data_health()."""
+    company_health_rows: list[FieldHealthRow]
+    company_health_total: int
+    company_no_contact_missing: int
+    company_no_contact_total: int
+
+
 class CompanyCreate(BaseModel):
     """Tạo công ty mới THỦ CÔNG từ frontend — dùng khi công ty chưa có
     trong DB (GET /companies?keyword= tìm không ra) để lấy company_id

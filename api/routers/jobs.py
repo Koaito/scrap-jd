@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 import db as db_module
 from api.deps import get_db, require_role
 from api.rate_limit import limiter
-from api.schemas import JobApplicantOut, JobCreate, JobDetailOut, JobSaverOut, JobUpdate, PaginatedJobs
+from api.schemas import JobApplicantOut, JobCreate, JobDataHealth, JobDetailOut, JobSaverOut, JobUpdate, PaginatedJobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -61,6 +61,29 @@ def list_jobs(
         include_content=include_content,
     )
     return PaginatedJobs(total=total, limit=limit, offset=offset, items=rows)
+
+
+@router.get("/data-health", response_model=JobDataHealth)
+@limiter.limit("60/minute")
+def get_job_data_health(request: Request, conn=Depends(get_db)):
+    """GET /jobs/data-health — thay thế cho việc frontend
+    (blueprints/crawl_status.py bên mindx-jobs, tab "Tình trạng dữ
+    liệu") từng phải gọi list_all_jobs(include_content=True) — kéo
+    TOÀN BỘ job kèm cột parsed_content (JSONB dài) của cả hệ thống về
+    Flask, rồi tự đếm/group/tìm trùng bằng Python. Route này tính sẵn
+    bằng SQL (xem db.get_job_data_health()) — KHÔNG BAO GIỜ serialize
+    parsed_content qua network, chi phí không tăng theo tổng số job
+    toàn hệ thống nữa.
+
+    Public (không require_role) — GIỐNG GET /jobs (không có thông tin
+    nhạy cảm như contact bên /companies/data-health, chỉ đếm/nhóm field
+    nội dung JD sẵn công khai). Rate limit 60/minute cùng lý do GET /jobs.
+
+    PHẢI khai báo route này TRƯỚC GET /{job_id} bên dưới — path cố định
+    "/data-health" nếu đặt SAU sẽ bị FastAPI khớp nhầm vào job_id (rồi
+    400 vì "data-health" không phải UUID hợp lệ), xem cùng lý do đã
+    giải thích ở /companies/data-health."""
+    return db_module.get_job_data_health(conn)
 
 
 @router.get("/{job_id}", response_model=JobDetailOut)

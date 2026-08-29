@@ -46,6 +46,7 @@ from db.companies import (
     get_company_by_id,
     soft_delete_company,
     get_partnership_signals,
+    get_company_data_health,
 )
 from db.jobs import (
     get_open_jobs_with_source_url,
@@ -63,6 +64,7 @@ from db.jobs import (
     list_jobs,
     get_job_by_id,
     get_jobs_by_company_id,
+    get_job_data_health,
 )
 from db.stats import (
     get_stats_summary,
@@ -215,6 +217,7 @@ __all__ = [
     "get_company_by_id",
     "soft_delete_company",
     "get_partnership_signals",
+    "get_company_data_health",
     "get_open_jobs_with_source_url",
     "probe_needs_enrichment",
     "job_exists_by_source_url",
@@ -230,6 +233,7 @@ __all__ = [
     "list_jobs",
     "get_job_by_id",
     "get_jobs_by_company_id",
+    "get_job_data_health",
     "get_stats_summary",
     "get_job_engagement_counts",
     "get_monthly_engagement_stats",

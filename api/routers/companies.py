@@ -8,6 +8,7 @@ from api.deps import get_db, require_role
 from api.rate_limit import limiter
 from api.schemas import (
     CompanyCreate,
+    CompanyDataHealth,
     CompanyDeleteRequest,
     CompanyDetailOut,
     CompanyOut,
@@ -88,6 +89,33 @@ def get_partnership_signals(
         if not db_module.is_valid_uuid(cid):
             raise HTTPException(status_code=400, detail=f"company_id '{cid}' không đúng định dạng UUID.")
     return db_module.get_partnership_signals(conn, company_ids=company_id)
+
+
+@router.get("/data-health", response_model=CompanyDataHealth)
+@limiter.limit("60/minute")
+def get_company_data_health(
+    request: Request,
+    conn=Depends(get_db),
+    user: dict = Depends(require_role("ss_team")),
+):
+    """GET /companies/data-health — thay thế cho việc frontend
+    (blueprints/crawl_status.py bên mindx-jobs, tab "Tình trạng dữ
+    liệu") từng phải gọi list_all_companies() + list_all_contacts()
+    (kéo TOÀN BỘ company/contact về Flask rồi tự đếm field rỗng bằng
+    Python) chỉ để vẽ 2 khối "Company thiếu dữ liệu theo từng trường" +
+    "Company chưa có contact". Route này tính sẵn bằng SQL (xem
+    db.get_company_data_health()) — chi phí không tăng theo tổng số
+    company/contact toàn hệ thống nữa.
+
+    require_role("ss_team") (khác /companies, /companies/{id} — GET
+    công khai cho mọi role) vì route này phải JOIN qua company_contacts
+    để đếm "chưa có contact" — cùng lý do contacts.py TOÀN BỘ route yêu
+    cầu ss_team (thông tin liên hệ nhạy cảm).
+
+    PHẢI khai báo route này TRƯỚC GET /{company_id} bên dưới — cùng lý
+    do đã giải thích ở /partnership-signals phía trên (path cố định vs
+    path param, thứ tự khai báo trong FastAPI theo trên-xuống-dưới)."""
+    return db_module.get_company_data_health(conn)
 
 
 @router.get("/{company_id}", response_model=CompanyDetailOut)
