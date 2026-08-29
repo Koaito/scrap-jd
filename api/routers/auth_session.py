@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 import db as db_module
 from api import security
 from api.deps import get_db, get_current_user
-from api.rate_limit import limiter
+from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
     AccessTokenOut, ChangePasswordRequest, LoginRequest, RefreshRequest,
     TokenPairOut, UserOut,
@@ -274,7 +274,9 @@ def get_me(user: dict = Depends(get_current_user), conn=Depends(get_db)):
 
 
 @router.post("/change-password", response_model=UserOut)
+@limiter.limit("10/hour", key_func=get_user_id_or_ip)
 def change_password(
+    request: Request,
     payload: ChangePasswordRequest,
     user: dict = Depends(get_current_user),
     conn=Depends(get_db),
@@ -286,7 +288,14 @@ def change_password(
 
     Sau khi đổi thành công: thu hồi TOÀN BỘ refresh token hiện có (đăng
     xuất mọi thiết bị khác) — thực hành bảo mật chuẩn khi đổi mật khẩu,
-    phòng trường hợp thiết bị khác đã bị lộ phiên đăng nhập."""
+    phòng trường hợp thiết bị khác đã bị lộ phiên đăng nhập.
+
+    Rate limit 10/hour theo user_id (thêm 08/2026) — route này BẮT BUỘC
+    JWT hợp lệ (get_current_user) nên không lo bot vô danh, nhưng nếu 1
+    access token bị lộ (XSS, thiết bị bị chiếm...) kẻ tấn công có thể dò
+    old_password không giới hạn số lần trước đây — cùng loại rủi ro với
+    /auth/login (đã có limiter 20/minute từ trước), route đổi mật khẩu
+    lại chưa có nên bổ sung cho nhất quán."""
     row = db_module.get_user_by_id(conn, user["sub"])
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")

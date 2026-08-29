@@ -143,7 +143,7 @@ def test_export_entity_success_xlsx(mock_conn, ss_team_user):
 
 
 @pytest.mark.asyncio
-async def test_import_preview_invalid_entity_type(mock_conn, ss_team_user):
+async def test_import_preview_invalid_entity_type(mock_conn, ss_team_user, fake_request):
     """Import preview với entity_type không hợp lệ -> 400"""
     from api.routers.import_export import import_preview
 
@@ -151,6 +151,7 @@ async def test_import_preview_invalid_entity_type(mock_conn, ss_team_user):
 
     with pytest.raises(HTTPException) as exc_info:
         await import_preview(
+            request=fake_request,
             entity_type="invalid",
             file=mock_file,
             conn=mock_conn,
@@ -160,7 +161,7 @@ async def test_import_preview_invalid_entity_type(mock_conn, ss_team_user):
 
 
 @pytest.mark.asyncio
-async def test_import_preview_unsupported_file_format(mock_conn, ss_team_user):
+async def test_import_preview_unsupported_file_format(mock_conn, ss_team_user, fake_request):
     """Import file không hỗ trợ (không phải CSV/XLSX) -> 400"""
     with patch("api.routers.import_export.file_parser") as mock_file_parser:
         # Gán class exception THẬT (không phải mock_file_parser.Xxx tự
@@ -178,6 +179,7 @@ async def test_import_preview_unsupported_file_format(mock_conn, ss_team_user):
 
         with pytest.raises(HTTPException) as exc_info:
             await import_preview(
+                request=fake_request,
                 entity_type="job",
                 file=mock_file,
                 conn=mock_conn,
@@ -188,7 +190,7 @@ async def test_import_preview_unsupported_file_format(mock_conn, ss_team_user):
 
 
 @pytest.mark.asyncio
-async def test_import_preview_file_too_large(mock_conn, ss_team_user):
+async def test_import_preview_file_too_large(mock_conn, ss_team_user, fake_request):
     """Import file quá 5000 dòng -> 400"""
     with patch("api.routers.import_export.file_parser") as mock_file_parser:
         # UnsupportedFileFormatError CŨNG phải gán thật dù test này
@@ -207,6 +209,7 @@ async def test_import_preview_file_too_large(mock_conn, ss_team_user):
 
         with pytest.raises(HTTPException) as exc_info:
             await import_preview(
+                request=fake_request,
                 entity_type="job",
                 file=mock_file,
                 conn=mock_conn,
@@ -217,7 +220,7 @@ async def test_import_preview_file_too_large(mock_conn, ss_team_user):
 
 
 @pytest.mark.asyncio
-async def test_import_preview_validation_errors(mock_conn, ss_team_user):
+async def test_import_preview_validation_errors(mock_conn, ss_team_user, fake_request):
     """Import file có dòng không hợp lệ -> 422 với chi tiết lỗi"""
     with patch("api.routers.import_export.file_parser") as mock_file_parser:
         with patch(
@@ -246,6 +249,7 @@ async def test_import_preview_validation_errors(mock_conn, ss_team_user):
 
             with pytest.raises(HTTPException) as exc_info:
                 await import_preview(
+                    request=fake_request,
                     entity_type="contact",
                     file=mock_file,
                     conn=mock_conn,
@@ -256,7 +260,7 @@ async def test_import_preview_validation_errors(mock_conn, ss_team_user):
 
 
 @pytest.mark.asyncio
-async def test_import_preview_success(mock_conn, ss_team_user, test_preview_id):
+async def test_import_preview_success(mock_conn, ss_team_user, test_preview_id, fake_request):
     """Import preview thành công"""
     with patch("api.routers.import_export.file_parser") as mock_file_parser:
         with patch(
@@ -291,6 +295,7 @@ async def test_import_preview_success(mock_conn, ss_team_user, test_preview_id):
                 mock_file = UploadFile(filename="test.csv", file=io.BytesIO(b"test"))
 
                 result = await import_preview(
+                    request=fake_request,
                     entity_type="contact",
                     file=mock_file,
                     conn=mock_conn,

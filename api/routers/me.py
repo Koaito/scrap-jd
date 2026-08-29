@@ -126,12 +126,20 @@ def list_my_applications(
 
 
 @router.get("/applications/{application_id}/cv-url")
+@limiter.limit("30/minute", key_func=get_user_id_or_ip)
 def get_cv_signed_url(
+    request: Request,
     application_id: str,
     user: dict = Depends(require_role("ss_team")),  # Chỉ Staff / Admin mới có quyền lấy
     conn=Depends(get_db),
 ):
-    """Staff lấy Signed URL để tải và xem CV học viên."""
+    """Staff lấy Signed URL để tải và xem CV học viên.
+
+    Rate limit 30/minute theo user_id (thêm 08/2026) — mỗi lần gọi tốn
+    1 lệnh gọi thật tới storage provider để sinh signed URL mới. Mốc
+    30/minute chỉ nhằm chặn lỗi loop/script gọi lặp ngoài ý muốn, không
+    ảnh hưởng thao tác bình thường của staff (xem qua nhiều CV liên
+    tục trong lúc duyệt hồ sơ vẫn thoải mái nằm trong hạn mức này)."""
     if not db_module.is_valid_uuid(application_id):
         raise HTTPException(status_code=400, detail="application_id không hợp lệ.")
     

@@ -14,10 +14,11 @@ api/services/preview_manager.py để hiểu đầy đủ cấu trúc preview_da
 from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 
 import db as db_module
 from api.deps import get_db, require_role
+from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
     CompanySuggestionOut,
     CompanySuggestionsResponse,
@@ -241,12 +242,20 @@ def export_entity(
 # ------------------------------------------------------------------
 
 @router.post("/import/{entity_type}/preview", response_model=ImportUploadResponse)
+@limiter.limit("20/hour", key_func=get_user_id_or_ip)
 async def import_preview(
+    request: Request,
     entity_type: str,
     file: UploadFile = File(...),
     conn=Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
+    """Rate limit 20/hour theo user_id (thêm 08/2026) — mỗi lần gọi
+    parse file (tới 5000 dòng) + build_preview() (nhiều query DB để đối
+    chiếu công ty/job trùng) tốn CPU/DB đáng kể hơn 1 GET thông thường.
+    Chưa từng bị lợi dụng thật, nhưng thêm phòng ngừa cho trường hợp
+    script/tool tự động gọi lặp do lỗi (vd retry loop) làm nghẽn
+    connection pool DB dùng chung với các route khác."""
     _check_entity_type(entity_type)
 
     raw_bytes = await file.read()

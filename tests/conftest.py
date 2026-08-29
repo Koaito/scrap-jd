@@ -8,6 +8,39 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from starlette.requests import Request as StarletteRequest
+
+
+def make_fake_request(headers: dict | None = None) -> StarletteRequest:
+    """Dựng 1 starlette.requests.Request THẬT (không phải MagicMock) —
+    cần cho các route đã gắn @limiter.limit(...) (slowapi), vì decorator
+    của slowapi tự kiểm tra isinstance(request, Request) ngay khi hàm
+    được gọi (kể cả gọi trực tiếp trong test, không qua TestClient/HTTP
+    thật) — truyền MagicMock() hay bỏ trống tham số request đều raise
+    Exception("parameter `request` must be an instance of
+    starlette.requests.Request"), không phải lỗi test logic.
+
+    scope tối thiểu đủ để cả 2 key_func hiện có trong api/rate_limit.py
+    chạy được: get_remote_address (đọc scope["client"]) và
+    get_user_id_or_ip (đọc header Authorization, rơi về IP nếu thiếu/
+    không hợp lệ — không raise, xem docstring get_user_id_or_ip)."""
+    raw_headers = [(k.lower().encode(), v.encode()) for k, v in (headers or {}).items()]
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/",
+        "headers": raw_headers,
+        "client": ("127.0.0.1", 12345),
+        "query_string": b"",
+    }
+    return StarletteRequest(scope)
+
+
+@pytest.fixture
+def fake_request():
+    """Request giả dùng chung cho test gọi trực tiếp route đã có
+    @limiter.limit(...) — xem docstring make_fake_request() ở trên."""
+    return make_fake_request()
 
 
 @pytest.fixture
