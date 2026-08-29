@@ -67,6 +67,16 @@ class PaginatedCompanies(BaseModel):
     items: list[CompanyOut]
 
 
+class PartnershipSignals(BaseModel):
+    """1 dòng kết quả GET /companies/partnership-signals — xem docstring
+    db.get_partnership_signals() cho ý nghĩa từng field. KHÔNG gồm
+    is_hn_hcm/has_company_size — 2 field đó đã có sẵn trên CompanyOut
+    (province_name/company_size), không cần tính lại ở đây."""
+    has_open_entry_job: bool
+    matches_target_industry: bool
+    has_responded: bool
+
+
 class CompanyCreate(BaseModel):
     """Tạo công ty mới THỦ CÔNG từ frontend — dùng khi công ty chưa có
     trong DB (GET /companies?keyword= tìm không ra) để lấy company_id

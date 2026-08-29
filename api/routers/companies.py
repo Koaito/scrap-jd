@@ -13,6 +13,7 @@ from api.schemas import (
     CompanyOut,
     CompanyUpdate,
     PaginatedCompanies,
+    PartnershipSignals,
 )
 
 router = APIRouter(prefix="/companies", tags=["companies"])
@@ -50,6 +51,43 @@ def list_companies(
         limit=limit, offset=offset,
     )
     return PaginatedCompanies(total=total, limit=limit, offset=offset, items=rows)
+
+
+@router.get("/partnership-signals", response_model=dict[str, PartnershipSignals])
+@limiter.limit("60/minute")
+def get_partnership_signals(
+    request: Request,
+    company_id: Optional[list[str]] = Query(
+        None,
+        description="Lọc theo 1 hoặc nhiều company_id (?company_id=a&company_id=b). "
+                    "Không truyền = tính cho TOÀN BỘ công ty trong DB.",
+    ),
+    conn=Depends(get_db),
+):
+    """GET /companies/partnership-signals — thay thế cho việc frontend
+    (blueprints/companies.py bên mindx-jobs) từng phải gọi
+    list_all_jobs() + list_all_contacts() (kéo TOÀN BỘ job/contact về
+    Flask rồi tự group bằng Python, tốn 1 chuỗi round-trip tuần lệ tỉ
+    lệ thuận với số job/contact) chỉ để tính gợi ý "Tiềm năng hợp tác"
+    (potential_score.suggest_partnership_potential()) ngay trên bảng
+    danh sách công ty. Route này tính sẵn 2 tín hiệu cần join
+    (has_open_entry_job, matches_target_industry, has_responded) bằng
+    SQL GROUP BY (xem db.get_partnership_signals()) — chi phí không
+    tăng theo tổng số job/contact toàn hệ thống nữa, chỉ phụ thuộc số
+    company_id được lọc (hoặc size DB nếu không lọc, nhưng vẫn RẺ HƠN
+    NHIỀU so với kéo full object vì GROUP BY chạy trong Postgres, có
+    index company_id, không serialize/deserialize qua network 2 lần).
+
+    PHẢI khai báo route này TRƯỚC GET /{company_id} bên dưới — nếu đặt
+    sau, FastAPI sẽ khớp "/companies/partnership-signals" vào path
+    param company_id của route đó trước (path cố định luôn ưu tiên hơn
+    nhưng thứ tự khai báo trong FastAPI vẫn theo trên-xuống-dưới, xem
+    docs Starlette routing), rồi 400 vì "partnership-signals" không phải
+    UUID hợp lệ."""
+    for cid in company_id or []:
+        if not db_module.is_valid_uuid(cid):
+            raise HTTPException(status_code=400, detail=f"company_id '{cid}' không đúng định dạng UUID.")
+    return db_module.get_partnership_signals(conn, company_ids=company_id)
 
 
 @router.get("/{company_id}", response_model=CompanyDetailOut)

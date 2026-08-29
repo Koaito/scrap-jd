@@ -597,6 +597,125 @@ def list_companies(conn, *, keyword: Optional[str] = None,
     return rows, total
 
 
+# Level "mới ra trường" — khớp level_group 'Entry Level' (xem
+# sql/schema.sql INSERT INTO levels: Intern/Fresher/Junior). Group theo
+# level_group thay vì hard-code 3 level_code ở đây để khớp đúng 1 nguồn
+# sự thật với cột levels.level_group trong DB (khác
+# potential_score._ENTRY_LEVELS bên Flask — nơi đó hard-code lại vì
+# không có sẵn cột level_group trong job đã _normalize_job(), xem
+# docstring bên đó).
+_ENTRY_LEVEL_GROUP = "Entry Level"
+
+# Ngành MindX đào tạo — PHẢI khớp constants.INDUSTRIES bên Flask
+# (mindx-jobs/constants.py). Trùng lặp CÓ CHỦ Ý (không import chéo 2
+# repo riêng biệt được) — job.matching_industry là free text do crawl/
+# nhập tay ghi vào (không FK), nên so khớp bằng IN (...) giống hệt cách
+# potential_score.suggest_partnership_potential() làm bên Flask
+# (`j.get("industry") in INDUSTRIES`). Sửa 1 bên PHẢI sửa bên kia.
+_TARGET_INDUSTRIES = (
+    "Code", "Data Analysis", "Data Engineer", "Data Scientist",
+    "Business Analysis", "UI/UX Design",
+)
+
+# Trạng thái contact tính là "đã từng phản hồi" — khớp
+# potential_score._RESPONDED_STATUSES bên Flask.
+_RESPONDED_CONTACT_STATUSES = ("RESPONDED", "IN_PARTNERSHIP")
+
+
+def get_partnership_signals(conn, company_ids: Optional[list] = None) -> dict:
+    """Tính sẵn (bằng SQL GROUP BY, KHÔNG kéo full job/contact object về
+    Python) 2 tín hiệu cần cho gợi ý "Tiềm năng hợp tác"
+    (potential_score.suggest_partnership_potential() bên Flask) mà
+    PHẢI join qua job_postings/company_contacts mới biết được:
+      - has_open_entry_job: công ty có job OPEN, level Intern/Fresher/
+        Junior không.
+      - matches_target_industry: công ty có job thuộc đúng nhóm ngành
+        MindX đào tạo không (bất kể job đó OPEN hay CLOSED — giữ đúng
+        hành vi cũ của suggest_partnership_potential(), hàm đó không
+        lọc theo status_raw cho tiêu chí này).
+      - has_responded: công ty có contact status RESPONDED/
+        IN_PARTNERSHIP không.
+
+    KHÔNG tính is_hn_hcm/has_company_size ở đây — 2 field đó đã có sẵn
+    trực tiếp trên companies (province_name, company_size), nơi gọi
+    (route /companies bên Flask) tính thẳng từ CompanyOut đã có, không
+    cần round-trip riêng.
+
+    company_ids: optional — nếu truyền vào (list company_id), CHỈ tính
+    cho các công ty đó (WHERE c.company_id = ANY(%s), tận dụng PK index)
+    thay vì toàn bộ DB — dùng khi trang /companies chỉ cần tín hiệu cho
+    đúng 1 trang (per_page công ty) đang hiển thị, không phải mọi công
+    ty trong hệ thống. None = tính cho TẤT CẢ công ty (vd nếu sau này
+    cần dùng ở nơi không có sẵn danh sách company_id).
+
+    Trả dict {company_id: {"has_open_entry_job": bool,
+    "matches_target_industry": bool, "has_responded": bool}} — company
+    không có job/contact nào khớp tiêu chí nào đơn giản KHÔNG xuất hiện
+    trong dict (coi như False cả 3, nơi gọi tự .get(id, default) khi
+    build gợi ý)."""
+    company_filter = ""
+    base_params: list = []
+    if company_ids is not None:
+        if not company_ids:
+            return {}
+        company_filter = "AND jp.company_id = ANY(%s)"
+        base_params = [list(company_ids)]
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # Job signals: 1 lượt GROUP BY company_id, dùng bool_or() thay
+        # vì kéo từng dòng job về đếm bằng Python — Postgres tự lo phần
+        # "có ít nhất 1 job khớp điều kiện" hiệu quả hơn nhiều so với
+        # SELECT * rồi loop ở tầng ứng dụng (đây chính là thứ
+        # list_all_jobs() cũ đang làm, xem lịch sử trao đổi).
+        cur.execute(
+            f"""
+            SELECT
+                jp.company_id,
+                bool_or(jp.job_status = 'OPEN' AND l.level_group = %s) AS has_open_entry_job,
+                bool_or(jp.matching_industry = ANY(%s)) AS matches_target_industry
+            FROM job_postings jp
+            LEFT JOIN levels l ON l.level_id = jp.level_id
+            WHERE 1=1 {company_filter}
+            GROUP BY jp.company_id
+            """,
+            [_ENTRY_LEVEL_GROUP, list(_TARGET_INDUSTRIES)] + base_params,
+        )
+        job_rows = cur.fetchall()
+
+        contact_filter = ""
+        contact_params: list = []
+        if company_ids is not None:
+            contact_filter = "AND cc.company_id = ANY(%s)"
+            contact_params = [list(company_ids)]
+
+        cur.execute(
+            f"""
+            SELECT cc.company_id, bool_or(cc.contact_status = ANY(%s)) AS has_responded
+            FROM company_contacts cc
+            WHERE cc.is_active = true {contact_filter}
+            GROUP BY cc.company_id
+            """,
+            [list(_RESPONDED_CONTACT_STATUSES)] + contact_params,
+        )
+        contact_rows = cur.fetchall()
+
+    signals: dict = {}
+    for row in job_rows:
+        signals[row["company_id"]] = {
+            "has_open_entry_job": bool(row["has_open_entry_job"]),
+            "matches_target_industry": bool(row["matches_target_industry"]),
+            "has_responded": False,
+        }
+    for row in contact_rows:
+        entry = signals.setdefault(
+            row["company_id"],
+            {"has_open_entry_job": False, "matches_target_industry": False, "has_responded": False},
+        )
+        entry["has_responded"] = bool(row["has_responded"])
+
+    return signals
+
+
 def get_company_by_id(conn, company_id: str):
     """Trả 1 dict company đầy đủ hoặc None — dùng cho GET
     /companies/{company_id}. KHÔNG còn products_services (08/2026, xem

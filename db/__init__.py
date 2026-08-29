@@ -45,6 +45,7 @@ from db.companies import (
     list_companies,
     get_company_by_id,
     soft_delete_company,
+    get_partnership_signals,
 )
 from db.jobs import (
     get_open_jobs_with_source_url,
@@ -213,6 +214,7 @@ __all__ = [
     "list_companies",
     "get_company_by_id",
     "soft_delete_company",
+    "get_partnership_signals",
     "get_open_jobs_with_source_url",
     "probe_needs_enrichment",
     "job_exists_by_source_url",

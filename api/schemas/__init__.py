@@ -40,6 +40,7 @@ from api.schemas.companies import (
     CompanyOut,
     CompanyDetailOut,
     PaginatedCompanies,
+    PartnershipSignals,
     CompanyCreate,
     CompanyUpdate,
     CompanyDeleteRequest,
@@ -145,7 +146,7 @@ __all__ = [
     # jobs
     "JobOut", "JobDetailOut", "PaginatedJobs", "ParsedContent", "JobCreate", "JobUpdate",
     # companies
-    "CompanyOut", "CompanyDetailOut", "PaginatedCompanies", "CompanyCreate",
+    "CompanyOut", "CompanyDetailOut", "PaginatedCompanies", "PartnershipSignals", "CompanyCreate",
     "CompanyUpdate", "CompanyDeleteRequest",
     # stats
     "IndustryCount", "SourceCount", "StatsOut", "JobEngagementOut",
