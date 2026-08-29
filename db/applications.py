@@ -122,6 +122,54 @@ def list_saved_jobs_for_user(conn, ss_user_id: str):
         return cur.fetchall()
 
 
+def list_closed_job_applications_with_cv(conn, limit: Optional[int] = None):
+    """Đơn ứng tuyển của job ĐÃ CLOSED mà vẫn còn cv_url (chưa được dọn)
+    — dùng cho check_expired_source_jobs.py::cleanup_cvs_of_closed_jobs().
+
+    CỐ Ý join job_status='CLOSED' (không lọc theo "vừa đóng trong lượt
+    chạy này") — quét TOÀN BỘ job đã CLOSED trong DB, kể cả những job đã
+    đóng từ trước (do SS chủ động đóng tay qua frontend, hoặc do lượt
+    chạy script trước NÀY chưa hỗ trợ dọn CV) — đúng đúng phạm vi mô tả ở
+    việc_chưa_làm.txt ("dọn CV của học viên khi đã ứng tuyển những Job
+    hết hạn trong database", không giới hạn "job vừa hết hạn hôm nay").
+    Idempotent tự nhiên: application đã dọn thì cv_url đã NULL, không
+    còn xuất hiện lại ở lần quét sau.
+
+    KHÔNG join app_users/companies vì cleanup chỉ cần application_id +
+    cv_url để gọi storage.delete_cv() + clear_application_cv(), không
+    cần hiển thị gì thêm (khác list_applications_for_job() vốn phục vụ
+    UI staff).
+    """
+    query = """
+        SELECT a.application_id, a.cv_url
+        FROM job_applications a
+        JOIN job_postings j ON j.job_id = a.job_id
+        WHERE j.job_status = 'CLOSED' AND a.cv_url IS NOT NULL
+        ORDER BY a.applied_at
+    """
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        if limit:
+            cur.execute(query + " LIMIT %s", (limit,))
+        else:
+            cur.execute(query)
+        return cur.fetchall()
+
+
+def clear_application_cv(conn, application_id: str) -> None:
+    """Xoá liên kết cv_url của 1 application sau khi đã dọn file thật
+    trên storage (KHÔNG xoá cả dòng job_applications — application vẫn
+    còn giá trị lịch sử cho staff xem "học viên nào đã ứng tuyển job
+    này", xem list_applications_for_job(); chỉ file PDF không còn giá
+    trị sau khi job đã đóng nên mới dọn, khác hẳn delete_job_application()
+    ở trên dùng khi học viên chủ động RÚT đơn — lúc đó xoá cả record vì
+    học viên coi như chưa từng ứng tuyển)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE job_applications SET cv_url = NULL WHERE application_id = %s",
+            (application_id,),
+        )
+
+
 def delete_saved_job(conn, *, ss_user_id: str, job_id: str) -> bool:
     """Bỏ lưu — DELETE thật (không soft-delete, đây chỉ là bookmark,
     không cần giữ lịch sử như company_contacts)."""

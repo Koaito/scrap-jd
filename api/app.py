@@ -54,6 +54,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
@@ -66,7 +67,11 @@ from api.routers import auth, companies, contacts, crawl, jobs, maintenance, me,
 from api.services.preview_cleanup import CLEANUP_INTERVAL_MINUTES, run_cleanup_once
 from api.services.crawl_watchdog import run_crawl_watchdog_once
 from api.services.maintenance_watchdog import run_maintenance_watchdog_once
-from config import CRAWL_WATCHDOG_INTERVAL_MINUTES, MAINTENANCE_WATCHDOG_INTERVAL_MINUTES
+from config import (
+    CRAWL_WATCHDOG_INTERVAL_MINUTES,
+    MAINTENANCE_WATCHDOG_INTERVAL_MINUTES,
+    MAX_REQUEST_BODY_BYTES,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -234,6 +239,52 @@ async def add_security_headers(request, call_next):
     response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
     response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
     return response
+
+
+# Chặn request quá lớn NGAY từ header, TRƯỚC khi FastAPI/route handler
+# đọc bất kỳ byte nào của body (08/2026, xem docstring
+# config.MAX_REQUEST_BODY_BYTES để biết bối cảnh đầy đủ + lý do chọn
+# 15MB). Khai báo SAU add_security_headers ở trên NÊN CỐ Ý — Starlette
+# bọc middleware theo thứ tự NGƯỢC với thứ tự khai báo (@app.middleware
+# tương đương add_middleware(), khai báo sau = bọc ngoài cùng = chạy
+# TRƯỚC middleware khai báo trước nó) — middleware này cần chạy sớm
+# nhất có thể (trước CORS, trước rate limit, trước routing), để 1
+# request quá khổ bị chặn ngay ở "cửa" mà không tốn công xử lý gì thêm.
+#
+# CHỈ dựa vào header Content-Length — hầu hết trình duyệt/thư viện HTTP
+# gửi multipart form-data (như CV upload, import CSV/XLSX) đều tự tính
+# và gắn Content-Length sẵn (không dùng chunked transfer-encoding) vì
+# kích thước file đã biết trước khi gửi, nên cách này chặn được ĐÚNG
+# ngay từ header cho tuyệt đại đa số request thật.
+#
+# GIỚI HẠN ĐÃ BIẾT: nếu client cố tình gửi chunked transfer-encoding
+# (không có Content-Length) thì middleware này KHÔNG bắt được ngay ở
+# bước này — request vẫn lọt qua tới tầng đọc body. Chấp nhận được vì
+# 2 endpoint có nhận file trong hệ thống (CV upload, import CSV/XLSX)
+# đều dùng FastAPI UploadFile qua multipart form chuẩn từ frontend nội
+# bộ (không phải client tuỳ ý ngoài internet), không phải nơi cần chống
+# tấn công cố ý né Content-Length. Có thể siết thêm bằng ASGI middleware
+# đếm byte qua stream nếu sau này thấy cần, không làm sớm.
+@app.middleware("http")
+async def reject_oversized_request(request, call_next):
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > MAX_REQUEST_BODY_BYTES:
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "detail": f"Dung lượng request vượt quá giới hạn cho phép "
+                                  f"({MAX_REQUEST_BODY_BYTES // (1024 * 1024)}MB)."
+                    },
+                )
+        except ValueError:
+            # Content-Length không parse được thành int — bỏ qua, để
+            # tầng dưới (route handler / FastAPI) tự xử lý như bình
+            # thường thay vì đoán mò và chặn nhầm request hợp lệ.
+            pass
+    return await call_next(request)
+
 
 # X-API-Key bắt buộc cho MỌI router dữ liệu thật (kể cả auth.router —
 # login/refresh/logout/me/change-password/users, những route CẦN biết

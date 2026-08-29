@@ -284,3 +284,29 @@ ENRICH_REQUEST_DELAY_SECONDS = 60 / GEMINI_FREE_TIER_RPM + 1.5  # ~5.5s
 SUPABASE_URL = os.getenv("SUPABASE_URL", "").rstrip("/")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 SUPABASE_CV_BUCKET = os.getenv("SUPABASE_CV_BUCKET", "cv-files")
+
+# ------------------------------------------------------------------
+# Giới hạn dung lượng request body — chặn SỚM ở tầng middleware
+# (08/2026, xem api/app.py::reject_oversized_request)
+# ------------------------------------------------------------------
+# BỐI CẢNH: trước đây 2 endpoint có nhận file (POST /me/applications —
+# CV PDF, POST /import — CSV/XLSX) đều tự đọc HẾT body vào RAM
+# (`cv_file.file.read()` / raw_bytes) RỒI MỚI so sánh kích thước
+# (api/routers/me.py: > 5MB, api/services/file_parser.py: > 5000
+# dòng). Nghĩa là 1 request vài trăm MB vẫn bị đọc trọn vào bộ nhớ
+# trước khi bị từ chối — tốn RAM/CPU vô ích, và với tier free (RAM
+# thấp) có thể khiến cả process sập (đúng triệu chứng "gửi file lỗi
+# luôn web" thay vì chỉ đơn giản bị từ chối, xem việc_chưa_làm.txt).
+#
+# 15MB (không phải trùng 5MB của CV) — vì middleware này chặn CHUNG ở
+# cấp app, phải đủ rộng cho request "hợp lệ lớn nhất" hiện có
+# (import CSV/XLSX tối đa 5000 dòng chưa có giới hạn byte riêng, thực
+# tế có thể vượt vài MB tuỳ số cột) cộng thêm overhead multipart, mà
+# vẫn đủ hẹp để chặn được các request thật sự bất thường. Đây là lớp
+# CHẶN SỚM (fail fast trước khi tốn RAM đọc file), KHÔNG thay thế cho
+# check nghiệp vụ cụ thể từng endpoint (5MB cho CV, 5000 dòng cho
+# import) — 2 lớp check đó vẫn giữ nguyên để báo lỗi đúng ngữ cảnh hơn
+# ("Dung lượng file CV tối đa là 5MB" rõ ràng hơn cho học viên so với
+# lỗi 413 chung chung).
+MAX_REQUEST_BODY_MB = int(os.getenv("MAX_REQUEST_BODY_MB", "15"))
+MAX_REQUEST_BODY_BYTES = MAX_REQUEST_BODY_MB * 1024 * 1024

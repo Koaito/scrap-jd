@@ -119,6 +119,8 @@ from db.applications import (
     list_saved_jobs_for_user,
     delete_saved_job,
     list_saved_jobs_for_job,
+    list_closed_job_applications_with_cv,
+    clear_application_cv,
 )
 from db.audit_logs import (
     ACTION_LOG_RULES,
@@ -268,6 +270,8 @@ __all__ = [
     "list_saved_jobs_for_user",
     "delete_saved_job",
     "list_saved_jobs_for_job",
+    "list_closed_job_applications_with_cv",
+    "clear_application_cv",
     "ACTION_LOG_RULES",
     "NoteRequiredError",
     "diff_changed_fields",
