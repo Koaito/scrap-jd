@@ -60,6 +60,24 @@ NÂNG CẤP SAU (chỉ làm khi thật sự cần, đừng làm sớm — đúng
   - Cần lịch crawl tự động định kỳ -> thêm APScheduler hoặc cron gọi
     thẳng main.py (không cần qua API) — triggered_by=NULL đã dành sẵn
     chỗ cho trường hợp này (xem sql/migration_add_crawl_runs.sql).
+
+CONNECTION POOL (08/2026 — đối xứng đúng thay đổi ở
+api/maintenance_runner.py, xem docstring module đó để biết đầy đủ bối
+cảnh "lỗi 500 khi nhiều tab poll dồn dập"):
+  - get_run()/list_runs()/get_latest_run()/get_logs()/start_crawl()/
+    start_batch()/get_batch()/list_batches(): các hàm NGẮN, gọi trực
+    tiếp trong request handler, tần suất cao (client poll status.json/
+    logs.json mỗi 1-2 giây, nhiều tab cùng lúc) — ĐỔI sang mượn/trả
+    connection từ pool chung (db.get_pooled_connection()/
+    release_connection(), xem api/deps.py:get_db()) thay vì tự mở
+    connection Postgres MỚI mỗi lần gọi.
+  - execute()/_execute_one() + _RunLogHandler: CỐ Ý GIỮ NGUYÊN
+    get_connection() độc lập (không qua pool) — giữ connection SUỐT
+    quá trình crawl thật (có thể vài phút - vài chục phút). Nếu đổi
+    sang pool, mỗi lượt crawl sẽ khoá cứng 1-2 slot pool trong thời
+    gian dài, làm giảm connection khả dụng cho các request HTTP khác
+    đang chạy song song. Đúng use case get_connection() được thiết kế
+    cho (xem docstring db/connection.py).
 """
 
 import logging
@@ -118,7 +136,9 @@ class _RunLogHandler(logging.Handler):
         # Mở connection RIÊNG cho việc ghi log (không dùng chung conn với
         # execute()/run_pipeline() — record log có thể tới bất kỳ lúc nào
         # giữa các câu lệnh SQL khác của run_pipeline(), dùng chung conn
-        # sẽ làm rối transaction đang dang dở của nó).
+        # sẽ làm rối transaction đang dang dở của nó). CỐ Ý không qua
+        # pool — cùng lý do "sống suốt job nền dài" nêu ở mục CONNECTION
+        # POOL trong docstring module đầu file.
         self._conn = db_module.get_connection()
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -139,49 +159,53 @@ class _RunLogHandler(logging.Handler):
 
 def get_run(run_id: str) -> Optional[dict]:
     """Đọc 1 lượt crawl từ bảng crawl_runs — dùng cho GET /crawl/{run_id}.
-    Tự mở/đóng connection riêng (route gọi hàm này KHÔNG truyền conn
-    xuống, giữ chữ ký y hệt bản cũ để không phải sửa router nhiều hơn
-    cần thiết)."""
-    conn = db_module.get_connection()
+    Mượn/trả connection từ pool chung (xem docstring module ở đầu file,
+    mục CONNECTION POOL — hàm ngắn, tần suất poll cao)."""
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.get_crawl_run(conn, run_id)
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def list_runs(*, source: Optional[str] = None, status: Optional[str] = None,
                triggered_by: Optional[str] = None, limit: int = 50, offset: int = 0):
-    """Đọc danh sách lịch sử crawl — dùng cho GET /crawl."""
-    conn = db_module.get_connection()
+    """Đọc danh sách lịch sử crawl — dùng cho GET /crawl. Mượn/trả
+    connection từ pool chung (xem docstring module ở đầu file)."""
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.list_crawl_runs(
             conn, source=source, status=status, triggered_by=triggered_by,
             limit=limit, offset=offset,
         )
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def get_latest_run() -> Optional[dict]:
     """Đọc lượt crawl GẦN NHẤT (bất kể status) — dùng cho GET
     /crawl/latest-log-run, để khung "Log live" ở frontend luôn có 1
     run_id để hiện log ngay cả khi không có lượt nào đang chạy (xem
-    lịch sử trao đổi "khung Log live luôn hiện cố định trên trang")."""
-    conn = db_module.get_connection()
+    lịch sử trao đổi "khung Log live luôn hiện cố định trên trang").
+    Mượn/trả connection từ pool chung (xem docstring module ở đầu
+    file — hàm bị poll dồn dập nhất)."""
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.get_latest_crawl_run(conn)
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def get_logs(run_id: str, after_id: int = 0, limit: int = 500):
     """Đọc các dòng log MỚI (id > after_id) của 1 lượt crawl — dùng cho
-    GET /crawl/{run_id}/logs?after_id=N (xem db.get_crawl_run_logs)."""
-    conn = db_module.get_connection()
+    GET /crawl/{run_id}/logs?after_id=N (xem db.get_crawl_run_logs).
+    Mượn/trả connection từ pool chung (xem docstring module ở đầu
+    file)."""
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.get_crawl_run_logs(conn, run_id, after_id=after_id, limit=limit)
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def resolve_effective_pages(pages: Optional[int], max_jobs: Optional[int]) -> int:
@@ -215,16 +239,20 @@ def start_crawl(source: str, category: str, pages: Optional[int],
 
     Raise db.ActiveCrawlExistsError nếu source này đang có 1 lượt
     'queued'/'running' chưa xong — router bắt lỗi này để trả 409
-    (xem api/routers/crawl.py)."""
+    (xem api/routers/crawl.py).
+
+    Mượn/trả connection từ pool chung (xem docstring module ở đầu
+    file, mục CONNECTION POOL) — hàm này chạy trong request handler,
+    INSERT ngắn, không phải nơi chạy crawl thật."""
     effective_pages = resolve_effective_pages(pages, max_jobs)
-    conn = db_module.get_connection()
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.create_crawl_run(
             conn, source=source, category=category, pages=effective_pages,
             max_jobs=max_jobs, triggered_by=triggered_by,
         )
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def start_batch(source: str, categories: list, pages: Optional[int],
@@ -246,12 +274,16 @@ def start_batch(source: str, categories: list, pages: Optional[int],
     y hệt start_crawl() đơn lẻ) — router bắt lỗi này để trả 409, batch
     KHÔNG được tạo trong trường hợp đó (create_run() raise TRƯỚC khi
     kịp ghi crawl_batches... thật ra crawl_batches đã ghi trước, xem
-    lưu ý bên dưới)."""
+    lưu ý bên dưới).
+
+    Mượn/trả connection từ pool chung (xem docstring module ở đầu
+    file, mục CONNECTION POOL) — hàm này chạy trong request handler,
+    2 INSERT ngắn, không phải nơi chạy crawl thật."""
     if not categories:
         raise ValueError("categories rỗng — cần ít nhất 1 category để tạo batch.")
 
     effective_pages = resolve_effective_pages(pages, max_jobs)
-    conn = db_module.get_connection()
+    conn = db_module.get_pooled_connection()
     try:
         # Tạo crawl_batches TRƯỚC (cần batch_id để category đầu trỏ
         # vào) — nếu create_crawl_run() bên dưới raise
@@ -275,30 +307,32 @@ def start_batch(source: str, categories: list, pages: Optional[int],
         )
         return batch_id, first_run_id
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def get_batch(batch_id: str) -> Optional[dict]:
     """Đọc 1 batch KÈM danh sách run con (đúng thứ tự) + tiến độ tổng
-    (total/completed) — dùng cho GET /crawl/batch/{batch_id}."""
-    conn = db_module.get_connection()
+    (total/completed) — dùng cho GET /crawl/batch/{batch_id}. Mượn/trả
+    connection từ pool chung (xem docstring module ở đầu file)."""
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.get_crawl_batch_with_items(conn, batch_id)
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def list_batches(*, source: Optional[str] = None, status: Optional[str] = None,
                   triggered_by: Optional[str] = None, limit: int = 50, offset: int = 0):
-    """Đọc danh sách lịch sử batch — dùng cho GET /crawl/batch."""
-    conn = db_module.get_connection()
+    """Đọc danh sách lịch sử batch — dùng cho GET /crawl/batch. Mượn/trả
+    connection từ pool chung (xem docstring module ở đầu file)."""
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.list_crawl_batches(
             conn, source=source, status=status, triggered_by=triggered_by,
             limit=limit, offset=offset,
         )
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def execute(run_id: str) -> None:

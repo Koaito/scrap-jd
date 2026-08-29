@@ -28,13 +28,21 @@ MAINTENANCE_JOB_TYPES = (
     "check_expired_jobs",
 )
 
-# 08/2026 — 2 job này gọi Tavily + Gemini (TỐN PHÍ THẬT, khác 3 job còn
-# lại miễn phí) — router BẮT BUỘC phải truyền "limit" cho 2 job_type
-# này (không cho để trống = chạy hết toàn bộ company chưa có dữ liệu),
-# tránh admin bấm nhầm trên web đốt quota (rào cản tự nhiên khi gõ tay
-# CLI — biết --limit — không còn khi bấm nút trên web, xem lịch sử trao
-# đổi).
-MAINTENANCE_JOB_TYPES_REQUIRE_LIMIT = frozenset({"enrich_web_info", "get_fb_linkedin"})
+# 08/2026 — job này gọi Tavily + Gemini (TỐN PHÍ THẬT) — router BẮT
+# BUỘC phải truyền "limit" (không cho để trống = chạy hết toàn bộ
+# company chưa có dữ liệu), tránh admin bấm nhầm trên web đốt quota
+# (rào cản tự nhiên khi gõ tay CLI — biết --limit — không còn khi bấm
+# nút trên web, xem lịch sử trao đổi).
+#
+# 08/2026 (sửa bug) — TRƯỚC ĐÂY còn có "get_fb_linkedin" trong set này
+# theo giả định sai. get_fb_linkedin (get_company_fb_linkedin_link.py)
+# KHÔNG gọi Tavily/Gemini — chỉ fetch HTML thô từ website công ty đã có
+# sẵn (companies.website) bằng curl_cffi + BeautifulSoup, hoàn toàn
+# miễn phí. Comment mô tả hiển thị đã được sửa đúng từ trước, nhưng
+# quên gỡ job_type này khỏi set bắt buộc limit — khiến "Tìm Facebook/
+# LinkedIn" trên web luôn ép nhập limit dù không cần thiết (không đốt
+# phí gì nếu để trống chạy hết).
+MAINTENANCE_JOB_TYPES_REQUIRE_LIMIT = frozenset({"enrich_web_info"})
 
 # Chỉ job_type này nhận dry_run/check_deadline_only — router trả 400
 # nếu job_type khác mà vẫn truyền 2 field này (tránh hiểu lầm "dry_run"
@@ -52,8 +60,8 @@ class MaintenanceRunRequest(BaseModel):
         default=None, ge=1, le=5000,
         examples=[50],
         description="Giới hạn số công ty/job xử lý — BẮT BUỘC cho "
-                     "enrich_web_info/get_fb_linkedin (tốn phí Tavily/Gemini), "
-                     "optional cho 3 job còn lại (bỏ trống = chạy hết).",
+                     "enrich_web_info (tốn phí Tavily/Gemini), "
+                     "optional cho 4 job còn lại (bỏ trống = chạy hết).",
     )
     # CHỈ dùng cho job_type='check_expired_jobs' — router trả 400 nếu
     # truyền field này ở job_type khác.

@@ -19,6 +19,30 @@ CÁCH HOẠT ĐỘNG — y hệt crawl_runner.py:
      /maintenance/{run_id}/logs để xem log live — đọc thẳng từ
      maintenance_runs/maintenance_run_logs.
 
+CONNECTION POOL (08/2026, sửa bug 500 khi nhiều tab poll dồn dập —
+xem lịch sử trao đổi "lỗi 500 khi chạy Tìm Facebook/LinkedIn"):
+  - get_run()/list_runs()/get_logs()/get_latest_run_per_job_type()/
+    start_run(): các hàm NGẮN, gọi trực tiếp trong request handler,
+    tần suất cao (client poll status.json/logs.json/latest-log-
+    runs.json mỗi 1-2 giây, nhiều tab cùng lúc) — ĐỔI sang mượn/trả
+    connection từ pool chung (db.get_pooled_connection()/
+    release_connection(), xem api/deps.py:get_db()) thay vì tự mở
+    connection Postgres MỚI mỗi lần gọi. Trước đây mỗi lượt poll = 1
+    connection vật lý mới, dễ vượt max_connections của Postgres
+    (đặc biệt tier free) khi nhiều polling loop bắn gần như đồng
+    thời -> lỗi 500 (không phải JSON, rơi thẳng qua FastAPI/Starlette
+    default handler vì lỗi không được try/except ở đây).
+  - execute() + _RunLogHandler: CỐ Ý GIỮ NGUYÊN get_connection() độc
+    lập (không qua pool) — 2 hàm này giữ connection SUỐT quá trình
+    chạy job nền (có thể vài phút với get_fb_linkedin/enrich_*, hàng
+    trăm công ty). Nếu đổi sang pool, mỗi lượt bấm chạy job sẽ khoá
+    cứng 1-2 slot pool trong nhiều phút, làm giảm connection khả dụng
+    cho các request HTTP khác (dashboard, danh sách job...) đang chạy
+    song song — chuyển gánh nặng maxconn sang chỗ khác thay vì giải
+    quyết triệt để. Đúng use case get_connection() được thiết kế cho
+    (xem docstring db/connection.py: "CLI/script chạy 1 lần rồi
+    thoát... không cần pool").
+
 KHÁC crawl_runner.py:
   - Khoá đồng thời theo job_type (không phải source) — xem docstring
     sql/migration_add_maintenance_runs.sql.
@@ -67,7 +91,12 @@ class _RunLogHandler(logging.Handler):
     """Đối xứng api.crawl_runner._RunLogHandler — cùng cách gắn tạm vào
     ROOT logger trong lúc execute() chạy, cùng đánh đổi CHẤP NHẬN ĐƯỢC
     khi 2 job_type chạy song song (log lẫn vào cả 2 run's log, xem
-    docstring gốc ở crawl_runner.py để biết đầy đủ lý do)."""
+    docstring gốc ở crawl_runner.py để biết đầy đủ lý do).
+
+    CỐ Ý dùng get_connection() (KHÔNG qua pool) — cùng lý do với
+    execute(): handler này sống suốt thời gian job chạy, ghi log liên
+    tục, không phải traffic ngắn hạn phù hợp cho pool. Xem docstring
+    module ở đầu file (mục CONNECTION POOL)."""
 
     def __init__(self, run_id: str):
         super().__init__(level=logging.INFO)
@@ -92,46 +121,51 @@ class _RunLogHandler(logging.Handler):
 
 def get_run(run_id: str) -> Optional[dict]:
     """Đọc 1 lượt chạy từ bảng maintenance_runs — dùng cho GET
-    /maintenance/{run_id}."""
-    conn = db_module.get_connection()
+    /maintenance/{run_id}. Mượn/trả connection từ pool chung (xem
+    docstring module ở đầu file — hàm ngắn, tần suất poll cao)."""
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.get_maintenance_run(conn, run_id)
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def list_runs(*, job_type: Optional[str] = None, status: Optional[str] = None,
                triggered_by: Optional[str] = None, limit: int = 50, offset: int = 0):
-    """Đọc danh sách lịch sử — dùng cho GET /maintenance."""
-    conn = db_module.get_connection()
+    """Đọc danh sách lịch sử — dùng cho GET /maintenance. Mượn/trả
+    connection từ pool chung (xem docstring module ở đầu file)."""
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.list_maintenance_runs(
             conn, job_type=job_type, status=status, triggered_by=triggered_by,
             limit=limit, offset=offset,
         )
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def get_latest_run_per_job_type() -> dict:
     """Đọc lượt chạy GẦN NHẤT của MỖI job_type (bất kể status) — dùng
     cho khung "Log live" ở trang web, mỗi card job_type tự có 1 run_id
-    để hiện log ngay cả khi không có lượt nào đang chạy."""
-    conn = db_module.get_connection()
+    để hiện log ngay cả khi không có lượt nào đang chạy. Mượn/trả
+    connection từ pool chung (xem docstring module ở đầu file — đây là
+    hàm bị poll dồn dập nhất, nguyên nhân chính gây lỗi 500 trước đây)."""
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.get_latest_maintenance_run_per_job_type(conn)
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def get_logs(run_id: str, after_id: int = 0, limit: int = 500):
     """Đọc các dòng log MỚI (id > after_id) của 1 lượt chạy — dùng cho
-    GET /maintenance/{run_id}/logs?after_id=N."""
-    conn = db_module.get_connection()
+    GET /maintenance/{run_id}/logs?after_id=N. Mượn/trả connection từ
+    pool chung (xem docstring module ở đầu file)."""
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.get_maintenance_run_logs(conn, run_id, after_id=after_id, limit=limit)
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def start_run(job_type: str, params: dict, triggered_by: Optional[str] = None) -> str:
@@ -144,21 +178,32 @@ def start_run(job_type: str, params: dict, triggered_by: Optional[str] = None) -
     Depends(require_admin) ở router).
 
     Raise db.ActiveMaintenanceRunExistsError nếu job_type này đang có 1
-    lượt 'queued'/'running' chưa xong — router bắt lỗi này để trả 409."""
-    conn = db_module.get_connection()
+    lượt 'queued'/'running' chưa xong — router bắt lỗi này để trả 409.
+
+    Mượn/trả connection từ pool chung (xem docstring module ở đầu
+    file) — hàm này chạy trong request handler, INSERT ngắn, không
+    phải nơi chạy job thật."""
+    conn = db_module.get_pooled_connection()
     try:
         return db_module.create_maintenance_run(
             conn, job_type=job_type, params=params, triggered_by=triggered_by,
         )
     finally:
-        conn.close()
+        db_module.release_connection(conn)
 
 
 def execute(run_id: str) -> None:
     """Chạy job THẬT — gọi từ BackgroundTasks, KHÔNG gọi trực tiếp
     trong request handler. Tự mở/đóng connection riêng, đối xứng
     crawl_runner.execute() (bản KHÔNG có batch — mỗi run độc lập, không
-    tự tạo run kế tiếp)."""
+    tự tạo run kế tiếp).
+
+    CỐ Ý dùng get_connection() (KHÔNG qua pool) — hàm này giữ connection
+    SUỐT quá trình chạy job nền, có thể vài phút (get_fb_linkedin/
+    enrich_* xử lý hàng trăm công ty). Nếu mượn từ pool, sẽ khoá cứng 1
+    slot pool trong suốt thời gian đó, làm giảm connection khả dụng cho
+    các request HTTP khác đang chạy song song. Xem docstring module ở
+    đầu file để biết đầy đủ lý do (mục CONNECTION POOL)."""
     conn = db_module.get_connection()
     try:
         run = db_module.get_maintenance_run(conn, run_id)
