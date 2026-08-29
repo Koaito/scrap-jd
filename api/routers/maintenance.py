@@ -1,10 +1,11 @@
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 import db as db_module
 from api import maintenance_runner
 from api.deps import require_admin, require_role
+from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
     MAINTENANCE_JOB_TYPES, MAINTENANCE_JOB_TYPES_REQUIRE_LIMIT,
     MaintenanceAccepted, MaintenanceLogsOut, MaintenanceRunRequest,
@@ -23,7 +24,9 @@ _CHECK_EXPIRED_JOBS = "check_expired_jobs"
 
 
 @router.post("/{job_type}", response_model=MaintenanceAccepted, status_code=202)
+@limiter.limit("10/hour", key_func=get_user_id_or_ip)
 def trigger_maintenance_run(
+    request: Request,
     job_type: str,
     payload: MaintenanceRunRequest,
     background_tasks: BackgroundTasks,
@@ -39,7 +42,14 @@ def trigger_maintenance_run(
 
     Mỗi job_type tối đa 1 lượt 'queued'/'running' tại 1 thời điểm — trả
     409 nếu job_type này đang chạy dở (khác job_type khác vẫn chạy song
-    song bình thường, xem sql/migration_add_maintenance_runs.sql)."""
+    song bình thường, xem sql/migration_add_maintenance_runs.sql).
+
+    Rate limit 10/hour theo user_id (thêm 08/2026) — guard 409 ở trên chỉ
+    chặn CHẠY SONG SONG cùng job_type, KHÔNG chặn bấm lặp TUẦN TỰ (bấm,
+    đợi xong, bấm tiếp). 2/5 job_type gọi Tavily/Gemini tốn phí thật mỗi
+    lần chạy — giới hạn này là lớp phòng thủ chống bấm nhầm/lặp gây tốn
+    phí ngoài ý muốn, không nhằm chặn admin dùng bình thường (10 lượt/giờ
+    dư sức cho mọi kịch bản vận hành thực tế)."""
     if job_type not in MAINTENANCE_JOB_TYPES:
         raise HTTPException(
             status_code=400,

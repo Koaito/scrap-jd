@@ -1,10 +1,11 @@
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 import db as db_module
 from api import crawl_runner
 from api.deps import require_admin, require_role
+from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
     CrawlAccepted, CrawlBatchAccepted, CrawlBatchRequest, CrawlBatchStatusOut,
     CrawlLogsOut, CrawlRequest, CrawlStatusOut, PaginatedCrawlBatches, PaginatedCrawlRuns,
@@ -23,7 +24,9 @@ _VALID_CRAWL_STATUSES = {"queued", "running", "done", "error"}
 
 
 @router.post("", response_model=CrawlAccepted, status_code=202)
+@limiter.limit("10/hour", key_func=get_user_id_or_ip)
 def trigger_crawl(
+    request: Request,
     payload: CrawlRequest,
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_admin),
@@ -48,7 +51,14 @@ def trigger_crawl(
     tối đa 1 lượt 'queued'/'running' tại 1 thời điểm — trả 409 nếu
     nguồn này đang crawl dở (khác 2 nguồn khác nhau, vẫn chạy song song
     bình thường). Trước đây chỉ disable ở frontend, backend cho gọi
-    thẳng API là chạy song song vô hạn."""
+    thẳng API là chạy song song vô hạn.
+
+    Rate limit 10/hour theo user_id (thêm 08/2026) — guard 409 ở trên chỉ
+    chặn CHẠY SONG SONG cùng nguồn, KHÔNG chặn bấm lặp TUẦN TỰ (nguồn A
+    xong rồi bấm lại nguồn A, hoặc đổi qua nguồn B liên tục). Mỗi lượt
+    tốn network + CPU thật vài phút — giới hạn này để chặn spam gây tải
+    server ngoài ý muốn, 10 lượt/giờ vẫn dư cho vận hành thực tế (nhiều
+    nguồn x nhiều category)."""
     if payload.source not in crawl_runner._SOURCE_ADAPTERS:
         raise HTTPException(
             status_code=400,
@@ -76,7 +86,9 @@ def trigger_crawl(
 
 
 @router.post("/batch", response_model=CrawlBatchAccepted, status_code=202)
+@limiter.limit("10/hour", key_func=get_user_id_or_ip)
 def trigger_crawl_batch(
+    request: Request,
     payload: CrawlBatchRequest,
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_admin),
@@ -97,7 +109,12 @@ def trigger_crawl_batch(
 
     Trả 409 NGAY nếu source này đang có 1 lượt 'queued'/'running' chưa
     xong — giống hệt POST /crawl đơn lẻ (category đầu tiên của batch
-    cũng phải qua đúng UNIQUE INDEX này, xem crawl_runner.start_batch())."""
+    cũng phải qua đúng UNIQUE INDEX này, xem crawl_runner.start_batch()).
+
+    Rate limit 10/hour theo user_id, TÍNH CHUNG với POST /crawl đơn lẻ
+    (cùng key_func, cùng limiter instance — slowapi đếm theo path riêng
+    từng route nên thực chất đây là 2 hạn mức 10/hour độc lập, xem ghi
+    chú thêm ở POST /crawl phía trên nếu cần biết lý do chọn mốc này)."""
     if payload.source not in crawl_runner._SOURCE_ADAPTERS:
         raise HTTPException(
             status_code=400,
