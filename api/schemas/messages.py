@@ -51,6 +51,12 @@ class ConversationOut(BaseModel):
     unread_count: int
     relationship_status: Optional[str] = None
     """None nghĩa là cặp SS-SS (không qua state machine chat_relationships)."""
+    relationship_id: Optional[str] = None
+    """Thêm 08/2026 — cùng lý do None như relationship_status ở trên
+    (cặp SS-SS). Cho FE gọi POST /messages/relationships/{id}/unblock
+    khi relationship_status == 'blocked' mà không cần route/field nào
+    khác — trước đó FE không có cách lấy relationship_id cho 1 cặp đã
+    accepted/blocked ngoài lúc vừa gọi block_student() xong."""
 
     class Config:
         from_attributes = True

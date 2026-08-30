@@ -333,8 +333,14 @@ def get_unread_count(conn, current_user_id: str) -> int:
 
 def list_conversations(conn, current_user_id: str) -> list[dict]:
     """Danh sách hội thoại của current_user_id: mỗi partner từng nhắn
-    qua lại, kèm tin nhắn cuối + unread_count + relationship_status
-    (NULL nếu là cặp SS-SS, không qua state machine).
+    qua lại, kèm tin nhắn cuối + unread_count + relationship_status +
+    relationship_id (NULL nếu là cặp SS-SS, không qua state machine).
+
+    relationship_id thêm 08/2026 — để FE gọi được
+    POST /messages/relationships/{id}/unblock cho 1 cặp đã
+    accepted/blocked (trước đó ConversationOut không có field này,
+    FE không có cách nào lấy relationship_id để bỏ chặn ngoài lúc vừa
+    block xong, xem block_student() ở router).
 
     v1 suy trực tiếp từ bảng messages bằng DISTINCT ON (không có bảng
     conversations riêng — xem backend-scrap-jd-nhan-tin.md §6 "cố tình
@@ -375,7 +381,8 @@ def list_conversations(conn, current_user_id: str) -> list[dict]:
                 lm.last_message_preview,
                 lm.last_message_at,
                 COALESCE(un.unread_count, 0) AS unread_count,
-                r.status AS relationship_status
+                r.status AS relationship_status,
+                r.id AS relationship_id
             FROM last_msg lm
             JOIN app_users u ON u.ss_user_id = lm.partner_id
             LEFT JOIN unread un ON un.partner_id = lm.partner_id

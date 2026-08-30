@@ -29,7 +29,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
-from api.schemas import MessageCreate
+from api.schemas import ConversationOut, MessageCreate
 
 
 @pytest.fixture(autouse=True)
@@ -586,6 +586,68 @@ def test_pending_requests_allowed_for_ss(mock_conn, ss_user, fake_request):
 
         list_pending_requests(request=fake_request, user=ss_user, conn=mock_conn)
         mock_db.list_pending_requests_for_ss.assert_called_once_with(mock_conn, ss_user["sub"])
+
+
+def test_list_conversations_includes_relationship_id(mock_conn, ss_user, fake_request):
+    """ConversationOut PHẢI chấp nhận/giữ được relationship_id (thêm
+    08/2026, cùng đợt với route unblock ở FE) — thiếu field này thì FE
+    không có cách nào lấy relationship_id để gọi
+    POST /messages/relationships/{id}/unblock cho 1 cặp đã
+    accepted/blocked, xem db.messages.list_conversations() và
+    ConversationOut.relationship_id.
+
+    Gọi router trực tiếp (không qua TestClient) nên response_model của
+    FastAPI KHÔNG tự áp dụng — router chỉ return thẳng list dict từ
+    db_module (xem list_conversations() trong api/routers/messages.py),
+    validate rõ ràng qua ConversationOut.model_validate() ở đây để test
+    đúng cái FastAPI thật sự làm lúc serialize response."""
+    student_id = str(uuid.uuid4())
+    rel_id = str(uuid.uuid4())
+    row = {
+        "partner_id": student_id,
+        "partner_name": "Học viên A",
+        "partner_role": "user",
+        "last_message_preview": "Chào SS",
+        "last_message_at": datetime.now(timezone.utc),
+        "unread_count": 1,
+        "relationship_status": "blocked",
+        "relationship_id": rel_id,
+    }
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.list_conversations.return_value = [row]
+        from api.routers.messages import list_conversations
+
+        result = list_conversations(request=fake_request, user=ss_user, conn=mock_conn)
+
+    assert result == [row]
+    validated = ConversationOut.model_validate(result[0])
+    assert validated.relationship_id == rel_id
+    assert validated.relationship_status == "blocked"
+
+
+def test_list_conversations_relationship_id_none_for_ss_pair(mock_conn, ss_user, fake_request):
+    """Cặp SS-SS không qua state machine -> relationship_id (và
+    relationship_status) phải là None, không phải lỗi thiếu field."""
+    other_ss_id = str(uuid.uuid4())
+    row = {
+        "partner_id": other_ss_id,
+        "partner_name": "SS khác",
+        "partner_role": "ss_team",
+        "last_message_preview": "Ê",
+        "last_message_at": datetime.now(timezone.utc),
+        "unread_count": 0,
+        "relationship_status": None,
+        "relationship_id": None,
+    }
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.list_conversations.return_value = [row]
+        from api.routers.messages import list_conversations
+
+        result = list_conversations(request=fake_request, user=ss_user, conn=mock_conn)
+
+    validated = ConversationOut.model_validate(result[0])
+    assert validated.relationship_id is None
+    assert validated.relationship_status is None
 
 
 # ==================================================================
