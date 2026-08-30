@@ -149,6 +149,15 @@ from api.schemas.import_export import (
     ImportConfirmResult,
     ExportPreviewResponse,
 )
+from api.schemas.messages import (
+    MessageCreate,
+    ChatMessageOut,
+    ConversationOut,
+    PendingRequestOut,
+    UnreadCountOut,
+    PersonSearchResult,
+    RelationshipOut,
+)
 
 __all__ = [
     # jobs
@@ -190,4 +199,7 @@ __all__ = [
     "RowResolution", "FieldVerifyRequest", "DuplicateMatchOut", "BatchDuplicateMatchOut",
     "FieldVerifyResponse", "ResolveCompanyRequest", "ResolveCompanyResponse",
     "ImportConfirmRequest", "ImportConfirmResult", "ExportPreviewResponse",
+    # messages (hệ thống nhắn tin, 08/2026)
+    "MessageCreate", "ChatMessageOut", "ConversationOut", "PendingRequestOut",
+    "UnreadCountOut", "PersonSearchResult", "RelationshipOut",
 ]
