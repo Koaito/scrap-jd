@@ -589,6 +589,133 @@ def test_pending_requests_allowed_for_ss(mock_conn, ss_user, fake_request):
 
 
 # ==================================================================
+# 12. Học viên tự huỷ pending (checklist mới, xem
+#     backend-scrap-jd-nhan-tin.md §5 — 3 dòng thêm 08/2026)
+# ==================================================================
+
+def test_cancel_pending_success(mock_conn, student_user, fake_request):
+    """Huỷ thành công -> xoá hẳn row (không phải declined), 200 +
+    relationship cũ để FE hiện xác nhận."""
+    ss_id = str(uuid.uuid4())
+    rel_id = str(uuid.uuid4())
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.get_relationship.return_value = make_relationship_row(
+            rel_id, student_user["sub"], ss_id, "pending", initiated_by=student_user["sub"]
+        )
+        mock_db.cancel_pending_request.return_value = True
+
+        from api.routers.messages import cancel_my_pending_request
+
+        result = cancel_my_pending_request(request=fake_request, ss_id=ss_id, user=student_user, conn=mock_conn)
+        mock_db.cancel_pending_request.assert_called_once_with(mock_conn, student_user["sub"], ss_id)
+        assert result["status"] == "pending"  # trạng thái TRƯỚC khi xoá, chỉ để FE hiện confirm
+        mock_conn.commit.assert_called_once()
+
+
+def test_cancel_by_ss_forbidden_403(mock_conn, ss_user, fake_request):
+    """SS không được gọi route này (SS dùng decline/block, không phải
+    cancel) -> 403 ngay từ role check, không chạm DB."""
+    student_id = str(uuid.uuid4())
+    with patch("api.routers.messages.db_module") as mock_db:
+        from api.routers.messages import cancel_my_pending_request
+
+        with pytest.raises(HTTPException) as exc_info:
+            cancel_my_pending_request(request=fake_request, ss_id=student_id, user=ss_user, conn=mock_conn)
+        assert exc_info.value.status_code == 403
+        mock_db.get_relationship.assert_not_called()
+        mock_db.cancel_pending_request.assert_not_called()
+
+
+def test_cancel_nonexistent_relationship_404(mock_conn, student_user, fake_request):
+    ss_id = str(uuid.uuid4())
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.get_relationship.return_value = None
+        from api.routers.messages import cancel_my_pending_request
+
+        with pytest.raises(HTTPException) as exc_info:
+            cancel_my_pending_request(request=fake_request, ss_id=ss_id, user=student_user, conn=mock_conn)
+        assert exc_info.value.status_code == 404
+        mock_db.cancel_pending_request.assert_not_called()
+
+
+def test_cancel_not_pending_status_404(mock_conn, student_user, fake_request):
+    """Relationship tồn tại nhưng không ở pending (vd đã accepted) ->
+    404, không cho 'huỷ' cái không còn là request đang chờ."""
+    ss_id = str(uuid.uuid4())
+    rel_id = str(uuid.uuid4())
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.get_relationship.return_value = make_relationship_row(
+            rel_id, student_user["sub"], ss_id, "accepted", initiated_by=student_user["sub"]
+        )
+        from api.routers.messages import cancel_my_pending_request
+
+        with pytest.raises(HTTPException) as exc_info:
+            cancel_my_pending_request(request=fake_request, ss_id=ss_id, user=student_user, conn=mock_conn)
+        assert exc_info.value.status_code == 404
+        mock_db.cancel_pending_request.assert_not_called()
+
+
+def test_cancel_not_initiator_404(mock_conn, student_user, fake_request):
+    """Relationship đang pending nhưng do SS tạo (initiated_by != học
+    viên hiện tại, vd trường hợp mở rộng sau này) -> 404, học viên
+    không thể huỷ hộ request không phải do mình khởi tạo."""
+    ss_id = str(uuid.uuid4())
+    rel_id = str(uuid.uuid4())
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.get_relationship.return_value = make_relationship_row(
+            rel_id, student_user["sub"], ss_id, "pending", initiated_by=ss_id
+        )
+        from api.routers.messages import cancel_my_pending_request
+
+        with pytest.raises(HTTPException) as exc_info:
+            cancel_my_pending_request(request=fake_request, ss_id=ss_id, user=student_user, conn=mock_conn)
+        assert exc_info.value.status_code == 404
+        mock_db.cancel_pending_request.assert_not_called()
+
+
+def test_cancel_race_condition_returns_409(mock_conn, student_user, fake_request):
+    """get_relationship() thấy pending, nhưng DELETE thực tế 0 dòng
+    (SS vừa accept/decline ngay trước đó) -> 409, không phải 404 (khác
+    với case chưa từng tồn tại)."""
+    ss_id = str(uuid.uuid4())
+    rel_id = str(uuid.uuid4())
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.get_relationship.return_value = make_relationship_row(
+            rel_id, student_user["sub"], ss_id, "pending", initiated_by=student_user["sub"]
+        )
+        mock_db.cancel_pending_request.return_value = False
+        from api.routers.messages import cancel_my_pending_request
+
+        with pytest.raises(HTTPException) as exc_info:
+            cancel_my_pending_request(request=fake_request, ss_id=ss_id, user=student_user, conn=mock_conn)
+        assert exc_info.value.status_code == 409
+
+
+def test_cancel_then_resend_no_cooldown(mock_conn, student_user, fake_request):
+    """Sau khi huỷ, học viên gửi lại request tới CÙNG SS đó ngay lập
+    tức -> phải đi qua nhánh 'chưa từng có quan hệ' (create_pending_request),
+    KHÔNG bị chặn bởi cooldown 7 ngày (khác hẳn nhánh declined) — vì
+    cancel_pending_request() xoá hẳn row, get_relationship() sau đó
+    trả về None y như chưa từng nhắn."""
+    ss_id = str(uuid.uuid4())
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.get_user_by_id.return_value = make_user_row(ss_id, "ss_team")
+        mock_db.get_relationship.return_value = None  # đã bị xoá hẳn bởi cancel trước đó
+        mock_db.count_pending_for_student.return_value = 0
+        mock_db.MAX_PENDING_PER_STUDENT = 3
+        mock_db.create_pending_request.return_value = str(uuid.uuid4())
+
+        from api.routers.messages import send_message
+
+        payload = MessageCreate(receiver_id=ss_id, content="Em xin lỗi, gửi lại yêu cầu ạ")
+        result = send_message(request=fake_request, payload=payload, user=student_user, conn=mock_conn)
+
+        assert result.status_code == 202
+        mock_db.reset_declined_to_pending.assert_not_called()  # không đi qua nhánh cooldown
+        mock_db.create_pending_request.assert_called_once_with(mock_conn, student_user["sub"], ss_id)
+
+
+# ==================================================================
 # GHI CHÚ — phần KHÔNG thể test bằng unit test (mock DB), cần chạy
 # tay hoặc integration test với Postgres thật, xem
 # backend-scrap-jd-nhan-tin.md §5:
@@ -602,6 +729,10 @@ def test_pending_requests_allowed_for_ss(mock_conn, ss_user, fake_request):
 # - COUNT(*) pending trong cùng transaction với INSERT (chống race
 #   giữa 2 request đồng thời cùng "lách" qua ngưỡng 3) — cần test với
 #   connection pool thật, mock conn không mô phỏng transaction isolation.
+# - Race giữa cancel (DELETE) và accept/decline (UPDATE) từ 2 request
+#   thật đồng thời — tương tự, unit test chỉ xác nhận router đọc đúng
+#   kết quả True/False từ db_module, không xác nhận DB thật serialize
+#   đúng dưới tải đồng thời.
 # - Index có thực sự được Postgres planner chọn dùng không (EXPLAIN
 #   ANALYZE) — cần DB thật có dữ liệu đủ lớn.
 # - Rate limit 429 thực tế qua nhiều lần gọi HTTP liên tiếp trong 1

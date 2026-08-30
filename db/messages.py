@@ -122,6 +122,33 @@ def accept_relationship(conn, relationship_id: str, ss_id: str) -> bool:
         return cur.fetchone() is not None
 
 
+def cancel_pending_request(conn, student_id: str, ss_id: str) -> bool:
+    """(h) Học viên TỰ HUỶ request đang 'pending' do chính mình khởi
+    tạo (initiated_by = student_id — phân biệt với trường hợp khác,
+    dù ở v1 học viên là bên duy nhất tự tạo pending). XOÁ HẲN row
+    (không chuyển sang 'declined') — quyết định có chủ đích: huỷ do
+    học viên tự nguyện rút (gửi nhầm, đổi ý) không nên bị áp cooldown
+    DECLINE_COOLDOWN_DAYS giống như bị SS từ chối, vì đó là 2 tình
+    huống khác nhau về bản chất. Xoá hẳn cho phép học viên gửi lại
+    ngay lập tức, và giải phóng suất trong MAX_PENDING_PER_STUDENT.
+
+    Trả True nếu huỷ thành công, False nếu 0 dòng ảnh hưởng (không
+    tồn tại / không thuộc về student_id này / không còn ở 'pending' —
+    router không cần phân biệt lý do cụ thể, trả 404 chung là đủ, vì
+    học viên không có quyền xem trạng thái relationship của người
+    khác nên không rò rỉ thông tin gì thêm)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM chat_relationships
+            WHERE student_id = %s AND ss_id = %s AND status = 'pending' AND initiated_by = %s
+            RETURNING id
+            """,
+            (student_id, ss_id, student_id),
+        )
+        return cur.fetchone() is not None
+
+
 def decline_relationship(conn, relationship_id: str, ss_id: str) -> bool:
     """(d) SS decline — cùng điều kiện atomic như accept."""
     with conn.cursor() as cur:

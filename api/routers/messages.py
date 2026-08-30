@@ -267,11 +267,60 @@ def mark_read(
     return {"marked_read": updated}
 
 
+@router.post("/cancel/{ss_id}", response_model=RelationshipOut)
+@limiter.limit("20/minute", key_func=get_user_id_or_ip)
+def cancel_my_pending_request(
+    request: Request,
+    ss_id: str,
+    user: dict = Depends(get_current_user),
+    conn=Depends(get_db),
+):
+    """Học viên TỰ HUỶ request đang 'pending' do chính mình tạo với
+    ss_id này (gửi nhầm SS / đổi ý) — xem db.cancel_pending_request()
+    và backend-scrap-jd-nhan-tin.md §2 transition (h).
+
+    KHÁC với decline (do SS thực hiện): huỷ ở đây XOÁ HẲN row, KHÔNG
+    áp cooldown DECLINE_COOLDOWN_DAYS — học viên được gửi lại ngay lập
+    tức, và suất trong MAX_PENDING_PER_STUDENT được giải phóng ngay.
+
+    Chỉ role 'user' mới gọi được (SS không có gì để "huỷ" theo nghĩa
+    này — SS dùng decline/block). 0 dòng ảnh hưởng ở tầng DB (không
+    tồn tại / không phải initiated_by=current_user / không còn pending)
+    -> 404 chung, không phân biệt lý do cụ thể để không rò rỉ thông
+    tin về trạng thái relationship của người khác.
+
+    LƯU Ý: trả về RelationshipOut nhưng row đã bị xoá khỏi DB — response
+    body chỉ để FE hiện thông báo xác nhận (dùng lại state trước khi
+    xoá), KHÔNG dùng để query lại relationship này sau đó."""
+    if user["role"] != "user":
+        raise HTTPException(status_code=403, detail="Chỉ học viên mới có thể huỷ yêu cầu nhắn tin của mình.")
+
+    relationship = db_module.get_relationship(conn, user["sub"], ss_id)
+    if relationship is None or relationship["status"] != "pending" or relationship["initiated_by"] != user["sub"]:
+        raise HTTPException(
+            status_code=404,
+            detail="Không tìm thấy yêu cầu đang chờ để huỷ.",
+        )
+
+    ok = db_module.cancel_pending_request(conn, user["sub"], ss_id)
+    if not ok:
+        # Hiếm: bị xử lý bởi thao tác khác (SS vừa accept/decline) giữa
+        # lúc get_relationship() ở trên và DELETE — 409 chính xác hơn 404
+        # ở đây vì ta VỪA xác nhận nó tồn tại 1 dòng lệnh trước.
+        raise HTTPException(
+            status_code=409,
+            detail="Yêu cầu vừa được xử lý (có thể SS đã phản hồi) — vui lòng tải lại.",
+        )
+    conn.commit()
+    return relationship
+
+
 # ============================================================
 # Quản lý quan hệ (Việc 5) — accept / decline / block / unblock.
 # Chỉ ss_id sở hữu relationship mới được thao tác — không cho SS khác
-# accept/decline/block hộ, không cho học viên tự thao tác quan hệ của
-# chính mình (học viên chỉ tạo pending qua POST /messages).
+# accept/decline/block hộ. Riêng cancel (route ngay phía trên) là
+# thao tác NGƯỢC LẠI dành cho học viên — huỷ request do chính mình
+# tạo, tách khỏi nhóm route SS-only này.
 # ============================================================
 
 @router.post("/relationships/{relationship_id}/accept", response_model=RelationshipOut)
