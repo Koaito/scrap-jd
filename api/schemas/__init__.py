@@ -92,6 +92,7 @@ from api.schemas.auth import (
     RefreshRequest,
     AccessTokenOut,
     ChangePasswordRequest,
+    UserProfileUpdate,
     UserOut,
     UserCreateByAdmin,
     UserCreatedOut,
@@ -169,7 +170,7 @@ __all__ = [
     "PaginatedMaintenanceRuns", "MaintenanceLogOut", "MaintenanceLogsOut",
     # auth
     "LoginRequest", "TokenPairOut", "RefreshRequest", "AccessTokenOut",
-    "ChangePasswordRequest", "UserOut", "UserCreateByAdmin", "UserCreatedOut",
+    "ChangePasswordRequest", "UserProfileUpdate", "UserOut", "UserCreateByAdmin", "UserCreatedOut",
     "UserRoleUpdate", "UserActiveStatusUpdate", "RegisterRequest", "RegisterOut",
     "ResendVerificationRequest", "ForgotPasswordRequest", "ResetPasswordRequest",
     "MessageOut",

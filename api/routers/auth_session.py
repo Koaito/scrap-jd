@@ -28,7 +28,7 @@ from api.deps import get_db, get_current_user
 from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
     AccessTokenOut, ChangePasswordRequest, LoginRequest, RefreshRequest,
-    TokenPairOut, UserOut,
+    TokenPairOut, UserOut, UserProfileUpdate,
 )
 
 logger = logging.getLogger(__name__)
@@ -271,6 +271,47 @@ def get_me(user: dict = Depends(get_current_user), conn=Depends(get_db)):
     if row is None:
         raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
     return row
+
+
+@router.patch("/me", response_model=UserOut)
+@limiter.limit("10/hour", key_func=get_user_id_or_ip)
+def update_me(
+    request: Request,
+    payload: UserProfileUpdate,
+    user: dict = Depends(get_current_user),
+    conn=Depends(get_db),
+):
+    """User TỰ sửa hồ sơ của CHÍNH MÌNH (full_name/phone/track) — thêm
+    08/2026 cùng đợt làm trang cá nhân phía frontend. KHÔNG sửa email/
+    role/is_active/password (đổi mật khẩu vẫn qua POST /change-password
+    riêng, đổi role/is_active chỉ admin làm được qua PATCH
+    /auth/users/{id}/...) — xem docstring UserProfileUpdate.
+
+    Rate limit 10/hour theo user_id — cùng mức với change_password()
+    ngay bên dưới (route BẮT BUỘC JWT hợp lệ nên không lo bot vô danh,
+    nhưng vẫn giới hạn để chặn spam ghi DB nếu 1 access token bị lộ).
+
+    phone/track: staff (role != 'user') gửi lên bị ÉP về None trước khi
+    ghi DB, bất kể payload gửi gì — nhất quán với UserOut đã ẩn 2 field
+    này ở response cho staff (_hide_phone_track_for_staff). Học viên
+    gửi chuỗi rỗng "" (đã bị str_strip_whitespace rút gọn nếu chỉ có
+    khoảng trắng) thì coi như muốn XOÁ, ghi NULL thay vì lưu chuỗi rỗng.
+    """
+    row = db_module.get_user_by_id(conn, user["sub"])
+    if row is None:
+        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+
+    is_student = row["role"] == "user"
+    phone = (payload.phone or None) if is_student else None
+    track = (payload.track or None) if is_student else None
+
+    db_module.update_user_profile(
+        conn, user["sub"],
+        full_name=payload.full_name, phone=phone, track=track,
+    )
+    conn.commit()
+
+    return db_module.get_user_by_id(conn, user["sub"])
 
 
 @router.post("/change-password", response_model=UserOut)

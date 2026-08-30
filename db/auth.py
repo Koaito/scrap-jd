@@ -207,6 +207,29 @@ def list_users(conn):
         return cur.fetchall()
 
 
+def update_user_profile(conn, ss_user_id: str, *, full_name: str,
+                         phone: Optional[str], track: Optional[str]) -> bool:
+    """Ghi full_name/phone/track do CHÍNH user cập nhật (PATCH /auth/me,
+    thêm 08/2026) — KHÁC update_user_role/update_user_active_status ở
+    trên (2 hàm đó admin-only, đổi role/khoá tài khoản NGƯỜI KHÁC). Hàm
+    này chỉ đổi 3 field hồ sơ cá nhân, KHÔNG đụng role/is_active/email/
+    password — route (api/routers/auth_session.py) đã tự giới hạn field
+    nào truyền vào được qua schema UserProfileUpdate, hàm ở đây chỉ
+    thực thi UPDATE thuần.
+
+    phone/track truyền None thì ghi NULL (cho phép xoá giá trị cũ đã
+    nhập, không phải "giữ nguyên nếu bỏ trống" — route validate/chuẩn
+    hoá chuỗi rỗng thành None trước khi gọi, xem docstring route).
+    Trả False nếu ss_user_id không tồn tại."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE app_users SET full_name = %s, phone = %s, track = %s "
+            "WHERE ss_user_id = %s",
+            (full_name, phone, track, ss_user_id),
+        )
+        return cur.rowcount > 0
+
+
 def update_user_role(conn, ss_user_id: str, new_role: str) -> bool:
     """Đổi role của 1 user — CHỈ gọi từ route admin-only (PATCH
     /auth/users/{id}/role). Route tự chặn admin đổi role CHÍNH MÌNH

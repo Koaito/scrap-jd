@@ -56,6 +56,35 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(..., min_length=8)
 
 
+class UserProfileUpdate(BaseModel):
+    """Body cho PATCH /auth/me (thêm 08/2026) — user TỰ sửa hồ sơ của
+    CHÍNH MÌNH. KHÁC UserRoleUpdate/UserActiveStatusUpdate (admin-only,
+    sửa NGƯỜI KHÁC) và KHÁC ChangePasswordRequest (đổi mật khẩu, không
+    đụng full_name/phone/track).
+
+    Không cho sửa email/role/is_active qua route này — đổi email cần
+    xác thực lại (chưa làm, xem README mục Auth), đổi role/is_active
+    chỉ admin làm được (PATCH /auth/users/{id}/...). Giữ schema NHỎ và
+    tách biệt rõ ràng theo từng loại thao tác, không gộp thành 1 "update
+    chung chung" dễ gây nhầm lẫn field nào ai được sửa.
+
+    phone/track CHỈ có ý nghĩa với role='user' (học viên) — route tự
+    bỏ qua/ép None cho tài khoản staff khi ghi DB (cùng logic ẩn ở
+    UserOut._hide_phone_track_for_staff phía response), schema ở đây
+    KHÔNG tự biết role đang gọi nên không validate được điều đó."""
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    full_name: str = Field(..., min_length=1, max_length=255)
+    # Optional + có thể gửi "" để XOÁ giá trị cũ (route chuẩn hoá ""
+    # thành None trước khi ghi DB — xem api/routers/auth_session.py).
+    # Không dùng Optional[str] = None làm nghĩa "giữ nguyên" vì PATCH
+    # ở đây luôn ghi đè toàn bộ 3 field (không phải partial update kiểu
+    # "field nào có mặt mới đổi") — đơn giản hơn cho phía frontend: form
+    # luôn gửi đủ 3 field, để trống nghĩa là muốn xoá.
+    phone: Optional[str] = Field(default=None, max_length=30)
+    track: Optional[str] = Field(default=None, max_length=100)
+
+
 class UserOut(BaseModel):
     """KHÔNG bao giờ chứa password_hash — dùng cho mọi response trả
     thông tin user ra ngoài (GET /auth/me, danh sách user cho admin)."""
