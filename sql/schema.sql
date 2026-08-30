@@ -606,5 +606,44 @@ SELECT 'Hỏi nhu cầu tuyển dụng tháng/quý',
 WHERE NOT EXISTS (SELECT 1 FROM email_templates WHERE title = 'Hỏi nhu cầu tuyển dụng tháng/quý');
 
 -- ============================================================
+-- Hệ thống nhắn tin — học viên ↔ SS / SS ↔ SS (08/2026).
+-- Xem sql/migration_add_chat_messages.sql cho DB đã có sẵn dữ liệu,
+-- và backend-scrap-jd-nhan-tin.md cho toàn bộ kế hoạch/state machine.
+-- ============================================================
+
+CREATE TABLE IF NOT EXISTS chat_relationships (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    student_id      UUID NOT NULL REFERENCES app_users(ss_user_id),
+    ss_id           UUID NOT NULL REFERENCES app_users(ss_user_id),
+    status          TEXT NOT NULL CHECK (status IN ('pending', 'accepted', 'declined', 'blocked')),
+    initiated_by    UUID NOT NULL REFERENCES app_users(ss_user_id),
+    requested_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    decided_at      TIMESTAMPTZ,
+    declined_at     TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (student_id, ss_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_relationships_student_status
+    ON chat_relationships (student_id, status);
+CREATE INDEX IF NOT EXISTS idx_chat_relationships_ss_status
+    ON chat_relationships (ss_id, status);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id              BIGSERIAL PRIMARY KEY,
+    sender_id       UUID NOT NULL REFERENCES app_users(ss_user_id),
+    receiver_id     UUID NOT NULL REFERENCES app_users(ss_user_id),
+    content         TEXT NOT NULL CHECK (char_length(btrim(content)) BETWEEN 1 AND 2000),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    read_at         TIMESTAMPTZ,
+    CHECK (sender_id != receiver_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_sender_receiver ON messages (sender_id, receiver_id, id);
+CREATE INDEX IF NOT EXISTS idx_messages_receiver_sender ON messages (receiver_id, sender_id, id);
+CREATE INDEX IF NOT EXISTS idx_messages_unread ON messages (receiver_id, id) WHERE read_at IS NULL;
+
+-- ============================================================
 -- HẾT FILE
 -- ============================================================
