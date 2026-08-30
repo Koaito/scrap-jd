@@ -497,6 +497,12 @@ JWT/phân quyền, danh sách biến môi trường) xem `API_README.md`.
 
 ## Tình trạng dữ liệu & giới hạn đã biết
 
+> Snapshot dưới đây là ảnh chụp tĩnh tại thời điểm viết. Muốn xem số liệu
+> SỐNG (cập nhật theo thời gian thực, cả breakdown theo nguồn crawl và
+> job hết hạn/nghi trùng) — gọi `GET /jobs/data-health` và
+> `GET /companies/data-health` (xem `API_README.md`), đây là 2 endpoint
+> dùng cho tab "Tình trạng dữ liệu" bên frontend (mindx-jobs).
+
 Snapshot tại thời điểm viết (183 job / 134 công ty, crawl **6 ngành**
 trên **TopCV + VietnamWorks**, CareerViet mới thêm sau nên chưa nằm
 trong snapshot này):

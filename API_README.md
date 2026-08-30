@@ -161,9 +161,11 @@ ra ngay, không đợi access token 30 phút tự hết hạn).
 | POST | `/jobs` | Tạo job thủ công (company phải có sẵn), idempotent | API key + JWT (ss_team+) |
 | PATCH | `/jobs/{job_id}` | Sửa job tự do (đổi trạng thái/lương/ghi chú...). Dùng `job_status:"CLOSED"` để "xoá mềm" | API key + JWT (ss_team+) |
 | GET | `/jobs/{job_id}/applications` | Ai đã ứng tuyển job này (full_name/email/phone) | API key + JWT (ss_team+) |
+| GET | `/jobs/data-health` | Thống kê thiếu field/job hết hạn/job nghi trùng, tính sẵn bằng SQL — dùng cho tab "Tình trạng dữ liệu" | API key |
 | GET | `/companies?keyword=&province=&has_social=&limit=&offset=` | List công ty, filter + phân trang | API key |
 | GET | `/companies/{company_id}` | Chi tiết công ty (kèm danh sách job) | API key |
 | POST | `/companies` | Tạo công ty thủ công (tự dùng lại công ty đã có nếu trùng tax_id) | API key + JWT (ss_team+) |
+| GET | `/companies/data-health` | Thống kê company thiếu field/chưa có contact, tính sẵn bằng SQL — dùng cho tab "Tình trạng dữ liệu" | API key + JWT (ss_team+) |
 | GET | `/companies/{company_id}/contacts?include_inactive=` | List liên hệ HR của 1 công ty | API key + JWT (ss_team+) |
 | POST | `/companies/{company_id}/contacts` | Thêm liên hệ HR | API key + JWT (ss_team+) |
 | PATCH | `/companies/{company_id}/contacts/{contact_id}` | Sửa liên hệ HR (chỉ field gửi lên bị ghi đè) | API key + JWT (ss_team+) |
@@ -243,6 +245,34 @@ Chỉ gửi field muốn sửa, field không gửi giữ nguyên.
 Không có endpoint DELETE thật — job xoá thật sẽ bị crawl lại tạo trùng ở
 lượt crawl sau.
 
+### `GET /jobs/data-health` — thống kê thiếu dữ liệu job
+
+Trả về sẵn (tính bằng SQL trong `db.get_job_data_health()`, không kéo
+`parsed_content` về client):
+
+```json
+{
+  "job_health_rows": [
+    {"field": "skills", "label": "Kỹ năng", "missing": 120, "total": 800, "pct_missing": 15}
+  ],
+  "job_health_total": 800,
+  "expired_open_jobs": [
+    {"id": "...", "position": "Fresher Backend", "company": "Công ty ABC", "deadline": "2026-08-01", "source": "TopCV"}
+  ],
+  "job_health_by_source": [
+    {"source": "TopCV", "total": 400, "rows": [...]}
+  ],
+  "duplicate_job_groups": [
+    {"company": "Công ty ABC", "position": "Fresher Backend", "jobs": [...]}
+  ]
+}
+```
+
+Dùng cho tab "Tình trạng dữ liệu" bên frontend (mindx-jobs) — thay thế
+cách cũ kéo `list_all_jobs(include_content=True)` (toàn bộ job kèm
+`parsed_content` JSONB) về rồi tự đếm/group bằng Python. `expired_open_jobs`
+sort theo deadline mới nhất trước (job vừa hết hạn cần xử lý gấp hơn).
+
 ### `POST /companies` — tạo công ty thủ công
 
 ```json
@@ -261,6 +291,26 @@ lượt crawl sau.
 
 Nếu `tax_id` trùng với công ty đã có sẵn (vd đã crawl từ TopCV trước đó)
 → route tự động dùng lại company đã có, KHÔNG tạo bản ghi trùng.
+
+### `GET /companies/data-health` — thống kê thiếu dữ liệu công ty
+
+```json
+{
+  "company_health_rows": [
+    {"field": "tax_id", "label": "Mã số thuế", "missing": 30, "total": 200, "pct_missing": 15}
+  ],
+  "company_health_total": 200,
+  "company_no_contact_missing": 45,
+  "company_no_contact_total": 200
+}
+```
+
+Yêu cầu JWT (`ss_team`+) — khác các route `GET /companies*` khác (chỉ
+cần API key) — vì phải `JOIN` qua `company_contacts` để đếm công ty
+active chưa có liên hệ HR nào (thông tin liên hệ nhạy cảm, cùng lý do
+mọi route `/companies/{id}/contacts` đều yêu cầu `ss_team`+). Tính bằng
+SQL trong `db.get_company_data_health()`, thay thế cách cũ kéo toàn bộ
+`list_all_companies()` + `list_all_contacts()` về rồi tự đếm bằng Python.
 
 ### `POST /companies/{company_id}/contacts` — thêm liên hệ HR
 
