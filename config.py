@@ -251,6 +251,18 @@ DB_CONFIG = {
 DB_POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
 DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "20"))
 
+# 08/2026 (xem lịch sử trao đổi "connection pool exhausted" + bounded-
+# wait ở db/connection.py:get_pooled_connection()) — số giây TỐI ĐA sẽ
+# retry chờ pool có slot trống trước khi raise psycopg2.pool.PoolError
+# thật, thay vì raise NGAY khi gặp burst polling thoáng qua (nhiều tab/
+# job_type card cùng xin connection trong tích tắc trong khi mỗi query
+# thường chỉ giữ connection vài chục ms). 2 giây là đủ để hấp thụ burst
+# bình thường mà KHÔNG làm request treo lâu tới mức người dùng cảm nhận
+# được — nghẽn kéo dài THẬT SỰ (không phải burst thoáng qua) vẫn sẽ
+# raise lỗi rõ ràng sau đúng khoảng thời gian này, không che giấu vấn
+# đề bằng cách chờ vô thời hạn.
+DB_POOL_WAIT_TIMEOUT = float(os.getenv("DB_POOL_WAIT_TIMEOUT", "2.0"))
+
 # ------------------------------------------------------------------
 # Crawl watchdog (08/2026, xem api/services/crawl_watchdog.py +
 # sql/migration_add_crawl_runs.sql) — phát hiện lượt crawl bị TREO

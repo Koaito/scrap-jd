@@ -4,12 +4,13 @@ db.connection — tách từ db.py (God module) theo domain.
 
 import logging
 import os
+import time
 import uuid as uuid_module
 from typing import Optional
 
 import psycopg2
 import psycopg2.pool
-from config import DB_CONFIG, DB_POOL_MAX, DB_POOL_MIN
+from config import DB_CONFIG, DB_POOL_MAX, DB_POOL_MIN, DB_POOL_WAIT_TIMEOUT
 
 logger = logging.getLogger(__name__)
 
@@ -79,16 +80,50 @@ def get_pooled_connection():
 
     Raise lỗi rõ ràng nếu gọi trước khi init_pool() chạy (lỗi cấu hình
     ở api/app.py, không nên xảy ra khi chạy qua uvicorn bình thường)
-    thay vì để AttributeError mù mờ (None.getconn())."""
+    thay vì để AttributeError mù mờ (None.getconn()).
+
+    08/2026 (xem lịch sử trao đổi "connection pool exhausted" sau khi
+    nâng DB_POOL_MAX) — BOUNDED-WAIT thay vì raise PoolError NGAY LẬP
+    TỨC khi pool hết slot: polling nhiều tab/nhiều job_type card cùng
+    lúc tạo BURST xin connection trong tích tắc (mili-giây), trong khi
+    mỗi query mượn connection thường chỉ giữ vài chục ms rồi trả ngay
+    (get_db() release() trong finally) — retry vài lần trong khoảng
+    DB_POOL_WAIT_TIMEOUT giây thường đủ để "hứng" được slot vừa trả ra,
+    thay vì 500 ngay cho request TỚI CHẬM HƠN 1 nhịp. Không dùng
+    threading.Semaphore/Condition đồng bộ chính xác ở đây vì
+    ThreadedConnectionPool không tự expose event "vừa có connection
+    trả về" để chờ đúng nghĩa — poll bằng vòng lặp + sleep ngắn là cách
+    đơn giản, đủ dùng cho quy mô hiện tại (không tốn CPU đáng kể vì
+    tổng thời gian chờ tối đa vài giây, không phải vòng lặp bận rộn dài
+    hạn).
+
+    Vẫn raise psycopg2.pool.PoolError như cũ nếu HẾT hẳn
+    DB_POOL_WAIT_TIMEOUT giây mà không có slot nào trống — nghĩa là
+    NGHẼN THẬT (không phải burst thoáng qua), lúc đó 500 vẫn là phản hồi
+    đúng (che giấu bằng cách chờ lâu hơn sẽ chỉ làm request TREO lâu vô
+    ích thay vì báo lỗi rõ ràng cho FE retry)."""
     if _pool is None:
         raise RuntimeError(
             "Connection pool chưa được khởi tạo — init_pool() phải chạy "
             "trong FastAPI startup event trước khi có request nào chạm "
             "get_db(). Kiểm tra lại api/app.py."
         )
-    conn = _pool.getconn()
-    conn.autocommit = False
-    return conn
+    deadline = time.monotonic() + DB_POOL_WAIT_TIMEOUT
+    _retry_delay = 0.05  # 50ms — đủ ngắn để bắt kịp query trung bình vài
+    # chục ms, KHÔNG quá ngắn tới mức vòng lặp retry chiếm CPU đáng kể.
+    while True:
+        try:
+            conn = _pool.getconn()
+            conn.autocommit = False
+            return conn
+        except psycopg2.pool.PoolError:
+            if time.monotonic() >= deadline:
+                raise
+            time.sleep(_retry_delay)
+            # Tăng dần delay (tối đa 300ms) — burst thật sự nặng (nghẽn
+            # kéo dài, không phải chỉ 1 nhịp thoáng qua) không nên retry
+            # dồn dập liên tục làm nặng thêm việc pool đang cạn.
+            _retry_delay = min(_retry_delay * 1.5, 0.3)
 
 
 def release_connection(conn) -> None:
