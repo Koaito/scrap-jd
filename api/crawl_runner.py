@@ -88,6 +88,7 @@ from typing import Optional
 import db as db_module
 from pipeline import run_pipeline
 from config import DEFAULT_MAX_PAGES
+from api.concurrency import GLOBAL_JOB_SEMAPHORE
 # _SOURCE_ADAPTERS giờ import từ sources_registry.py (nguồn sự thật duy
 # nhất) thay vì tự khai báo lặp lại ở đây — đây CHÍNH LÀ nơi từng gây
 # bug CareerViet "crawl được qua CLI nhưng không hiện trên web" (thiếu
@@ -356,10 +357,30 @@ def execute(run_id: str) -> None:
     BackgroundTasks/router cho các category thứ 2 trở đi, xem
     start_batch(). Đệ quy tail-call — chấp nhận được vì 1 batch tối đa
     vài chục category (giới hạn ở CrawlBatchRequest), không có rủi ro
-    tràn stack thực tế."""
+    tràn stack thực tế.
+
+    GLOBAL_JOB_SEMAPHORE (08/2026, xem docstring api/concurrency.py) —
+    CHẶN tổng số job nền (crawl + maintenance CỘNG CHUNG) chạy đồng
+    thời trên toàn hệ thống, không riêng source này. Giữ ĐÚNG 1 slot
+    semaphore SUỐT CẢ BATCH (mọi category nối tiếp nhau tính là 1 job),
+    không phải 1 slot cho mỗi category — semaphore chỉ acquire() ở
+    đúng lệnh gọi execute() ĐẦU TIÊN (từ BackgroundTasks), các lệnh gọi
+    đệ quy bên trong _run_batch_locked() KHÔNG acquire lại. Trước đây
+    chỉ có ActiveCrawlExistsError chặn trùng CÙNG source, không chặn
+    được việc bấm chạy crawl + các job maintenance khác cùng lúc, dẫn
+    tới cạn connection Postgres phía Supabase (EMAXCONNSESSION)."""
+    with GLOBAL_JOB_SEMAPHORE:
+        _run_batch_locked(run_id)
+
+
+def _run_batch_locked(run_id: str) -> None:
+    """Chạy 1 run + đệ quy hết các category còn lại trong batch (nếu
+    có) — TRONG lúc semaphore của execute() đang giữ. Tách riêng khỏi
+    execute() để không acquire() lại semaphore ở mỗi lượt đệ quy (xem
+    docstring execute())."""
     next_run_id = _execute_one(run_id)
     if next_run_id is not None:
-        execute(next_run_id)
+        _run_batch_locked(next_run_id)
 
 
 def _execute_one(run_id: str) -> Optional[str]:

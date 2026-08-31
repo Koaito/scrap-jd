@@ -66,6 +66,8 @@ from typing import Optional
 
 import db as db_module
 
+from api.concurrency import GLOBAL_JOB_SEMAPHORE
+
 import backfill_company_profiles
 import enrich_company_profile_from_website
 import enrich_company_web_info
@@ -203,7 +205,27 @@ def execute(run_id: str) -> None:
     enrich_* xử lý hàng trăm công ty). Nếu mượn từ pool, sẽ khoá cứng 1
     slot pool trong suốt thời gian đó, làm giảm connection khả dụng cho
     các request HTTP khác đang chạy song song. Xem docstring module ở
-    đầu file để biết đầy đủ lý do (mục CONNECTION POOL)."""
+    đầu file để biết đầy đủ lý do (mục CONNECTION POOL).
+
+    GLOBAL_JOB_SEMAPHORE (08/2026, xem docstring api/concurrency.py) —
+    CHẶN tổng số job nền (maintenance + crawl CỘNG CHUNG) chạy đồng
+    thời trên toàn hệ thống, không riêng job_type này. Trước đây chỉ có
+    ActiveMaintenanceRunExistsError chặn trùng CÙNG job_type, không
+    chặn được việc bấm chạy nhiều job_type khác nhau (hoặc job_type +
+    crawl) cùng lúc, dẫn tới cạn connection Postgres phía Supabase
+    (EMAXCONNSESSION). BackgroundTasks đã trả response 202/run_id ngay
+    từ start_run() TRƯỚC khi execute() chạy (xem router), nên việc
+    execute() bị semaphore giữ lại (block) ở đây KHÔNG làm chậm response
+    HTTP — job chỉ thật sự bắt đầu (đổi status -> 'running') khi tới
+    lượt, giữ nguyên status='queued' trong lúc chờ."""
+    with GLOBAL_JOB_SEMAPHORE:
+        _execute_locked(run_id)
+
+
+def _execute_locked(run_id: str) -> None:
+    """Thân thật của execute() — tách riêng để execute() ở trên chỉ lo
+    đúng 1 việc (giữ semaphore trong suốt quá trình chạy), không lồng
+    thêm logic vào cùng khối `with`."""
     conn = db_module.get_connection()
     try:
         run = db_module.get_maintenance_run(conn, run_id)

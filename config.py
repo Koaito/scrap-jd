@@ -228,12 +228,23 @@ DB_CONFIG = {
 # bởi api/app.py lúc startup, KHÔNG ảnh hưởng CLI (main.py vẫn dùng
 # db.get_connection() mở/đóng trực tiếp như cũ).
 #
-# maxconn NÊN thấp hơn giới hạn connection Postgres phía Render/Supabase
-# cho phép (managed Postgres tier free thường giới hạn thấp) — mặc định
-# 20 là ước lượng an toàn cho quy mô team nhỏ, chỉnh qua env nếu cần.
+# maxconn PHẢI thấp hơn giới hạn connection Postgres phía Render/Supabase
+# cho phép, VÀ chừa chỗ cho các job nền (xem api/maintenance_runner.py +
+# api/crawl_runner.py, mục CONNECTION POOL — mỗi job nền đang chạy giữ
+# 2 connection NGOÀI pool này) cùng debug/migration thủ công.
+#
+# 08/2026 (fix lỗi "psycopg2.OperationalError ... EMAXCONNSESSION ...
+# pool_size: 15" khi Supabase session pooler bị cạn connection) — HẠ
+# mặc định từ 20 xuống 8: gói Supabase hiện tại giới hạn 15 connection
+# ở session mode (port 5432), 20 riêng cho pool API đã VƯỢT trần đó dù
+# chưa tính job nền. Với default 8 + GLOBAL_JOB_LIMIT=2 job nền * 2
+# connection/job (xem api/concurrency.py) = tối đa 12 connection, chừa
+# 3 slot cho debug (DBeaver/pgAdmin)/migration thủ công. Đang dùng
+# Transaction Pooler (port 6543, xem .env.example) thì giới hạn này
+# thoải mái hơn nhiều — có thể nâng lại qua env DB_POOL_MAX.
 # ------------------------------------------------------------------
 DB_POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
-DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "20"))
+DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "8"))
 
 # ------------------------------------------------------------------
 # Crawl watchdog (08/2026, xem api/services/crawl_watchdog.py +
