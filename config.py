@@ -228,23 +228,28 @@ DB_CONFIG = {
 # bởi api/app.py lúc startup, KHÔNG ảnh hưởng CLI (main.py vẫn dùng
 # db.get_connection() mở/đóng trực tiếp như cũ).
 #
-# maxconn PHẢI thấp hơn giới hạn connection Postgres phía Render/Supabase
-# cho phép, VÀ chừa chỗ cho các job nền (xem api/maintenance_runner.py +
-# api/crawl_runner.py, mục CONNECTION POOL — mỗi job nền đang chạy giữ
-# 2 connection NGOÀI pool này) cùng debug/migration thủ công.
+# 08/2026 (2 lần chỉnh liên tiếp, xem lịch sử trao đổi):
+#   (1) Hạ 20 -> 8 để fix lỗi "EMAXCONNSESSION ... pool_size: 15" khi
+#       còn dùng Session Pooler (port 5432, giới hạn CỨNG 15 connection
+#       thật phía Supabase).
+#   (2) SAU KHI đã chuyển hẳn sang Transaction Pooler (PGPORT=6543, xem
+#       .env.example) -> NÂNG LẠI 8 -> 20: 8 hoá ra QUÁ THẤP cho tải
+#       polling thật (nhiều tab, nhiều job_type card tự poll status/
+#       logs mỗi 1-2 giây cùng lúc) -> tự cạn NGAY TRONG pool nội bộ
+#       của app (psycopg2.pool.PoolError: "connection pool exhausted"),
+#       KHÔNG liên quan gì tới giới hạn phía Supabase nữa. Transaction
+#       Pooler multiplex nhiều client xuống ít connection thật phía sau
+#       (không phải 1-1 như session mode) nên app HOÀN TOÀN AN TOÀN để
+#       mở nhiều connection hơn ở tầng này — 20 vẫn nằm trong khả năng
+#       xử lý bình thường của pooler.
 #
-# 08/2026 (fix lỗi "psycopg2.OperationalError ... EMAXCONNSESSION ...
-# pool_size: 15" khi Supabase session pooler bị cạn connection) — HẠ
-# mặc định từ 20 xuống 8: gói Supabase hiện tại giới hạn 15 connection
-# ở session mode (port 5432), 20 riêng cho pool API đã VƯỢT trần đó dù
-# chưa tính job nền. Với default 8 + GLOBAL_JOB_LIMIT=2 job nền * 2
-# connection/job (xem api/concurrency.py) = tối đa 12 connection, chừa
-# 3 slot cho debug (DBeaver/pgAdmin)/migration thủ công. Đang dùng
-# Transaction Pooler (port 6543, xem .env.example) thì giới hạn này
-# thoải mái hơn nhiều — có thể nâng lại qua env DB_POOL_MAX.
+# maxconn NÊN thấp hơn giới hạn connection Postgres phía Render/Supabase
+# cho phép — nếu LỠ đổi PGPORT về lại 5432 (Session Pooler/Direct) mà
+# QUÊN hạ số này xuống, sẽ tái phát đúng lỗi EMAXCONNSESSION ở mục (1)
+# phía trên.
 # ------------------------------------------------------------------
 DB_POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
-DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "8"))
+DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "20"))
 
 # ------------------------------------------------------------------
 # Crawl watchdog (08/2026, xem api/services/crawl_watchdog.py +
