@@ -35,6 +35,12 @@ class StatsOut(BaseModel):
     # JobSaverOut bên dưới) — tổng số saved_jobs toàn hệ thống, cân xứng
     # với total_applications ở trên.
     total_saved_jobs: int
+    # Thêm 09/2026 — jobs_by_status dict để frontend lấy "Job đang còn tuyển"
+    # không cần tải 1000+ jobs array. Key = job status string, value = count
+    jobs_by_status: dict[str, int]
+    # Thêm 09/2026 — total_students (role='user') để frontend hiển thị KPI
+    # "Học viên đã đăng ký", không cần gọi GET /auth/users riêng (admin only)
+    total_students: int
 
 
 class JobEngagementOut(BaseModel):

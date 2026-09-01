@@ -52,6 +52,22 @@ def get_stats_summary(conn) -> dict:
         cur.execute("SELECT count(*) AS n FROM saved_jobs")
         total_saved_jobs = cur.fetchone()["n"]
 
+        # Thêm 09/2026 — Frontend cần jobs_by_status để hiển thị KPI "Job đang còn tuyển"
+        # Trước đây Flask phải tải toàn bộ jobs array (1000+ records) rồi filter,
+        # giờ backend đếm trực tiếp từ DB hiệu quả hơn
+        cur.execute(
+            "SELECT job_status, count(*) AS n FROM job_postings "
+            "GROUP BY job_status"
+        )
+        jobs_by_status_rows = cur.fetchall()
+        jobs_by_status = {row["job_status"]: row["n"] for row in jobs_by_status_rows}
+
+        # Thêm 09/2026 — Frontend cần total_students để hiển thị KPI "Học viên đã đăng ký"
+        # Trước đây Flask phải gọi GET /auth/users (admin only) để lấy toàn bộ users rồi filter role='user'
+        # Giờ backend đếm trực tiếp từ DB
+        cur.execute("SELECT count(*) AS n FROM users WHERE role = 'user'")
+        total_students = cur.fetchone()["n"]
+
     return {
         "total_jobs": total_jobs,
         "total_companies": total_companies,
@@ -60,6 +76,8 @@ def get_stats_summary(conn) -> dict:
         "by_source": by_source,
         "total_applications": total_applications,
         "total_saved_jobs": total_saved_jobs,
+        "jobs_by_status": jobs_by_status,
+        "total_students": total_students,
     }
 
 
