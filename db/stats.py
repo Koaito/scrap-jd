@@ -63,9 +63,9 @@ def get_stats_summary(conn) -> dict:
         jobs_by_status = {row["job_status"]: row["n"] for row in jobs_by_status_rows}
 
         # Thêm 09/2026 — Frontend cần total_students để hiển thị KPI "Học viên đã đăng ký"
-        # Trước đây Flask phải gọi GET /auth/users (admin only) để lấy toàn bộ users rồi filter role='user'
-        # Giờ backend đếm trực tiếp từ DB
-        cur.execute("SELECT count(*) AS n FROM users WHERE role = 'user'")
+        # Lưu ý: Bảng là ss_team_members, KHÔNG phải "users"
+        # role='user' là học viên (student), khác 'admin'/'member' (staff)
+        cur.execute("SELECT count(*) AS n FROM ss_team_members WHERE role = 'user'")
         total_students = cur.fetchone()["n"]
 
     return {
