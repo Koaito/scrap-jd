@@ -136,6 +136,58 @@ def get_latest_log_runs(user: dict = Depends(require_role("ss_team"))):
     return maintenance_runner.get_latest_run_per_job_type()
 
 
+@router.get("/logs-batch", response_model=dict[str, MaintenanceLogsOut])
+def get_maintenance_logs_batch(
+    run_ids: str = Query(..., description="Nhiều run_id, phân cách bởi dấu phẩy"),
+    after_ids: str = Query(..., description="after_id tương ứng THEO ĐÚNG THỨ TỰ run_ids, phân cách bởi dấu phẩy"),
+    limit: int = Query(500, ge=1, le=2000),
+    user: dict = Depends(require_role("ss_team")),
+):
+    """GỘP nhiều GET /maintenance/{run_id}/logs thành 1 request — dùng
+    cho 5 khung "Log live" (mỗi job_type 1 khung) ở tab Bảo trì (09/2026,
+    xem lịch sử trao đổi "gộp 5 request logs.json thành 1"): trước đây
+    mỗi khung tự poll logs.json RIÊNG, cùng chu kỳ 2s -> 5 request đồng
+    thời mỗi lần dù chỉ cần đúng 1 round-trip.
+
+    Nhận `run_ids`/`after_ids` dạng chuỗi phân cách dấu phẩy (KHÔNG
+    dùng query list kiểu `run_ids=a&run_ids=b`, vì cần khớp CHẶT theo
+    THỨ TỰ với after_ids tương ứng — query string list không đảm bảo
+    thứ tự khi có 2 tham số list song song) — 2 chuỗi phải cùng độ dài
+    sau khi tách, ánh xạ theo VỊ TRÍ (run_ids[i] <-> after_ids[i]).
+
+    ĐẶT TRƯỚC route GET /{run_id} bên dưới trong file này — cùng lý do
+    "latest-log-runs" ở trên (FastAPI match theo thứ tự đăng ký)."""
+    run_id_list = [r for r in run_ids.split(",") if r]
+    after_id_list = after_ids.split(",")
+
+    if len(run_id_list) != len(after_id_list):
+        raise HTTPException(
+            status_code=400,
+            detail=f"run_ids ({len(run_id_list)} mục) và after_ids ({len(after_id_list)} mục) "
+                   f"phải có CÙNG SỐ LƯỢNG, khớp theo thứ tự.",
+        )
+
+    run_after_ids: dict[str, int] = {}
+    for rid, aid in zip(run_id_list, after_id_list):
+        if not db_module.is_valid_uuid(rid):
+            raise HTTPException(status_code=400, detail=f"run_id '{rid}' không đúng định dạng UUID.")
+        if not aid.isdigit():
+            raise HTTPException(status_code=400, detail=f"after_id '{aid}' (ứng với run_id '{rid}') phải là số nguyên >= 0.")
+        run_after_ids[rid] = int(aid)
+
+    if not run_after_ids:
+        return {}
+
+    logs_by_run = maintenance_runner.get_logs_batch(run_after_ids, limit=limit)
+    return {
+        rid: {
+            "last_id": items[-1]["id"] if items else run_after_ids[rid],
+            "items": items,
+        }
+        for rid, items in logs_by_run.items()
+    }
+
+
 @router.get("/{run_id}", response_model=MaintenanceStatusOut)
 def get_maintenance_status(run_id: str, user: dict = Depends(require_role("ss_team"))):
     """Poll tiến độ/kết quả 1 lượt chạy — đối xứng GET /crawl/{run_id}."""

@@ -179,6 +179,7 @@ from db.maintenance_runs import (
     reconcile_stale_runs as reconcile_stale_maintenance_runs,
     append_log as append_maintenance_run_log,
     get_logs as get_maintenance_run_logs,
+    get_logs_batch as get_maintenance_run_logs_batch,
     get_latest_run_per_job_type as get_latest_maintenance_run_per_job_type,
 )
 from db.messages import (
@@ -345,6 +346,7 @@ __all__ = [
     "reconcile_stale_maintenance_runs",
     "append_maintenance_run_log",
     "get_maintenance_run_logs",
+    "get_maintenance_run_logs_batch",
     "get_latest_maintenance_run_per_job_type",
     "MAX_PENDING_PER_STUDENT",
     "DECLINE_COOLDOWN_DAYS",

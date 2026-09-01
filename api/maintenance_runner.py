@@ -170,6 +170,19 @@ def get_logs(run_id: str, after_id: int = 0, limit: int = 500):
         db_module.release_connection(conn)
 
 
+def get_logs_batch(run_after_ids: dict, limit: int = 500) -> dict:
+    """Đọc log MỚI cho NHIỀU run_id cùng lúc (mỗi run_id 1 after_id
+    riêng) — dùng cho GET /maintenance/logs-batch (09/2026, xem lịch sử
+    trao đổi "gộp 5 request logs.json thành 1"), đối xứng get_logs()
+    nhưng nhận dict {run_id: after_id} thay vì 1 run_id/after_id. Mượn/
+    trả connection từ pool chung (xem docstring module ở đầu file)."""
+    conn = db_module.get_pooled_connection()
+    try:
+        return db_module.get_maintenance_run_logs_batch(conn, run_after_ids, limit=limit)
+    finally:
+        db_module.release_connection(conn)
+
+
 def start_run(job_type: str, params: dict, triggered_by: Optional[str] = None) -> str:
     """Tạo 1 run mới (INSERT vào maintenance_runs, status='queued'),
     trả về run_id NGAY (chưa chạy thật) — router chịu trách nhiệm add

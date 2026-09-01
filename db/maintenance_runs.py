@@ -94,6 +94,62 @@ def get_logs(conn, run_id: str, after_id: int = 0, limit: int = 500):
         return cur.fetchall()
 
 
+def get_logs_batch(conn, run_after_ids: dict, limit: int = 500) -> dict:
+    """Trả {run_id: list[dict]} — log MỚI (id > after_id riêng của TỪNG
+    run_id) cho NHIỀU run_id trong 1 lần gọi, gộp bằng 1 query duy nhất
+    (UNION ALL qua VALUES) thay vì N query riêng lẻ — dùng cho GET
+    /maintenance/logs-batch (09/2026, xem lịch sử trao đổi "gộp 5
+    request logs.json thành 1"), nơi 5 khung "Log live" (mỗi job_type
+    tab Bảo trì) trước đây gọi get_logs() RIÊNG mỗi khung, cùng chu kỳ
+    2s -> 5 round-trip HTTP/DB liên tục dù server chỉ cần trả lời 1
+    request.
+
+    `run_after_ids`: dict {run_id: after_id} — mỗi run_id có after_id
+    RIÊNG (không dùng chung 1 giá trị) vì mỗi khung log tự poll độc lập
+    theo tiến độ đọc của chính nó (data-log-after-id riêng ở
+    _maintenance_tab.html), không đồng bộ giữa các job_type.
+
+    Không dùng `WHERE run_id = ANY(%s) AND id > %s` (1 after_id chung)
+    vì sẽ SAI khi 2 job_type có after_id khác nhau — union theo từng
+    cặp (run_id, after_id) riêng lẻ mới đúng ngữ nghĩa "log mới của
+    RUN NÀY tính từ chỗ RUN NÀY đã đọc tới"."""
+    if not run_after_ids:
+        return {}
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        # VALUES (%s, %s), (%s, %s), ... — mỗi cặp (run_id, after_id)
+        # 1 dòng, LATERAL join để limit riêng theo TỪNG run_id (không
+        # để 1 run_id log nhiều đè hết limit chung của round-trip).
+        values_sql = ", ".join(["(%s, %s::bigint)"] * len(run_after_ids))
+        params: list = []
+        for rid, after_id in run_after_ids.items():
+            params.extend([rid, after_id])
+        params.append(limit)
+
+        cur.execute(
+            f"""
+            SELECT v.run_id, l.id, l.level, l.message, l.created_at
+            FROM (VALUES {values_sql}) AS v(run_id, after_id)
+            JOIN LATERAL (
+                SELECT id, level, message, created_at
+                FROM maintenance_run_logs
+                WHERE run_id = v.run_id AND id > v.after_id
+                ORDER BY id ASC
+                LIMIT %s
+            ) l ON true
+            ORDER BY v.run_id, l.id ASC
+            """,
+            params,
+        )
+        rows = cur.fetchall()
+
+    result: dict = {rid: [] for rid in run_after_ids}
+    for row in rows:
+        result[row["run_id"]].append(
+            {"id": row["id"], "level": row["level"], "message": row["message"], "created_at": row["created_at"]}
+        )
+    return result
+
+
 def mark_running(conn, run_id: str) -> None:
     """Đổi status 'queued' -> 'running' — gọi ngay khi execute() bắt
     đầu gọi hàm run() thật."""
