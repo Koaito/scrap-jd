@@ -17,6 +17,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 import db as db_module
+from api import error_codes
 from api.deps import get_db, require_role
 from api.schemas import AuditLogNoteUpdate, AuditLogOut, PaginatedAuditLogs
 
@@ -66,17 +67,17 @@ def list_audit_logs(
     if entity_type is not None and entity_type not in _VALID_ENTITY_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"entity_type '{entity_type}' không hợp lệ — có sẵn: {sorted(_VALID_ENTITY_TYPES)}",
+            detail={"error_code": error_codes.AUDIT_LOG_ENTITY_TYPE_INVALID, "message": f"entity_type '{entity_type}' không hợp lệ — có sẵn: {sorted(_VALID_ENTITY_TYPES)}"},
         )
     if action_type is not None and action_type not in _VALID_ACTION_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"action_type '{action_type}' không hợp lệ — có sẵn: {sorted(_VALID_ACTION_TYPES)}",
+            detail={"error_code": error_codes.AUDIT_LOG_ACTION_TYPE_INVALID, "message": f"action_type '{action_type}' không hợp lệ — có sẵn: {sorted(_VALID_ACTION_TYPES)}"},
         )
     if company_id is not None and not db_module.is_valid_uuid(company_id):
-        raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.AUDIT_LOG_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID."})
     if actor_id is not None and not db_module.is_valid_uuid(actor_id):
-        raise HTTPException(status_code=400, detail=f"actor_id '{actor_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.AUDIT_LOG_ACTOR_ID_INVALID_UUID, "message": f"actor_id '{actor_id}' không đúng định dạng UUID."})
 
     rows, total = db_module.list_audit_logs(
         conn,
@@ -115,22 +116,22 @@ def update_note(
     rỗng hẳn đã bị Pydantic chặn ở tầng validate, check ở đây chỉ để an
     toàn kép."""
     if not db_module.is_valid_uuid(log_id):
-        raise HTTPException(status_code=400, detail=f"log_id '{log_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.AUDIT_LOG_LOG_ID_INVALID_UUID, "message": f"log_id '{log_id}' không đúng định dạng UUID."})
 
     log = db_module.get_audit_log_by_id(conn, log_id)
     if log is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy log")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.AUDIT_LOG_LOG_NOT_FOUND, "message": "Không tìm thấy log"})
 
     if str(log.get("actor_id")) != str(user["sub"]):
         raise HTTPException(
             status_code=403,
-            detail="Chỉ người đã thực hiện thao tác này mới được sửa note của log này.",
+            detail={"error_code": error_codes.AUDIT_LOG_NGUOI_THUC_HIEN_THAO_TAC, "message": "Chỉ người đã thực hiện thao tác này mới được sửa note của log này."},
         )
 
     if log["note_required"] and not payload.note.strip():
         raise HTTPException(
             status_code=409,
-            detail="Log này bắt buộc phải có note — không thể xoá trống.",
+            detail={"error_code": error_codes.AUDIT_LOG_REQUIRED, "message": "Log này bắt buộc phải có note — không thể xoá trống."},
         )
 
     db_module.update_audit_log_note(conn, log_id, payload.note, note_updated_by=user["sub"])

@@ -42,7 +42,7 @@ def test_check_entity_type_invalid():
     with pytest.raises(HTTPException) as exc_info:
         _check_entity_type("invalid_type")
     assert exc_info.value.status_code == 400
-    assert "không hợp lệ" in exc_info.value.detail
+    assert "không hợp lệ" in exc_info.value.detail["message"]
 
 
 # ------------------------------------------------------------------
@@ -186,7 +186,7 @@ async def test_import_preview_unsupported_file_format(mock_conn, ss_team_user, f
                 user=ss_team_user,
             )
         assert exc_info.value.status_code == 400
-        assert "Unsupported file format" in exc_info.value.detail
+        assert "Unsupported file format" in exc_info.value.detail["message"]
 
 
 @pytest.mark.asyncio
@@ -216,7 +216,7 @@ async def test_import_preview_file_too_large(mock_conn, ss_team_user, fake_reque
                 user=ss_team_user,
             )
         assert exc_info.value.status_code == 400
-        assert "5000 rows" in exc_info.value.detail
+        assert "5000 rows" in exc_info.value.detail["message"]
 
 
 @pytest.mark.asyncio
@@ -475,7 +475,7 @@ def test_import_confirm_entity_type_mismatch(
                 user=ss_team_user,
             )
         assert exc_info.value.status_code == 400
-        assert "entity_type" in exc_info.value.detail
+        assert "entity_type" in exc_info.value.detail["message"]
 
 
 def test_import_confirm_row_resolution_error(
@@ -542,7 +542,7 @@ def test_import_confirm_database_error(mock_conn, ss_team_user, test_preview_id)
                     user=ss_team_user,
                 )
             assert exc_info.value.status_code == 500
-            assert "database error" in exc_info.value.detail.lower()
+            assert "database error" in exc_info.value.detail["message"].lower()
             mock_conn.rollback.assert_called_once()
 
 

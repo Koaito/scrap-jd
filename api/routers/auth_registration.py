@@ -28,6 +28,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 import db as db_module
+from api import error_codes
 from api import security
 from api.deps import get_db
 from api.email_service import FRONTEND_BASE_URL, send_verification_email, send_password_reset_email
@@ -81,7 +82,7 @@ def register(payload: RegisterRequest, request: Request, conn=Depends(get_db)):
     api/email_service.py để hiểu lý do không raise khi gửi lỗi)."""
     existing = db_module.get_user_by_email(conn, payload.email)
     if existing is not None:
-        raise HTTPException(status_code=409, detail="Email này đã có tài khoản.")
+        raise HTTPException(status_code=409, detail={"error_code": error_codes.AUTH_EMAIL_TAI_KHOAN, "message": "Email này đã có tài khoản."})
 
     verify_token = _generate_verify_token()
     verify_expires = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFY_EXPIRE_HOURS)
@@ -258,14 +259,14 @@ def reset_password(payload: ResetPasswordRequest, request: Request, conn=Depends
         conn, security.hash_verification_token(payload.token)
     )
     if user is None:
-        raise HTTPException(status_code=400, detail="Link đặt lại mật khẩu không hợp lệ hoặc đã được dùng.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.AUTH_INVALID, "message": "Link đặt lại mật khẩu không hợp lệ hoặc đã được dùng."})
 
     expires_at = user["password_reset_expires"]
     if expires_at is not None:
         if expires_at.tzinfo is None:
             expires_at = expires_at.replace(tzinfo=timezone.utc)
         if expires_at <= datetime.now(timezone.utc):
-            raise HTTPException(status_code=400, detail="Link đặt lại mật khẩu đã hết hạn — gọi lại POST /auth/forgot-password để xin link mới.")
+            raise HTTPException(status_code=400, detail={"error_code": error_codes.AUTH_EXPIRED, "message": "Link đặt lại mật khẩu đã hết hạn — gọi lại POST /auth/forgot-password để xin link mới."})
 
     ss_user_id = str(user["ss_user_id"])
     db_module.reset_password_with_token(conn, ss_user_id, security.hash_password(payload.new_password))

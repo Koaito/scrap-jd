@@ -49,6 +49,7 @@ from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 import db as db_module
+from api import error_codes
 from api import security
 
 
@@ -110,7 +111,7 @@ def get_current_user(
         raise HTTPException(
             status_code=401,
             detail={
-                "error_code": "missing_auth_header",
+                "error_code": error_codes.MISSING_AUTH_HEADER,
                 "message": "Thiếu header 'Authorization: Bearer <access_token>'.",
             },
         )
@@ -119,7 +120,7 @@ def get_current_user(
         raise HTTPException(
             status_code=401,
             detail={
-                "error_code": "token_expired",
+                "error_code": error_codes.TOKEN_EXPIRED,
                 "message": "Access token không hợp lệ hoặc đã hết hạn — dùng "
                             "refresh token qua POST /auth/refresh để lấy token mới.",
             },
@@ -130,7 +131,7 @@ def get_current_user(
         raise HTTPException(
             status_code=401,
             detail={
-                "error_code": "session_revoked",
+                "error_code": error_codes.SESSION_REVOKED,
                 "message": "Phiên đăng nhập này không còn hiệu lực — đăng "
                             "nhập lại.",
             },
@@ -142,7 +143,7 @@ def get_current_user(
         raise HTTPException(
             status_code=401,
             detail={
-                "error_code": "session_replaced",
+                "error_code": error_codes.SESSION_REPLACED,
                 "message": "Tài khoản này vừa đăng nhập ở một nơi khác — "
                             "phiên đăng nhập hiện tại đã bị đăng xuất. Mỗi "
                             "tài khoản chỉ dùng được ở 1 nơi tại 1 thời điểm.",

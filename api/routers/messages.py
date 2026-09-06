@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 import db as db_module
+from api import error_codes
 from api.deps import get_current_user, get_db
 from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
@@ -89,16 +90,16 @@ def send_message(
     sender_role = user["role"]
 
     if payload.receiver_id == sender_id:
-        raise HTTPException(status_code=400, detail="Không thể tự nhắn tin cho chính mình.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.MESSAGE_FORBIDDEN, "message": "Không thể tự nhắn tin cho chính mình."})
 
     receiver = db_module.get_user_by_id(conn, payload.receiver_id)
     if receiver is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy người nhận.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.MESSAGE_NOT_FOUND, "message": "Không tìm thấy người nhận."})
     receiver_role = receiver["role"]
 
     # 2. Học viên -> học viên: 403 ngay, không chạm chat_relationships.
     if sender_role == "user" and receiver_role == "user":
-        raise HTTPException(status_code=403, detail="Học viên không thể nhắn tin cho học viên khác.")
+        raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_HOC_VIEN_NHAN_TIN_HOC, "message": "Học viên không thể nhắn tin cho học viên khác."})
 
     pair = _resolve_student_ss_pair(sender_id, sender_role, payload.receiver_id, receiver_role)
 
@@ -114,9 +115,9 @@ def send_message(
                 if db_module.count_pending_for_student(conn, student_id) >= db_module.MAX_PENDING_PER_STUDENT:
                     raise HTTPException(
                         status_code=429,
-                        detail=f"Bạn đang có quá nhiều yêu cầu nhắn tin đang chờ xử lý "
+                        detail={"error_code": error_codes.MESSAGE_BAN_QUA_NHIEU_YEU_CAU, "message": f"Bạn đang có quá nhiều yêu cầu nhắn tin đang chờ xử lý "
                                f"(tối đa {db_module.MAX_PENDING_PER_STUDENT} cùng lúc). "
-                               f"Vui lòng đợi SS phản hồi trước khi gửi yêu cầu mới.",
+                               f"Vui lòng đợi SS phản hồi trước khi gửi yêu cầu mới."},
                     )
                 db_module.create_pending_request(conn, student_id, ss_id)
                 conn.commit()
@@ -130,16 +131,16 @@ def send_message(
 
             status = relationship["status"]
             if status == "blocked":
-                raise HTTPException(status_code=403, detail="Bạn đã bị chặn nhắn tin với người này.")
+                raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_BAN_CHAN_NHAN_TIN_NGUOI, "message": "Bạn đã bị chặn nhắn tin với người này."})
             if status == "pending":
-                raise HTTPException(status_code=409, detail="Yêu cầu nhắn tin đang chờ SS phản hồi.")
+                raise HTTPException(status_code=409, detail={"error_code": error_codes.MESSAGE_YEU_CAU_NHAN_TIN_SS, "message": "Yêu cầu nhắn tin đang chờ SS phản hồi."})
             if status == "declined":
                 reset_id = db_module.reset_declined_to_pending(conn, student_id, ss_id)
                 if reset_id is None:
                     raise HTTPException(
                         status_code=403,
-                        detail=f"Yêu cầu trước đã bị từ chối — vui lòng thử lại sau "
-                               f"{db_module.DECLINE_COOLDOWN_DAYS} ngày kể từ lúc bị từ chối.",
+                        detail={"error_code": error_codes.MESSAGE_YEU_CAU_TRUOC_CHOI_VUI, "message": f"Yêu cầu trước đã bị từ chối — vui lòng thử lại sau "
+                               f"{db_module.DECLINE_COOLDOWN_DAYS} ngày kể từ lúc bị từ chối."},
                     )
                 conn.commit()
                 return JSONResponse(
@@ -157,7 +158,7 @@ def send_message(
             if relationship is not None and relationship["status"] == "blocked":
                 raise HTTPException(
                     status_code=403,
-                    detail="Bạn đã tự chặn học viên này — bấm Unblock trước khi nhắn tiếp.",
+                    detail={"error_code": error_codes.MESSAGE_BAN_CHAN_HOC_VIEN_BAM, "message": "Bạn đã tự chặn học viên này — bấm Unblock trước khi nhắn tiếp."},
                 )
 
     # SS-SS (pair is None) hoặc học viên đã 'accepted' -> gửi tin thật.
@@ -187,7 +188,7 @@ def list_pending_requests(
     """Mục "Yêu cầu đang chờ" riêng cho SS — học viên pending mà chưa
     từng nhắn tin nên không xuất hiện trong /conversations."""
     if not _is_ss(user["role"]):
-        raise HTTPException(status_code=403, detail="Chỉ SS/admin mới xem được danh sách yêu cầu.")
+        raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_SS_ADMIN_MOI_XEM_DANH, "message": "Chỉ SS/admin mới xem được danh sách yêu cầu."})
     return db_module.list_pending_requests_for_ss(conn, user["sub"])
 
 
@@ -230,7 +231,7 @@ def get_history(
     của hội thoại (IDOR check tự nhiên: query luôn ép theo user['sub'],
     không nhận user_id thứ 2 từ đâu khác ngoài current_user)."""
     if partner_id == user["sub"]:
-        raise HTTPException(status_code=400, detail="partner_id không hợp lệ.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.MESSAGE_INVALID, "message": "partner_id không hợp lệ."})
     return db_module.get_messages_between(conn, user["sub"], partner_id, before_id=before_id, limit=limit)
 
 
@@ -293,13 +294,13 @@ def cancel_my_pending_request(
     body chỉ để FE hiện thông báo xác nhận (dùng lại state trước khi
     xoá), KHÔNG dùng để query lại relationship này sau đó."""
     if user["role"] != "user":
-        raise HTTPException(status_code=403, detail="Chỉ học viên mới có thể huỷ yêu cầu nhắn tin của mình.")
+        raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_HOC_VIEN_MOI_HUY_YEU, "message": "Chỉ học viên mới có thể huỷ yêu cầu nhắn tin của mình."})
 
     relationship = db_module.get_relationship(conn, user["sub"], ss_id)
     if relationship is None or relationship["status"] != "pending" or relationship["initiated_by"] != user["sub"]:
         raise HTTPException(
             status_code=404,
-            detail="Không tìm thấy yêu cầu đang chờ để huỷ.",
+            detail={"error_code": error_codes.MESSAGE_NOT_FOUND_2, "message": "Không tìm thấy yêu cầu đang chờ để huỷ."},
         )
 
     ok = db_module.cancel_pending_request(conn, user["sub"], ss_id)
@@ -309,7 +310,7 @@ def cancel_my_pending_request(
         # ở đây vì ta VỪA xác nhận nó tồn tại 1 dòng lệnh trước.
         raise HTTPException(
             status_code=409,
-            detail="Yêu cầu vừa được xử lý (có thể SS đã phản hồi) — vui lòng tải lại.",
+            detail={"error_code": error_codes.MESSAGE_YEU_CAU_VUA_XU_LY, "message": "Yêu cầu vừa được xử lý (có thể SS đã phản hồi) — vui lòng tải lại."},
         )
     conn.commit()
     return relationship
@@ -332,13 +333,13 @@ def accept_request(
     conn=Depends(get_db),
 ):
     if not _is_ss(user["role"]):
-        raise HTTPException(status_code=403, detail="Chỉ SS/admin mới có quyền chấp nhận yêu cầu.")
+        raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_SS_ADMIN_MOI_QUYEN_CHAP, "message": "Chỉ SS/admin mới có quyền chấp nhận yêu cầu."})
     ok = db_module.accept_relationship(conn, relationship_id, user["sub"])
     if not ok:
         raise HTTPException(
             status_code=409,
-            detail="Không thể chấp nhận — yêu cầu không tồn tại, không thuộc về bạn, "
-                   "hoặc đã được xử lý bởi thao tác khác.",
+            detail={"error_code": error_codes.MESSAGE_NOT_FOUND_3, "message": "Không thể chấp nhận — yêu cầu không tồn tại, không thuộc về bạn, "
+                   "hoặc đã được xử lý bởi thao tác khác."},
         )
     conn.commit()
     return db_module.get_relationship_by_id(conn, relationship_id)
@@ -353,13 +354,13 @@ def decline_request(
     conn=Depends(get_db),
 ):
     if not _is_ss(user["role"]):
-        raise HTTPException(status_code=403, detail="Chỉ SS/admin mới có quyền từ chối yêu cầu.")
+        raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_SS_ADMIN_MOI_QUYEN_CHOI, "message": "Chỉ SS/admin mới có quyền từ chối yêu cầu."})
     ok = db_module.decline_relationship(conn, relationship_id, user["sub"])
     if not ok:
         raise HTTPException(
             status_code=409,
-            detail="Không thể từ chối — yêu cầu không tồn tại, không thuộc về bạn, "
-                   "hoặc đã được xử lý bởi thao tác khác.",
+            detail={"error_code": error_codes.MESSAGE_NOT_FOUND_4, "message": "Không thể từ chối — yêu cầu không tồn tại, không thuộc về bạn, "
+                   "hoặc đã được xử lý bởi thao tác khác."},
         )
     conn.commit()
     return db_module.get_relationship_by_id(conn, relationship_id)
@@ -374,10 +375,10 @@ def block_by_relationship(
     conn=Depends(get_db),
 ):
     if not _is_ss(user["role"]):
-        raise HTTPException(status_code=403, detail="Chỉ SS/admin mới có quyền chặn.")
+        raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_SS_ADMIN_MOI_QUYEN_CHAN, "message": "Chỉ SS/admin mới có quyền chặn."})
     ok = db_module.block_relationship(conn, relationship_id, user["sub"])
     if not ok:
-        raise HTTPException(status_code=404, detail="Không tìm thấy quan hệ này, hoặc không thuộc về bạn.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.MESSAGE_RELATIONSHIP_NOT_FOUND, "message": "Không tìm thấy quan hệ này, hoặc không thuộc về bạn."})
     conn.commit()
     return db_module.get_relationship_by_id(conn, relationship_id)
 
@@ -394,10 +395,10 @@ def block_student(
     muốn chặn TRƯỚC 1 học viên chưa từng có quan hệ nào (chưa có
     relationship_id để gọi route trên)."""
     if not _is_ss(user["role"]):
-        raise HTTPException(status_code=403, detail="Chỉ SS/admin mới có quyền chặn.")
+        raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_SS_ADMIN_MOI_QUYEN_CHAN, "message": "Chỉ SS/admin mới có quyền chặn."})
     student = db_module.get_user_by_id(conn, student_id)
     if student is None or student["role"] != "user":
-        raise HTTPException(status_code=404, detail="Không tìm thấy học viên này.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.MESSAGE_STUDENT_NOT_FOUND, "message": "Không tìm thấy học viên này."})
     db_module.block_student_by_ss(conn, student_id, user["sub"])
     conn.commit()
     return db_module.get_relationship(conn, student_id, user["sub"])
@@ -412,13 +413,13 @@ def unblock_request(
     conn=Depends(get_db),
 ):
     if not _is_ss(user["role"]):
-        raise HTTPException(status_code=403, detail="Chỉ SS/admin mới có quyền bỏ chặn.")
+        raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_SS_ADMIN_MOI_QUYEN_BO, "message": "Chỉ SS/admin mới có quyền bỏ chặn."})
     ok = db_module.unblock_relationship(conn, relationship_id, user["sub"])
     if not ok:
         raise HTTPException(
             status_code=409,
-            detail="Không thể bỏ chặn — quan hệ không tồn tại, không thuộc về bạn, "
-                   "hoặc hiện không ở trạng thái đang chặn.",
+            detail={"error_code": error_codes.MESSAGE_RELATIONSHIP_NOT_FOUND_2, "message": "Không thể bỏ chặn — quan hệ không tồn tại, không thuộc về bạn, "
+                   "hoặc hiện không ở trạng thái đang chặn."},
         )
     conn.commit()
     return db_module.get_relationship_by_id(conn, relationship_id)

@@ -33,6 +33,7 @@ import os
 import secrets
 
 from fastapi import HTTPException, Security
+from api import error_codes
 from fastapi.security import APIKeyHeader, APIKeyQuery
 
 try:
@@ -56,12 +57,12 @@ def require_api_key(
         # trong .env, chặn hết thay vì âm thầm cho qua (mở toang API).
         raise HTTPException(
             status_code=500,
-            detail="Server chưa cấu hình API_KEY — xem .env.example.",
+            detail={"error_code": error_codes.AUTH_SERVER_CHUA_CAU_HINH_API, "message": "Server chưa cấu hình API_KEY — xem .env.example."},
         )
 
     supplied = header_key or query_key
     if not supplied or not secrets.compare_digest(supplied, _API_KEY):
         raise HTTPException(
             status_code=401,
-            detail="Thiếu hoặc sai API key. Gửi kèm header 'X-API-Key'.",
+            detail={"error_code": error_codes.AUTH_MISSING, "message": "Thiếu hoặc sai API key. Gửi kèm header 'X-API-Key'."},
         )

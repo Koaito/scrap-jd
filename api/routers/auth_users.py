@@ -17,6 +17,7 @@ lớn require_admin — không có route công khai nào.
 from fastapi import APIRouter, Depends, HTTPException
 
 import db as db_module
+from api import error_codes
 from api import security
 from api.deps import require_admin, require_role, get_db
 from api.schemas import (
@@ -41,12 +42,12 @@ def create_user(
     if payload.role not in ("user", "ss_team", "admin"):
         raise HTTPException(
             status_code=400,
-            detail="role phải là 1 trong: user, ss_team, admin.",
+            detail={"error_code": error_codes.USER_ROLE_1_USER_SS_TEAM, "message": "role phải là 1 trong: user, ss_team, admin."},
         )
 
     existing = db_module.get_user_by_email(conn, payload.email)
     if existing is not None:
-        raise HTTPException(status_code=409, detail="Email này đã có tài khoản.")
+        raise HTTPException(status_code=409, detail={"error_code": error_codes.USER_EMAIL_TAI_KHOAN, "message": "Email này đã có tài khoản."})
 
     temp_password = security.generate_temp_password()
     ss_user_id = db_module.create_user(
@@ -91,9 +92,9 @@ def list_applications_of_user(
     kèm job_title/job_status/company_name", không cần full_name/email
     của chính học viên đó (staff đã biết đang xem ai qua ss_user_id)."""
     if not db_module.is_valid_uuid(ss_user_id):
-        raise HTTPException(status_code=400, detail=f"ss_user_id '{ss_user_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.USER_SS_USER_ID_INVALID_UUID, "message": f"ss_user_id '{ss_user_id}' không đúng định dạng UUID."})
     if db_module.get_user_by_id(conn, ss_user_id) is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.USER_ACCOUNT_NOT_FOUND, "message": "Không tìm thấy tài khoản."})
 
     return db_module.list_applications_for_user(conn, ss_user_id)
 
@@ -112,9 +113,9 @@ def list_saved_jobs_of_user(
     "saved_jobs riêng tư 100%" ban đầu. Tái dùng thẳng
     db.list_saved_jobs_for_user() (vốn dùng cho GET /me/saved-jobs)."""
     if not db_module.is_valid_uuid(ss_user_id):
-        raise HTTPException(status_code=400, detail=f"ss_user_id '{ss_user_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.USER_SS_USER_ID_INVALID_UUID, "message": f"ss_user_id '{ss_user_id}' không đúng định dạng UUID."})
     if db_module.get_user_by_id(conn, ss_user_id) is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.USER_ACCOUNT_NOT_FOUND, "message": "Không tìm thấy tài khoản."})
 
     return db_module.list_saved_jobs_for_user(conn, ss_user_id)
 
@@ -134,18 +135,18 @@ def update_user_role(
     if payload.role not in ("user", "ss_team", "admin"):
         raise HTTPException(
             status_code=400,
-            detail="role phải là 1 trong: user, ss_team, admin.",
+            detail={"error_code": error_codes.USER_ROLE_1_USER_SS_TEAM, "message": "role phải là 1 trong: user, ss_team, admin."},
         )
     if ss_user_id == admin["sub"]:
         raise HTTPException(
             status_code=400,
-            detail="Không thể tự đổi role của chính mình — nhờ admin "
-                   "khác thực hiện thao tác này.",
+            detail={"error_code": error_codes.USER_FORBIDDEN, "message": "Không thể tự đổi role của chính mình — nhờ admin "
+                   "khác thực hiện thao tác này."},
         )
 
     updated = db_module.update_user_role(conn, ss_user_id, payload.role)
     if not updated:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.USER_ACCOUNT_NOT_FOUND, "message": "Không tìm thấy tài khoản."})
     conn.commit()
 
     return db_module.get_user_by_id(conn, ss_user_id)
@@ -172,13 +173,13 @@ def update_user_active_status(
     if ss_user_id == admin["sub"]:
         raise HTTPException(
             status_code=400,
-            detail="Không thể tự vô hiệu hoá/kích hoạt chính mình — nhờ "
-                   "admin khác thực hiện thao tác này.",
+            detail={"error_code": error_codes.USER_FORBIDDEN_2, "message": "Không thể tự vô hiệu hoá/kích hoạt chính mình — nhờ "
+                   "admin khác thực hiện thao tác này."},
         )
 
     updated = db_module.update_user_active_status(conn, ss_user_id, payload.is_active)
     if not updated:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.USER_ACCOUNT_NOT_FOUND, "message": "Không tìm thấy tài khoản."})
     conn.commit()
 
     return db_module.get_user_by_id(conn, ss_user_id)

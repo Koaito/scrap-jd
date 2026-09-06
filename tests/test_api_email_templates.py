@@ -68,7 +68,7 @@ def test_get_email_template_invalid_uuid(mock_conn, ss_team_user):
         with pytest.raises(HTTPException) as exc_info:
             get_email_template(template_id="not-a-uuid", conn=mock_conn, user=ss_team_user)
         assert exc_info.value.status_code == 400
-        assert "UUID" in exc_info.value.detail
+        assert "UUID" in exc_info.value.detail["message"]
 
 
 def test_get_placeholder_help_returns_5_fixed_placeholders(ss_team_user):
@@ -154,7 +154,7 @@ def test_patch_email_template_missing_note_with_changes(mock_conn, ss_team_user,
                 conn=mock_conn, user=ss_team_user,
             )
         assert exc_info.value.status_code == 422
-        assert "note" in exc_info.value.detail.lower()
+        assert "note" in exc_info.value.detail["message"].lower()
         mock_db.patch_email_template.assert_not_called()
 
 

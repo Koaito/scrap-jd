@@ -4,6 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 import db as db_module
+from api import error_codes
 from api.deps import get_db, require_role
 from api.rate_limit import limiter
 from api.schemas import (
@@ -45,7 +46,7 @@ def list_companies(
     """Rate limit 60/minute theo IP (thêm 08/2026) — cùng lý do với
     GET /jobs (xem api/routers/jobs.py::list_jobs)."""
     if created_by is not None and not db_module.is_valid_uuid(created_by):
-        raise HTTPException(status_code=400, detail=f"created_by '{created_by}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.COMPANY_CREATED_BY_INVALID_UUID, "message": f"created_by '{created_by}' không đúng định dạng UUID."})
     rows, total = db_module.list_companies(
         conn, keyword=keyword, has_social=has_social, province_name=province,
         created_by=created_by, include_inactive=include_inactive,
@@ -87,7 +88,7 @@ def get_partnership_signals(
     UUID hợp lệ."""
     for cid in company_id or []:
         if not db_module.is_valid_uuid(cid):
-            raise HTTPException(status_code=400, detail=f"company_id '{cid}' không đúng định dạng UUID.")
+            raise HTTPException(status_code=400, detail={"error_code": error_codes.COMPANY_COMPANY_ID_INVALID_UUID, "message": f"company_id '{cid}' không đúng định dạng UUID."})
     return db_module.get_partnership_signals(conn, company_ids=company_id)
 
 
@@ -121,10 +122,10 @@ def get_company_data_health(
 @router.get("/{company_id}", response_model=CompanyDetailOut)
 def get_company(company_id: str, conn=Depends(get_db)):
     if not db_module.is_valid_uuid(company_id):
-        raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.COMPANY_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID."})
     row = db_module.get_company_by_id(conn, company_id)
     if row is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.COMPANY_COMPANY_NOT_FOUND, "message": "Không tìm thấy công ty"})
     jobs = db_module.get_jobs_by_company_id(conn, company_id)
     return {**row, "jobs": jobs}
 
@@ -214,11 +215,11 @@ def patch_company(
     BẮT BUỘC đăng nhập VÀ role 'ss_team' trở lên, giống POST /companies —
     ghi lại companies.updated_by = người vừa sửa."""
     if not db_module.is_valid_uuid(company_id):
-        raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.COMPANY_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID."})
 
     existing = db_module.get_company_by_id(conn, company_id)
     if existing is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.COMPANY_COMPANY_NOT_FOUND, "message": "Không tìm thấy công ty"})
 
     province_id = (
         db_module.get_or_create_province(conn, payload.province_name)
@@ -244,11 +245,11 @@ def patch_company(
         conn.rollback()
         raise HTTPException(
             status_code=409,
-            detail=f"Mã số thuế '{payload.tax_id}' đã được dùng bởi công ty khác.",
+            detail={"error_code": error_codes.COMPANY_MA_SO_THUE_DUNG_BOI, "message": f"Mã số thuế '{payload.tax_id}' đã được dùng bởi công ty khác."},
         )
 
     if not updated:
-        raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.COMPANY_COMPANY_NOT_FOUND, "message": "Không tìm thấy công ty"})
 
     # payload_fields: CHỈ field client thực sự gửi lên. province_name so
     # sánh riêng bằng tên hiển thị (existing['province_name'] là chuỗi,
@@ -297,11 +298,11 @@ def delete_company(
     KHÔNG ghi thêm log mới (xem db.soft_delete_company() — trả False
     nếu company đã is_active=false từ trước, tránh log trùng lặp)."""
     if not db_module.is_valid_uuid(company_id):
-        raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.COMPANY_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID."})
 
     existing = db_module.get_company_by_id(conn, company_id)
     if existing is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.COMPANY_COMPANY_NOT_FOUND, "message": "Không tìm thấy công ty"})
 
     was_active = db_module.soft_delete_company(conn, company_id, updated_by=user["sub"])
     if was_active:

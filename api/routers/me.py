@@ -33,6 +33,7 @@ import psycopg2.extras
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
 
 import db as db_module
+from api import error_codes
 from api import storage as cv_storage
 from api.deps import get_db, require_role
 from api.rate_limit import get_user_id_or_ip, limiter
@@ -56,24 +57,24 @@ def apply_to_job(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(job_id):
-        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID."})
     
     job = db_module.get_job_by_id(conn, job_id)
     if job is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy job")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.PROFILE_JOB_NOT_FOUND, "message": "Không tìm thấy job"})
     if job["job_status"] != "OPEN":
         raise HTTPException(
             status_code=400,
-            detail=f"Job đang ở trạng thái '{job['job_status']}', không thể ứng tuyển.",
+            detail={"error_code": error_codes.PROFILE_JOB_TRANG_THAI_UNG_TUYEN, "message": f"Job đang ở trạng thái '{job['job_status']}', không thể ứng tuyển."},
         )
 
     # 1. Kiểm tra file PDF
     if not cv_file.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail="Chỉ chấp nhận file CV định dạng .pdf.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_CHAP_NHAN_FILE_CV_DINH, "message": "Chỉ chấp nhận file CV định dạng .pdf."})
     
     file_bytes = cv_file.file.read()
     if len(file_bytes) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Dung lượng file CV tối đa là 5MB.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_DUNG_LUONG_FILE_CV_TOI, "message": "Dung lượng file CV tối đa là 5MB."})
 
     # 2. Tạo bản ghi ban đầu để lấy application_id
     try:
@@ -82,7 +83,7 @@ def apply_to_job(
         )
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
-        raise HTTPException(status_code=409, detail="Bạn đã ứng tuyển job này rồi.")
+        raise HTTPException(status_code=409, detail={"error_code": error_codes.PROFILE_BAN_UNG_TUYEN_JOB_ROI, "message": "Bạn đã ứng tuyển job này rồi."})
 
     # 3. Upload file lên Supabase Storage
     try:
@@ -98,7 +99,7 @@ def apply_to_job(
             )
     except RuntimeError as exc:
         conn.rollback()
-        raise HTTPException(status_code=500, detail=str(exc))
+        raise HTTPException(status_code=500, detail={"error_code": error_codes.PROFILE_CV_UPLOAD_FAILED, "message": str(exc)})
 
     # Ghi audit log CÙNG transaction với việc tạo application + upload CV
     # (trước commit) — xem docstring db.log_action(). APPLY_JOB không
@@ -141,18 +142,18 @@ def get_cv_signed_url(
     ảnh hưởng thao tác bình thường của staff (xem qua nhiều CV liên
     tục trong lúc duyệt hồ sơ vẫn thoải mái nằm trong hạn mức này)."""
     if not db_module.is_valid_uuid(application_id):
-        raise HTTPException(status_code=400, detail="application_id không hợp lệ.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_INVALID, "message": "application_id không hợp lệ."})
     
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT cv_url FROM job_applications WHERE application_id = %s", (application_id,))
         row = cur.fetchone()
     
     if not row or not row["cv_url"]:
-        raise HTTPException(status_code=404, detail="Học viên chưa nộp CV cho đơn này.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.PROFILE_HOC_VIEN_CHUA_NOP_CV, "message": "Học viên chưa nộp CV cho đơn này."})
     
     signed_url = cv_storage.get_signed_url(row["cv_url"])
     if not signed_url:
-        raise HTTPException(status_code=500, detail="Không thể tạo link tải file lúc này.")
+        raise HTTPException(status_code=500, detail={"error_code": error_codes.PROFILE_CANNOT_CREATE, "message": "Không thể tạo link tải file lúc này."})
     
     return {"signed_url": signed_url}
 
@@ -175,7 +176,7 @@ def withdraw_application(
     không nhận qua path/body, giống mọi route khác trong file này).
     Huỷ xong có thể POST /me/applications lại nếu muốn ứng tuyển lại."""
     if not db_module.is_valid_uuid(job_id):
-        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID."})
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
@@ -191,7 +192,7 @@ def withdraw_application(
 
     deleted = db_module.delete_job_application(conn, ss_user_id=user["sub"], job_id=job_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Bạn chưa ứng tuyển job này.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.PROFILE_BAN_CHUA_UNG_TUYEN_JOB, "message": "Bạn chưa ứng tuyển job này."})
 
     # Ghi audit log CÙNG transaction với việc xoá job_applications (trước
     # commit) — xem docstring db.log_action(). WITHDRAW_JOB_APPLICATION
@@ -227,15 +228,15 @@ def save_job(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(payload.job_id):
-        raise HTTPException(status_code=400, detail=f"job_id '{payload.job_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{payload.job_id}' không đúng định dạng UUID."})
     if db_module.get_job_by_id(conn, payload.job_id) is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy job")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.PROFILE_JOB_NOT_FOUND, "message": "Không tìm thấy job"})
 
     try:
         saved_job_id = db_module.create_saved_job(conn, ss_user_id=user["sub"], job_id=payload.job_id)
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
-        raise HTTPException(status_code=409, detail="Job này đã được lưu rồi")
+        raise HTTPException(status_code=409, detail={"error_code": error_codes.PROFILE_JOB_LUU_ROI, "message": "Job này đã được lưu rồi"})
     conn.commit()
 
     saved = db_module.list_saved_jobs_for_user(conn, user["sub"])
@@ -257,10 +258,10 @@ def unsave_job(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(job_id):
-        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID."})
 
     deleted = db_module.delete_saved_job(conn, ss_user_id=user["sub"], job_id=job_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail="Job này chưa được lưu")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.PROFILE_JOB_CHUA_LUU, "message": "Job này chưa được lưu"})
     conn.commit()
     return None

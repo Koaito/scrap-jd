@@ -12,6 +12,7 @@ theo đúng thiết kế 3 role đã thống nhất (xem lịch sử trao đổi
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 import db as db_module
+from api import error_codes
 from api.deps import ROLE_HIERARCHY, get_db, require_role
 from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
@@ -46,15 +47,15 @@ def _validate_assignee(conn, assigned_ss_user: str) -> None:
     nhau để frontend phân biệt được nguyên nhân chính xác thay vì gộp
     chung 1 lỗi mơ hồ."""
     if not db_module.is_valid_uuid(assigned_ss_user):
-        raise HTTPException(status_code=400, detail=f"assigned_ss_user '{assigned_ss_user}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_ASSIGNED_SS_USER_INVALID_UUID, "message": f"assigned_ss_user '{assigned_ss_user}' không đúng định dạng UUID."})
     target_user = db_module.get_user_by_id(conn, assigned_ss_user)
     if target_user is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản assigned_ss_user.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_ASSIGNED_USER_NOT_FOUND, "message": "Không tìm thấy tài khoản assigned_ss_user."})
     if ROLE_HIERARCHY.get(target_user.get("role"), -1) < ROLE_HIERARCHY["ss_team"]:
         raise HTTPException(
             status_code=422,
-            detail="assigned_ss_user phải là tài khoản có role 'ss_team' hoặc 'admin' — "
-                   "không thể giao contact cho tài khoản role 'user' (học viên).",
+            detail={"error_code": error_codes.CONTACT_ASSIGNED_SS_USER_TAI_KHOAN, "message": "assigned_ss_user phải là tài khoản có role 'ss_team' hoặc 'admin' — "
+                   "không thể giao contact cho tài khoản role 'user' (học viên)."},
         )
 
 
@@ -92,18 +93,18 @@ def list_all_contacts(
     if contact_status is not None and contact_status not in _VALID_CONTACT_STATUS:
         raise HTTPException(
             status_code=400,
-            detail=f"contact_status '{contact_status}' không hợp lệ — "
-                   f"có sẵn: {sorted(_VALID_CONTACT_STATUS)}",
+            detail={"error_code": error_codes.CONTACT_CONTACT_STATUS_INVALID, "message": f"contact_status '{contact_status}' không hợp lệ — "
+                   f"có sẵn: {sorted(_VALID_CONTACT_STATUS)}"},
         )
     if company_id is not None:
         if not db_module.is_valid_uuid(company_id):
-            raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
+            raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID."})
         if db_module.get_company_by_id(conn, company_id) is None:
-            raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
+            raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND, "message": "Không tìm thấy công ty"})
     if created_by is not None and not db_module.is_valid_uuid(created_by):
-        raise HTTPException(status_code=400, detail=f"created_by '{created_by}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CREATED_BY_INVALID_UUID, "message": f"created_by '{created_by}' không đúng định dạng UUID."})
     if assigned_ss_user is not None and not db_module.is_valid_uuid(assigned_ss_user):
-        raise HTTPException(status_code=400, detail=f"assigned_ss_user '{assigned_ss_user}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_ASSIGNED_SS_USER_INVALID_UUID, "message": f"assigned_ss_user '{assigned_ss_user}' không đúng định dạng UUID."})
 
     return db_module.list_all_contacts(
         conn,
@@ -128,9 +129,9 @@ def list_contacts(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(company_id):
-        raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID."})
     if db_module.get_company_by_id(conn, company_id) is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND, "message": "Không tìm thấy công ty"})
 
     return db_module.list_company_contacts(conn, company_id, include_inactive=include_inactive)
 
@@ -143,9 +144,9 @@ def create_contact(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(company_id):
-        raise HTTPException(status_code=400, detail=f"company_id '{company_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID."})
     if db_module.get_company_by_id(conn, company_id) is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy công ty")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND, "message": "Không tìm thấy công ty"})
 
     if payload.assigned_ss_user is not None:
         _validate_assignee(conn, payload.assigned_ss_user)
@@ -188,17 +189,17 @@ def update_contact(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(contact_id):
-        raise HTTPException(status_code=400, detail=f"contact_id '{contact_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID."})
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:
-        raise HTTPException(status_code=404, detail="Không tìm thấy contact thuộc công ty này")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND_2, "message": "Không tìm thấy contact thuộc công ty này"})
 
     if payload.contact_status is not None and payload.contact_status not in _VALID_CONTACT_STATUS:
         raise HTTPException(
             status_code=400,
-            detail=f"contact_status '{payload.contact_status}' không hợp lệ — "
-                   f"có sẵn: {sorted(_VALID_CONTACT_STATUS)}",
+            detail={"error_code": error_codes.CONTACT_CONTACT_STATUS_INVALID, "message": f"contact_status '{payload.contact_status}' không hợp lệ — "
+                   f"có sẵn: {sorted(_VALID_CONTACT_STATUS)}"},
         )
 
     # CHẶN CỨNG: sửa HR contact bắt buộc note NẾU thực sự có field nào
@@ -210,9 +211,9 @@ def update_contact(
     if changes and not (payload.note or "").strip():
         raise HTTPException(
             status_code=422,
-            detail="Sửa HR contact bắt buộc phải có 'note' giải thích lý do sửa "
+            detail={"error_code": error_codes.CONTACT_REQUIRED, "message": "Sửa HR contact bắt buộc phải có 'note' giải thích lý do sửa "
                    "(field 'note' trong body) — các ss_team khác cần biết vì sao "
-                   "thông tin contact này thay đổi.",
+                   "thông tin contact này thay đổi."},
         )
 
     updated = db_module.update_company_contact(
@@ -228,7 +229,7 @@ def update_contact(
         updated_by=user["sub"],
     )
     if not updated:
-        raise HTTPException(status_code=404, detail="Không tìm thấy contact")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_CONTACT_NOT_FOUND, "message": "Không tìm thấy contact"})
 
     if changes:
         db_module.log_action(
@@ -258,11 +259,11 @@ def assign_contact(
     "field != None mới ghi đè" của route update thường sẽ không cho
     phép bỏ gán về NULL một cách tường minh)."""
     if not db_module.is_valid_uuid(contact_id):
-        raise HTTPException(status_code=400, detail=f"contact_id '{contact_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID."})
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:
-        raise HTTPException(status_code=404, detail="Không tìm thấy contact thuộc công ty này")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND_2, "message": "Không tìm thấy contact thuộc công ty này"})
 
     if payload.assigned_ss_user is not None:
         _validate_assignee(conn, payload.assigned_ss_user)
@@ -276,8 +277,8 @@ def assign_contact(
     if is_change and not (payload.note or "").strip():
         raise HTTPException(
             status_code=422,
-            detail="Gán/đổi/bỏ gán người phụ trách HR contact bắt buộc phải có "
-                   "'note' giải thích lý do — các ss_team khác cần biết vì sao.",
+            detail={"error_code": error_codes.CONTACT_REQUIRED_2, "message": "Gán/đổi/bỏ gán người phụ trách HR contact bắt buộc phải có "
+                   "'note' giải thích lý do — các ss_team khác cần biết vì sao."},
         )
 
     db_module.assign_company_contact(
@@ -321,11 +322,11 @@ def delete_contact(
     trong API này) — thiếu note -> 422 ngay từ Pydantic
     (ContactDeleteRequest.note không có default), KHÔNG chạm tới DB."""
     if not db_module.is_valid_uuid(contact_id):
-        raise HTTPException(status_code=400, detail=f"contact_id '{contact_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID."})
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:
-        raise HTTPException(status_code=404, detail="Không tìm thấy contact thuộc công ty này")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND_2, "message": "Không tìm thấy contact thuộc công ty này"})
 
     is_change = existing["is_active"]
     db_module.soft_delete_company_contact(conn, contact_id, updated_by=user["sub"])
@@ -364,21 +365,21 @@ def hard_delete_contact(
     docstring ContactHasLinksError ở db.py. Trường hợp này contact vẫn
     giữ nguyên trạng thái xoá mềm sau khi gọi route này."""
     if not db_module.is_valid_uuid(contact_id):
-        raise HTTPException(status_code=400, detail=f"contact_id '{contact_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID."})
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:
-        raise HTTPException(status_code=404, detail="Không tìm thấy contact thuộc công ty này")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND_2, "message": "Không tìm thấy contact thuộc công ty này"})
 
     if existing["is_active"]:
         raise HTTPException(
             status_code=409,
-            detail="Contact vẫn đang active — cần xoá mềm (DELETE /companies/{company_id}/contacts/{contact_id}) trước khi xoá cứng.",
+            detail={"error_code": error_codes.CONTACT_STILL_ACTIVE, "message": "Contact vẫn đang active — cần xoá mềm (DELETE /companies/{company_id}/contacts/{contact_id}) trước khi xoá cứng."},
         )
 
     try:
         db_module.hard_delete_company_contact(conn, contact_id)
     except db_module.ContactHasLinksError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail={"error_code": error_codes.CONTACT_HAS_LINKS, "message": str(exc)})
     conn.commit()
     return None

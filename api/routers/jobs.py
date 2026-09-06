@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 import db as db_module
+from api import error_codes
 from api.deps import get_db, require_role
 from api.rate_limit import limiter
 from api.schemas import JobApplicantOut, JobCreate, JobDataHealth, JobDetailOut, JobSaverOut, JobUpdate, PaginatedJobs
@@ -46,7 +47,7 @@ def list_jobs(
     debounce phía frontend (nếu sau này thêm), chỉ chặn kiểu spam script
     gọi liên tục."""
     if created_by is not None and not db_module.is_valid_uuid(created_by):
-        raise HTTPException(status_code=400, detail=f"created_by '{created_by}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.JOB_CREATED_BY_INVALID_UUID, "message": f"created_by '{created_by}' không đúng định dạng UUID."})
     rows, total = db_module.list_jobs(
         conn,
         industry=industry,
@@ -89,10 +90,10 @@ def get_job_data_health(request: Request, conn=Depends(get_db)):
 @router.get("/{job_id}", response_model=JobDetailOut)
 def get_job(job_id: str, conn=Depends(get_db)):
     if not db_module.is_valid_uuid(job_id):
-        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.JOB_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID."})
     row = db_module.get_job_by_id(conn, job_id)
     if row is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy job")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.JOB_JOB_NOT_FOUND, "message": "Không tìm thấy job"})
     return row
 
 
@@ -132,18 +133,18 @@ def create_job(
         # ràng, chỉ đúng nguyên nhân, TRƯỚC KHI chạm tới DB.
         raise HTTPException(
             status_code=400,
-            detail=f"company_id '{payload.company_id}' không đúng định dạng UUID "
+            detail={"error_code": error_codes.JOB_COMPANY_ID_INVALID_UUID, "message": f"company_id '{payload.company_id}' không đúng định dạng UUID "
                    f"— kiểm tra lại đã thay đúng company_id THẬT lấy từ response "
                    f"của POST /companies (hoặc GET /companies?keyword=) chưa, "
-                   f"không phải chuỗi mẫu/placeholder.",
+                   f"không phải chuỗi mẫu/placeholder."},
         )
 
     company = db_module.get_company_by_id(conn, payload.company_id)
     if company is None:
         raise HTTPException(
             status_code=404,
-            detail=f"company_id '{payload.company_id}' không tồn tại — "
-                   f"tạo công ty trước bằng POST /companies.",
+            detail={"error_code": error_codes.JOB_COMPANY_NOT_FOUND, "message": f"company_id '{payload.company_id}' không tồn tại — "
+                   f"tạo công ty trước bằng POST /companies."},
         )
 
     level_id = db_module.get_level_id(conn, payload.level_code) if payload.level_code else None
@@ -215,7 +216,7 @@ def patch_job(
     08/2026) — giống POST /jobs, ghi lại job_postings.updated_by = người
     vừa sửa, đồng thời chặn role 'user' không sửa được."""
     if not db_module.is_valid_uuid(job_id):
-        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.JOB_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID."})
 
     # Lấy trạng thái CŨ trước khi patch — cần để tính diff cho audit log
     # (xem db.diff_changed_fields). Cũng đóng vai trò kiểm tra tồn tại
@@ -223,7 +224,7 @@ def patch_job(
     # rowcount của update_job().
     existing = db_module.get_job_by_id(conn, job_id)
     if existing is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy job")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.JOB_JOB_NOT_FOUND, "message": "Không tìm thấy job"})
 
     level_id = (
         db_module.get_level_id(conn, payload.level_code)
@@ -253,7 +254,7 @@ def patch_job(
         updated_by=user["sub"],
     )
     if not updated:
-        raise HTTPException(status_code=404, detail="Không tìm thấy job")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.JOB_JOB_NOT_FOUND, "message": "Không tìm thấy job"})
 
     # payload_fields: CHỈ field client THỰC SỰ gửi lên (khác payload đầy
     # đủ) — dùng exclude_unset để phân biệt "không gửi" (giữ nguyên, KHÔNG
@@ -310,9 +311,9 @@ def list_job_applications(
     tương tự HR contact, 'user' không thấy được đơn của người khác, chỉ
     thấy đơn của chính mình qua GET /me/applications)."""
     if not db_module.is_valid_uuid(job_id):
-        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.JOB_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID."})
     if db_module.get_job_by_id(conn, job_id) is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy job")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.JOB_JOB_NOT_FOUND, "message": "Không tìm thấy job"})
 
     return db_module.list_applications_for_job(conn, job_id)
 
@@ -331,8 +332,8 @@ def list_job_savers(
     quan tâm JD nào để chủ động hỗ trợ (xem db.list_saved_jobs_for_job()
     để biết chi tiết lý do đảo ngược)."""
     if not db_module.is_valid_uuid(job_id):
-        raise HTTPException(status_code=400, detail=f"job_id '{job_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.JOB_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID."})
     if db_module.get_job_by_id(conn, job_id) is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy job")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.JOB_JOB_NOT_FOUND, "message": "Không tìm thấy job"})
 
     return db_module.list_saved_jobs_for_job(conn, job_id)

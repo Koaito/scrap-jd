@@ -24,6 +24,7 @@ hệt pattern PATCH/DELETE /companies/{id}/contacts/{id}.
 """
 
 import db as db_module
+from api import error_codes
 from fastapi import APIRouter, Depends, HTTPException
 
 from api.deps import get_db, require_role
@@ -68,10 +69,10 @@ def get_email_template(
     user: dict = Depends(require_role("ss_team")),
 ):
     if not db_module.is_valid_uuid(template_id):
-        raise HTTPException(status_code=400, detail=f"template_id '{template_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID, "message": f"template_id '{template_id}' không đúng định dạng UUID."})
     row = db_module.get_email_template_by_id(conn, template_id)
     if row is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy mẫu email")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_NOT_FOUND, "message": "Không tìm thấy mẫu email"})
     return row
 
 
@@ -111,11 +112,11 @@ def patch_email_template(
     user: dict = Depends(require_role("ss_team")),
 ):
     if not db_module.is_valid_uuid(template_id):
-        raise HTTPException(status_code=400, detail=f"template_id '{template_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID, "message": f"template_id '{template_id}' không đúng định dạng UUID."})
 
     existing = db_module.get_email_template_by_id(conn, template_id)
     if existing is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy mẫu email")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_NOT_FOUND, "message": "Không tìm thấy mẫu email"})
 
     # CHẶN CỨNG: sửa mẫu email bắt buộc note NẾU thực sự có field nào
     # đổi giá trị (xem db.ACTION_LOG_RULES, action UPDATE_EMAIL_TEMPLATE)
@@ -127,9 +128,9 @@ def patch_email_template(
     if changes and not (payload.note or "").strip():
         raise HTTPException(
             status_code=422,
-            detail="Sửa mẫu email bắt buộc phải có 'note' giải thích lý do sửa "
+            detail={"error_code": error_codes.EMAIL_TEMPLATE_REQUIRED, "message": "Sửa mẫu email bắt buộc phải có 'note' giải thích lý do sửa "
                    "(field 'note' trong body) — các ss_team khác cần biết vì sao "
-                   "nội dung mẫu này thay đổi.",
+                   "nội dung mẫu này thay đổi."},
         )
 
     updated = db_module.patch_email_template(
@@ -142,7 +143,7 @@ def patch_email_template(
         updated_by=user["sub"],
     )
     if not updated:
-        raise HTTPException(status_code=404, detail="Không tìm thấy mẫu email")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_NOT_FOUND, "message": "Không tìm thấy mẫu email"})
 
     if changes:
         db_module.log_action(
@@ -171,11 +172,11 @@ def delete_email_template(
     ngay từ Pydantic (EmailTemplateDeleteRequest.note không có default),
     KHÔNG chạm tới DB."""
     if not db_module.is_valid_uuid(template_id):
-        raise HTTPException(status_code=400, detail=f"template_id '{template_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID, "message": f"template_id '{template_id}' không đúng định dạng UUID."})
 
     existing = db_module.get_email_template_by_id(conn, template_id)
     if existing is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy mẫu email")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_NOT_FOUND, "message": "Không tìm thấy mẫu email"})
 
     # log_action() TRƯỚC delete thật — entity_id vẫn còn ý nghĩa trong
     # audit_logs dù row email_templates biến mất ngay sau đó (hard

@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 import db as db_module
+from api import error_codes
 from api import maintenance_runner
 from api.deps import require_admin, require_role
 from api.rate_limit import get_user_id_or_ip, limiter
@@ -53,15 +54,15 @@ def trigger_maintenance_run(
     if job_type not in MAINTENANCE_JOB_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"job_type '{job_type}' không tồn tại. Có sẵn: {list(MAINTENANCE_JOB_TYPES)}",
+            detail={"error_code": error_codes.MAINTENANCE_JOB_NOT_FOUND, "message": f"job_type '{job_type}' không tồn tại. Có sẵn: {list(MAINTENANCE_JOB_TYPES)}"},
         )
 
     if job_type in MAINTENANCE_JOB_TYPES_REQUIRE_LIMIT and payload.limit is None:
         raise HTTPException(
             status_code=400,
-            detail=f"job_type '{job_type}' gọi Tavily/Gemini (tốn phí thật) — "
+            detail={"error_code": error_codes.MAINTENANCE_REQUIRED, "message": f"job_type '{job_type}' gọi Tavily/Gemini (tốn phí thật) — "
                    f"bắt buộc truyền 'limit' khi kích hoạt từ web, không được để "
-                   f"trống (tránh chạy hết toàn bộ company chưa có dữ liệu).",
+                   f"trống (tránh chạy hết toàn bộ company chưa có dữ liệu)."},
         )
 
     if job_type != _CHECK_EXPIRED_JOBS and (
@@ -69,8 +70,8 @@ def trigger_maintenance_run(
     ):
         raise HTTPException(
             status_code=400,
-            detail=f"'dry_run'/'check_deadline_only' chỉ áp dụng cho job_type "
-                   f"'{_CHECK_EXPIRED_JOBS}', không áp dụng cho '{job_type}'.",
+            detail={"error_code": error_codes.MAINTENANCE_DRY_RUN_CHECK_DEADLINE_ONLY, "message": f"'dry_run'/'check_deadline_only' chỉ áp dụng cho job_type "
+                   f"'{_CHECK_EXPIRED_JOBS}', không áp dụng cho '{job_type}'."},
         )
 
     # Chỉ đưa vào params những field THỰC SỰ được truyền (khác None) —
@@ -84,7 +85,7 @@ def trigger_maintenance_run(
     try:
         run_id = maintenance_runner.start_run(job_type, params, triggered_by=user["sub"])
     except db_module.ActiveMaintenanceRunExistsError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail={"error_code": error_codes.MAINTENANCE_ALREADY_ACTIVE, "message": str(exc)})
 
     background_tasks.add_task(maintenance_runner.execute, run_id)
     return MaintenanceAccepted(run_id=run_id, job_type=job_type, status="queued")
@@ -105,15 +106,15 @@ def list_maintenance_runs(
     if job_type is not None and job_type not in MAINTENANCE_JOB_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"job_type '{job_type}' không tồn tại. Có sẵn: {list(MAINTENANCE_JOB_TYPES)}",
+            detail={"error_code": error_codes.MAINTENANCE_JOB_NOT_FOUND, "message": f"job_type '{job_type}' không tồn tại. Có sẵn: {list(MAINTENANCE_JOB_TYPES)}"},
         )
     if status is not None and status not in _VALID_MAINTENANCE_STATUSES:
         raise HTTPException(
             status_code=400,
-            detail=f"status '{status}' không hợp lệ — có sẵn: {sorted(_VALID_MAINTENANCE_STATUSES)}",
+            detail={"error_code": error_codes.MAINTENANCE_STATUS_INVALID, "message": f"status '{status}' không hợp lệ — có sẵn: {sorted(_VALID_MAINTENANCE_STATUSES)}"},
         )
     if triggered_by is not None and not db_module.is_valid_uuid(triggered_by):
-        raise HTTPException(status_code=400, detail=f"triggered_by '{triggered_by}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.MAINTENANCE_TRIGGERED_BY_INVALID_UUID, "message": f"triggered_by '{triggered_by}' không đúng định dạng UUID."})
 
     rows, total = maintenance_runner.list_runs(
         job_type=job_type, status=status, triggered_by=triggered_by,
@@ -163,16 +164,16 @@ def get_maintenance_logs_batch(
     if len(run_id_list) != len(after_id_list):
         raise HTTPException(
             status_code=400,
-            detail=f"run_ids ({len(run_id_list)} mục) và after_ids ({len(after_id_list)} mục) "
-                   f"phải có CÙNG SỐ LƯỢNG, khớp theo thứ tự.",
+            detail={"error_code": error_codes.MAINTENANCE_RUN_IDS_MUC_AFTER_IDS, "message": f"run_ids ({len(run_id_list)} mục) và after_ids ({len(after_id_list)} mục) "
+                   f"phải có CÙNG SỐ LƯỢNG, khớp theo thứ tự."},
         )
 
     run_after_ids: dict[str, int] = {}
     for rid, aid in zip(run_id_list, after_id_list):
         if not db_module.is_valid_uuid(rid):
-            raise HTTPException(status_code=400, detail=f"run_id '{rid}' không đúng định dạng UUID.")
+            raise HTTPException(status_code=400, detail={"error_code": error_codes.MAINTENANCE_RUN_ID_INVALID_UUID, "message": f"run_id '{rid}' không đúng định dạng UUID."})
         if not aid.isdigit():
-            raise HTTPException(status_code=400, detail=f"after_id '{aid}' (ứng với run_id '{rid}') phải là số nguyên >= 0.")
+            raise HTTPException(status_code=400, detail={"error_code": error_codes.MAINTENANCE_AFTER_ID_UNG_RUN_ID, "message": f"after_id '{aid}' (ứng với run_id '{rid}') phải là số nguyên >= 0."})
         run_after_ids[rid] = int(aid)
 
     if not run_after_ids:
@@ -192,10 +193,10 @@ def get_maintenance_logs_batch(
 def get_maintenance_status(run_id: str, user: dict = Depends(require_role("ss_team"))):
     """Poll tiến độ/kết quả 1 lượt chạy — đối xứng GET /crawl/{run_id}."""
     if not db_module.is_valid_uuid(run_id):
-        raise HTTPException(status_code=400, detail=f"run_id '{run_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.MAINTENANCE_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID."})
     run = maintenance_runner.get_run(run_id)
     if run is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy run_id này")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.MAINTENANCE_RUN_NOT_FOUND, "message": "Không tìm thấy run_id này"})
     return run
 
 
@@ -208,7 +209,7 @@ def get_maintenance_logs(
 ):
     """Khu "Xem log live" — đối xứng GET /crawl/{run_id}/logs."""
     if not db_module.is_valid_uuid(run_id):
-        raise HTTPException(status_code=400, detail=f"run_id '{run_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.MAINTENANCE_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID."})
     items = maintenance_runner.get_logs(run_id, after_id=after_id, limit=limit)
     last_id = items[-1]["id"] if items else after_id
     return MaintenanceLogsOut(last_id=last_id, items=items)

@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
 import db as db_module
+from api import error_codes
 from api import crawl_runner
 from api.deps import require_admin, require_role
 from api.rate_limit import get_user_id_or_ip, limiter
@@ -62,15 +63,15 @@ def trigger_crawl(
     if payload.source not in crawl_runner._SOURCE_ADAPTERS:
         raise HTTPException(
             status_code=400,
-            detail=f"Source '{payload.source}' không tồn tại. "
-                   f"Có sẵn: {list(crawl_runner._SOURCE_ADAPTERS.keys())}",
+            detail={"error_code": error_codes.CRAWL_NOT_FOUND, "message": f"Source '{payload.source}' không tồn tại. "
+                   f"Có sẵn: {list(crawl_runner._SOURCE_ADAPTERS.keys())}"},
         )
     categories = _CATEGORIES_BY_SOURCE[payload.source]
     if payload.category not in categories:
         raise HTTPException(
             status_code=400,
-            detail=f"Category '{payload.category}' không tồn tại cho source "
-                   f"'{payload.source}'. Có sẵn: {list(categories.keys())}",
+            detail={"error_code": error_codes.CRAWL_NOT_FOUND_2, "message": f"Category '{payload.category}' không tồn tại cho source "
+                   f"'{payload.source}'. Có sẵn: {list(categories.keys())}"},
         )
 
     try:
@@ -79,7 +80,7 @@ def trigger_crawl(
             max_jobs=payload.max_jobs, triggered_by=user["sub"],
         )
     except db_module.ActiveCrawlExistsError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail={"error_code": error_codes.CRAWL_ALREADY_ACTIVE, "message": str(exc)})
 
     background_tasks.add_task(crawl_runner.execute, run_id)
     return CrawlAccepted(run_id=run_id, status="queued")
@@ -118,16 +119,16 @@ def trigger_crawl_batch(
     if payload.source not in crawl_runner._SOURCE_ADAPTERS:
         raise HTTPException(
             status_code=400,
-            detail=f"Source '{payload.source}' không tồn tại. "
-                   f"Có sẵn: {list(crawl_runner._SOURCE_ADAPTERS.keys())}",
+            detail={"error_code": error_codes.CRAWL_NOT_FOUND, "message": f"Source '{payload.source}' không tồn tại. "
+                   f"Có sẵn: {list(crawl_runner._SOURCE_ADAPTERS.keys())}"},
         )
     valid_categories = _CATEGORIES_BY_SOURCE[payload.source]
     unknown = [c for c in payload.categories if c not in valid_categories]
     if unknown:
         raise HTTPException(
             status_code=400,
-            detail=f"Category {unknown} không tồn tại cho source '{payload.source}'. "
-                   f"Có sẵn: {list(valid_categories.keys())}",
+            detail={"error_code": error_codes.CRAWL_NOT_FOUND_3, "message": f"Category {unknown} không tồn tại cho source '{payload.source}'. "
+                   f"Có sẵn: {list(valid_categories.keys())}"},
         )
 
     # Loại category trùng lặp (giữ đúng thứ tự xuất hiện đầu tiên) —
@@ -146,7 +147,7 @@ def trigger_crawl_batch(
             max_jobs=payload.max_jobs, triggered_by=user["sub"],
         )
     except db_module.ActiveCrawlExistsError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail={"error_code": error_codes.CRAWL_ALREADY_ACTIVE, "message": str(exc)})
 
     background_tasks.add_task(crawl_runner.execute, first_run_id)
     return CrawlBatchAccepted(batch_id=batch_id, first_run_id=first_run_id, status="running")
@@ -169,10 +170,10 @@ def list_crawl_batches(
     if status is not None and status not in _VALID_CRAWL_STATUSES:
         raise HTTPException(
             status_code=400,
-            detail=f"status '{status}' không hợp lệ — có sẵn: {sorted(_VALID_CRAWL_STATUSES)}",
+            detail={"error_code": error_codes.CRAWL_STATUS_INVALID, "message": f"status '{status}' không hợp lệ — có sẵn: {sorted(_VALID_CRAWL_STATUSES)}"},
         )
     if triggered_by is not None and not db_module.is_valid_uuid(triggered_by):
-        raise HTTPException(status_code=400, detail=f"triggered_by '{triggered_by}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_TRIGGERED_BY_INVALID_UUID, "message": f"triggered_by '{triggered_by}' không đúng định dạng UUID."})
 
     rows, total = crawl_runner.list_batches(
         source=source, status=status, triggered_by=triggered_by,
@@ -187,10 +188,10 @@ def get_crawl_batch(batch_id: str, user: dict = Depends(require_role("ss_team"))
     theo đúng thứ tự category) + "total"/"completed" để frontend hiện
     kiểu "2/6 category xong" mà không cần tự đếm lại từ GET /crawl."""
     if not db_module.is_valid_uuid(batch_id):
-        raise HTTPException(status_code=400, detail=f"batch_id '{batch_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_BATCH_ID_INVALID_UUID, "message": f"batch_id '{batch_id}' không đúng định dạng UUID."})
     batch = crawl_runner.get_batch(batch_id)
     if batch is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy batch_id này")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CRAWL_BATCH_NOT_FOUND, "message": "Không tìm thấy batch_id này"})
     return batch
 
 
@@ -212,10 +213,10 @@ def list_crawl_runs(
     if status is not None and status not in _VALID_CRAWL_STATUSES:
         raise HTTPException(
             status_code=400,
-            detail=f"status '{status}' không hợp lệ — có sẵn: {sorted(_VALID_CRAWL_STATUSES)}",
+            detail={"error_code": error_codes.CRAWL_STATUS_INVALID, "message": f"status '{status}' không hợp lệ — có sẵn: {sorted(_VALID_CRAWL_STATUSES)}"},
         )
     if triggered_by is not None and not db_module.is_valid_uuid(triggered_by):
-        raise HTTPException(status_code=400, detail=f"triggered_by '{triggered_by}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_TRIGGERED_BY_INVALID_UUID, "message": f"triggered_by '{triggered_by}' không đúng định dạng UUID."})
 
     rows, total = crawl_runner.list_runs(
         source=source, status=status, triggered_by=triggered_by,
@@ -251,10 +252,10 @@ def get_crawl_status(run_id: str, user: dict = Depends(require_role("ss_team")))
     đoán UUID ngẫu nhiên gần như không khả thi nhưng vẫn là lỗ hổng
     thiết kế, đều gọi được), khác hẳn POST /crawl vốn đã chặt 'admin'."""
     if not db_module.is_valid_uuid(run_id):
-        raise HTTPException(status_code=400, detail=f"run_id '{run_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID."})
     run = crawl_runner.get_run(run_id)
     if run is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy run_id này")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CRAWL_RUN_NOT_FOUND, "message": "Không tìm thấy run_id này"})
     return run
 
 
@@ -273,7 +274,7 @@ def get_crawl_logs(
     Cùng mức quyền 'ss_team' như GET /crawl/{run_id} (đọc log không tốn
     tài nguyên hơn đọc status, không cần chặt hơn)."""
     if not db_module.is_valid_uuid(run_id):
-        raise HTTPException(status_code=400, detail=f"run_id '{run_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID."})
     items = crawl_runner.get_logs(run_id, after_id=after_id, limit=limit)
     last_id = items[-1]["id"] if items else after_id
     return CrawlLogsOut(last_id=last_id, items=items)

@@ -17,6 +17,7 @@ from typing import Literal, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 
 import db as db_module
+from api import error_codes
 from api.deps import get_db, require_role
 from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import (
@@ -45,7 +46,7 @@ def _check_entity_type(entity_type: str) -> None:
     if entity_type not in _VALID_ENTITY_TYPES:
         raise HTTPException(
             status_code=400,
-            detail=f"entity_type '{entity_type}' không hợp lệ — chỉ nhận job/company/contact.",
+            detail={"error_code": error_codes.IMPORT_ENTITY_TYPE_INVALID, "message": f"entity_type '{entity_type}' không hợp lệ — chỉ nhận job/company/contact."},
         )
 
 
@@ -88,40 +89,40 @@ def _build_export_filters(
         if valid_values is None:
             raise HTTPException(
                 status_code=400,
-                detail=f"entity_type '{entity_type}' không có filter status.",
+                detail={"error_code": error_codes.IMPORT_ENTITY_TYPE_FILTER_STATUS, "message": f"entity_type '{entity_type}' không có filter status."},
             )
         if status not in valid_values:
             raise HTTPException(
                 status_code=400,
-                detail=f"status '{status}' không hợp lệ cho '{entity_type}' — chỉ nhận {valid_values}.",
+                detail={"error_code": error_codes.IMPORT_STATUS_INVALID, "message": f"status '{status}' không hợp lệ cho '{entity_type}' — chỉ nhận {valid_values}."},
             )
 
     if is_active is not None and entity_type == "job":
         raise HTTPException(
             status_code=400,
-            detail="entity_type 'job' không có filter is_active.",
+            detail={"error_code": error_codes.IMPORT_ENTITY_TYPE_JOB_FILTER_IS, "message": "entity_type 'job' không có filter is_active."},
         )
 
     if company_id is not None and entity_type == "company":
         raise HTTPException(
             status_code=400,
-            detail="entity_type 'company' không có filter company_id (company export theo chính nó).",
+            detail={"error_code": error_codes.IMPORT_ENTITY_TYPE_COMPANY_FILTER_COMPANY, "message": "entity_type 'company' không có filter company_id (company export theo chính nó)."},
         )
 
     if date_field not in ("created_at", "updated_at"):
         raise HTTPException(
             status_code=400,
-            detail="date_field chỉ nhận 'created_at' hoặc 'updated_at'.",
+            detail={"error_code": error_codes.IMPORT_DATE_FIELD_NHAN_CREATED_AT, "message": "date_field chỉ nhận 'created_at' hoặc 'updated_at'."},
         )
 
     if from_date is not None and to_date is not None and from_date > to_date:
         raise HTTPException(
             status_code=400,
-            detail="from_date phải <= to_date.",
+            detail={"error_code": error_codes.IMPORT_FROM_DATE_TO_DATE, "message": "from_date phải <= to_date."},
         )
 
     if limit is not None and limit <= 0:
-        raise HTTPException(status_code=400, detail="limit phải > 0.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.IMPORT_LIMIT_0, "message": "limit phải > 0."})
 
     return ExportFilters(
         status=status,
@@ -263,9 +264,9 @@ async def import_preview(
     try:
         df = file_parser.parse_file(file, raw_bytes)
     except file_parser.UnsupportedFileFormatError:
-        raise HTTPException(status_code=400, detail="Unsupported file format. Please upload CSV or XLSX")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.IMPORT_UNSUPPORTED_FILE_FORMAT_PLEASE_UPLOAD, "message": "Unsupported file format. Please upload CSV or XLSX"})
     except file_parser.FileTooLargeError:
-        raise HTTPException(status_code=400, detail="File exceeds maximum of 5000 rows")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.IMPORT_FILE_EXCEEDS_MAXIMUM_OF_5000, "message": "File exceeds maximum of 5000 rows"})
 
     validation_result = validate_dataframe(df, entity_type)
     if not validation_result.is_valid:
@@ -339,7 +340,7 @@ def get_company_suggestions(
         (r for r in preview_row["preview_data"]["rows"] if r["row_index"] == row_index), None,
     )
     if matched is None:
-        raise HTTPException(status_code=404, detail=f"row_index {row_index} không có trong preview này.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.IMPORT_ROW_INDEX_PREVIEW, "message": f"row_index {row_index} không có trong preview này."})
 
     company_name = matched["data"].get("company_name", "")
     suggestions = company_resolver.suggest_companies(conn, company_name)
@@ -377,7 +378,7 @@ def verify_field(
     if preview_row["entity_type"] != entity_type:
         raise HTTPException(
             status_code=400,
-            detail=f"preview_id này thuộc entity_type '{preview_row['entity_type']}', không phải '{entity_type}'.",
+            detail={"error_code": error_codes.IMPORT_PREVIEW_ID_THUOC_ENTITY_TYPE, "message": f"preview_id này thuộc entity_type '{preview_row['entity_type']}', không phải '{entity_type}'."},
         )
 
     try:
@@ -389,7 +390,7 @@ def verify_field(
             raw_value=payload.value,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.IMPORT_FIELD_VERIFY_FAILED, "message": str(exc)})
 
     return FieldVerifyResponse(row=result["row"], field_error=result["field_error"])
 
@@ -415,14 +416,14 @@ def resolve_company(
     if entity_type not in ("job", "contact"):
         raise HTTPException(
             status_code=400,
-            detail=f"entity_type '{entity_type}' không có bước chọn công ty — chỉ job/contact.",
+            detail={"error_code": error_codes.IMPORT_ENTITY_TYPE_BUOC_CHON_CONG, "message": f"entity_type '{entity_type}' không có bước chọn công ty — chỉ job/contact."},
         )
     preview_row = _load_owned_preview(conn, preview_id, user["sub"])
 
     if preview_row["entity_type"] != entity_type:
         raise HTTPException(
             status_code=400,
-            detail=f"preview_id này thuộc entity_type '{preview_row['entity_type']}', không phải '{entity_type}'.",
+            detail={"error_code": error_codes.IMPORT_PREVIEW_ID_THUOC_ENTITY_TYPE, "message": f"preview_id này thuộc entity_type '{preview_row['entity_type']}', không phải '{entity_type}'."},
         )
 
     try:
@@ -430,7 +431,7 @@ def resolve_company(
             conn, preview_row, row_index=row_index, company_id=payload.company_id,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.IMPORT_RESOLVE_COMPANY_FAILED, "message": str(exc)})
 
     return ResolveCompanyResponse(row=row)
 
@@ -452,7 +453,7 @@ def import_confirm(
     if preview_row["entity_type"] != entity_type:
         raise HTTPException(
             status_code=400,
-            detail=f"preview_id này thuộc entity_type '{preview_row['entity_type']}', không phải '{entity_type}'.",
+            detail={"error_code": error_codes.IMPORT_PREVIEW_ID_THUOC_ENTITY_TYPE, "message": f"preview_id này thuộc entity_type '{preview_row['entity_type']}', không phải '{entity_type}'."},
         )
 
     resolutions = {k: v.model_dump() for k, v in payload.resolutions.items()}
@@ -467,12 +468,12 @@ def import_confirm(
         )
     except import_executor.RowResolutionError as exc:
         conn.rollback()
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail={"error_code": error_codes.IMPORT_ROW_RESOLUTION_FAILED, "message": str(exc)})
     except Exception:
         # Requirement 6.2/6.8: rollback toàn bộ + GIỮ preview để retry,
         # KHÔNG lộ chi tiết lỗi DB thật ra ngoài (Requirement 10.6).
         conn.rollback()
-        raise HTTPException(status_code=500, detail="Import failed due to database error")
+        raise HTTPException(status_code=500, detail={"error_code": error_codes.IMPORT_INTERNAL_ERROR, "message": "Import failed due to database error"})
 
     action_type = {
         "job": "BULK_IMPORT_JOB",
@@ -502,16 +503,16 @@ def import_confirm(
 
 def _load_owned_preview(conn, preview_id: str, requesting_user_id: str) -> dict:
     if not db_module.is_valid_uuid(preview_id):
-        raise HTTPException(status_code=400, detail=f"preview_id '{preview_id}' không đúng định dạng UUID.")
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.IMPORT_PREVIEW_ID_INVALID_UUID, "message": f"preview_id '{preview_id}' không đúng định dạng UUID."})
     try:
         return preview_manager.get_preview(conn, preview_id, requesting_user_id=requesting_user_id)
     except preview_manager.PreviewNotFoundError:
-        raise HTTPException(status_code=404, detail="Preview không tồn tại.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.IMPORT_NOT_FOUND, "message": "Preview không tồn tại."})
     except preview_manager.PreviewOwnershipError:
         # Cố ý trả 404 giống hệt "không tồn tại" thay vì 403 — KHÔNG lộ
         # cho biết preview_id này có tồn tại (thuộc người khác) hay
         # không (Requirement 8.5: prevent access to preview_ids created
         # by other users).
-        raise HTTPException(status_code=404, detail="Preview không tồn tại.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.IMPORT_NOT_FOUND, "message": "Preview không tồn tại."})
     except preview_manager.PreviewExpiredError:
-        raise HTTPException(status_code=410, detail="Preview expired, please re-upload file")
+        raise HTTPException(status_code=410, detail={"error_code": error_codes.IMPORT_PREVIEW_EXPIRED_PLEASE_RE_UPLOAD, "message": "Preview expired, please re-upload file"})

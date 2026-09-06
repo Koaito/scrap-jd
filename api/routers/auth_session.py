@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 import db as db_module
+from api import error_codes
 from api import security
 from api.deps import get_db, get_current_user
 from api.rate_limit import get_user_id_or_ip, limiter
@@ -84,10 +85,10 @@ def login(payload: LoginRequest, request: Request, conn=Depends(get_db)):
 
     user = db_module.get_user_by_email(conn, payload.email)
     if user is None or not user.get("password_hash"):
-        raise HTTPException(status_code=401, detail=_WRONG_CREDENTIALS_MSG)
+        raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_WRONG_CREDENTIALS, "message": _WRONG_CREDENTIALS_MSG})
 
     if not user.get("is_active", True):
-        raise HTTPException(status_code=403, detail="Tài khoản đã bị vô hiệu hoá.")
+        raise HTTPException(status_code=403, detail={"error_code": error_codes.AUTH_DEACTIVATED, "message": "Tài khoản đã bị vô hiệu hoá."})
 
     if not user.get("email_verified", True):
         # default=True: tài khoản tạo TRƯỚC Phần 2 (qua POST /auth/users,
@@ -97,15 +98,15 @@ def login(payload: LoginRequest, request: Request, conn=Depends(get_db)):
         # là phòng hờ thêm 1 lớp, KHÔNG phải nguồn sự thật chính.
         raise HTTPException(
             status_code=403,
-            detail="Email chưa được xác thực — kiểm tra hộp thư hoặc gọi "
-                   "POST /auth/resend-verification để gửi lại link xác thực.",
+            detail={"error_code": error_codes.AUTH_EMAIL_NOT_VERIFIED, "message": "Email chưa được xác thực — kiểm tra hộp thư hoặc gọi "
+                   "POST /auth/resend-verification để gửi lại link xác thực."},
         )
 
     if db_module.is_account_locked(user):
         raise HTTPException(
             status_code=403,
-            detail="Tài khoản tạm thời bị khoá do đăng nhập sai nhiều lần "
-                   "liên tiếp — thử lại sau ít phút.",
+            detail={"error_code": error_codes.AUTH_LOCKED, "message": "Tài khoản tạm thời bị khoá do đăng nhập sai nhiều lần "
+                   "liên tiếp — thử lại sau ít phút."},
         )
 
     if not security.verify_password(payload.password, user["password_hash"]):
@@ -118,11 +119,11 @@ def login(payload: LoginRequest, request: Request, conn=Depends(get_db)):
         if just_locked:
             raise HTTPException(
                 status_code=403,
-                detail=f"Sai mật khẩu quá {security.FAILED_LOGIN_LOCK_THRESHOLD} lần "
+                detail={"error_code": error_codes.AUTH_LOCKED_2, "message": f"Sai mật khẩu quá {security.FAILED_LOGIN_LOCK_THRESHOLD} lần "
                        f"liên tiếp — tài khoản bị khoá tạm "
-                       f"{security.FAILED_LOGIN_LOCK_MINUTES} phút.",
+                       f"{security.FAILED_LOGIN_LOCK_MINUTES} phút."},
             )
-        raise HTTPException(status_code=401, detail=_WRONG_CREDENTIALS_MSG)
+        raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_WRONG_CREDENTIALS, "message": _WRONG_CREDENTIALS_MSG})
 
     # Đăng nhập ĐÚNG — nâng cấp hash nếu tham số Argon2 đã đổi từ lúc
     # tạo mật khẩu này (xem docstring security.needs_rehash()).
@@ -177,7 +178,7 @@ def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
     stored = db_module.get_refresh_token_by_hash(conn, token_hash)
 
     if stored is None:
-        raise HTTPException(status_code=401, detail="Refresh token không hợp lệ.")
+        raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_INVALID_2, "message": "Refresh token không hợp lệ."})
 
     if stored["revoked_at"] is not None:
         # Token cũ đã bị revoke (do đã xoay vòng trước đó) nhưng vẫn có
@@ -193,20 +194,20 @@ def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
         )
         raise HTTPException(
             status_code=401,
-            detail="Refresh token đã bị thu hồi trước đó — vì lý do an "
+            detail={"error_code": error_codes.AUTH_REFRESH_TOKEN_THU_HOI_TRUOC, "message": "Refresh token đã bị thu hồi trước đó — vì lý do an "
                    "toàn, toàn bộ phiên đăng nhập của tài khoản này đã bị "
-                   "đăng xuất. Đăng nhập lại.",
+                   "đăng xuất. Đăng nhập lại."},
         )
 
     expires_at = stored["expires_at"]
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if expires_at <= datetime.now(timezone.utc):
-        raise HTTPException(status_code=401, detail="Refresh token đã hết hạn — đăng nhập lại.")
+        raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_EXPIRED_2, "message": "Refresh token đã hết hạn — đăng nhập lại."})
 
     user = db_module.get_user_by_id(conn, str(stored["ss_user_id"]))
     if user is None or not user.get("is_active", True):
-        raise HTTPException(status_code=403, detail="Tài khoản không còn hoạt động.")
+        raise HTTPException(status_code=403, detail={"error_code": error_codes.AUTH_DEACTIVATED_2, "message": "Tài khoản không còn hoạt động."})
 
     # refresh() KHÔNG sinh session_id mới (khác login()) — giữ nguyên
     # session của phiên đang xoay vòng. active_session_id chỉ NULL cho
@@ -269,7 +270,7 @@ def get_me(user: dict = Depends(get_current_user), conn=Depends(get_db)):
     đã cũ hơn dữ liệu DB vài phút)."""
     row = db_module.get_user_by_id(conn, user["sub"])
     if row is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.AUTH_ACCOUNT_NOT_FOUND, "message": "Không tìm thấy tài khoản."})
     return row
 
 
@@ -299,7 +300,7 @@ def update_me(
     """
     row = db_module.get_user_by_id(conn, user["sub"])
     if row is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.AUTH_ACCOUNT_NOT_FOUND, "message": "Không tìm thấy tài khoản."})
 
     is_student = row["role"] == "user"
     phone = (payload.phone or None) if is_student else None
@@ -339,13 +340,13 @@ def change_password(
     lại chưa có nên bổ sung cho nhất quán."""
     row = db_module.get_user_by_id(conn, user["sub"])
     if row is None:
-        raise HTTPException(status_code=404, detail="Không tìm thấy tài khoản.")
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.AUTH_ACCOUNT_NOT_FOUND, "message": "Không tìm thấy tài khoản."})
 
     if not row["must_change_password"]:
         if not payload.old_password or not security.verify_password(
             payload.old_password, row["password_hash"]
         ):
-            raise HTTPException(status_code=401, detail="Mật khẩu cũ không đúng.")
+            raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_MAT_KHAU_CU_DUNG, "message": "Mật khẩu cũ không đúng."})
 
     db_module.update_user_password(
         conn, user["sub"], security.hash_password(payload.new_password),

@@ -33,7 +33,7 @@ def test_validate_assignee_invalid_uuid(mock_conn):
     with pytest.raises(HTTPException) as exc_info:
         _validate_assignee(mock_conn, "not-a-uuid")
     assert exc_info.value.status_code == 400
-    assert "không đúng định dạng UUID" in exc_info.value.detail
+    assert "không đúng định dạng UUID" in exc_info.value.detail["message"]
 
 
 def test_validate_assignee_user_not_found(mock_conn):
@@ -45,7 +45,7 @@ def test_validate_assignee_user_not_found(mock_conn):
         with pytest.raises(HTTPException) as exc_info:
             _validate_assignee(mock_conn, str(uuid.uuid4()))
         assert exc_info.value.status_code == 404
-        assert "Không tìm thấy tài khoản" in exc_info.value.detail
+        assert "Không tìm thấy tài khoản" in exc_info.value.detail["message"]
 
 
 def test_validate_assignee_insufficient_role(mock_conn):
@@ -57,7 +57,7 @@ def test_validate_assignee_insufficient_role(mock_conn):
         with pytest.raises(HTTPException) as exc_info:
             _validate_assignee(mock_conn, str(uuid.uuid4()))
         assert exc_info.value.status_code == 422
-        assert "ss_team" in exc_info.value.detail or "admin" in exc_info.value.detail
+        assert "ss_team" in exc_info.value.detail["message"] or "admin" in exc_info.value.detail["message"]
 
 
 def test_validate_assignee_valid_ss_team(mock_conn):
@@ -107,7 +107,7 @@ def test_list_all_contacts_invalid_contact_status(
                 conn=mock_conn,
             )
         assert exc_info.value.status_code == 400
-        assert "không hợp lệ" in exc_info.value.detail
+        assert "không hợp lệ" in exc_info.value.detail["message"]
 
 
 def test_list_all_contacts_invalid_company_id(mock_conn, ss_team_user):
@@ -130,7 +130,7 @@ def test_list_all_contacts_invalid_company_id(mock_conn, ss_team_user):
                 conn=mock_conn,
             )
         assert exc_info.value.status_code == 400
-        assert "company_id" in exc_info.value.detail
+        assert "company_id" in exc_info.value.detail["message"]
 
 
 def test_list_all_contacts_company_not_found(
@@ -156,7 +156,7 @@ def test_list_all_contacts_company_not_found(
                 conn=mock_conn,
             )
         assert exc_info.value.status_code == 404
-        assert "công ty" in exc_info.value.detail
+        assert "công ty" in exc_info.value.detail["message"]
 
 
 def test_list_all_contacts_success(mock_conn, ss_team_user, test_company_id):
@@ -285,7 +285,7 @@ def test_update_contact_missing_note_with_changes(
                 conn=mock_conn,
             )
         assert exc_info.value.status_code == 422
-        assert "note" in exc_info.value.detail.lower()
+        assert "note" in exc_info.value.detail["message"].lower()
 
 
 def test_update_contact_no_changes_no_note_required(
@@ -337,7 +337,7 @@ def test_update_contact_invalid_status(
                 conn=mock_conn,
             )
         assert exc_info.value.status_code == 400
-        assert "contact_status" in exc_info.value.detail
+        assert "contact_status" in exc_info.value.detail["message"]
 
 
 # ------------------------------------------------------------------
@@ -370,7 +370,7 @@ def test_assign_contact_missing_note_with_change(
                 conn=mock_conn,
             )
         assert exc_info.value.status_code == 422
-        assert "note" in exc_info.value.detail.lower()
+        assert "note" in exc_info.value.detail["message"].lower()
 
 
 def test_assign_contact_no_change_no_note_required(
@@ -496,7 +496,7 @@ def test_hard_delete_contact_still_active(
                 conn=mock_conn,
             )
         assert exc_info.value.status_code == 409
-        assert "xoá mềm" in exc_info.value.detail.lower()
+        assert "xoá mềm" in exc_info.value.detail["message"].lower()
 
 
 def test_hard_delete_contact_has_links(
