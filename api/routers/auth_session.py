@@ -119,7 +119,7 @@ def login(payload: LoginRequest, request: Request, conn=Depends(get_db)):
         if just_locked:
             raise HTTPException(
                 status_code=403,
-                detail={"error_code": error_codes.AUTH_LOCKED_2, "message": f"Sai mật khẩu quá {security.FAILED_LOGIN_LOCK_THRESHOLD} lần "
+                detail={"error_code": error_codes.AUTH_TOO_MANY_FAILED_ATTEMPTS, "message": f"Sai mật khẩu quá {security.FAILED_LOGIN_LOCK_THRESHOLD} lần "
                        f"liên tiếp — tài khoản bị khoá tạm "
                        f"{security.FAILED_LOGIN_LOCK_MINUTES} phút."},
             )
@@ -178,7 +178,7 @@ def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
     stored = db_module.get_refresh_token_by_hash(conn, token_hash)
 
     if stored is None:
-        raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_INVALID_2, "message": "Refresh token không hợp lệ."})
+        raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_REFRESH_TOKEN_INVALID, "message": "Refresh token không hợp lệ."})
 
     if stored["revoked_at"] is not None:
         # Token cũ đã bị revoke (do đã xoay vòng trước đó) nhưng vẫn có
@@ -194,7 +194,7 @@ def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
         )
         raise HTTPException(
             status_code=401,
-            detail={"error_code": error_codes.AUTH_REFRESH_TOKEN_THU_HOI_TRUOC, "message": "Refresh token đã bị thu hồi trước đó — vì lý do an "
+            detail={"error_code": error_codes.AUTH_REFRESH_TOKEN_ALREADY_REVOKED, "message": "Refresh token đã bị thu hồi trước đó — vì lý do an "
                    "toàn, toàn bộ phiên đăng nhập của tài khoản này đã bị "
                    "đăng xuất. Đăng nhập lại."},
         )
@@ -203,11 +203,11 @@ def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if expires_at <= datetime.now(timezone.utc):
-        raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_EXPIRED_2, "message": "Refresh token đã hết hạn — đăng nhập lại."})
+        raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_REFRESH_TOKEN_EXPIRED, "message": "Refresh token đã hết hạn — đăng nhập lại."})
 
     user = db_module.get_user_by_id(conn, str(stored["ss_user_id"]))
     if user is None or not user.get("is_active", True):
-        raise HTTPException(status_code=403, detail={"error_code": error_codes.AUTH_DEACTIVATED_2, "message": "Tài khoản không còn hoạt động."})
+        raise HTTPException(status_code=403, detail={"error_code": error_codes.AUTH_ACCOUNT_INACTIVE, "message": "Tài khoản không còn hoạt động."})
 
     # refresh() KHÔNG sinh session_id mới (khác login()) — giữ nguyên
     # session của phiên đang xoay vòng. active_session_id chỉ NULL cho
@@ -346,7 +346,7 @@ def change_password(
         if not payload.old_password or not security.verify_password(
             payload.old_password, row["password_hash"]
         ):
-            raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_MAT_KHAU_CU_DUNG, "message": "Mật khẩu cũ không đúng."})
+            raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_OLD_PASSWORD_INCORRECT, "message": "Mật khẩu cũ không đúng."})
 
     db_module.update_user_password(
         conn, user["sub"], security.hash_password(payload.new_password),

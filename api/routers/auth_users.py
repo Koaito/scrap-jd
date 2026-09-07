@@ -42,12 +42,12 @@ def create_user(
     if payload.role not in ("user", "ss_team", "admin"):
         raise HTTPException(
             status_code=400,
-            detail={"error_code": error_codes.USER_ROLE_1_USER_SS_TEAM, "message": "role phải là 1 trong: user, ss_team, admin."},
+            detail={"error_code": error_codes.USER_ROLE_INVALID, "message": "role phải là 1 trong: user, ss_team, admin."},
         )
 
     existing = db_module.get_user_by_email(conn, payload.email)
     if existing is not None:
-        raise HTTPException(status_code=409, detail={"error_code": error_codes.USER_EMAIL_TAI_KHOAN, "message": "Email này đã có tài khoản."})
+        raise HTTPException(status_code=409, detail={"error_code": error_codes.USER_EMAIL_ALREADY_REGISTERED, "message": "Email này đã có tài khoản."})
 
     temp_password = security.generate_temp_password()
     ss_user_id = db_module.create_user(
@@ -135,7 +135,7 @@ def update_user_role(
     if payload.role not in ("user", "ss_team", "admin"):
         raise HTTPException(
             status_code=400,
-            detail={"error_code": error_codes.USER_ROLE_1_USER_SS_TEAM, "message": "role phải là 1 trong: user, ss_team, admin."},
+            detail={"error_code": error_codes.USER_ROLE_INVALID, "message": "role phải là 1 trong: user, ss_team, admin."},
         )
     if ss_user_id == admin["sub"]:
         raise HTTPException(
@@ -173,7 +173,7 @@ def update_user_active_status(
     if ss_user_id == admin["sub"]:
         raise HTTPException(
             status_code=400,
-            detail={"error_code": error_codes.USER_FORBIDDEN_2, "message": "Không thể tự vô hiệu hoá/kích hoạt chính mình — nhờ "
+            detail={"error_code": error_codes.USER_CANNOT_MODIFY_SELF, "message": "Không thể tự vô hiệu hoá/kích hoạt chính mình — nhờ "
                    "admin khác thực hiện thao tác này."},
         )
 

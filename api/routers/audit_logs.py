@@ -125,7 +125,7 @@ def update_note(
     if str(log.get("actor_id")) != str(user["sub"]):
         raise HTTPException(
             status_code=403,
-            detail={"error_code": error_codes.AUDIT_LOG_NGUOI_THUC_HIEN_THAO_TAC, "message": "Chỉ người đã thực hiện thao tác này mới được sửa note của log này."},
+            detail={"error_code": error_codes.AUDIT_LOG_ONLY_ACTOR_CAN_EDIT_NOTE, "message": "Chỉ người đã thực hiện thao tác này mới được sửa note của log này."},
         )
 
     if log["note_required"] and not payload.note.strip():

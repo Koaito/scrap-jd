@@ -54,7 +54,7 @@ def _validate_assignee(conn, assigned_ss_user: str) -> None:
     if ROLE_HIERARCHY.get(target_user.get("role"), -1) < ROLE_HIERARCHY["ss_team"]:
         raise HTTPException(
             status_code=422,
-            detail={"error_code": error_codes.CONTACT_ASSIGNED_SS_USER_TAI_KHOAN, "message": "assigned_ss_user phải là tài khoản có role 'ss_team' hoặc 'admin' — "
+            detail={"error_code": error_codes.CONTACT_ASSIGNED_USER_ROLE_INVALID, "message": "assigned_ss_user phải là tài khoản có role 'ss_team' hoặc 'admin' — "
                    "không thể giao contact cho tài khoản role 'user' (học viên)."},
         )
 
@@ -93,7 +93,7 @@ def list_all_contacts(
     if contact_status is not None and contact_status not in _VALID_CONTACT_STATUS:
         raise HTTPException(
             status_code=400,
-            detail={"error_code": error_codes.CONTACT_CONTACT_STATUS_INVALID, "message": f"contact_status '{contact_status}' không hợp lệ — "
+            detail={"error_code": error_codes.CONTACT_STATUS_INVALID, "message": f"contact_status '{contact_status}' không hợp lệ — "
                    f"có sẵn: {sorted(_VALID_CONTACT_STATUS)}"},
         )
     if company_id is not None:
@@ -193,12 +193,12 @@ def update_contact(
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:
-        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND_2, "message": "Không tìm thấy contact thuộc công ty này"})
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_NOT_FOUND_IN_COMPANY, "message": "Không tìm thấy contact thuộc công ty này"})
 
     if payload.contact_status is not None and payload.contact_status not in _VALID_CONTACT_STATUS:
         raise HTTPException(
             status_code=400,
-            detail={"error_code": error_codes.CONTACT_CONTACT_STATUS_INVALID, "message": f"contact_status '{payload.contact_status}' không hợp lệ — "
+            detail={"error_code": error_codes.CONTACT_STATUS_INVALID, "message": f"contact_status '{payload.contact_status}' không hợp lệ — "
                    f"có sẵn: {sorted(_VALID_CONTACT_STATUS)}"},
         )
 
@@ -263,7 +263,7 @@ def assign_contact(
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:
-        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND_2, "message": "Không tìm thấy contact thuộc công ty này"})
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_NOT_FOUND_IN_COMPANY, "message": "Không tìm thấy contact thuộc công ty này"})
 
     if payload.assigned_ss_user is not None:
         _validate_assignee(conn, payload.assigned_ss_user)
@@ -277,7 +277,7 @@ def assign_contact(
     if is_change and not (payload.note or "").strip():
         raise HTTPException(
             status_code=422,
-            detail={"error_code": error_codes.CONTACT_REQUIRED_2, "message": "Gán/đổi/bỏ gán người phụ trách HR contact bắt buộc phải có "
+            detail={"error_code": error_codes.CONTACT_ASSIGNEE_REQUIRED, "message": "Gán/đổi/bỏ gán người phụ trách HR contact bắt buộc phải có "
                    "'note' giải thích lý do — các ss_team khác cần biết vì sao."},
         )
 
@@ -326,7 +326,7 @@ def delete_contact(
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:
-        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND_2, "message": "Không tìm thấy contact thuộc công ty này"})
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_NOT_FOUND_IN_COMPANY, "message": "Không tìm thấy contact thuộc công ty này"})
 
     is_change = existing["is_active"]
     db_module.soft_delete_company_contact(conn, contact_id, updated_by=user["sub"])
@@ -369,7 +369,7 @@ def hard_delete_contact(
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:
-        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND_2, "message": "Không tìm thấy contact thuộc công ty này"})
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_NOT_FOUND_IN_COMPANY, "message": "Không tìm thấy contact thuộc công ty này"})
 
     if existing["is_active"]:
         raise HTTPException(

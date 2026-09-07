@@ -57,7 +57,7 @@ def require_api_key(
         # trong .env, chặn hết thay vì âm thầm cho qua (mở toang API).
         raise HTTPException(
             status_code=500,
-            detail={"error_code": error_codes.AUTH_SERVER_CHUA_CAU_HINH_API, "message": "Server chưa cấu hình API_KEY — xem .env.example."},
+            detail={"error_code": error_codes.AUTH_SERVER_MISSING_API_KEY, "message": "Server chưa cấu hình API_KEY — xem .env.example."},
         )
 
     supplied = header_key or query_key

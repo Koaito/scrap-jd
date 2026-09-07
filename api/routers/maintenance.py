@@ -70,7 +70,7 @@ def trigger_maintenance_run(
     ):
         raise HTTPException(
             status_code=400,
-            detail={"error_code": error_codes.MAINTENANCE_DRY_RUN_CHECK_DEADLINE_ONLY, "message": f"'dry_run'/'check_deadline_only' chỉ áp dụng cho job_type "
+            detail={"error_code": error_codes.MAINTENANCE_DRY_RUN_JOB_TYPE_MISMATCH, "message": f"'dry_run'/'check_deadline_only' chỉ áp dụng cho job_type "
                    f"'{_CHECK_EXPIRED_JOBS}', không áp dụng cho '{job_type}'."},
         )
 
@@ -164,7 +164,7 @@ def get_maintenance_logs_batch(
     if len(run_id_list) != len(after_id_list):
         raise HTTPException(
             status_code=400,
-            detail={"error_code": error_codes.MAINTENANCE_RUN_IDS_MUC_AFTER_IDS, "message": f"run_ids ({len(run_id_list)} mục) và after_ids ({len(after_id_list)} mục) "
+            detail={"error_code": error_codes.MAINTENANCE_RUN_IDS_AFTER_IDS_LENGTH_MISMATCH, "message": f"run_ids ({len(run_id_list)} mục) và after_ids ({len(after_id_list)} mục) "
                    f"phải có CÙNG SỐ LƯỢNG, khớp theo thứ tự."},
         )
 
@@ -173,7 +173,7 @@ def get_maintenance_logs_batch(
         if not db_module.is_valid_uuid(rid):
             raise HTTPException(status_code=400, detail={"error_code": error_codes.MAINTENANCE_RUN_ID_INVALID_UUID, "message": f"run_id '{rid}' không đúng định dạng UUID."})
         if not aid.isdigit():
-            raise HTTPException(status_code=400, detail={"error_code": error_codes.MAINTENANCE_AFTER_ID_UNG_RUN_ID, "message": f"after_id '{aid}' (ứng với run_id '{rid}') phải là số nguyên >= 0."})
+            raise HTTPException(status_code=400, detail={"error_code": error_codes.MAINTENANCE_AFTER_ID_INVALID, "message": f"after_id '{aid}' (ứng với run_id '{rid}') phải là số nguyên >= 0."})
         run_after_ids[rid] = int(aid)
 
     if not run_after_ids:

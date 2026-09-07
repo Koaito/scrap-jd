@@ -245,7 +245,7 @@ def patch_company(
         conn.rollback()
         raise HTTPException(
             status_code=409,
-            detail={"error_code": error_codes.COMPANY_MA_SO_THUE_DUNG_BOI, "message": f"Mã số thuế '{payload.tax_id}' đã được dùng bởi công ty khác."},
+            detail={"error_code": error_codes.COMPANY_TAX_ID_ALREADY_USED, "message": f"Mã số thuế '{payload.tax_id}' đã được dùng bởi công ty khác."},
         )
 
     if not updated:

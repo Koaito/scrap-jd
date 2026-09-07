@@ -82,7 +82,7 @@ def register(payload: RegisterRequest, request: Request, conn=Depends(get_db)):
     api/email_service.py để hiểu lý do không raise khi gửi lỗi)."""
     existing = db_module.get_user_by_email(conn, payload.email)
     if existing is not None:
-        raise HTTPException(status_code=409, detail={"error_code": error_codes.AUTH_EMAIL_TAI_KHOAN, "message": "Email này đã có tài khoản."})
+        raise HTTPException(status_code=409, detail={"error_code": error_codes.AUTH_EMAIL_ALREADY_REGISTERED, "message": "Email này đã có tài khoản."})
 
     verify_token = _generate_verify_token()
     verify_expires = datetime.now(timezone.utc) + timedelta(hours=EMAIL_VERIFY_EXPIRE_HOURS)
