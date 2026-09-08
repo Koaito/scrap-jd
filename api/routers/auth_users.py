@@ -92,7 +92,7 @@ def list_applications_of_user(
     kèm job_title/job_status/company_name", không cần full_name/email
     của chính học viên đó (staff đã biết đang xem ai qua ss_user_id)."""
     if not db_module.is_valid_uuid(ss_user_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.USER_SS_USER_ID_INVALID_UUID, "message": f"ss_user_id '{ss_user_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.USER_SS_USER_ID_INVALID_UUID, "message": f"ss_user_id '{ss_user_id}' không đúng định dạng UUID.", "params": {"value": ss_user_id}})
     if db_module.get_user_by_id(conn, ss_user_id) is None:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.USER_ACCOUNT_NOT_FOUND, "message": "Không tìm thấy tài khoản."})
 
@@ -113,7 +113,7 @@ def list_saved_jobs_of_user(
     "saved_jobs riêng tư 100%" ban đầu. Tái dùng thẳng
     db.list_saved_jobs_for_user() (vốn dùng cho GET /me/saved-jobs)."""
     if not db_module.is_valid_uuid(ss_user_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.USER_SS_USER_ID_INVALID_UUID, "message": f"ss_user_id '{ss_user_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.USER_SS_USER_ID_INVALID_UUID, "message": f"ss_user_id '{ss_user_id}' không đúng định dạng UUID.", "params": {"value": ss_user_id}})
     if db_module.get_user_by_id(conn, ss_user_id) is None:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.USER_ACCOUNT_NOT_FOUND, "message": "Không tìm thấy tài khoản."})
 

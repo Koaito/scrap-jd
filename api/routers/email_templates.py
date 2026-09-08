@@ -69,7 +69,7 @@ def get_email_template(
     user: dict = Depends(require_role("ss_team")),
 ):
     if not db_module.is_valid_uuid(template_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID, "message": f"template_id '{template_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID, "message": f"template_id '{template_id}' không đúng định dạng UUID.", "params": {"value": template_id}})
     row = db_module.get_email_template_by_id(conn, template_id)
     if row is None:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_NOT_FOUND, "message": "Không tìm thấy mẫu email"})
@@ -112,7 +112,7 @@ def patch_email_template(
     user: dict = Depends(require_role("ss_team")),
 ):
     if not db_module.is_valid_uuid(template_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID, "message": f"template_id '{template_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID, "message": f"template_id '{template_id}' không đúng định dạng UUID.", "params": {"value": template_id}})
 
     existing = db_module.get_email_template_by_id(conn, template_id)
     if existing is None:
@@ -172,7 +172,7 @@ def delete_email_template(
     ngay từ Pydantic (EmailTemplateDeleteRequest.note không có default),
     KHÔNG chạm tới DB."""
     if not db_module.is_valid_uuid(template_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID, "message": f"template_id '{template_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID, "message": f"template_id '{template_id}' không đúng định dạng UUID.", "params": {"value": template_id}})
 
     existing = db_module.get_email_template_by_id(conn, template_id)
     if existing is None:

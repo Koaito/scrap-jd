@@ -117,7 +117,7 @@ def send_message(
                         status_code=429,
                         detail={"error_code": error_codes.MESSAGE_TOO_MANY_PENDING_REQUESTS, "message": f"Bạn đang có quá nhiều yêu cầu nhắn tin đang chờ xử lý "
                                f"(tối đa {db_module.MAX_PENDING_PER_STUDENT} cùng lúc). "
-                               f"Vui lòng đợi SS phản hồi trước khi gửi yêu cầu mới."},
+                               f"Vui lòng đợi SS phản hồi trước khi gửi yêu cầu mới.", "params": {"value": db_module.MAX_PENDING_PER_STUDENT}},
                     )
                 db_module.create_pending_request(conn, student_id, ss_id)
                 conn.commit()
@@ -140,7 +140,7 @@ def send_message(
                     raise HTTPException(
                         status_code=403,
                         detail={"error_code": error_codes.MESSAGE_PREVIOUS_REQUEST_REJECTED_COOLDOWN, "message": f"Yêu cầu trước đã bị từ chối — vui lòng thử lại sau "
-                               f"{db_module.DECLINE_COOLDOWN_DAYS} ngày kể từ lúc bị từ chối."},
+                               f"{db_module.DECLINE_COOLDOWN_DAYS} ngày kể từ lúc bị từ chối.", "params": {"value": db_module.DECLINE_COOLDOWN_DAYS}},
                     )
                 conn.commit()
                 return JSONResponse(

@@ -75,9 +75,9 @@ def list_audit_logs(
             detail={"error_code": error_codes.AUDIT_LOG_ACTION_TYPE_INVALID, "message": f"action_type '{action_type}' không hợp lệ — có sẵn: {sorted(_VALID_ACTION_TYPES)}"},
         )
     if company_id is not None and not db_module.is_valid_uuid(company_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.AUDIT_LOG_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.AUDIT_LOG_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID.", "params": {"value": company_id}})
     if actor_id is not None and not db_module.is_valid_uuid(actor_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.AUDIT_LOG_ACTOR_ID_INVALID_UUID, "message": f"actor_id '{actor_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.AUDIT_LOG_ACTOR_ID_INVALID_UUID, "message": f"actor_id '{actor_id}' không đúng định dạng UUID.", "params": {"value": actor_id}})
 
     rows, total = db_module.list_audit_logs(
         conn,
@@ -116,7 +116,7 @@ def update_note(
     rỗng hẳn đã bị Pydantic chặn ở tầng validate, check ở đây chỉ để an
     toàn kép."""
     if not db_module.is_valid_uuid(log_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.AUDIT_LOG_LOG_ID_INVALID_UUID, "message": f"log_id '{log_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.AUDIT_LOG_LOG_ID_INVALID_UUID, "message": f"log_id '{log_id}' không đúng định dạng UUID.", "params": {"value": log_id}})
 
     log = db_module.get_audit_log_by_id(conn, log_id)
     if log is None:

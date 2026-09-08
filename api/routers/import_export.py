@@ -46,7 +46,7 @@ def _check_entity_type(entity_type: str) -> None:
     if entity_type not in _VALID_ENTITY_TYPES:
         raise HTTPException(
             status_code=400,
-            detail={"error_code": error_codes.IMPORT_ENTITY_TYPE_INVALID, "message": f"entity_type '{entity_type}' không hợp lệ — chỉ nhận job/company/contact."},
+            detail={"error_code": error_codes.IMPORT_ENTITY_TYPE_INVALID, "message": f"entity_type '{entity_type}' không hợp lệ — chỉ nhận job/company/contact.", "params": {"value": entity_type}},
         )
 
 
@@ -89,7 +89,7 @@ def _build_export_filters(
         if valid_values is None:
             raise HTTPException(
                 status_code=400,
-                detail={"error_code": error_codes.IMPORT_ENTITY_TYPE_FILTER_STATUS, "message": f"entity_type '{entity_type}' không có filter status."},
+                detail={"error_code": error_codes.IMPORT_ENTITY_TYPE_FILTER_STATUS, "message": f"entity_type '{entity_type}' không có filter status.", "params": {"value": entity_type}},
             )
         if status not in valid_values:
             raise HTTPException(
@@ -340,7 +340,7 @@ def get_company_suggestions(
         (r for r in preview_row["preview_data"]["rows"] if r["row_index"] == row_index), None,
     )
     if matched is None:
-        raise HTTPException(status_code=404, detail={"error_code": error_codes.IMPORT_ROW_INDEX_NOT_IN_PREVIEW, "message": f"row_index {row_index} không có trong preview này."})
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.IMPORT_ROW_INDEX_NOT_IN_PREVIEW, "message": f"row_index {row_index} không có trong preview này.", "params": {"value": row_index}})
 
     company_name = matched["data"].get("company_name", "")
     suggestions = company_resolver.suggest_companies(conn, company_name)
@@ -416,7 +416,7 @@ def resolve_company(
     if entity_type not in ("job", "contact"):
         raise HTTPException(
             status_code=400,
-            detail={"error_code": error_codes.IMPORT_ENTITY_TYPE_NO_COMPANY_STEP, "message": f"entity_type '{entity_type}' không có bước chọn công ty — chỉ job/contact."},
+            detail={"error_code": error_codes.IMPORT_ENTITY_TYPE_NO_COMPANY_STEP, "message": f"entity_type '{entity_type}' không có bước chọn công ty — chỉ job/contact.", "params": {"value": entity_type}},
         )
     preview_row = _load_owned_preview(conn, preview_id, user["sub"])
 
@@ -503,7 +503,7 @@ def import_confirm(
 
 def _load_owned_preview(conn, preview_id: str, requesting_user_id: str) -> dict:
     if not db_module.is_valid_uuid(preview_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.IMPORT_PREVIEW_ID_INVALID_UUID, "message": f"preview_id '{preview_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.IMPORT_PREVIEW_ID_INVALID_UUID, "message": f"preview_id '{preview_id}' không đúng định dạng UUID.", "params": {"value": preview_id}})
     try:
         return preview_manager.get_preview(conn, preview_id, requesting_user_id=requesting_user_id)
     except preview_manager.PreviewNotFoundError:

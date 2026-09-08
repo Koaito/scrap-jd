@@ -13,6 +13,22 @@ QUY ƯỚC ĐẶT TÊN: {domain}_{tình_huống}, domain lấy theo router
 (contact, company, job, crawl, maintenance, message, profile,
 audit_log, email_template, auth, user, meta, import) — đảm bảo
 không trùng error_code giữa 2 router khác nhau dù tình huống giống hệt.
+
+CƠ CHẾ TEMPLATE BIẾN SỐ (09/2026, đợt 1/2 — chỉ áp dụng cho error_code
+CHỈ có đúng 1 giá trị runtime chèn vào message qua f-string; nhóm có
+≥2 giá trị để dành đợt 2): các raise HTTPException của nhóm này giờ có
+thêm field "params": {"value": <biến gốc>} cạnh "error_code"/"message",
+VD:
+    detail={
+        "error_code": error_codes.JOB_JOB_ID_INVALID_UUID,
+        "message": f"job_id '{job_id}' không đúng định dạng UUID.",
+        "params": {"value": job_id},
+    }
+"message" vẫn giữ nguyên y hệt như trước (không đổi hành vi cho
+locale=vi, vẫn dùng thẳng "message"). "params" chỉ được Next.js
+(Giai đoạn 3) dùng khi locale=en VÀ error_code đã có template dạng
+"{value}" trong errors.en.json — nếu chưa có, "params" bị bỏ qua vô
+hại, fallback về "message" gốc như cũ.
 """
 
 # ---------------------------------------------------------------

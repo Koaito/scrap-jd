@@ -47,7 +47,7 @@ def _validate_assignee(conn, assigned_ss_user: str) -> None:
     nhau để frontend phân biệt được nguyên nhân chính xác thay vì gộp
     chung 1 lỗi mơ hồ."""
     if not db_module.is_valid_uuid(assigned_ss_user):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_ASSIGNED_SS_USER_INVALID_UUID, "message": f"assigned_ss_user '{assigned_ss_user}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_ASSIGNED_SS_USER_INVALID_UUID, "message": f"assigned_ss_user '{assigned_ss_user}' không đúng định dạng UUID.", "params": {"value": assigned_ss_user}})
     target_user = db_module.get_user_by_id(conn, assigned_ss_user)
     if target_user is None:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_ASSIGNED_USER_NOT_FOUND, "message": "Không tìm thấy tài khoản assigned_ss_user."})
@@ -98,13 +98,13 @@ def list_all_contacts(
         )
     if company_id is not None:
         if not db_module.is_valid_uuid(company_id):
-            raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID."})
+            raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID.", "params": {"value": company_id}})
         if db_module.get_company_by_id(conn, company_id) is None:
             raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND, "message": "Không tìm thấy công ty"})
     if created_by is not None and not db_module.is_valid_uuid(created_by):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CREATED_BY_INVALID_UUID, "message": f"created_by '{created_by}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CREATED_BY_INVALID_UUID, "message": f"created_by '{created_by}' không đúng định dạng UUID.", "params": {"value": created_by}})
     if assigned_ss_user is not None and not db_module.is_valid_uuid(assigned_ss_user):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_ASSIGNED_SS_USER_INVALID_UUID, "message": f"assigned_ss_user '{assigned_ss_user}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_ASSIGNED_SS_USER_INVALID_UUID, "message": f"assigned_ss_user '{assigned_ss_user}' không đúng định dạng UUID.", "params": {"value": assigned_ss_user}})
 
     return db_module.list_all_contacts(
         conn,
@@ -129,7 +129,7 @@ def list_contacts(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(company_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID.", "params": {"value": company_id}})
     if db_module.get_company_by_id(conn, company_id) is None:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND, "message": "Không tìm thấy công ty"})
 
@@ -144,7 +144,7 @@ def create_contact(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(company_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID.", "params": {"value": company_id}})
     if db_module.get_company_by_id(conn, company_id) is None:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.CONTACT_COMPANY_NOT_FOUND, "message": "Không tìm thấy công ty"})
 
@@ -189,7 +189,7 @@ def update_contact(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(contact_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID.", "params": {"value": contact_id}})
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:
@@ -259,7 +259,7 @@ def assign_contact(
     "field != None mới ghi đè" của route update thường sẽ không cho
     phép bỏ gán về NULL một cách tường minh)."""
     if not db_module.is_valid_uuid(contact_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID.", "params": {"value": contact_id}})
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:
@@ -322,7 +322,7 @@ def delete_contact(
     trong API này) — thiếu note -> 422 ngay từ Pydantic
     (ContactDeleteRequest.note không có default), KHÔNG chạm tới DB."""
     if not db_module.is_valid_uuid(contact_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID.", "params": {"value": contact_id}})
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:
@@ -365,7 +365,7 @@ def hard_delete_contact(
     docstring ContactHasLinksError ở db.py. Trường hợp này contact vẫn
     giữ nguyên trạng thái xoá mềm sau khi gọi route này."""
     if not db_module.is_valid_uuid(contact_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID.", "params": {"value": contact_id}})
 
     existing = db_module.get_company_contact_by_id(conn, contact_id)
     if existing is None or str(existing["company_id"]) != company_id:

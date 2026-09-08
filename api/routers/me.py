@@ -57,7 +57,7 @@ def apply_to_job(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(job_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID.", "params": {"value": job_id}})
     
     job = db_module.get_job_by_id(conn, job_id)
     if job is None:
@@ -65,7 +65,7 @@ def apply_to_job(
     if job["job_status"] != "OPEN":
         raise HTTPException(
             status_code=400,
-            detail={"error_code": error_codes.PROFILE_JOB_STATUS_NOT_APPLICABLE, "message": f"Job đang ở trạng thái '{job['job_status']}', không thể ứng tuyển."},
+            detail={"error_code": error_codes.PROFILE_JOB_STATUS_NOT_APPLICABLE, "message": f"Job đang ở trạng thái '{job['job_status']}', không thể ứng tuyển.", "params": {"value": job['job_status']}},
         )
 
     # 1. Kiểm tra file PDF
@@ -176,7 +176,7 @@ def withdraw_application(
     không nhận qua path/body, giống mọi route khác trong file này).
     Huỷ xong có thể POST /me/applications lại nếu muốn ứng tuyển lại."""
     if not db_module.is_valid_uuid(job_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID.", "params": {"value": job_id}})
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
@@ -228,7 +228,7 @@ def save_job(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(payload.job_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{payload.job_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{payload.job_id}' không đúng định dạng UUID.", "params": {"value": payload.job_id}})
     if db_module.get_job_by_id(conn, payload.job_id) is None:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.PROFILE_JOB_NOT_FOUND, "message": "Không tìm thấy job"})
 
@@ -258,7 +258,7 @@ def unsave_job(
     conn=Depends(get_db),
 ):
     if not db_module.is_valid_uuid(job_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID.", "params": {"value": job_id}})
 
     deleted = db_module.delete_saved_job(conn, ss_user_id=user["sub"], job_id=job_id)
     if not deleted:

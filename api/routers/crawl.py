@@ -173,7 +173,7 @@ def list_crawl_batches(
             detail={"error_code": error_codes.CRAWL_STATUS_INVALID, "message": f"status '{status}' không hợp lệ — có sẵn: {sorted(_VALID_CRAWL_STATUSES)}"},
         )
     if triggered_by is not None and not db_module.is_valid_uuid(triggered_by):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_TRIGGERED_BY_INVALID_UUID, "message": f"triggered_by '{triggered_by}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_TRIGGERED_BY_INVALID_UUID, "message": f"triggered_by '{triggered_by}' không đúng định dạng UUID.", "params": {"value": triggered_by}})
 
     rows, total = crawl_runner.list_batches(
         source=source, status=status, triggered_by=triggered_by,
@@ -188,7 +188,7 @@ def get_crawl_batch(batch_id: str, user: dict = Depends(require_role("ss_team"))
     theo đúng thứ tự category) + "total"/"completed" để frontend hiện
     kiểu "2/6 category xong" mà không cần tự đếm lại từ GET /crawl."""
     if not db_module.is_valid_uuid(batch_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_BATCH_ID_INVALID_UUID, "message": f"batch_id '{batch_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_BATCH_ID_INVALID_UUID, "message": f"batch_id '{batch_id}' không đúng định dạng UUID.", "params": {"value": batch_id}})
     batch = crawl_runner.get_batch(batch_id)
     if batch is None:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.CRAWL_BATCH_NOT_FOUND, "message": "Không tìm thấy batch_id này"})
@@ -216,7 +216,7 @@ def list_crawl_runs(
             detail={"error_code": error_codes.CRAWL_STATUS_INVALID, "message": f"status '{status}' không hợp lệ — có sẵn: {sorted(_VALID_CRAWL_STATUSES)}"},
         )
     if triggered_by is not None and not db_module.is_valid_uuid(triggered_by):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_TRIGGERED_BY_INVALID_UUID, "message": f"triggered_by '{triggered_by}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_TRIGGERED_BY_INVALID_UUID, "message": f"triggered_by '{triggered_by}' không đúng định dạng UUID.", "params": {"value": triggered_by}})
 
     rows, total = crawl_runner.list_runs(
         source=source, status=status, triggered_by=triggered_by,
@@ -252,7 +252,7 @@ def get_crawl_status(run_id: str, user: dict = Depends(require_role("ss_team")))
     đoán UUID ngẫu nhiên gần như không khả thi nhưng vẫn là lỗ hổng
     thiết kế, đều gọi được), khác hẳn POST /crawl vốn đã chặt 'admin'."""
     if not db_module.is_valid_uuid(run_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID.", "params": {"value": run_id}})
     run = crawl_runner.get_run(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.CRAWL_RUN_NOT_FOUND, "message": "Không tìm thấy run_id này"})
@@ -274,7 +274,7 @@ def get_crawl_logs(
     Cùng mức quyền 'ss_team' như GET /crawl/{run_id} (đọc log không tốn
     tài nguyên hơn đọc status, không cần chặt hơn)."""
     if not db_module.is_valid_uuid(run_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID."})
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID.", "params": {"value": run_id}})
     items = crawl_runner.get_logs(run_id, after_id=after_id, limit=limit)
     last_id = items[-1]["id"] if items else after_id
     return CrawlLogsOut(last_id=last_id, items=items)
