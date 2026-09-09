@@ -1,3 +1,6 @@
+import base64
+import binascii
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -9,6 +12,29 @@ from api.rate_limit import limiter
 from api.schemas import JobApplicantOut, JobCreate, JobDataHealth, JobDetailOut, JobSaverOut, JobUpdate, PaginatedJobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
+
+_CURSOR_SEP = "|"
+
+
+def _encode_cursor(created_at: datetime, job_id: str) -> str:
+    """tuple (created_at, job_id) -> chuỗi opaque base64 cho client —
+    KHÔNG để client thấy/tự dựng cấu trúc bên trong, để sau này đổi
+    khóa cursor (vd thêm field) mà không phá client cũ (xem docstring
+    PaginatedJobs.next_cursor)."""
+    raw = f"{created_at.isoformat()}{_CURSOR_SEP}{job_id}"
+    return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
+
+
+def _decode_cursor(cursor: str) -> tuple:
+    """Ngược lại _encode_cursor() — raise ValueError nếu cursor sai
+    định dạng (client tự chế/sửa tay chuỗi, hoặc cursor từ 1 phiên bản
+    schema cũ/khác), router bắt ValueError để trả 422 rõ ràng thay vì
+    để lỗi 500 lộ traceback."""
+    raw = base64.urlsafe_b64decode(cursor.encode("ascii")).decode("utf-8")
+    created_at_str, _, job_id = raw.partition(_CURSOR_SEP)
+    if not job_id:
+        raise ValueError("cursor thiếu job_id")
+    return datetime.fromisoformat(created_at_str), job_id
 
 
 @router.get("", response_model=PaginatedJobs)
@@ -35,6 +61,14 @@ def list_jobs(
     ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    cursor: Optional[str] = Query(
+        None,
+        description="Cursor opaque cho chế độ 'cuộn vô hạn' (thêm 09/2026) — "
+                    "lấy từ `next_cursor` của response GỌI TRƯỚC, ĐỂ TRỐNG ở lần "
+                    "gọi đầu tiên. KHÔNG dùng cùng lúc với `offset` khác 0 (422 "
+                    "nếu vi phạm) — 2 tham số phục vụ 2 chế độ phân trang khác "
+                    "nhau ở frontend (xem PaginatedJobs.next_cursor).",
+    ),
     conn=Depends(get_db),
 ):
     """Danh sách job, hỗ trợ filter + phân trang. Không filter gì -> trả
@@ -45,10 +79,41 @@ def list_jobs(
     xuống Postgres, không giới hạn trước đó. 60/minute = trung bình 1
     request/giây, đủ rộng cho người dùng đổi filter nhanh tay lẫn
     debounce phía frontend (nếu sau này thêm), chỉ chặn kiểu spam script
-    gọi liên tục."""
+    gọi liên tục. Chế độ cursor (xem tham số `cursor`) tính CHUNG vào
+    limit này — nếu sau này thấy cuộn nhanh hay chạm rate limit, tăng
+    limit riêng cho route này hoặc tăng page-size mặc định phía
+    frontend cho chế độ vô hạn, không tăng cho mọi client."""
     if created_by is not None and not db_module.is_valid_uuid(created_by):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.JOB_CREATED_BY_INVALID_UUID, "message": f"created_by '{created_by}' không đúng định dạng UUID.", "params": {"value": created_by}})
-    rows, total = db_module.list_jobs(
+
+    if cursor is not None and offset != 0:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": error_codes.JOB_CURSOR_WITH_OFFSET_NOT_ALLOWED,
+                "message": "Không thể truyền cả cursor lẫn offset cùng lúc — dùng "
+                           "offset cho chế độ 'Trang X/Y', dùng cursor cho chế độ "
+                           "cuộn vô hạn.",
+                "params": {"cursor": cursor, "offset": offset},
+            },
+        )
+
+    decoded_cursor = None
+    if cursor is not None:
+        try:
+            decoded_cursor = _decode_cursor(cursor)
+        except (ValueError, binascii.Error, UnicodeDecodeError):
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_code": error_codes.JOB_CURSOR_INVALID,
+                    "message": "cursor không đúng định dạng — chỉ dùng giá trị "
+                               "next_cursor lấy từ response GET /jobs trước đó.",
+                    "params": {"cursor": cursor},
+                },
+            )
+
+    rows, total, next_cursor_tuple = db_module.list_jobs(
         conn,
         industry=industry,
         province_name=province,
@@ -59,9 +124,11 @@ def list_jobs(
         created_by=created_by,
         limit=limit,
         offset=offset,
+        cursor=decoded_cursor,
         include_content=include_content,
     )
-    return PaginatedJobs(total=total, limit=limit, offset=offset, items=rows)
+    next_cursor = _encode_cursor(*next_cursor_tuple) if next_cursor_tuple else None
+    return PaginatedJobs(total=total, limit=limit, offset=offset, items=rows, next_cursor=next_cursor)
 
 
 @router.get("/data-health", response_model=JobDataHealth)

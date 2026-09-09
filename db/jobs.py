@@ -472,8 +472,13 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
               keyword: Optional[str] = None, job_status: Optional[str] = None,
               created_by: Optional[str] = None,
               limit: int = 50, offset: int = 0,
+              cursor: Optional[tuple] = None,
               include_content: bool = False):
-    """Trả (list[dict] job, total_count) — dùng cho GET /jobs.
+    """Trả (list[dict] job, total_count, next_cursor) — dùng cho GET
+    /jobs. `next_cursor` là tuple (created_at, job_id) của dòng cuối
+    cùng trong batch vừa trả, hoặc None nếu đây là dòng cuối — tầng API
+    (api/routers/jobs.py) chịu trách nhiệm encode/decode tuple này
+    thành chuỗi opaque, hàm này chỉ làm việc với tuple thô.
 
     Mọi filter đều optional, bỏ qua field nào = None. `keyword` so khớp
     kiểu ILIKE trên job_title (không phân biệt hoa/thường, không cần
@@ -498,9 +503,28 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
     và báo sai 100% job thiếu nội dung, dù dữ liệu có đủ trong DB, chỉ
     vì list không trả cột này).
 
-    limit/offset: phân trang chuẩn — FastAPI route validate limit tối
-    đa (tránh client xin limit=999999 kéo sập DB), hàm này KHÔNG tự
-    giới hạn, cứ tin tưởng giá trị truyền vào."""
+    limit/offset: phân trang chuẩn (chế độ "Trang X/Y" ở index.html) —
+    FastAPI route validate limit tối đa (tránh client xin limit=999999
+    kéo sập DB), hàm này KHÔNG tự giới hạn, cứ tin tưởng giá trị
+    truyền vào.
+
+    cursor: keyset pagination (thêm 09/2026, chế độ "cuộn vô hạn" ở
+    index.html, xem lịch sử trao đổi "2 chế độ phân trang + toggle") —
+    tuple (created_at, job_id) của dòng CUỐI CÙNG client đã nhận ở lần
+    gọi trước, hoặc None nếu đây là lần gọi đầu tiên. Khi có giá trị,
+    HÀM NÀY BỎ QUA `offset` (tầng API phải tự đảm bảo không truyền cả
+    2 cùng lúc — xem validate ở api/routers/jobs.py, không validate lại
+    ở đây để giữ hàm DB thuần, không biết về HTTP 422).
+
+    Vì sao cần job_id làm khóa phụ: nếu chỉ ORDER BY created_at DESC,
+    2 job cùng crawl 1 batch có thể trùng created_at tới micro-giây,
+    khiến thứ tự giữa chúng không xác định — offset-pagination cũ
+    "sống được" với rủi ro này (chỉ lệch/lặp hiếm khi có insert xen
+    giữa lúc đang phân trang), nhưng cursor-pagination BẮT BUỘC thứ tự
+    tuyệt đối ổn định (so sánh tuple (created_at, job_id) < cursor),
+    nên thêm `jp.job_id DESC` làm khóa phụ luôn cho CẢ 2 chế độ — không
+    đổi kết quả nhìn thấy được ở chế độ offset (chỉ phá tie 1 cách
+    quyết định thay vì tùy Postgres), an toàn giữ nguyên."""
     conditions = []
     params: list = []
 
@@ -526,7 +550,18 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
         conditions.append("jp.created_by = %s")
         params.append(created_by)
 
+    # cursor riêng biệt với các filter khác — luôn ANDed thêm vào SAU
+    # (không ảnh hưởng câu COUNT(*) ở dưới, vì COUNT vẫn cần đếm ĐÚNG
+    # tổng số dòng khớp filter, không phụ thuộc client đang cuộn tới
+    # đâu).
+    list_conditions = list(conditions)
+    list_params = list(params)
+    if cursor is not None:
+        list_conditions.append("(jp.created_at, jp.job_id) < (%s, %s)")
+        list_params.extend([cursor[0], cursor[1]])
+
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    list_where_clause = f"WHERE {' AND '.join(list_conditions)}" if list_conditions else ""
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(f"SELECT count(*) AS total FROM job_postings jp "
@@ -544,14 +579,26 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
             f"{_JOB_SELECT_COLUMNS}, jp.parsed_content" if include_content
             else _JOB_SELECT_COLUMNS
         )
-        cur.execute(
-            f"SELECT {select_columns} {_JOB_FROM_JOINS} {where_clause} "
-            f"ORDER BY jp.created_at DESC LIMIT %s OFFSET %s",
-            params + [limit, offset],
-        )
+        if cursor is not None:
+            cur.execute(
+                f"SELECT {select_columns} {_JOB_FROM_JOINS} {list_where_clause} "
+                f"ORDER BY jp.created_at DESC, jp.job_id DESC LIMIT %s",
+                list_params + [limit],
+            )
+        else:
+            cur.execute(
+                f"SELECT {select_columns} {_JOB_FROM_JOINS} {list_where_clause} "
+                f"ORDER BY jp.created_at DESC, jp.job_id DESC LIMIT %s OFFSET %s",
+                list_params + [limit, offset],
+            )
         rows = cur.fetchall()
 
-    return rows, total
+    next_cursor = None
+    if len(rows) == limit:
+        last = rows[-1]
+        next_cursor = (last["created_at"], last["job_id"])
+
+    return rows, total, next_cursor
 
 
 # Field nào tính vào thống kê "thiếu dữ liệu" ở tab Tình trạng dữ liệu

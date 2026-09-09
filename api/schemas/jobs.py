@@ -78,6 +78,15 @@ class PaginatedJobs(BaseModel):
     limit: int
     offset: int
     items: list[JobOut]
+    next_cursor: Optional[str] = Field(
+        default=None,
+        description="Cursor opaque cho lần gọi TIẾP THEO ở chế độ cuộn vô hạn "
+                    "(thêm 09/2026) — truyền nguyên giá trị này vào query param "
+                    "`cursor` của lần gọi kế tiếp để lấy batch job MỚI HƠN cursor "
+                    "đã dùng. null nghĩa là đã hết job (đây là batch cuối cùng). "
+                    "Không liên quan gì tới `offset`/`total` (2 field đó vẫn phục "
+                    "vụ chế độ phân trang 'Trang X/Y' cũ, giữ nguyên hành vi).",
+    )
 
 
 class JobHealthRow(BaseModel):
