@@ -119,7 +119,7 @@ def get_logs_batch(conn, run_after_ids: dict, limit: int = 500) -> dict:
         # VALUES (%s, %s), (%s, %s), ... — mỗi cặp (run_id, after_id)
         # 1 dòng, LATERAL join để limit riêng theo TỪNG run_id (không
         # để 1 run_id log nhiều đè hết limit chung của round-trip).
-        values_sql = ", ".join(["(%s, %s::bigint)"] * len(run_after_ids))
+        values_sql = ", ".join(["(%s::uuid, %s::bigint)"] * len(run_after_ids))
         params: list = []
         for rid, after_id in run_after_ids.items():
             params.extend([rid, after_id])
