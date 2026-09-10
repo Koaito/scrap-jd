@@ -473,7 +473,18 @@ def import_confirm(
         # Requirement 6.2/6.8: rollback toàn bộ + GIỮ preview để retry,
         # KHÔNG lộ chi tiết lỗi DB thật ra ngoài (Requirement 10.6).
         conn.rollback()
-        raise HTTPException(status_code=500, detail={"error_code": error_codes.IMPORT_INTERNAL_ERROR, "message": "Import failed due to database error"})
+        # BUG FIX (i18n, 09/2026): message này trước đây hard-code TIẾNG ANH
+        # ("Import failed due to database error") — lệch với MỌI error_code
+        # khác trong toàn bộ codebase (luôn là tiếng Việt, tầng dịch ở
+        # Next.js dựa vào đúng giả định "message gốc từ backend luôn là
+        # tiếng Việt" — xem resolveErrorMessage() trong
+        # job-posting/src/lib/api/client.ts: locale='vi' LUÔN dùng thẳng
+        # message này, không tra bảng). Hệ quả: user tiếng Việt (locale=vi,
+        # đa số) vẫn thấy nguyên câu tiếng Anh này bất kể chọn locale nào —
+        # bug ĐỘC LẬP, không phải do tầng dịch. Đổi về tiếng Việt cho nhất
+        # quán; câu tiếng Anh tương ứng chuyển sang bảng dịch tĩnh
+        # errors.en.json['import_internal_error'] ở phía Next.js.
+        raise HTTPException(status_code=500, detail={"error_code": error_codes.IMPORT_INTERNAL_ERROR, "message": "Import thất bại do lỗi cơ sở dữ liệu."})
 
     action_type = {
         "job": "BULK_IMPORT_JOB",

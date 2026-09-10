@@ -542,7 +542,11 @@ def test_import_confirm_database_error(mock_conn, ss_team_user, test_preview_id)
                     user=ss_team_user,
                 )
             assert exc_info.value.status_code == 500
-            assert "database error" in exc_info.value.detail["message"].lower()
+            # BUG FIX (i18n, 09/2026): message trước đây hard-code tiếng Anh
+            # ("database error") — lệch với mọi error_code khác (luôn tiếng
+            # Việt, tầng dịch ở Next.js dựa vào giả định này). Đổi assertion
+            # sang khớp message tiếng Việt mới.
+            assert "cơ sở dữ liệu" in exc_info.value.detail["message"].lower()
             mock_conn.rollback.assert_called_once()
 
 
