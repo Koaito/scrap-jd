@@ -273,6 +273,7 @@ async def import_preview(
         raise HTTPException(
             status_code=422,
             detail={
+                "error_code": error_codes.IMPORT_ROW_VALIDATION_FAILED,
                 "message": "File có dòng không hợp lệ, không import gì cả — sửa lỗi rồi upload lại.",
                 "errors": [
                     {

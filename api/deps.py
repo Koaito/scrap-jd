@@ -179,7 +179,11 @@ def require_role(min_role: str):
         if user_level < required_level:
             raise HTTPException(
                 status_code=403,
-                detail=f"Cần quyền tối thiểu '{min_role}' để thực hiện thao tác này.",
+                detail={
+                    "error_code": error_codes.AUTH_INSUFFICIENT_ROLE,
+                    "message": f"Cần quyền tối thiểu '{min_role}' để thực hiện thao tác này.",
+                    "params": {"value": min_role},
+                },
             )
         return user
 

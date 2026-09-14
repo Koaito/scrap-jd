@@ -79,6 +79,12 @@ AUTH_REFRESH_TOKEN_EXPIRED = "auth_expired_2"
 AUTH_ACCOUNT_INACTIVE = "auth_deactivated_2"
 AUTH_ACCOUNT_NOT_FOUND = "auth_account_not_found"
 AUTH_OLD_PASSWORD_INCORRECT = "auth_mat_khau_cu_dung"
+# CẬP NHẬT 09/2026 (Phần B audit i18n, phát hiện qua đối chiếu với FE
+# job-posting): api/deps.py::require_role() raise HTTPException với
+# detail=f"..." dạng STRING THUẦN, không có error_code/message/params
+# như chuẩn còn lại — FE không tra bảng dịch được (không có error_code
+# để tra), luôn hiện tiếng Việt bất kể locale. Thêm mã này để đồng bộ.
+AUTH_INSUFFICIENT_ROLE = "auth_insufficient_role"
 
 # ---------------------------------------------------------------
 # api/routers/auth_users.py
@@ -160,6 +166,12 @@ IMPORT_INTERNAL_ERROR = "import_internal_error"
 IMPORT_PREVIEW_ID_INVALID_UUID = "import_preview_id_invalid_uuid"
 IMPORT_NOT_FOUND = "import_not_found"
 IMPORT_PREVIEW_EXPIRED = "import_preview_expired_please_re_upload"
+# CẬP NHẬT 09/2026 (Phần B audit i18n): api/routers/import_export.py
+# (bước validate file trước khi tạo preview) raise HTTPException với
+# detail thiếu hẳn error_code — chỉ có "message" + "errors" (danh sách
+# lỗi từng dòng). FE không tra bảng dịch được. Thêm mã này để đồng bộ;
+# message tĩnh 100% (không có giá trị runtime chèn vào), không cần params.
+IMPORT_ROW_VALIDATION_FAILED = "import_row_validation_failed"
 
 # ---------------------------------------------------------------
 # api/routers/jobs.py
