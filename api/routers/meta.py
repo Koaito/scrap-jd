@@ -21,7 +21,8 @@ router = APIRouter(tags=["meta"])
 def get_stats(conn=Depends(get_db)):
     """Số liệu tổng quan cho dashboard — tổng job, tổng công ty, tỷ lệ
     đã có social, phân bố theo ngành/nguồn, tổng đơn ứng tuyển (thêm
-    08/2026)."""
+    08/2026), jobs_by_status và total_students (thêm 09/2026 — xem
+    StatsOut ở api/schemas/stats.py)."""
     return db_module.get_stats_summary(conn)
 
 
