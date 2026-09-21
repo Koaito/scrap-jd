@@ -286,6 +286,13 @@ class ImportConfirmResult(BaseModel):
     created: int
     updated: int
     skipped: int
+    # Thêm khi migrate Next.js (Phần 5 mục 11 của plan): số bản ghi trong
+    # `updated` (tập con, KHÔNG cộng thêm vào tổng created+updated+skipped)
+    # từng ở trạng thái ngừng hoạt động (is_active=false / job CLOSED/
+    # EXPIRED) và được đợt import này kích hoạt lại. Staff dùng số này để
+    # biết rõ "đợt import vừa hồi sinh bao nhiêu bản ghi cũ" thay vì con
+    # số đó chìm vô hình trong `updated`.
+    reactivated: int = 0
 
 
 # ------------------------------------------------------------------

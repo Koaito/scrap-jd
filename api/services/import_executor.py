@@ -67,6 +67,15 @@ class ImportSummary:
     created: int = 0
     updated: int = 0
     skipped: int = 0
+    # Thêm khi migrate Next.js (Phần 5 mục 11 của plan): tách riêng số bản
+    # ghi từng ngừng hoạt động (is_active=false / job CLOSED/EXPIRED) được
+    # import "hồi sinh" lại — trước đây bị gộp chung vô hình vào `updated`,
+    # dù _update_row() đã biết rõ ngay tại thời điểm xử lý (tham số
+    # reactivate: bool riêng, chạy UPDATE khác hẳn có thêm is_active=true).
+    # Cộng dồn SONG SONG với updated (không thay thế) — mọi dòng
+    # reactivated cũng LUÔN được tính vào updated như cũ, giữ nguyên hành
+    # vi 2 field created/skipped/updated hiện có.
+    reactivated: int = 0
 
 
 def execute_import(
@@ -428,9 +437,15 @@ def _apply_conflict_action(conn, entity_type, data, existing, status, action, re
                 "Dòng trùng với record đang ở trạng thái ngừng hoạt động (inactive) — "
                 "cần xác nhận confirm_reactivate=true để ghi đè và kích hoạt lại."
             )
+        is_reactivate = status == "conflict_inactive"
         _update_row(conn, entity_type, data, existing, resolution, actor_id,
-                    reactivate=(status == "conflict_inactive"))
+                    reactivate=is_reactivate)
         summary.updated += 1
+        # Phần 5 mục 11 của plan: cộng dồn SONG SONG với updated ở trên,
+        # KHÔNG elif/thay thế — mọi dòng reactivate vẫn là 1 lượt update
+        # bình thường, chỉ cần biết thêm bao nhiêu trong số đó là hồi sinh.
+        if is_reactivate:
+            summary.reactivated += 1
         return
 
     raise RowResolutionError(f"action '{action}' không hợp lệ (chỉ nhận skip/update/create)")

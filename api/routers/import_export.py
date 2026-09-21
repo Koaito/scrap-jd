@@ -510,7 +510,10 @@ def import_confirm(
     preview_manager.delete_preview(conn, payload.preview_id)
     conn.commit()
 
-    return ImportConfirmResult(created=summary.created, updated=summary.updated, skipped=summary.skipped)
+    return ImportConfirmResult(
+        created=summary.created, updated=summary.updated, skipped=summary.skipped,
+        reactivated=summary.reactivated,
+    )
 
 
 def _load_owned_preview(conn, preview_id: str, requesting_user_id: str) -> dict:

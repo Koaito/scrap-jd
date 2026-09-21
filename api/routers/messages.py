@@ -18,7 +18,7 @@ viên, nhưng SS thì không) — check role thủ công trong từng handler
 thay vì ở tầng dependency.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
 import db as db_module
@@ -71,6 +71,12 @@ def send_message(
         hoặc GỬI LẠI request, chưa có tin nhắn nào được lưu — FE cần
         tự phân biệt qua status_code (không dùng response_model chung
         ở decorator vì lý do này).
+
+    Thêm khi migrate Next.js (Phần 1 mục 3.15 của plan): CẢ 2 shape trên
+    giờ đều có thêm field "kind" ("message" | "pending_request") tường
+    minh trong body, để client có thể rẽ nhánh dựa vào nội dung body
+    thay vì chỉ dựa vào status_code — status_code vẫn giữ nguyên 201/202
+    như cũ, "kind" chỉ là field bổ sung, không thay thế.
 
     Thứ tự check (dừng sớm nhất có thể, tránh chạm DB khi không cần):
       1. receiver tồn tại + không tự nhắn cho chính mình.
@@ -125,6 +131,7 @@ def send_message(
                     status_code=202,
                     content={
                         "status": "pending",
+                        "kind": "pending_request",
                         "message": "Đã gửi yêu cầu nhắn tin — chờ SS chấp nhận trước khi có thể nhắn tiếp.",
                     },
                 )
@@ -147,6 +154,7 @@ def send_message(
                     status_code=202,
                     content={
                         "status": "pending",
+                        "kind": "pending_request",
                         "message": "Đã gửi lại yêu cầu nhắn tin — chờ SS chấp nhận.",
                     },
                 )
@@ -196,9 +204,17 @@ def list_pending_requests(
 @limiter.limit("6/minute", key_func=get_user_id_or_ip)
 def unread_count(
     request: Request,
+    response: Response,
     user: dict = Depends(get_current_user),
     conn=Depends(get_db),
 ):
+    # Thêm khi migrate Next.js (Phần 5 mục 15 của plan): route polling này
+    # tự set Cache-Control: no-store ngay tại nguồn — trước đây thiếu,
+    # phải để Flask/proxy tự vá thêm header này ở tầng trung gian. Dùng
+    # tham số Response (FastAPI tự inject, KHÔNG cần đổi return sang
+    # JSONResponse thủ công) để set header trong khi vẫn giữ nguyên
+    # response_model=UnreadCountOut phía trên — không đổi shape response.
+    response.headers["Cache-Control"] = "no-store"
     return {"count": db_module.get_unread_count(conn, user["sub"])}
 
 
@@ -239,6 +255,7 @@ def get_history(
 @limiter.limit("30/minute", key_func=get_user_id_or_ip)
 def get_new_messages(
     request: Request,
+    response: Response,
     partner_id: str,
     after_id: int = Query(...),
     user: dict = Depends(get_current_user),
@@ -246,12 +263,13 @@ def get_new_messages(
 ):
     """Polling nhẹ trong lúc mở khung chat — chỉ trả tin id > after_id.
 
-    TODO (khi làm FE, xem backend-scrap-jd-nhan-tin.md §3): response
-    header Cache-Control: no-store — chưa set ở đây vì router hiện tại
-    trả list trực tiếp qua response_model (FastAPI tự serialize),
-    không đi qua Response object thủ công. Nếu cần set header thật,
-    đổi return sang JSONResponse(..., headers={"Cache-Control": "no-store"})
-    hoặc thêm middleware riêng cho path này."""
+    Thêm khi migrate Next.js (Phần 5 mục 15 của plan): tự set header
+    Cache-Control: no-store ngay tại nguồn qua tham số Response (FastAPI
+    tự inject) — trước đây TODO ghi rõ chưa làm được vì route trả list
+    trực tiếp qua response_model, giờ dùng response.headers thay vì phải
+    đổi hẳn sang JSONResponse thủ công, giữ nguyên response_model và
+    shape response cũ."""
+    response.headers["Cache-Control"] = "no-store"
     return db_module.get_messages_since(conn, user["sub"], partner_id, after_id)
 
 

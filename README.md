@@ -361,7 +361,7 @@ tín hiệu không mơ hồ:
 - Deadline job đã qua (mặc định hoặc `--check-deadline`) → `EXPIRED`.
 
 Mọi trường hợp khác (200 kèm redirect, timeout, 403 bị chặn bot, 5xx tạm
-lỗi...) — **không** kết luận, đếm vào `cần_kiểm_tra_tay` để soát thủ
+lỗi...) — **không** kết luận, đếm vào `needs_manual_check` để soát thủ
 công. Dùng `EXPIRED` (job tự nhiên hết hiệu lực) chứ không phải `CLOSED`
 (team SS chủ động đóng qua frontend) — 2 status khác nghĩa, để sau này
 lọc/báo cáo phân biệt được lý do đóng job.

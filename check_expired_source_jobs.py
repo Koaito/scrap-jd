@@ -33,7 +33,7 @@ MƠ HỒ:
   MỌI trường hợp khác (200 nhưng redirect sang trang khác/trang chủ,
   timeout, lỗi mạng, 403 bị chặn bot, 5xx server nguồn tạm lỗi...) —
   KHÔNG kết luận, KHÔNG đụng vào job_status, chỉ ghi vào
-  stats["cần_kiểm_tra_tay"] để người xem log tự vào tay kiểm tra nếu
+  stats["needs_manual_check"] để người xem log tự vào tay kiểm tra nếu
   muốn. Lý do: TopCV/VietnamWorks có thể trả 200 kèm redirect về trang
   chủ/trang tìm kiếm khi job hết hạn (chưa xác nhận được bằng thực
   nghiệm mẫu HTML/redirect thật của từng trang lúc viết script này) —
@@ -41,7 +41,7 @@ MƠ HỒ:
   site tạm bảo trì, đổi giao diện, chặn bot bằng challenge page) thành
   đã đóng, an toàn hơn nhiều nếu chỉ tin 404/410 rồi để phần còn lại
   cho người kiểm tra tay. Có thể bổ sung tín hiệu khác sau khi đã xem
-  qua vài chục job ở "cần_kiểm_tra_tay" để biết dấu hiệu thật của từng
+  qua vài chục job ở "needs_manual_check" để biết dấu hiệu thật của từng
   site trông như thế nào.
 
   Case KHÔNG cần fetch mạng, hoàn toàn an toàn, được gộp CHUNG script
@@ -196,7 +196,17 @@ def run(limit: Optional[int] = None, check_deadline_only: bool = False,
         dry_run: bool = False, skip_cv_cleanup: bool = False) -> dict:
     stats = {
         "checked": 0, "expired_by_source_dead": 0, "expired_by_deadline": 0,
-        "still_alive": 0, "cần_kiểm_tra_tay": 0,
+        # BUG FIX (migrate Next.js, Phần 5 mục 13 của plan): đổi key
+        # "cần_kiểm_tra_tay" (tiếng Việt có dấu) sang "needs_manual_check"
+        # (snake_case tiếng Anh) cho nhất quán với MỌI key khác trong toàn
+        # bộ API — key cũ không gây lỗi chức năng gì (JSON chấp nhận key
+        # Unicode), nhưng dễ vấp khi viết type TypeScript (khó gõ, khó
+        # autocomplete, khó tìm trong editor). stats dict này được
+        # json.dumps() nguyên vẹn rồi lưu thẳng vào cột JSONB
+        # maintenance_runs.stats (db/maintenance_runs.py::mark_done()),
+        # trả ra API y hệt cấu trúc — đổi key ở ĐÚNG 1 nơi duy nhất
+        # (nguồn) là đủ, không cần transform gì thêm ở tầng DB/router.
+        "still_alive": 0, "needs_manual_check": 0,
         "cv_cleaned": 0, "cv_cleanup_errors": 0,
     }
 
@@ -240,7 +250,7 @@ def run(limit: Optional[int] = None, check_deadline_only: bool = False,
             else:
                 # None (lỗi fetch) hoặc mã khác (3xx lạ, 403, 5xx...) —
                 # KHÔNG mơ hồ đủ để tự kết luận, xem docstring đầu file.
-                stats["cần_kiểm_tra_tay"] += 1
+                stats["needs_manual_check"] += 1
                 logger.info("  -> HTTP %s, không đủ rõ để tự kết luận -> cần kiểm tra tay: %s",
                             status_code, source_url)
 
@@ -285,7 +295,7 @@ def main():
     print(f"Đóng do deadline đã qua            : {stats['expired_by_deadline']}")
     print(f"Đóng do nguồn trả 404/410          : {stats['expired_by_source_dead']}")
     print(f"Vẫn còn sống (200 OK)             : {stats['still_alive']}")
-    print(f"⚠️  Cần kiểm tra tay (không rõ)    : {stats['cần_kiểm_tra_tay']}")
+    print(f"⚠️  Cần kiểm tra tay (không rõ)    : {stats['needs_manual_check']}")
     if not args.skip_cv_cleanup:
         print(f"CV đã dọn (job CLOSED)            : {stats['cv_cleaned']}")
         if stats["cv_cleanup_errors"]:

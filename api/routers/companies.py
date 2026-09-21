@@ -9,6 +9,7 @@ from api.deps import get_db, require_role
 from api.rate_limit import limiter
 from api.schemas import (
     CompanyCreate,
+    CompanyCreateResult,
     CompanyDataHealth,
     CompanyDeleteRequest,
     CompanyDetailOut,
@@ -130,7 +131,7 @@ def get_company(company_id: str, conn=Depends(get_db)):
     return {**row, "jobs": jobs}
 
 
-@router.post("", response_model=CompanyOut, status_code=201)
+@router.post("", response_model=CompanyCreateResult, status_code=201)
 def create_company(
     payload: CompanyCreate,
     conn=Depends(get_db),
@@ -195,7 +196,13 @@ def create_company(
     conn.commit()
 
     row = db_module.get_company_by_id(conn, company_id)
-    return row
+    # Phần 5 mục 16 của plan: đưa was_existing (đã tính sẵn ở đầu hàm,
+    # trước đây bị bỏ đi) vào response — CompanyCreateResult (kế thừa
+    # CompanyOut, chỉ dùng riêng cho route này) chấp nhận field ngoài từ
+    # row (dict) qua from_attributes/model_validate kết hợp field thêm
+    # tay bằng cách dựng dict tường minh, tránh phụ thuộc row có đúng
+    # field này hay không (DB không có cột was_existing).
+    return {**row, "was_existing": was_existing}
 
 
 @router.patch("/{company_id}", response_model=CompanyDetailOut)

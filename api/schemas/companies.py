@@ -61,6 +61,28 @@ class CompanyDetailOut(CompanyOut):
     jobs: list[JobOut] = Field(default_factory=list)
 
 
+# Thêm khi migrate Next.js (Phần 5 mục 16 của plan): response riêng cho
+# POST /companies — KHÔNG gộp field was_existing vào CompanyOut dùng
+# chung (GET /companies list/detail cũng dùng CompanyOut/CompanyDetailOut,
+# field này chỉ có ý nghĩa đúng 1 lần tại thời điểm tạo, đưa vào schema
+# chung sẽ để lại 1 field vô nghĩa "was_existing: null" ở mọi response
+# GET). create_company() (api/routers/companies.py) tự tính được biến
+# was_existing ngay trong hàm (dùng để quyết định có ghi audit log
+# CREATE_COMPANY hay không — công ty "vá thêm thông tin" do trùng
+# tax_id/tên thì không log tạo mới) nhưng TRƯỚC ĐÂY biến này bị bỏ đi,
+# không đưa vào response — client hoàn toàn không có cách nào biết 1
+# lời gọi "tạo công ty" vừa rồi thật sự tạo bản ghi mới hay chỉ âm thầm
+# vá vào công ty đã có sẵn (cùng dạng thiếu sót với `reactivated` ở
+# luồng import, Phần 5 mục 11).
+class CompanyCreateResult(CompanyOut):
+    was_existing: bool = Field(
+        description="true = company trả về đã tồn tại từ trước (trùng "
+                    "tax_id hoặc tên), request này chỉ vá thêm thông tin, "
+                    "KHÔNG tạo bản ghi mới. false = company vừa được tạo "
+                    "mới thật sự.",
+    )
+
+
 class PaginatedCompanies(BaseModel):
     total: int
     limit: int

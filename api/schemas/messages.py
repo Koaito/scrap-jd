@@ -4,7 +4,7 @@ Hệ thống nhắn tin — schema request/response cho api/routers/messages.py
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -37,6 +37,17 @@ class ChatMessageOut(BaseModel):
     content: str
     created_at: datetime
     read_at: Optional[datetime] = None
+    # Thêm khi migrate Next.js (Phần 1 mục 3.15 của plan): POST /messages
+    # trả 2 shape khác nhau cho cùng 1 route, PHÂN BIỆT HOÀN TOÀN bằng
+    # HTTP status code (201 ChatMessageOut vs 202 {"status":"pending",...})
+    # — kém tự-mô-tả nếu có middleware/logging trung gian chỉ kiểm tra
+    # response.ok. `kind` cho phép rẽ nhánh dựa vào NỘI DUNG body thay vì
+    # chỉ dựa status code. Default "message" — GET /messages/with/{id} và
+    # GET /messages/since/{id} (list, cũng dùng chung ChatMessageOut) tự
+    # nhiên có field này với giá trị đúng "message" (list chỉ chứa tin
+    # nhắn thật đã lưu, không bao giờ chứa pending request), không cần
+    # sửa gì thêm ở 2 route đó.
+    kind: Literal["message"] = "message"
 
     class Config:
         from_attributes = True
