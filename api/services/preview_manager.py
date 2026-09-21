@@ -234,7 +234,16 @@ def _count_summary_fields(rows: list[dict]) -> dict:
     nào đó.
 
     KHÔNG bao gồm "total_rows"/"id_field" (2 field đó không đổi khi sửa
-    field, không cần tính lại) — caller tự set/giữ nguyên."""
+    field, không cần tính lại) — caller tự set/giữ nguyên.
+
+    Thêm khi migrate Next.js (Phần 5 mục 10 của plan): NHÂN TIỆN quét
+    này (đã duyệt mọi entry để đếm summary), MUTATE luôn từng entry để
+    gắn field tổng hợp "needs_resolution" — xem _needs_resolution() bên
+    dưới. Gộp vào đây thay vì viết vòng lặp riêng vì hàm này đã là điểm
+    DUY NHẤT được gọi lại ở MỌI nơi rows bị sửa (build_preview,
+    apply_field_fix — kể cả nhánh other_errors return sớm ở trên,
+    resolve_company_selection), nên field derived này CHẮC CHẮN được
+    tính lại đồng bộ với summary, không có đường nào lưu DB mà bỏ sót."""
     counts = {
         "new_records": 0,
         "conflicts": 0,
@@ -267,7 +276,23 @@ def _count_summary_fields(rows: list[dict]) -> dict:
         if entry.get("needs_field_fix"):
             counts["pending_field_fix"] += 1
 
+        entry["needs_resolution"] = _needs_resolution(entry)
+
     return counts
+
+
+def _needs_resolution(entry: dict) -> bool:
+    """True nếu dòng preview còn BẤT KỲ việc gì staff cần xử lý trước khi
+    confirm import — gộp 3 trục ĐỘC LẬP hiện có thành 1 field duy nhất để
+    FE không phải tự lặp lại đúng công thức này ở nhiều nơi (list preview,
+    badge tổng số dòng cần xử lý, disable nút Confirm...):
+    conflict_status != "no_conflict" OR needs_level_resolve OR
+    needs_field_fix (đúng theo Phần 5 mục 10 của plan)."""
+    return (
+        entry["conflict_status"] != "no_conflict"
+        or bool(entry.get("needs_level_resolve"))
+        or bool(entry.get("needs_field_fix"))
+    )
 
 
 def save_preview(conn, *, user_id: str, entity_type: str, preview_data: dict) -> str:
@@ -411,7 +436,17 @@ def apply_field_fix(
     # sau này Company/Contact có rule liên trường mới, không cần sửa lại
     # nhánh if ở đây.
     if field_name in cross_field_rule_fields(spec):
-        rule_errors = check_cross_field_rules(spec, row["data"])
+        # BUG FIX (migrate Next.js, Phần 5 mục 8 của plan): trước đây gọi
+        # check_cross_field_rules() không truyền row_number, rơi vào default
+        # "?" của hàm (xem entity_specs.py::check_cross_field_rules) —
+        # message lỗi hiện literal "Dòng ?" trên UI thay vì số dòng thật.
+        # row_index là 0-based (không tính header); +2 để khớp 1-based VÀ
+        # cộng thêm 1 vì header chiếm dòng 1 trong file gốc — giống hệt
+        # công thức row_number = idx + 2 ở validation_engine.py::
+        # validate_dataframe() (dòng build preview lần đầu), để số dòng
+        # hiển thị nhất quán giữa lúc build preview và lúc sửa tại chỗ.
+        row_number = row["row_index"] + 2
+        rule_errors = check_cross_field_rules(spec, row["data"], row_number)
         if field_name in rule_errors:
             # Field ĐANG sửa tự nó vi phạm rule (vd staff gõ salary_min
             # âm) -> trả lỗi ngay tại ô này, KHÔNG ghi gì thêm khác.
@@ -442,6 +477,14 @@ def apply_field_fix(
             # giá trị/field_errors CŨ, trong khi staff tưởng hệ thống đã
             # ghi nhận lỗi liên trường vừa phát hiện. Lưu ngay tại đây,
             # giống hệt nhánh xử lý thành công ở cuối hàm.
+            #
+            # Cũng phải gọi _count_summary_fields() ở đây (Phần 5 mục 10
+            # của plan) — hàm này vừa cập nhật lại summary vừa MUTATE
+            # entry["needs_resolution"] cho MỌI dòng (xem docstring hàm
+            # đó). Thiếu bước này thì needs_field_fix vừa set True ở trên
+            # không kéo theo needs_resolution=True tương ứng khi lưu DB,
+            # lệch dữ liệu ngay tại nhánh return sớm này.
+            preview_data["summary"].update(_count_summary_fields(rows))
             _save_preview_data(conn, preview_row["preview_id"], preview_data)
             conn.commit()
 

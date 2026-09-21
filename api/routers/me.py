@@ -41,6 +41,7 @@ from api.schemas import (
     JobApplicationOut,
     SavedJobCreate,
     SavedJobOut,
+    SavedJobToggleResult,
 )
 
 router = APIRouter(prefix="/me", tags=["me"])
@@ -126,36 +127,11 @@ def list_my_applications(
     return db_module.list_applications_for_user(conn, user["sub"])
 
 
-@router.get("/applications/{application_id}/cv-url")
-@limiter.limit("30/minute", key_func=get_user_id_or_ip)
-def get_cv_signed_url(
-    request: Request,
-    application_id: str,
-    user: dict = Depends(require_role("ss_team")),  # Chỉ Staff / Admin mới có quyền lấy
-    conn=Depends(get_db),
-):
-    """Staff lấy Signed URL để tải và xem CV học viên.
-
-    Rate limit 30/minute theo user_id (thêm 08/2026) — mỗi lần gọi tốn
-    1 lệnh gọi thật tới storage provider để sinh signed URL mới. Mốc
-    30/minute chỉ nhằm chặn lỗi loop/script gọi lặp ngoài ý muốn, không
-    ảnh hưởng thao tác bình thường của staff (xem qua nhiều CV liên
-    tục trong lúc duyệt hồ sơ vẫn thoải mái nằm trong hạn mức này)."""
-    if not db_module.is_valid_uuid(application_id):
-        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_INVALID, "message": "application_id không hợp lệ."})
-    
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("SELECT cv_url FROM job_applications WHERE application_id = %s", (application_id,))
-        row = cur.fetchone()
-    
-    if not row or not row["cv_url"]:
-        raise HTTPException(status_code=404, detail={"error_code": error_codes.PROFILE_CV_NOT_SUBMITTED, "message": "Học viên chưa nộp CV cho đơn này."})
-    
-    signed_url = cv_storage.get_signed_url(row["cv_url"])
-    if not signed_url:
-        raise HTTPException(status_code=500, detail={"error_code": error_codes.PROFILE_CANNOT_CREATE, "message": "Không thể tạo link tải file lúc này."})
-    
-    return {"signed_url": signed_url}
+# Route GET /applications/{application_id}/cv-url đã DỜI sang
+# GET /jobs/applications/{application_id}/cv-url (api/routers/jobs.py) —
+# xem comment ở đó. Phần 5 mục 11 của plan: route này chỉ staff
+# (require_role("ss_team")) gọi được, không phải hành động tự phục vụ
+# của học viên, nên không nên nằm dưới namespace /me.
 
 
 @router.delete("/applications/{job_id}", status_code=204)
@@ -241,6 +217,42 @@ def save_job(
 
     saved = db_module.list_saved_jobs_for_user(conn, user["sub"])
     return next(s for s in saved if str(s["saved_job_id"]) == saved_job_id)
+
+
+# Thêm khi migrate Next.js (Phần 5 mục 9 của plan): trước đây FE phải tự gọi
+# POST /saved-jobs, bắt lỗi 409 (đã lưu rồi) rồi mới gọi DELETE
+# /saved-jobs/{job_id} để bỏ lưu — 1 nút bấm cần biết trước trạng thái hiện
+# tại VÀ xử lý race giữa 2 lần gọi. Route này gộp lại: luôn thử tạo trước
+# (INSERT), UniqueViolation (đã lưu từ trước) -> coi là "người dùng muốn bỏ
+# lưu", chuyển sang DELETE ngay trong CÙNG request — 1 lần gọi, 1 round-trip,
+# không đổi hành vi 2 route POST/DELETE gốc (vẫn giữ nguyên, route mới không
+# thay thế route cũ, tránh phá FE nào đang gọi trực tiếp 2 route đó).
+@router.post("/saved-jobs/toggle", response_model=SavedJobToggleResult)
+@limiter.limit("30/minute", key_func=get_user_id_or_ip)
+def toggle_saved_job(
+    request: Request,
+    payload: SavedJobCreate,
+    user: dict = Depends(require_role("user")),
+    conn=Depends(get_db),
+):
+    if not db_module.is_valid_uuid(payload.job_id):
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{payload.job_id}' không đúng định dạng UUID.", "params": {"value": payload.job_id}})
+    if db_module.get_job_by_id(conn, payload.job_id) is None:
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.PROFILE_JOB_NOT_FOUND, "message": "Không tìm thấy job"})
+
+    try:
+        saved_job_id = db_module.create_saved_job(conn, ss_user_id=user["sub"], job_id=payload.job_id)
+    except psycopg2.errors.UniqueViolation:
+        # Đã lưu từ trước -> ý định thật sự của toggle lúc này là bỏ lưu.
+        conn.rollback()
+        db_module.delete_saved_job(conn, ss_user_id=user["sub"], job_id=payload.job_id)
+        conn.commit()
+        return SavedJobToggleResult(saved=False, data=None)
+
+    conn.commit()
+    saved = db_module.list_saved_jobs_for_user(conn, user["sub"])
+    saved_row = next(s for s in saved if str(s["saved_job_id"]) == saved_job_id)
+    return SavedJobToggleResult(saved=True, data=saved_row)
 
 
 @router.get("/saved-jobs", response_model=list[SavedJobOut])

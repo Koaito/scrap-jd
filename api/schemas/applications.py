@@ -96,3 +96,14 @@ class SavedJobOut(BaseModel):
         from_attributes = True
 
 
+# Thêm khi migrate Next.js (Phần 5 mục 9 của plan): POST /me/saved-jobs/toggle
+# gộp lưu/bỏ lưu thành 1 lần gọi (thay vì FE tự bắt 409 từ POST /saved-jobs
+# rồi gọi tiếp DELETE /saved-jobs/{job_id}). saved=true -> vừa lưu (data
+# chứa SavedJobOut đầy đủ, giống response POST /saved-jobs cũ, để FE cập
+# nhật UI ngay không cần gọi lại GET); saved=false -> vừa bỏ lưu (data=None,
+# giống trước đây DELETE chỉ trả 204 không có body).
+class SavedJobToggleResult(BaseModel):
+    saved: bool
+    data: Optional[SavedJobOut] = None
+
+

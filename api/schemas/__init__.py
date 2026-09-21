@@ -128,6 +128,7 @@ from api.schemas.applications import (
     JobSaverOut,
     SavedJobCreate,
     SavedJobOut,
+    SavedJobToggleResult,
 )
 from api.schemas.audit_logs import (
     AuditLogOut,
@@ -191,7 +192,7 @@ __all__ = [
     "EmailTemplateUpdate", "EmailTemplateDeleteRequest", "PLACEHOLDER_HELP",
     # applications / saved jobs
     "JobApplicationCreate", "JobApplicationOut", "JobApplicantOut", "JobSaverOut",
-    "SavedJobCreate", "SavedJobOut",
+    "SavedJobCreate", "SavedJobOut", "SavedJobToggleResult",
     # audit logs
     "AuditLogOut", "PaginatedAuditLogs", "AuditLogNoteUpdate",
     # import/export

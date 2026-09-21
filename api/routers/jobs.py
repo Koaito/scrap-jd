@@ -3,12 +3,14 @@ import binascii
 from datetime import datetime
 from typing import Optional
 
+import psycopg2.extras
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 import db as db_module
 from api import error_codes
+from api import storage as cv_storage
 from api.deps import get_db, require_role
-from api.rate_limit import limiter
+from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import JobApplicantOut, JobCreate, JobDataHealth, JobDetailOut, JobSaverOut, JobUpdate, PaginatedJobs
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -152,6 +154,54 @@ def get_job_data_health(request: Request, conn=Depends(get_db)):
     400 vì "data-health" không phải UUID hợp lệ), xem cùng lý do đã
     giải thích ở /companies/data-health."""
     return db_module.get_job_data_health(conn)
+
+
+# Thêm khi migrate Next.js (Phần 5 mục 11 của plan): route này TRƯỚC ĐÂY
+# nằm ở GET /me/applications/{application_id}/cv-url — gây hiểu nhầm là
+# hành động tự phục vụ của CHÍNH học viên (mọi route khác dưới /me đều
+# vậy, ss_user_id luôn lấy từ JWT của chính người gọi, KHÔNG nhận qua
+# path/body — xem docstring đầu api/routers/me.py). Route này thì NGƯỢC
+# LẠI hoàn toàn: application_id là của NGƯỜI KHÁC (học viên đã nộp đơn),
+# và require_role("ss_team") đã luôn chặn "user" thường gọi route này từ
+# trước tới giờ — bản chất đây là hành động STAFF xem hồ sơ người khác,
+# không phải "của tôi". Dời sang dưới /jobs (namespace staff-facing, đã
+# có GET /{job_id}/applications cùng mục đích "staff xem thông tin ứng
+# tuyển") để tên route phản ánh đúng ai gọi được. HÀNH VI GIỮ NGUYÊN
+# 100% — cùng logic, cùng mã lỗi (PROFILE_* giữ nguyên, KHÔNG đổi sang
+# JOB_* để không phá FE đang bắt theo error_code cũ), cùng rate limit,
+# chỉ đổi path. PHẢI khai báo TRƯỚC GET /{job_id} bên dưới cùng lý do
+# /data-health ở trên — "applications" không phải UUID hợp lệ nhưng vẫn
+# cần path cố định này được match trước khi rơi vào {job_id}.
+@router.get("/applications/{application_id}/cv-url")
+@limiter.limit("30/minute", key_func=get_user_id_or_ip)
+def get_cv_signed_url(
+    request: Request,
+    application_id: str,
+    user: dict = Depends(require_role("ss_team")),  # Chỉ Staff / Admin mới có quyền lấy
+    conn=Depends(get_db),
+):
+    """Staff lấy Signed URL để tải và xem CV học viên.
+
+    Rate limit 30/minute theo user_id (thêm 08/2026) — mỗi lần gọi tốn
+    1 lệnh gọi thật tới storage provider để sinh signed URL mới. Mốc
+    30/minute chỉ nhằm chặn lỗi loop/script gọi lặp ngoài ý muốn, không
+    ảnh hưởng thao tác bình thường của staff (xem qua nhiều CV liên
+    tục trong lúc duyệt hồ sơ vẫn thoải mái nằm trong hạn mức này)."""
+    if not db_module.is_valid_uuid(application_id):
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_INVALID, "message": "application_id không hợp lệ."})
+
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT cv_url FROM job_applications WHERE application_id = %s", (application_id,))
+        row = cur.fetchone()
+
+    if not row or not row["cv_url"]:
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.PROFILE_CV_NOT_SUBMITTED, "message": "Học viên chưa nộp CV cho đơn này."})
+
+    signed_url = cv_storage.get_signed_url(row["cv_url"])
+    if not signed_url:
+        raise HTTPException(status_code=500, detail={"error_code": error_codes.PROFILE_CANNOT_CREATE, "message": "Không thể tạo link tải file lúc này."})
+
+    return {"signed_url": signed_url}
 
 
 @router.get("/{job_id}", response_model=JobDetailOut)
