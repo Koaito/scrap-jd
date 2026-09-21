@@ -156,7 +156,7 @@ ra ngay, không đợi access token 30 phút tự hết hạn).
 
 | Method | Path | Việc | Auth |
 |---|---|---|---|
-| GET | `/jobs?industry=&province=&level=&work_type=&status=&keyword=&limit=&offset=` | List job, filter + phân trang | API key |
+| GET | `/jobs?industry=&province=&level=&work_type=&status=&keyword=&ids=&limit=&offset=` | List job, filter + phân trang (`ids=uuid1,uuid2` lọc đúng tập job, tối đa 200; `ids=` rỗng → 0 job) | API key |
 | GET | `/jobs/{job_id}` | Chi tiết 1 job (kèm parsed_content) | API key |
 | POST | `/jobs` | Tạo job thủ công (company phải có sẵn), idempotent | API key + JWT (ss_team+) |
 | PATCH | `/jobs/{job_id}` | Sửa job tự do (đổi trạng thái/lương/ghi chú...). Dùng `job_status:"CLOSED"` để "xoá mềm" | API key + JWT (ss_team+) |
@@ -181,6 +181,10 @@ ra ngay, không đợi access token 30 phút tự hết hạn).
 | GET | `/crawl/{run_id}` | Theo dõi tiến độ/kết quả 1 lượt crawl | API key |
 | GET | `/stats` | Tổng job/công ty/đơn ứng tuyển (`total_applications`), tỷ lệ có social, phân bố ngành/nguồn | API key |
 | GET | `/stats/engagement` | Thêm 08/2026 — mọi job đang OPEN kèm `application_count`/`saved_count` (lọc "JD ế" phía client), + `monthly` (ứng tuyển/lưu job tháng này vs tháng trước, để tính % chênh lệch) | API key |
+| GET | `/dashboard/insights/students` | Thêm 09/2026 — tab "Gợi ý học viên": JD sắp hết hạn cần đẩy, JD "ế", top kỹ năng, lương TB theo ngành/level — tính sẵn bằng SQL (thay 4 khối Python bên Flask) | API key + JWT (ss_team+) |
+| GET | `/dashboard/insights/companies?followup_days=7\|14\|30` | Thêm 09/2026 — tab "Doanh nghiệp": công ty tiềm năng cao thiếu/nguội contact, contact cần follow-up, công ty nở rộ/im ắng. `followup_days` ngoài whitelist → `400` | API key + JWT (ss_team+) |
+| GET | `/dashboard/insights/monthly` | Thêm 09/2026 — tab "Báo cáo tháng": job/công ty mới + % so tháng trước, job hết hạn, top ngành/công ty, ứng tuyển/lưu job. Tháng theo lịch, giờ VN | API key + JWT (ss_team+) |
+| GET | `/messages/conversations/{partner_id}` | Thêm 09/2026 — tra đúng 1 người đối thoại (tên, role, `relationship_*`), kể cả chưa từng nhắn. `404` gộp "không tồn tại" và "không được phép thấy" | API key + JWT |
 | GET | `/sources` | Danh sách source/category có sẵn (đọc từ `sources_registry.py`, phái sinh từ `config.py::JOB_CATEGORIES` — 08/2026, xem README.md#thêm-ngành--nguồn-crawl-mới) — frontend render dropdown | API key |
 | GET | `/health` | Health check | API key |
 | POST | `/auth/register` | Tự đăng ký (phone/track cho học viên, luôn role `user`), gửi email xác thực | **KHÔNG cần API key** |

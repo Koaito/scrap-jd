@@ -17,6 +17,40 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 
 _CURSOR_SEP = "|"
 
+# Trần số id của filter `ids` — bằng đúng `limit` tối đa (le=200) của route,
+# nên 1 lần gọi luôn đủ chỗ trả đủ toàn bộ id đã xin. Cũng giữ query string
+# trong ngưỡng an toàn của proxy/CDN (200 UUID ~ 7.4KB, dưới mốc 8KB phổ
+# biến).
+_MAX_IDS_FILTER = 200
+
+
+def _parse_ids_filter(ids: str) -> list[str]:
+    """'a,b,c' -> ['a','b','c'] — bỏ khoảng trắng + phần tử rỗng, khử trùng
+    lặp nhưng GIỮ thứ tự xuất hiện. Raise HTTPException 422/400 nếu quá
+    _MAX_IDS_FILTER hoặc có id không phải UUID hợp lệ (validate TRƯỚC khi
+    chạm DB — sai UUID ở `= ANY(%s::uuid[])` sẽ thành lỗi 500 từ Postgres)."""
+    parsed = list(dict.fromkeys(part.strip() for part in ids.split(",") if part.strip()))
+    if len(parsed) > _MAX_IDS_FILTER:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": error_codes.JOB_IDS_TOO_MANY,
+                "message": f"Tối đa {_MAX_IDS_FILTER} id mỗi lần gọi (đang gửi {len(parsed)}).",
+                "params": {"value": len(parsed)},
+            },
+        )
+    for job_id in parsed:
+        if not db_module.is_valid_uuid(job_id):
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error_code": error_codes.JOB_IDS_INVALID_UUID,
+                    "message": f"id '{job_id}' trong ids không đúng định dạng UUID.",
+                    "params": {"value": job_id},
+                },
+            )
+    return parsed
+
 
 def _encode_cursor(created_at: datetime, job_id: str) -> str:
     """tuple (created_at, job_id) -> chuỗi opaque base64 cho client —
@@ -51,6 +85,16 @@ def list_jobs(
     keyword: Optional[str] = Query(None, description="Tìm trong job_title (không phân biệt hoa/thường)"),
     created_by: Optional[str] = Query(
         None, description="Lọc job do 1 thành viên ss_team/admin cụ thể TỰ NHẬP TAY (ss_user_id) — job crawl tự động (created_by NULL trong DB) không bao giờ khớp filter này."
+    ),
+    ids: Optional[str] = Query(
+        None,
+        description="Lọc đúng 1 tập job theo danh sách job_id, cách nhau bằng dấu "
+                    "phẩy (vd `?ids=uuid1,uuid2`), tối đa %d id — thay cho N lần "
+                    "gọi GET /jobs/{id} riêng lẻ (vd trang 'Job đã lưu'). AND với "
+                    "mọi filter khác. `ids=` (có mặt nhưng RỖNG) trả 0 job — KHÔNG "
+                    "phải 'không lọc'; bỏ hẳn tham số này mới là không lọc. id "
+                    "không tồn tại bị bỏ qua im lặng (không lỗi), kết quả vẫn "
+                    "sắp theo created_at mới nhất trước như mọi lần gọi khác." % _MAX_IDS_FILTER,
     ),
     include_content: bool = Query(
         False,
@@ -100,6 +144,8 @@ def list_jobs(
             },
         )
 
+    job_ids = _parse_ids_filter(ids) if ids is not None else None
+
     decoded_cursor = None
     if cursor is not None:
         try:
@@ -124,6 +170,7 @@ def list_jobs(
         job_status=status,
         keyword=keyword,
         created_by=created_by,
+        job_ids=job_ids,
         limit=limit,
         offset=offset,
         cursor=decoded_cursor,

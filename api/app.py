@@ -63,7 +63,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import db as db_module
 from api.auth import require_api_key
 from api.rate_limit import limiter
-from api.routers import auth, companies, contacts, crawl, jobs, maintenance, me, meta, audit_logs, import_export, email_templates, messages
+from api.routers import auth, companies, contacts, crawl, dashboard, jobs, maintenance, me, meta, audit_logs, import_export, email_templates, messages
 from api.services.preview_cleanup import CLEANUP_INTERVAL_MINUTES, run_cleanup_once
 from api.services.crawl_watchdog import run_crawl_watchdog_once
 from api.services.maintenance_watchdog import run_maintenance_watchdog_once
@@ -291,6 +291,7 @@ async def reject_oversized_request(request, call_next):
 # client là frontend nội bộ trước khi xử lý tiếp JWT bên trong).
 _require_key = [Depends(require_api_key)]
 app.include_router(jobs.router, dependencies=_require_key)
+app.include_router(dashboard.router, dependencies=_require_key)
 app.include_router(companies.router, dependencies=_require_key)
 app.include_router(contacts.router, dependencies=_require_key)
 app.include_router(contacts.all_contacts_router, dependencies=_require_key)

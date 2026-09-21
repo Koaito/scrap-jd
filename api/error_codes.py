@@ -183,6 +183,13 @@ JOB_COMPANY_ID_INVALID_UUID = "job_company_id_invalid_uuid"
 JOB_COMPANY_NOT_FOUND = "job_company_not_found"
 JOB_CURSOR_INVALID = "job_cursor_invalid"
 JOB_CURSOR_WITH_OFFSET_NOT_ALLOWED = "job_cursor_with_offset_not_allowed"
+JOB_IDS_INVALID_UUID = "job_ids_invalid_uuid"
+JOB_IDS_TOO_MANY = "job_ids_too_many"
+
+# ---------------------------------------------------------------
+# api/routers/dashboard.py
+# ---------------------------------------------------------------
+DASHBOARD_FOLLOWUP_DAYS_INVALID = "dashboard_followup_days_invalid"
 
 # ---------------------------------------------------------------
 # api/routers/maintenance.py
@@ -240,4 +247,5 @@ MESSAGE_RELATIONSHIP_NOT_FOUND = "message_relationship_not_found"
 MESSAGE_STUDENT_NOT_FOUND = "message_student_not_found"
 MESSAGE_ONLY_SS_ADMIN_CAN_UNBLOCK = "message_only_ss_admin_can_unblock"
 MESSAGE_RELATIONSHIP_NOT_FOUND_2 = "message_relationship_not_found_2"
+MESSAGE_PARTNER_NOT_FOUND = "message_partner_not_found"
 

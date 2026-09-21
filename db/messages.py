@@ -396,6 +396,61 @@ def list_conversations(conn, current_user_id: str) -> list[dict]:
         return cur.fetchall()
 
 
+def get_conversation_with(conn, current_user_id: str, requester_is_ss: bool,
+                          partner_id: str) -> Optional[dict]:
+    """Tra đúng 1 người đối thoại (Phần 5 mục 9 của plan Next.js) — cùng
+    shape với 1 dòng của list_conversations(), nhưng KHÔNG đòi hỏi 2 bên
+    đã từng nhắn: chưa có tin thì last_message_* = NULL, unread_count = 0;
+    chưa có quan hệ chat (hoặc cặp SS-SS) thì relationship_* = NULL.
+
+    Trả None (route -> 404) khi partner không tồn tại HOẶC requester không
+    được phép thấy partner này — CỐ Ý gộp 2 trường hợp vào cùng 1 kết quả
+    để không lộ user_id nào có thật (chống dò user). Quyền thấy, khớp
+    search_people(): đã từng nhắn / đã có chat_relationships (kể cả khi
+    partner sau đó bị khoá — giống list_conversations không lọc
+    is_active), HOẶC partner đang active và (requester là SS/admin, hoặc
+    partner là ss_team/admin). Nghĩa là học viên KHÔNG tra được tên/role
+    của học viên khác qua route này."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT
+                u.ss_user_id AS partner_id,
+                u.full_name AS partner_name,
+                u.role AS partner_role,
+                lm.last_message_preview,
+                lm.last_message_at,
+                (SELECT COUNT(*) FROM messages
+                  WHERE receiver_id = %(me)s AND sender_id = u.ss_user_id
+                    AND read_at IS NULL) AS unread_count,
+                r.status AS relationship_status,
+                r.id AS relationship_id
+            FROM app_users u
+            LEFT JOIN LATERAL (
+                SELECT m.content AS last_message_preview,
+                       m.created_at AS last_message_at
+                FROM messages m
+                WHERE (m.sender_id = %(me)s AND m.receiver_id = u.ss_user_id)
+                   OR (m.receiver_id = %(me)s AND m.sender_id = u.ss_user_id)
+                ORDER BY m.id DESC
+                LIMIT 1
+            ) lm ON true
+            LEFT JOIN chat_relationships r
+              ON (r.student_id = %(me)s AND r.ss_id = u.ss_user_id)
+              OR (r.student_id = u.ss_user_id AND r.ss_id = %(me)s)
+            WHERE u.ss_user_id = %(partner)s
+              AND (
+                    lm.last_message_at IS NOT NULL
+                 OR r.id IS NOT NULL
+                 OR (u.is_active = true
+                     AND (%(req_ss)s OR u.role IN ('ss_team', 'admin')))
+              )
+            """,
+            {"me": current_user_id, "partner": partner_id, "req_ss": requester_is_ss},
+        )
+        return cur.fetchone()
+
+
 def list_pending_requests_for_ss(conn, ss_id: str) -> list[dict]:
     """Mục riêng "Yêu cầu đang chờ" cho SS — học viên nào đang pending
     với ss_id này, chưa từng nhắn nên KHÔNG nằm trong list_conversations()

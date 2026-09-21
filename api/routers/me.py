@@ -37,6 +37,7 @@ from api import error_codes
 from api import storage as cv_storage
 from api.deps import get_db, require_role
 from api.rate_limit import get_user_id_or_ip, limiter
+from api.routers.jobs import get_cv_signed_url as _get_cv_signed_url
 from api.schemas import (
     JobApplicationOut,
     SavedJobCreate,
@@ -132,6 +133,21 @@ def list_my_applications(
 # xem comment ở đó. Phần 5 mục 11 của plan: route này chỉ staff
 # (require_role("ss_team")) gọi được, không phải hành động tự phục vụ
 # của học viên, nên không nên nằm dưới namespace /me.
+#
+# ALIAS TƯƠNG THÍCH NGƯỢC (deprecated) — Flask (mindx-jobs/backend_auth.py::
+# get_cv_signed_url) vẫn gọi path CŨ /me/applications/{id}/cv-url cho tới
+# khi cutover sang Next.js xong; dời route mà không giữ alias thì trang
+# chi tiết job/học viên của Flask trả 404 khi staff bấm xem CV, và bắt
+# buộc phải deploy backend + Flask ĐÚNG THỨ TỰ cùng lúc. Alias dùng lại
+# NGUYÊN hàm ở jobs.py (cùng auth ss_team, cùng rate limit, cùng mã lỗi),
+# include_in_schema=False để OpenAPI (nguồn sinh type cho Next.js) chỉ
+# thấy path mới. XOÁ khối này khi Flask đã tắt hẳn.
+router.add_api_route(
+    "/applications/{application_id}/cv-url",
+    _get_cv_signed_url,
+    methods=["GET"],
+    include_in_schema=False,
+)
 
 
 @router.delete("/applications/{job_id}", status_code=204)

@@ -53,6 +53,21 @@ from api.schemas.companies import (
     FieldHealthRow,
     CompanyDataHealth,
 )
+from api.schemas.dashboard import (
+    PushJobRow,
+    StaleJobRow,
+    SkillCount,
+    SalaryRangeRow,
+    StudentInsightsOut,
+    HighPotentialCompanyRow,
+    FollowupContactRow,
+    ExpandingCompanyRow,
+    QuietCompanyRow,
+    CompanyInsightsOut,
+    TopIndustryRow,
+    TopCompanyRow,
+    MonthlyInsightsOut,
+)
 from api.schemas.stats import (
     IndustryCount,
     SourceCount,
@@ -171,6 +186,8 @@ __all__ = [
     # stats
     "IndustryCount", "SourceCount", "StatsOut", "JobEngagementOut",
     "MonthlyCountOut", "MonthlyEngagementOut", "EngagementStatsOut",
+    # dashboard
+    "PushJobRow", "StaleJobRow", "SkillCount", "SalaryRangeRow", "StudentInsightsOut", "HighPotentialCompanyRow", "FollowupContactRow", "ExpandingCompanyRow", "QuietCompanyRow", "CompanyInsightsOut", "TopIndustryRow", "TopCompanyRow", "MonthlyInsightsOut",
     # crawl
     "CrawlRequest", "CrawlAccepted", "CrawlStatusOut", "PaginatedCrawlRuns",
     "CrawlLogOut", "CrawlLogsOut",

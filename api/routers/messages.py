@@ -186,6 +186,32 @@ def list_conversations(
     return db_module.list_conversations(conn, user["sub"])
 
 
+@router.get("/conversations/{partner_id}", response_model=ConversationOut)
+@limiter.limit("20/minute", key_func=get_user_id_or_ip)
+def get_conversation(
+    request: Request,
+    partner_id: str,
+    user: dict = Depends(get_current_user),
+    conn=Depends(get_db),
+):
+    """Tra đúng 1 người đối thoại — tên, role, relationship_status,
+    relationship_id — kể cả khi 2 bên CHƯA từng nhắn (khi đó
+    last_message_* = null, unread_count = 0, relationship_* = null nếu
+    chưa có quan hệ). Thay cho việc client truyền partner_name qua query
+    string hoặc kéo cả GET /conversations chỉ để lọc 1 người.
+
+    404 MESSAGE_PARTNER_NOT_FOUND cho cả 2 trường hợp \"không tồn tại\" và
+    \"không được phép thấy\" (vd học viên tra học viên khác) — cố ý không
+    phân biệt để không lộ user_id nào có thật, xem
+    db.get_conversation_with()."""
+    if partner_id == user["sub"] or not db_module.is_valid_uuid(partner_id):
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.MESSAGE_INVALID, "message": "partner_id không hợp lệ."})
+    row = db_module.get_conversation_with(conn, user["sub"], _is_ss(user["role"]), partner_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.MESSAGE_PARTNER_NOT_FOUND, "message": "Không tìm thấy người dùng này."})
+    return row
+
+
 @router.get("/pending-requests", response_model=list[PendingRequestOut])
 @limiter.limit("10/minute", key_func=get_user_id_or_ip)
 def list_pending_requests(
