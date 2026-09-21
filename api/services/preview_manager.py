@@ -430,6 +430,21 @@ def apply_field_fix(
             field_errors.update(other_errors)
             row["field_errors"] = field_errors
             row["needs_field_fix"] = True
+
+            # BUG FIX (migrate Next.js, Phần 1 mục 3.5 của plan): nhánh
+            # này return TRƯỚC đoạn _save_preview_data()/conn.commit()
+            # ở CUỐI hàm (xem dòng ~528) — trước đây return ở đây không
+            # hề lưu gì xuống DB, nên field_name (đã ghi giá trị mới ở
+            # row["data"] phía trên) VÀ field_errors/needs_field_fix vừa
+            # cập nhật cho field KHÁC chỉ tồn tại trong bộ nhớ của đúng
+            # request này rồi mất — get_preview() luôn load lại từ DB ở
+            # đầu mỗi request, nên lần load preview kế tiếp thấy lại
+            # giá trị/field_errors CŨ, trong khi staff tưởng hệ thống đã
+            # ghi nhận lỗi liên trường vừa phát hiện. Lưu ngay tại đây,
+            # giống hệt nhánh xử lý thành công ở cuối hàm.
+            _save_preview_data(conn, preview_row["preview_id"], preview_data)
+            conn.commit()
+
             first_other_field, first_other_error = next(iter(other_errors.items()))
             return {
                 "row": row,

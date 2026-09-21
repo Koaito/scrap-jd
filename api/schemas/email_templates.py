@@ -9,6 +9,8 @@ from datetime import datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from api.schemas.validators import validate_note_not_blank
+
 # 5 placeholder cố định — GIỮ NGUYÊN theo đúng yêu cầu đã chốt (không tự
 # do thêm placeholder mới), chỉ hiển thị cho staff xem cách điền đúng khi
 # soạn/sửa mẫu. Any/PLACEHOLDER_HELP nằm ở đây (không phải constants.py)
@@ -136,10 +138,6 @@ class EmailTemplateDeleteRequest(BaseModel):
                     "vì sao (vd: không còn phù hợp, trùng nội dung mẫu khác...).",
     )
 
-    @field_validator("note")
-    @classmethod
-    def _note_not_blank(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("note không được để trống hoặc chỉ chứa khoảng trắng")
-        return v
+    # Validator dùng CHUNG (api/schemas/validators.py) — xem docstring
+    # ở đó để biết lý do tách ra thay vì định nghĩa lặp ở từng schema.
+    _note_not_blank = field_validator("note")(validate_note_not_blank)

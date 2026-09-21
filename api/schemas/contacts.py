@@ -8,6 +8,8 @@ from datetime import date, datetime
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from api.schemas.validators import validate_note_not_blank
+
 
 # ------------------------------------------------------------------
 # Company contacts (HR contact) — thêm 08/2026, xem db.py mục cùng tên
@@ -132,12 +134,8 @@ class ContactDeleteRequest(BaseModel):
                     "vì sao (vd: nghỉ việc, sai thông tin, trùng lặp...).",
     )
 
-    @field_validator("note")
-    @classmethod
-    def _note_not_blank(cls, v: str) -> str:
-        v = v.strip()
-        if not v:
-            raise ValueError("note không được để trống hoặc chỉ chứa khoảng trắng")
-        return v
+    # Validator dùng CHUNG (api/schemas/validators.py) — xem docstring
+    # ở đó để biết lý do tách ra thay vì định nghĩa lặp ở từng schema.
+    _note_not_blank = field_validator("note")(validate_note_not_blank)
 
 

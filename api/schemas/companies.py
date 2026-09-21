@@ -8,6 +8,7 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from api.schemas.jobs import JobOut  # CompanyDetailOut.jobs
+from api.schemas.validators import validate_note_not_blank
 
 
 # ------------------------------------------------------------------
@@ -177,16 +178,8 @@ class CompanyDeleteRequest(BaseModel):
                     "thông tin nhập nhầm...).",
     )
 
-    @field_validator("note")
-    @classmethod
-    def _note_not_blank(cls, v: str) -> str:
-        # min_length=1 chỉ đếm SỐ KÝ TỰ, không chặn chuỗi toàn khoảng
-        # trắng (vd "   " vẫn qua được min_length=1) — validator này
-        # chặn nốt trường hợp đó, vì note toàn khoảng trắng thực chất
-        # tương đương "không có note".
-        v = v.strip()
-        if not v:
-            raise ValueError("note không được để trống hoặc chỉ chứa khoảng trắng")
-        return v
+    # Validator dùng CHUNG (api/schemas/validators.py) — xem docstring
+    # ở đó để biết lý do tách ra thay vì định nghĩa lặp ở từng schema.
+    _note_not_blank = field_validator("note")(validate_note_not_blank)
 
 

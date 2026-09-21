@@ -7,7 +7,9 @@ xem docstring api/schemas/__init__.py.
 """
 
 from typing import Optional
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from api.schemas.validators import validate_note_not_blank
 
 
 # ------------------------------------------------------------------
@@ -261,6 +263,15 @@ class ImportConfirmRequest(BaseModel):
         min_length=1,
         description="Ghi chú về lần import này (bắt buộc cho audit log)"
     )
+
+    # BUG FIX (migrate Next.js, Phần 1 mục 3.2 của plan): trước đây
+    # field này chỉ có min_length=1 — chấp nhận chuỗi toàn khoảng trắng
+    # ("   ") là hợp lệ, khác 4 chỗ khác trong hệ thống (Company,
+    # Contact, Mẫu email, audit-log note) đều đã chặn trường hợp này.
+    # Áp cùng 1 validator dùng chung (api/schemas/validators.py) để
+    # nhất quán cả 5 chỗ.
+    _note_not_blank = field_validator("note")(validate_note_not_blank)
+
     resolutions: dict[str, RowResolution] = Field(
         default_factory=dict,
         description="Map row_index -> resolution cho các dòng needs_resolution"

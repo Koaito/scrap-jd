@@ -49,6 +49,7 @@ from db.companies import (
     get_company_data_health,
 )
 from db.jobs import (
+    _UNSET as JOB_UNSET,
     get_open_jobs_with_source_url,
     probe_needs_enrichment,
     job_exists_by_source_url,
@@ -256,6 +257,7 @@ __all__ = [
     "find_manual_job_duplicate",
     "create_manual_job",
     "update_job",
+    "JOB_UNSET",
     "job_exists_by_id",
     "list_jobs",
     "get_job_by_id",

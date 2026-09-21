@@ -647,6 +647,21 @@ def _update_row(conn, entity_type, data, existing, resolution, actor_id, *, reac
             db_module.get_or_create_province(conn, data["province_name"])
             if data.get("province_name") else None
         )
+        # BUG FIX (migrate Next.js, Phần 1 mục 3.3 của plan): `data` là
+        # dict THUẦN dựng lúc build preview (KHÔNG qua Pydantic, không
+        # có model_fields_set như payload ở api/routers/jobs.py::
+        # patch_job()) — nên phải tự xác định "cột lương có mặt trong
+        # dòng file import hay không" bằng cách kiểm tra trực tiếp
+        # `"salary_min" in data`, KHÔNG dùng `data.get("salary_min")`
+        # (get() trả None cả khi cột không tồn tại lẫn khi cột tồn tại
+        # nhưng giá trị là null — 2 tình huống PHẢI phân biệt được, xem
+        # docstring db.update_job()). Đây là chỗ DỄ BỊ BỎ SÓT NHẤT nếu
+        # chỉ sửa patch_job() mà quên chỗ này — sửa xong route PATCH
+        # vẫn không đụng tới luồng import, dòng file import ghi lương=0
+        # sẽ tiếp tục không xoá được lương cũ như thiết kế.
+        salary_min = data["salary_min"] if "salary_min" in data else db_module.JOB_UNSET
+        salary_max = data["salary_max"] if "salary_max" in data else db_module.JOB_UNSET
+
         db_module.update_job(
             conn, job_id,
             job_title=data.get("job_title"),
@@ -655,8 +670,8 @@ def _update_row(conn, entity_type, data, existing, resolution, actor_id, *, reac
             province_id=province_id,
             work_type=data.get("work_type"),
             currency=data.get("currency"),
-            salary_min=data.get("salary_min"),
-            salary_max=data.get("salary_max"),
+            salary_min=salary_min,
+            salary_max=salary_max,
             salary_type=data.get("salary_type"),
             salary_period=data.get("salary_period"),
             deadline=data.get("deadline"),

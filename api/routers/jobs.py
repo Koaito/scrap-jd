@@ -302,6 +302,24 @@ def patch_job(
         if payload.province_name is not None else None
     )
 
+    # BUG FIX (migrate Next.js, Phần 1 mục 3.3 của plan): truyền
+    # db_module.JOB_UNSET (không phải payload.salary_min/max trực tiếp)
+    # khi field KHÔNG có mặt trong body PATCH — dựa vào
+    # payload.model_fields_set (cùng cơ chế exclude_unset đã dùng để
+    # tính payload_fields/diff audit log bên dưới). Nếu truyền thẳng
+    # payload.salary_min, Pydantic trả None cho field không gửi HỆT
+    # như field gửi giá trị null có chủ đích — 2 tình huống này PHẢI
+    # tạo ra 2 lời gọi update_job() khác nhau (có mặt tham số hay
+    # không), không chỉ khác giá trị.
+    salary_min = (
+        payload.salary_min if "salary_min" in payload.model_fields_set
+        else db_module.JOB_UNSET
+    )
+    salary_max = (
+        payload.salary_max if "salary_max" in payload.model_fields_set
+        else db_module.JOB_UNSET
+    )
+
     updated = db_module.update_job(
         conn, job_id,
         job_title=payload.job_title,
@@ -310,8 +328,8 @@ def patch_job(
         province_id=province_id,
         work_type=payload.work_type,
         currency=payload.currency,
-        salary_min=payload.salary_min,
-        salary_max=payload.salary_max,
+        salary_min=salary_min,
+        salary_max=salary_max,
         salary_type=payload.salary_type,
         salary_period=payload.salary_period,
         deadline=payload.deadline,

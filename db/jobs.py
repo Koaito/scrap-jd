@@ -12,6 +12,25 @@ import psycopg2.extras
 logger = logging.getLogger(__name__)
 
 
+# BUG FIX (migrate Next.js, Phần 1 mục 3.3 của plan): sentinel riêng cho
+# 2 tham số salary_min/salary_max của update_job() bên dưới — dùng thay
+# cho default `None`, vì `None` đã bị dùng để biểu diễn "xoá lương cũ
+# có chủ đích" (khác "không gửi field, giữ nguyên giá trị cũ"). Trước
+# đây cả 2 tình huống này (không gửi field / gửi giá trị 0 hoặc null có
+# chủ đích) đều đi qua cùng default `Optional[int] = None`, khiến
+# update_job() KHÔNG CÓ CÁCH nào phân biệt "client không đụng tới field
+# này" với "client cố ý gửi null" — dù docstring cũ đã khẳng định có
+# phân biệt bằng "cờ has_*", code thực tế lại check `is not None` như
+# field bình thường.
+#
+# Sentinel (thay vì thêm 1 tham số `bool` song song từng field) cho
+# hàm nhận được CẢ `0` lẫn `None` như 2 giá trị hợp lệ khác nhau để
+# ghi — cờ `bool` chỉ trả lời được "có gửi hay không", vẫn phải tự suy
+# ra giá trị ghi là gì. Field khác gặp vấn đề tương tự trong tương lai
+# chỉ cần đổi default sang _UNSET, không cần sửa lại chữ ký hàm.
+_UNSET = object()
+
+
 def get_open_jobs_with_source_url(conn):
     """Lấy job đang OPEN và có source_url (job crawl — job nhập tay
     KHÔNG có source_url nên tự động bị loại, không có gì để re-check).
@@ -333,8 +352,8 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
                province_id: Optional[int] = None,
                work_type: Optional[str] = None,
                currency: Optional[str] = None,
-               salary_min: Optional[int] = None,
-               salary_max: Optional[int] = None,
+               salary_min=_UNSET,
+               salary_max=_UNSET,
                salary_type: Optional[str] = None,
                salary_period: Optional[str] = None,
                deadline=None,
@@ -352,13 +371,25 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     trùng ở lượt crawl sau (get_job_probe_by_source_url() vẫn thấy job
     này qua job_sources_log, không insert lại).
 
-    salary_min/salary_max: CHO PHÉP truyền 0 (khác None) — vd người dùng
-    muốn xoá lương cũ, sửa lại "Thoả thuận" (NEGOTIABLE, cả 2 đều None).
-    Vì vậy dùng cờ has_* để phân biệt "không truyền field này" (giữ
-    nguyên) với "truyền None có chủ đích" (xoá giá trị cũ) — khác các
-    hàm update_* khác trong file này vốn coi giá trị rỗng/None là "bỏ
-    qua", ở đây cần phân biệt rõ hơn vì lương là field có thể cố ý set
-    về rỗng.
+    salary_min/salary_max: CHO PHÉP truyền 0 HOẶC None (khác việc
+    KHÔNG truyền field này) — vd người dùng muốn xoá lương cũ, sửa lại
+    "Thoả thuận" (NEGOTIABLE). Dùng sentinel `_UNSET` (định nghĩa đầu
+    module) làm default, KHÔNG phải `None`, để phân biệt đúng 3 tình
+    huống: "không gửi field" (giữ nguyên giá trị cũ, default =
+    `_UNSET`), "gửi 0" (xoá lương, coi là "Thoả thuận"), "gửi None có
+    chủ đích" (cũng xoá lương) — khác các hàm update_* khác trong file
+    này vốn coi `None` là "bỏ qua", ở đây `None` là 1 giá trị HỢP LỆ
+    cần ghi, không phải tín hiệu "bỏ qua".
+
+    **Cần truyền đúng `_UNSET` ở CẢ 2 nơi gọi hàm này** (không chỉ 1):
+    `api/routers/jobs.py::patch_job()` (dựa vào
+    `payload.model_fields_set` của Pydantic để biết field có mặt trong
+    body PATCH hay không) và
+    `api/services/import_executor.py::_update_row()` (dựa vào
+    `"salary_min" in data`/`"salary_max" in data` — dict thuần dựng lúc
+    build preview, không qua Pydantic nên không có `model_fields_set`).
+    Quên 1 trong 2 nơi sẽ khiến field lương "sống 2 luật khác nhau" tuỳ
+    đường vào (PATCH thủ công vs luồng import).
 
     parsed_content (thêm 08/2026): gửi dict {job_description, requirements,
     perks, required_skills} sẽ GHI ĐÈ TOÀN BỘ giá trị cũ (không merge
@@ -396,12 +427,12 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     if currency is not None:
         updates.append("currency = %s")
         values.append(currency)
-    if salary_min is not None:
+    if salary_min is not _UNSET:
         updates.append("salary_min = %s")
-        values.append(salary_min)
-    if salary_max is not None:
+        values.append(salary_min)  # ghi được cả 0 lẫn None nếu client cố ý gửi null
+    if salary_max is not _UNSET:
         updates.append("salary_max = %s")
-        values.append(salary_max)
+        values.append(salary_max)  # ghi được cả 0 lẫn None nếu client cố ý gửi null
     if salary_type is not None:
         updates.append("salary_type = %s")
         values.append(salary_type)
