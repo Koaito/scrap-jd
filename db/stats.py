@@ -128,20 +128,51 @@ def get_monthly_engagement_stats(conn) -> dict:
     trả TỔNG DỒN (total_applications/total_saved_jobs), không có
     breakdown theo tháng nên không tính được % tăng/giảm.
 
-    date_trunc('month', now()) lấy đúng đầu tháng hiện tại theo
-    UTC (cột applied_at/created_at đều TIMESTAMPTZ) — nhất quán với
-    cách _jobs_by_month() bên frontend (mindx-jobs/app.py) đang nhóm
-    job theo tháng, không lệch múi giờ giữa 2 phía."""
+    BUG FIX (migrate Next.js, Phụ lục F của plan): trước đây dùng
+    date_trunc('month', now()) — now() trần của Postgres mặc định UTC —
+    để tính ranh giới "tháng này"/"tháng trước", với docstring cũ khẳng
+    định cách này NHẤT QUÁN với _jobs_by_month() bên Flask (mindx-jobs/
+    app.py). Khẳng định đó SAI: _jobs_by_month() thực tế dùng
+    now_vn().date() (giờ VN thật, UTC+7), không phải UTC — nghĩa là 2
+    hàm đang tính ranh giới tháng theo 2 múi giờ khác nhau. Độ lệch 7
+    tiếng hiếm khi rơi đúng lúc chuyển tháng nên sai số 1 tháng rõ rệt
+    hiếm khi lộ ra, nhưng vẫn là lỗi thật — cùng bản chất lỗi now_vn()
+    đã từng xảy ra ở Flask (server UTC, không quy đổi giờ VN).
+
+    Sửa bằng cách quy đổi 2 lần qua 'Asia/Ho_Chi_Minh' (double AT TIME
+    ZONE, cách chuẩn của Postgres để tính mốc giờ theo 1 timezone cụ
+    thể rồi trả lại đúng kiểu timestamptz để so sánh trực tiếp với cột
+    applied_at/created_at, không phụ thuộc TimeZone setting của session
+    kết nối):
+      now() AT TIME ZONE 'Asia/Ho_Chi_Minh'   -- timestamptz -> timestamp
+                                                  (naive, giờ VN)
+      date_trunc('month', ...)                -- cắt về đầu tháng, vẫn
+                                                  naive theo giờ VN
+      ... AT TIME ZONE 'Asia/Ho_Chi_Minh'      -- naive (giờ VN) ->
+                                                  timestamptz (UTC) đúng
+                                                  thời điểm 00:00 ngày 1
+                                                  đầu tháng THEO GIỜ VN
+    Kết quả: ranh giới "tháng này"/"tháng trước" khớp thật với cách
+    _jobs_by_month()/nowVN() (frontend) đang tính, không còn lệch múi
+    giờ giữa backend và frontend."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
+            WITH bounds AS (
+                SELECT
+                    (date_trunc('month', now() AT TIME ZONE 'Asia/Ho_Chi_Minh')
+                        AT TIME ZONE 'Asia/Ho_Chi_Minh') AS this_month_start,
+                    ((date_trunc('month', now() AT TIME ZONE 'Asia/Ho_Chi_Minh')
+                        - interval '1 month')
+                        AT TIME ZONE 'Asia/Ho_Chi_Minh') AS last_month_start
+            )
             SELECT
                 count(*) FILTER (
-                    WHERE applied_at >= date_trunc('month', now())
+                    WHERE applied_at >= (SELECT this_month_start FROM bounds)
                 ) AS this_month,
                 count(*) FILTER (
-                    WHERE applied_at >= date_trunc('month', now()) - interval '1 month'
-                      AND applied_at < date_trunc('month', now())
+                    WHERE applied_at >= (SELECT last_month_start FROM bounds)
+                      AND applied_at < (SELECT this_month_start FROM bounds)
                 ) AS last_month
             FROM job_applications
             """
@@ -150,13 +181,21 @@ def get_monthly_engagement_stats(conn) -> dict:
 
         cur.execute(
             """
+            WITH bounds AS (
+                SELECT
+                    (date_trunc('month', now() AT TIME ZONE 'Asia/Ho_Chi_Minh')
+                        AT TIME ZONE 'Asia/Ho_Chi_Minh') AS this_month_start,
+                    ((date_trunc('month', now() AT TIME ZONE 'Asia/Ho_Chi_Minh')
+                        - interval '1 month')
+                        AT TIME ZONE 'Asia/Ho_Chi_Minh') AS last_month_start
+            )
             SELECT
                 count(*) FILTER (
-                    WHERE created_at >= date_trunc('month', now())
+                    WHERE created_at >= (SELECT this_month_start FROM bounds)
                 ) AS this_month,
                 count(*) FILTER (
-                    WHERE created_at >= date_trunc('month', now()) - interval '1 month'
-                      AND created_at < date_trunc('month', now())
+                    WHERE created_at >= (SELECT last_month_start FROM bounds)
+                      AND created_at < (SELECT this_month_start FROM bounds)
                 ) AS last_month
             FROM saved_jobs
             """

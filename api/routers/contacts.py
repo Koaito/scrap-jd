@@ -347,6 +347,7 @@ def delete_contact(
 def hard_delete_contact(
     company_id: str,
     contact_id: str,
+    payload: ContactDeleteRequest,
     user: dict = Depends(require_role("ss_team")),
     conn=Depends(get_db),
 ):
@@ -363,7 +364,21 @@ def hard_delete_contact(
     409 nếu contact đang có job_contact_links (đã từng gắn với job cụ
     thể) — xoá thật sẽ mất lịch sử liên hệ theo job đó / vỡ FK, xem
     docstring ContactHasLinksError ở db.py. Trường hợp này contact vẫn
-    giữ nguyên trạng thái xoá mềm sau khi gọi route này."""
+    giữ nguyên trạng thái xoá mềm sau khi gọi route này.
+
+    BUG FIX (migrate Next.js, Phần 1 mục 3.12 của plan): trước đây route
+    này KHÔNG nhận payload nào và KHÔNG gọi log_action() ở bất kỳ đâu —
+    cùng 1 hành động nghiệp vụ (xoá hẳn 1 contact khỏi hệ thống) nhưng
+    chỉ bước xoá mềm (delete_contact() ở trên) được ghi audit log, bước
+    xoá cứng hoàn toàn không để lại dấu vết ai bấm/khi nào/vì sao. Giờ
+    dùng lại ĐÚNG schema ContactDeleteRequest đã có ở delete_contact()
+    (note bắt buộc vô điều kiện, không tạo schema mới) và ghi audit log
+    action_type="DELETE_CONTACT" — CÙNG action_type với xoá mềm là chủ
+    đích (2 dòng log DELETE_CONTACT liên tiếp trên cùng entity_id, phân
+    biệt bằng thời điểm, đủ để đọc ra "xoá mềm lúc nào, xoá cứng lúc
+    nào" khi tra lại lịch sử — không cần action_type riêng như
+    HARD_DELETE_CONTACT). audit_action_enum (sql/schema.sql) đã có sẵn
+    giá trị DELETE_CONTACT dùng chung, không cần ALTER TYPE."""
     if not db_module.is_valid_uuid(contact_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID.", "params": {"value": contact_id}})
 
@@ -381,5 +396,13 @@ def hard_delete_contact(
         db_module.hard_delete_company_contact(conn, contact_id)
     except db_module.ContactHasLinksError as exc:
         raise HTTPException(status_code=409, detail={"error_code": error_codes.CONTACT_HAS_LINKS, "message": str(exc)})
+
+    db_module.log_action(
+        conn, actor_id=user["sub"], action_type="DELETE_CONTACT",
+        entity_type="CONTACT", entity_id=contact_id,
+        entity_label=existing["contact_name"], company_id=company_id,
+        note=payload.note,
+    )
+
     conn.commit()
     return None
