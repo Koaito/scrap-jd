@@ -175,7 +175,11 @@ def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
     đổi), phản ứng bằng cách thu hồi TOÀN BỘ token của user này, buộc
     đăng nhập lại trên mọi thiết bị."""
     token_hash = security.hash_refresh_token(payload.refresh_token)
-    stored = db_module.get_refresh_token_by_hash(conn, token_hash)
+    # for_update=True (BUG FIX, Phần 1 mục 3.11 của plan migrate
+    # Next.js): khoá dòng token này cho tới khi request commit/rollback,
+    # chặn race condition khi 2 request refresh cùng lúc đọc trúng cùng
+    # 1 token còn "revoked_at IS NULL" — xem docstring get_refresh_token_by_hash.
+    stored = db_module.get_refresh_token_by_hash(conn, token_hash, for_update=True)
 
     if stored is None:
         raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_REFRESH_TOKEN_INVALID, "message": "Refresh token không hợp lệ."})

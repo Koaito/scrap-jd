@@ -106,7 +106,20 @@ def get_current_user(
     trước (JWT thuần chữ ký không tự "chết" giữa chừng được). Đây là
     điểm khác duy nhất so với thiết kế "verify không cần DB" ban đầu —
     đánh đổi có chủ đích để enforce single-session THỰC SỰ, không chỉ ở
-    tầng refresh token."""
+    tầng refresh token.
+
+    BUG FIX (migrate Next.js, Phần 1 mục 3.10 của plan): trước đây hàm
+    return thẳng `payload` (JWT đã giải mã) — dù `user_row` phía trên
+    ĐÃ query mới nhất từ DB, 2 field `role`/`is_active` trả về vẫn là
+    giá trị CŨ tại thời điểm access token được phát hành. Hệ quả: admin
+    đổi role hoặc khoá 1 tài khoản khác qua /staff-accounts không có
+    hiệu lực ngay — tài khoản đó tiếp tục authorize theo role CŨ (hoặc
+    vẫn qua được dù đã is_active=false) ở mọi route dùng require_role(),
+    cho tới khi access token tự hết hạn (tối đa 30 phút). Sửa: dựng lại
+    payload trả về từ user_row (role/is_active mới nhất), và chặn ngay
+    ở đây nếu is_active=false thay vì đợi refresh token hết hạn mới
+    phát hiện — cùng error_code AUTH_ACCOUNT_INACTIVE đã dùng ở
+    refresh() (api/routers/auth_session.py) cho tình huống tương tự."""
     if credentials is None:
         raise HTTPException(
             status_code=401,
@@ -149,7 +162,22 @@ def get_current_user(
                             "tài khoản chỉ dùng được ở 1 nơi tại 1 thời điểm.",
             },
         )
-    return payload
+    if not user_row.get("is_active", True):
+        # Tài khoản vừa bị admin khoá (is_active=false) sau khi access
+        # token này đã được phát hành — chặn ngay ở bước xác thực token,
+        # không đợi refresh token hết hạn mới phát hiện (xem BUG FIX ở
+        # docstring trên).
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": error_codes.AUTH_ACCOUNT_INACTIVE,
+                "message": "Tài khoản không còn hoạt động.",
+            },
+        )
+    # Trả role/is_active MỚI NHẤT từ DB (user_row), không phải giá trị
+    # cũ đóng băng trong JWT payload tại thời điểm phát hành token — xem
+    # BUG FIX ở docstring trên.
+    return {**payload, "role": user_row["role"], "is_active": user_row.get("is_active", True)}
 
 
 # Phân cấp role (08/2026, xem sql/migration_add_role_hierarchy.sql) —

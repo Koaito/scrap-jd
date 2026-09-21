@@ -139,14 +139,35 @@ def create_refresh_token(conn, *, ss_user_id: str, token_hash: str, expires_at,
         return str(cur.fetchone()[0])
 
 
-def get_refresh_token_by_hash(conn, token_hash: str):
+def get_refresh_token_by_hash(conn, token_hash: str, for_update: bool = False):
     """Trả dict (refresh_token_id, ss_user_id, expires_at, revoked_at,
     replaced_by_token_id...) hoặc None. Route tự kiểm tra hết hạn/đã
-    revoke — hàm này chỉ tra cứu thuần, không tự raise/chặn gì."""
+    revoke — hàm này chỉ tra cứu thuần, không tự raise/chặn gì.
+
+    BUG FIX (migrate Next.js, Phần 1 mục 3.11 của plan): `for_update`
+    (mặc định False, GIỮ NGUYÊN hành vi cũ cho mọi lời gọi khác) — chỉ
+    refresh() (api/routers/auth_session.py) truyền for_update=True.
+    Trước đây route này SELECT thường (không khoá dòng) rồi mới
+    revoke — nếu 2 request POST /auth/refresh cùng gửi lên đúng 1
+    refresh token cũ chạy gần như đồng thời (2 tab/2 request auth song
+    song cùng lúc access token hết hạn, race condition THẬT, không
+    phải giả định), cả 2 đều đọc được revoked_at IS NULL, cả 2 đều issue
+    token mới + revoke token cũ (ghi đè lẫn nhau) — 1 trong 2 client cầm
+    ngay 1 refresh token vừa nhận về nhưng đã bị revoke, lần refresh kế
+    tiếp rơi đúng nhánh "token đã bị thu hồi — nghi bị đánh cắp",
+    kéo theo revoke_all_refresh_tokens_for_user() đăng xuất OAN cả 2
+    client dù không ai đánh cắp gì. `SELECT ... FOR UPDATE` khoá đúng
+    dòng token cho tới khi transaction hiện tại commit()/rollback() —
+    request thứ 2 đọc trúng cùng dòng sẽ tự chờ Postgres nhả khoá, lúc
+    đó revoked_at đã có giá trị nên rơi đúng nhánh "đã bị thu hồi",
+    nhưng không còn kích hoạt oan cảnh báo "nghi đánh cắp" vì đây là
+    lần đầu tiên nó thực sự thấy trạng thái đã revoke (không phải gửi
+    lại 1 token biết trước là cũ)."""
+    query = "SELECT * FROM auth_refresh_tokens WHERE token_hash = %s"
+    if for_update:
+        query += " FOR UPDATE"
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            "SELECT * FROM auth_refresh_tokens WHERE token_hash = %s", (token_hash,)
-        )
+        cur.execute(query, (token_hash,))
         return cur.fetchone()
 
 
