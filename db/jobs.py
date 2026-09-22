@@ -501,8 +501,7 @@ _JOB_LIST_BASE_QUERY = f"SELECT {_JOB_SELECT_COLUMNS} {_JOB_FROM_JOINS}"
 def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[str] = None,
               level_code: Optional[str] = None, work_type: Optional[str] = None,
               keyword: Optional[str] = None, job_status: Optional[str] = None,
-              created_by: Optional[str] = None,
-              job_ids: Optional[list] = None,
+              created_by: Optional[str] = None, ids: Optional[list[str]] = None,
               limit: int = 50, offset: int = 0,
               cursor: Optional[tuple] = None,
               include_content: bool = False):
@@ -535,17 +534,6 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
     và báo sai 100% job thiếu nội dung, dù dữ liệu có đủ trong DB, chỉ
     vì list không trả cột này).
 
-    job_ids: lọc đúng 1 tập job theo danh sách job_id (thêm 09/2026, Phần 5
-    mục 10 của plan Next.js — trang "Job đã lưu" chỉ có sẵn danh sách
-    job_id, trước đây phải gọi GET /jobs/{id} riêng cho từng job). AND với
-    mọi filter khác, cursor/offset/limit vẫn áp dụng bình thường. QUAN
-    TRỌNG — phân biệt None với []: None = không lọc theo id (hành vi cũ),
-    [] (danh sách RỖNG) = lọc ra ĐÚNG 0 job, KHÔNG được hiểu thành "không
-    lọc" — nếu không, học viên chưa lưu job nào sẽ nhận về TOÀN BỘ job
-    trong hệ thống ở trang "Job đã lưu". Hàm này tin tưởng caller đã
-    validate UUID (api/routers/jobs.py::list_jobs) và đã giới hạn số
-    lượng; giá trị được cast tường minh `::uuid[]` ở SQL.
-
     limit/offset: phân trang chuẩn (chế độ "Trang X/Y" ở index.html) —
     FastAPI route validate limit tối đa (tránh client xin limit=999999
     kéo sập DB), hàm này KHÔNG tự giới hạn, cứ tin tưởng giá trị
@@ -567,18 +555,21 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
     tuyệt đối ổn định (so sánh tuple (created_at, job_id) < cursor),
     nên thêm `jp.job_id DESC` làm khóa phụ luôn cho CẢ 2 chế độ — không
     đổi kết quả nhìn thấy được ở chế độ offset (chỉ phá tie 1 cách
-    quyết định thay vì tùy Postgres), an toàn giữ nguyên."""
-    # [] khác None — xem docstring `job_ids`. Return sớm, khỏi tốn 2 query
-    # (COUNT + SELECT) chỉ để nhận về đúng 0 dòng.
-    if job_ids is not None and not job_ids:
-        return [], 0, None
+    quyết định thay vì tùy Postgres), an toàn giữ nguyên.
 
+    ids (thêm khi migrate Next.js, Phần 5 mục 10 của plan): lọc đúng 1
+    tập job_id cho trước, dùng `jp.job_id = ANY(%s)` — gom N lần gọi
+    GET /jobs/{id} riêng lẻ (vd trang "Job đã lưu", chỉ có sẵn danh
+    sách job_id từ GET /me/saved-jobs, không có nội dung job kèm theo)
+    thành đúng 1 query. KẾT HỢP ĐƯỢC với mọi filter khác ở trên (AND
+    chung, không phải OR/thay thế) — vd `ids=...&status=OPEN` vẫn hợp
+    lệ, lọc trong đúng tập id đó theo status. Không tự ép limit theo
+    len(ids) — caller (api/routers/jobs.py) tự chịu trách nhiệm truyền
+    limit đủ lớn nếu muốn lấy đủ toàn bộ id đã liệt kê trong 1 lần gọi,
+    hàm này giữ nguyên hành vi limit/offset/cursor như filter khác."""
     conditions = []
     params: list = []
 
-    if job_ids is not None:
-        conditions.append("jp.job_id = ANY(%s::uuid[])")
-        params.append(list(job_ids))
     if industry:
         conditions.append("jp.matching_industry = %s")
         params.append(industry)
@@ -600,6 +591,9 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
     if created_by:
         conditions.append("jp.created_by = %s")
         params.append(created_by)
+    if ids:
+        conditions.append("jp.job_id = ANY(%s)")
+        params.append(ids)
 
     # cursor riêng biệt với các filter khác — luôn ANDed thêm vào SAU
     # (không ảnh hưởng câu COUNT(*) ở dưới, vì COUNT vẫn cần đếm ĐÚNG
