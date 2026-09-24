@@ -191,20 +191,26 @@ class JobCreate(BaseModel):
 class JobUpdate(BaseModel):
     """Mọi field optional — chỉ gửi field muốn sửa, field không gửi giữ
     nguyên giá trị cũ. Dùng field job_status='CLOSED' để "xoá mềm" 1 job
-    (xem chi tiết trong docstring db.update_job())."""
+    (xem chi tiết trong docstring db.update_job()).
+
+    XOÁ GIÁ TRỊ (thêm 09/2026): với 4 field `deadline`, `level_code`,
+    `province_name`, `work_type` (cột cho phép NULL), gửi RÕ `null` trong
+    body = xoá giá trị đó (đưa về NULL); không gửi field = giữ nguyên.
+    `salary_min`/`salary_max` gửi `0` hoặc `null` cũng là xoá lương. MỌI
+    field khác gửi `null` vẫn chỉ bị bỏ qua (không xoá được)."""
     model_config = ConfigDict(extra="forbid")
     
     job_title: Optional[str] = Field(default=None, min_length=1)
     matching_industry: Optional[str] = None
-    level_code: Optional[str] = Field(default=None, description="Intern | Fresher | Junior | Middle | Senior | Lead | Manager")
-    province_name: Optional[str] = None
-    work_type: Optional[str] = Field(default=None, description="FULL_TIME | PART_TIME | INTERNSHIP | OTHER")
+    level_code: Optional[str] = Field(default=None, description="Intern | Fresher | Junior | Middle | Senior | Lead | Manager — gửi null để xoá level")
+    province_name: Optional[str] = Field(default=None, description="Tên tỉnh/thành hợp lệ (xem GET /enums -> province_name) — gửi null để xoá địa điểm")
+    work_type: Optional[str] = Field(default=None, description="FULL_TIME | PART_TIME | INTERNSHIP | OTHER — gửi null để xoá hình thức làm việc")
     currency: Optional[str] = None
     salary_min: Optional[int] = Field(default=None, ge=0)
     salary_max: Optional[int] = Field(default=None, ge=0)
     salary_type: Optional[str] = Field(default=None, description="RANGE | EXACT | UPTO | STARTING_FROM | NEGOTIABLE | UNPAID")
     salary_period: Optional[str] = Field(default=None, description="MONTH | YEAR — không gửi thì giữ nguyên giá trị cũ")
-    deadline: Optional[date] = None
+    deadline: Optional[date] = Field(default=None, description="Gửi null để xoá deadline")
     job_status: Optional[str] = Field(default=None, description="OPEN | CLOSED — dùng CLOSED để 'xoá mềm'")
     ss_team_notes: Optional[str] = None
     parsed_content: Optional[ParsedContent] = Field(

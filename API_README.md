@@ -159,7 +159,7 @@ ra ngay, không đợi access token 30 phút tự hết hạn).
 | GET | `/jobs?industry=&province=&level=&work_type=&status=&keyword=&ids=&limit=&offset=` | List job, filter + phân trang (`ids=uuid1,uuid2` lọc đúng tập job, tối đa 200; `ids=` rỗng → 0 job) | API key |
 | GET | `/jobs/{job_id}` | Chi tiết 1 job (kèm parsed_content) | API key |
 | POST | `/jobs` | Tạo job thủ công (company phải có sẵn), idempotent | API key + JWT (ss_team+) |
-| PATCH | `/jobs/{job_id}` | Sửa job tự do (đổi trạng thái/lương/ghi chú...). Dùng `job_status:"CLOSED"` để "xoá mềm" | API key + JWT (ss_team+) |
+| PATCH | `/jobs/{job_id}` | Sửa job tự do (đổi trạng thái/lương/ghi chú...). Dùng `job_status:"CLOSED"` để "xoá mềm"; `deadline`/`level_code`/`province_name`/`work_type` gửi `null` để xoá giá trị | API key + JWT (ss_team+) |
 | GET | `/jobs/{job_id}/applications` | Ai đã ứng tuyển job này (full_name/email/phone) | API key + JWT (ss_team+) |
 | GET | `/jobs/data-health` | Thống kê thiếu field/job hết hạn/job nghi trùng, tính sẵn bằng SQL — dùng cho tab "Tình trạng dữ liệu" | API key |
 | GET | `/companies?keyword=&province=&has_social=&limit=&offset=` | List công ty, filter + phân trang | API key |
@@ -245,6 +245,15 @@ Chỉ gửi field muốn sửa, field không gửi giữ nguyên.
 
 ```json
 {"job_status": "CLOSED"}
+```
+
+**Xoá giá trị đã nhập (thêm 09/2026):** 4 field `deadline`, `level_code`,
+`province_name`, `work_type` gửi rõ `null` = xoá (đưa về NULL), không gửi =
+giữ nguyên. `salary_min`/`salary_max` gửi `0` hoặc `null` = xoá lương. Các
+field khác gửi `null` chỉ bị bỏ qua.
+
+```json
+{"deadline": null, "level_code": null}
 ```
 
 Không có endpoint DELETE thật — job xoá thật sẽ bị crawl lại tạo trùng ở

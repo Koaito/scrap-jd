@@ -4,7 +4,7 @@ db.jobs — tách từ db.py (God module) theo domain.
 
 import json
 import logging
-from typing import Optional
+from typing import Iterable, Optional
 
 import psycopg2
 import psycopg2.extras
@@ -29,6 +29,33 @@ logger = logging.getLogger(__name__)
 # ra giá trị ghi là gì. Field khác gặp vấn đề tương tự trong tương lai
 # chỉ cần đổi default sang _UNSET, không cần sửa lại chữ ký hàm.
 _UNSET = object()
+
+# Thêm 09/2026 (migrate Next.js, JobForm — trang sửa job): 4 field job mà
+# update_job() bên dưới trước đây KHÔNG CÓ CÁCH NÀO đưa về NULL, vì mọi
+# tham số của chúng dùng `is not None` để nghĩa là "có gửi" — gửi
+# `null`/để trống chỉ bị bỏ qua, không báo lỗi (staff không thể xoá
+# deadline, level, tỉnh, hình thức làm việc đã lỡ nhập).
+#
+# KHÔNG đổi 4 tham số đó sang sentinel `_UNSET` như cách làm với
+# salary_min/salary_max ở trên, dù comment phía trên từng gợi ý vậy: nơi
+# gọi thứ 2 là api/services/import_executor.py::_update_row() truyền
+# level_id/province_id/work_type/deadline = None với nghĩa "ô này trống
+# trong file import -> GIỮ NGUYÊN", nếu đổi default sang sentinel mà quên
+# đổi None -> JOB_UNSET ở đó thì mỗi dòng import thiếu cột sẽ XOÁ dữ liệu
+# cũ — sai theo hướng mất dữ liệu, không lộ ngay. Thay vào đó thêm 1 tham
+# số RIÊNG `clear_fields` (mặc định rỗng = hành vi cũ giữ nguyên tuyệt
+# đối cho mọi nơi gọi hiện có): chỉ nơi nào TƯỜNG MINH yêu cầu xoá (hiện
+# chỉ patch_job(), khi client gửi field = null có chủ đích) mới đụng tới.
+#
+# Key = tên field ở tầng API (JobUpdate), value = tên CỘT trong
+# job_postings. Cũng là whitelist duy nhất được nối vào câu SQL — không
+# bao giờ nhận tên cột từ client.
+JOB_CLEARABLE_FIELD_TO_COLUMN = {
+    "deadline": "deadline",
+    "level_code": "level_id",
+    "province_name": "province_id",
+    "work_type": "work_type",
+}
 
 
 def get_open_jobs_with_source_url(conn):
@@ -360,7 +387,8 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
                job_status: Optional[str] = None,
                ss_team_notes: Optional[str] = None,
                parsed_content: Optional[dict] = None,
-               updated_by: Optional[str] = None) -> bool:
+               updated_by: Optional[str] = None,
+               clear_fields: Optional[Iterable[str]] = None) -> bool:
     """Sửa TỰ DO các field của 1 job đã tồn tại — dùng cho PATCH /jobs/{id}
     phía frontend. KHÔNG phân biệt job crawl hay job nhập tay (team không
     cần phân quyền, mọi người dùng nội bộ ngang quyền — xem quyết định
@@ -401,10 +429,32 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     salary_min/max, vì đây là enum chữ chứ không phải số — không có
     trường hợp "0 khác None" cần phân biệt ở đây.
 
+    clear_fields (thêm 09/2026): tập TÊN CỘT cần đưa về NULL, chỉ nhận
+    giá trị trong JOB_CLEARABLE_FIELD_TO_COLUMN.values() ("deadline",
+    "level_id", "province_id", "work_type") — xem comment ở
+    JOB_CLEARABLE_FIELD_TO_COLUMN lý do dùng tham số riêng thay vì sentinel.
+    Mặc định None/rỗng = KHÔNG xoá gì (hành vi cũ, mọi nơi gọi hiện có —
+    import_executor, check_expired_source_jobs — không bị ảnh hưởng).
+    Raise ValueError nếu chứa tên cột ngoài whitelist (lỗi lập trình, đồng
+    thời chặn nối chuỗi lạ vào SQL) hoặc nếu 1 cột vừa được gán giá trị
+    mới vừa yêu cầu xoá (mâu thuẫn — không tự đoán bên nào thắng).
+
     Trả False nếu job_id không tồn tại (không có gì để update), True nếu
     đã update thành công — route dùng giá trị này để trả 404 đúng lúc."""
     updates = []
     values = []
+
+    clear_cols = set(clear_fields or ())
+    unknown = clear_cols - set(JOB_CLEARABLE_FIELD_TO_COLUMN.values())
+    if unknown:
+        raise ValueError(f"clear_fields chứa cột không được phép xoá: {sorted(unknown)}")
+    _given = {
+        "level_id": level_id, "province_id": province_id,
+        "work_type": work_type, "deadline": deadline,
+    }
+    conflict = sorted(c for c in clear_cols if _given[c] is not None)
+    if conflict:
+        raise ValueError(f"cột vừa được gán giá trị vừa yêu cầu xoá: {conflict}")
 
     if updated_by is not None:
         updates.append("updated_by = %s")
@@ -451,6 +501,9 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     if parsed_content is not None:
         updates.append("parsed_content = %s")
         values.append(json.dumps(parsed_content, ensure_ascii=False))
+    # Tên cột lấy từ whitelist đã kiểm tra ở đầu hàm, không phải từ client.
+    for col in sorted(clear_cols):
+        updates.append(f"{col} = NULL")
 
     if not updates:
         return job_exists_by_id(conn, job_id)

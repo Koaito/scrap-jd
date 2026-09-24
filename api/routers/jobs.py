@@ -12,6 +12,9 @@ from api import storage as cv_storage
 from api.deps import get_db, require_role
 from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import JobApplicantOut, JobCreate, JobDataHealth, JobDetailOut, JobSaverOut, JobUpdate, PaginatedJobs
+# Import thẳng (không qua db_module) để test patch được db_module bằng MagicMock
+# mà hằng số này vẫn là dict thật — cùng cách contacts.py import ContactHasLinksError.
+from db.jobs import JOB_CLEARABLE_FIELD_TO_COLUMN
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -400,6 +403,20 @@ def patch_job(
         else db_module.JOB_UNSET
     )
 
+    # Thêm 09/2026 (JobForm — trang sửa job bên Next.js): 4 field
+    # deadline/level_code/province_name/work_type GỬI RÕ `null` trong body
+    # = xoá giá trị (đưa về NULL); KHÔNG gửi field = giữ nguyên như cũ.
+    # Phân biệt bằng model_fields_set (cùng cơ chế với salary_min/max ở
+    # trên) chứ không phải `is None` — Pydantic trả None cho cả 2 tình
+    # huống. Các field khác (job_title, currency, salary_type, ...) gửi
+    # null vẫn bị BỎ QUA như trước (không xoá được: cột NOT NULL/có
+    # default, hoặc không có nghĩa "để trống").
+    clear_fields = {
+        col
+        for field, col in JOB_CLEARABLE_FIELD_TO_COLUMN.items()
+        if field in payload.model_fields_set and getattr(payload, field) is None
+    }
+
     updated = db_module.update_job(
         conn, job_id,
         job_title=payload.job_title,
@@ -417,6 +434,7 @@ def patch_job(
         job_status=payload.job_status,
         ss_team_notes=payload.ss_team_notes,
         updated_by=user["sub"],
+        clear_fields=clear_fields,
     )
     if not updated:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.JOB_JOB_NOT_FOUND, "message": "Không tìm thấy job"})
@@ -431,9 +449,11 @@ def patch_job(
     # phải id) để khớp đúng field trong `existing` (existing['level_code']
     # là chuỗi, không phải level_id) — id đã resolve ở trên chỉ để truyền
     # cho update_job(), không dùng để diff.
-    if payload.level_code is not None:
+    # level_code/province_name gửi null có chủ đích (xoá) cũng phải vào diff
+    # — nếu không audit log không ghi nhận việc xoá tỉnh/level.
+    if payload.level_code is not None or "level_code" in payload.model_fields_set:
         payload_fields["level_code"] = payload.level_code
-    if payload.province_name is not None:
+    if payload.province_name is not None or "province_name" in payload.model_fields_set:
         payload_fields["province_name"] = payload.province_name
 
     if payload_fields:
