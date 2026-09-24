@@ -11,7 +11,7 @@ from api import error_codes
 from api import storage as cv_storage
 from api.deps import get_db, require_role
 from api.rate_limit import get_user_id_or_ip, limiter
-from api.schemas import JobApplicantOut, JobCreate, JobDataHealth, JobDetailOut, JobSaverOut, JobUpdate, PaginatedJobs
+from api.schemas import JobApplicantOut, JobCreate, JobCreateResult, JobDataHealth, JobDetailOut, JobSaverOut, JobUpdate, PaginatedJobs
 # Import thẳng (không qua db_module) để test patch được db_module bằng MagicMock
 # mà hằng số này vẫn là dict thật — cùng cách contacts.py import ContactHasLinksError.
 from db.jobs import JOB_CLEARABLE_FIELD_TO_COLUMN
@@ -247,7 +247,7 @@ def get_job(job_id: str, conn=Depends(get_db)):
     return row
 
 
-@router.post("", response_model=JobDetailOut, status_code=201)
+@router.post("", response_model=JobCreateResult, status_code=201)
 def create_job(
     payload: JobCreate,
     conn=Depends(get_db),
@@ -266,6 +266,11 @@ def create_job(
     IDEMPOTENT: gọi lại nhiều lần với data y hệt (company_id + job_title
     + level_code + province_name giống nhau) sẽ KHÔNG tạo job trùng —
     trả về đúng job đã có (xem db.create_manual_job()).
+
+    Response kèm `was_existing` (cùng dạng POST /companies): true = job trả
+    về là job CŨ, mọi dữ liệu vừa gửi (lương, deadline, mô tả...) bị bỏ,
+    KHÔNG ghi đè lên job cũ — client nên báo cho người dùng biết thay vì
+    hiện "đã tạo". Status vẫn 201 cả 2 trường hợp (giữ nguyên hành vi cũ).
 
     BẮT BUỘC đăng nhập VÀ role 'ss_team' trở lên (require_role("ss_team"),
     đổi từ chỉ-cần-đăng-nhập sang có phân cấp — 08/2026, xem
@@ -343,7 +348,9 @@ def create_job(
     conn.commit()
 
     row = db_module.get_job_by_id(conn, job_id)
-    return row
+    # was_duplicate (đã tính sẵn ở trên) -> was_existing trong response.
+    # DB không có cột này nên dựng dict tường minh, giống create_company().
+    return {**row, "was_existing": was_duplicate}
 
 
 @router.patch("/{job_id}", response_model=JobDetailOut)

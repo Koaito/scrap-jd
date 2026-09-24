@@ -13,7 +13,6 @@ from api.schemas import (
     CompanyDataHealth,
     CompanyDeleteRequest,
     CompanyDetailOut,
-    CompanyOut,
     CompanyUpdate,
     PaginatedCompanies,
     PartnershipSignals,

@@ -487,11 +487,13 @@ def test_hard_delete_contact_still_active(
         mock_db.get_company_contact_by_id.return_value = existing
 
         from api.routers.contacts import hard_delete_contact
+        from api.schemas import ContactDeleteRequest
 
         with pytest.raises(HTTPException) as exc_info:
             hard_delete_contact(
                 company_id=test_company_id,
                 contact_id=test_contact_id,
+                payload=ContactDeleteRequest(note="Dọn contact rác"),
                 user=ss_team_user,
                 conn=mock_conn,
             )
@@ -525,11 +527,13 @@ def test_hard_delete_contact_has_links(
         )
 
         from api.routers.contacts import hard_delete_contact
+        from api.schemas import ContactDeleteRequest
 
         with pytest.raises(HTTPException) as exc_info:
             hard_delete_contact(
                 company_id=test_company_id,
                 contact_id=test_contact_id,
+                payload=ContactDeleteRequest(note="Dọn contact rác"),
                 user=ss_team_user,
                 conn=mock_conn,
             )
@@ -548,13 +552,31 @@ def test_hard_delete_contact_success(
         mock_db.get_company_contact_by_id.return_value = existing
 
         from api.routers.contacts import hard_delete_contact
+        from api.schemas import ContactDeleteRequest
 
         result = hard_delete_contact(
             company_id=test_company_id,
             contact_id=test_contact_id,
+            payload=ContactDeleteRequest(note="Dọn contact rác"),
             user=ss_team_user,
             conn=mock_conn,
         )
         assert result is None
         mock_db.hard_delete_company_contact.assert_called_once()
+        # Phần 1 mục 3.12 của plan: xoá cứng phải ghi audit log
+        # DELETE_CONTACT kèm đúng note người dùng nhập.
+        mock_db.log_action.assert_called_once()
+        log_kwargs = mock_db.log_action.call_args.kwargs
+        assert log_kwargs["action_type"] == "DELETE_CONTACT"
+        assert log_kwargs["note"] == "Dọn contact rác"
         mock_conn.commit.assert_called_once()
+
+
+def test_hard_delete_contact_blank_note_rejected():
+    """Phần 1 mục 3.2 + 3.12: note toàn khoảng trắng bị chặn ngay ở schema."""
+    from pydantic import ValidationError
+
+    from api.schemas import ContactDeleteRequest
+
+    with pytest.raises(ValidationError):
+        ContactDeleteRequest(note="   ")

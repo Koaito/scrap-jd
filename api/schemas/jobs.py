@@ -73,6 +73,26 @@ class JobDetailOut(JobOut):
     ss_team_notes: Optional[str] = None
 
 
+# Thêm khi migrate Next.js (cùng dạng với CompanyCreateResult, Phần 5 mục
+# 16 của plan): response riêng cho POST /jobs — KHÔNG gộp was_existing vào
+# JobDetailOut dùng chung (GET /jobs/{id} cũng dùng JobDetailOut, field này
+# chỉ có ý nghĩa đúng 1 lần tại thời điểm tạo, để trong schema chung sẽ thành
+# field vô nghĩa "was_existing: null" ở mọi response GET). create_job()
+# (api/routers/jobs.py) đã tự tính được was_duplicate (để quyết định có ghi
+# audit log CREATE_JOB hay không) nhưng TRƯỚC ĐÂY biến này bị bỏ đi — client
+# không có cách nào biết job vừa "tạo" thật sự là job mới hay là job cũ bị
+# trả lại (khi đó toàn bộ lương/deadline/mô tả vừa nhập đều bị bỏ, không ghi
+# đè lên job cũ).
+class JobCreateResult(JobDetailOut):
+    was_existing: bool = Field(
+        description="true = job trả về đã tồn tại từ trước (trùng công ty + "
+                    "tên job + level + tỉnh), request này KHÔNG tạo bản ghi "
+                    "mới và MỌI dữ liệu vừa gửi (lương, deadline, mô tả...) "
+                    "đều bị bỏ qua, không ghi đè lên job cũ. false = job vừa "
+                    "được tạo mới thật sự.",
+    )
+
+
 class PaginatedJobs(BaseModel):
     total: int
     limit: int

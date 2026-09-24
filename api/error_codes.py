@@ -137,6 +137,11 @@ CRAWL_RUN_ID_INVALID_UUID = "crawl_run_id_invalid_uuid"
 CRAWL_RUN_NOT_FOUND = "crawl_run_not_found"
 
 # ---------------------------------------------------------------
+# api/routers/dashboard.py
+# ---------------------------------------------------------------
+DASHBOARD_FOLLOWUP_DAYS_INVALID = "dashboard_followup_days_invalid"
+
+# ---------------------------------------------------------------
 # api/routers/email_templates.py
 # ---------------------------------------------------------------
 EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID = "email_template_template_id_invalid_uuid"

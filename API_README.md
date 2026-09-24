@@ -234,6 +234,12 @@ có) — route KHÔNG tự tạo company kèm job. Gọi lại nhiều lần v�
 hệt (cùng company_id + job_title + level_code + province_name) sẽ KHÔNG
 tạo job trùng — trả về job đã có.
 
+Response là `JobDetailOut` kèm thêm `was_existing: bool` (thêm 09/2026,
+cùng dạng `POST /companies`): `true` = job trả về là job **cũ**, mọi dữ
+liệu vừa gửi (lương, deadline, mô tả...) bị bỏ, KHÔNG ghi đè lên job cũ —
+client nên báo cho người dùng thay vì hiện "đã tạo". `false` = job vừa
+được tạo mới thật sự. Status vẫn `201` ở cả hai trường hợp.
+
 `salary_period`: `"MONTH"` (mặc định) | `"YEAR"`. **Job nhập tay KHÔNG
 tự suy luận được field này** như job crawl — nếu nhập lương NĂM, **phải
 tự truyền `"salary_period": "YEAR"`**, nếu không hệ thống mặc định hiểu
@@ -304,7 +310,9 @@ sort theo deadline mới nhất trước (job vừa hết hạn cần xử lý g
 ```
 
 Nếu `tax_id` trùng với công ty đã có sẵn (vd đã crawl từ TopCV trước đó)
-→ route tự động dùng lại company đã có, KHÔNG tạo bản ghi trùng.
+→ route tự động dùng lại company đã có, KHÔNG tạo bản ghi trùng. Response
+kèm `was_existing: bool` — `true` = công ty trả về đã tồn tại từ trước
+(request này chỉ vá thêm thông tin), `false` = vừa tạo mới.
 
 ### `GET /companies/data-health` — thống kê thiếu dữ liệu công ty
 
