@@ -208,6 +208,7 @@ def test_get_enums_matches_constants_module():
         "currency": constants.CURRENCY_VALUES,
         "contact_status": constants.CONTACT_STATUS_VALUES,
         "partnership_potential": constants.PARTNERSHIP_POTENTIAL_VALUES,
+        "province_name": constants.PROVINCE_VALUES,
         "user_role": constants.USER_ROLE_VALUES,
         "entity_type": constants.ENTITY_TYPE_VALUES,
         "action_type": constants.ACTION_TYPE_VALUES,
@@ -239,3 +240,100 @@ def test_get_enums_has_no_parameters():
     from api.routers.meta import get_enums
 
     assert inspect.signature(get_enums).parameters == {}
+
+
+# ---------------------------------------------------------------------------
+# GET /enums -> province_name (thêm 09/2026, cho dropdown "Địa điểm" của
+# form thêm/sửa job bên Next.js — xem constants.PROVINCE_VALUES)
+# ---------------------------------------------------------------------------
+
+
+def _read_province_seed(relative_sql_path: str) -> list[str]:
+    """Đọc danh sách tên tỉnh từ khối `INSERT INTO provinces ... VALUES
+    ('A'), ('B'), ... ON CONFLICT` trong 1 file SQL THẬT của repo (không
+    hard-code lại danh sách trong test — mục đích của test này chính là
+    bắt trường hợp constants.py lệch khỏi seed thật). Chỉ quét từ
+    "INSERT INTO provinces" tới "ON CONFLICT" để không dính comment."""
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    sql = (root / relative_sql_path).read_text(encoding="utf-8")
+    start = sql.index("INSERT INTO provinces")
+    end = sql.index("ON CONFLICT", start)
+    return re.findall(r"\('([^']+)'\)", sql[start:end])
+
+
+def test_get_enums_province_name_is_valid_dropdown_source():
+    """Frontend build dropdown trực tiếp từ list này: phải là list str
+    không rỗng, không trùng, và luôn có 2 giá trị đặc biệt "Khác"/
+    "Remote" (job không xác định được tỉnh/làm remote vẫn có giá trị
+    hợp lệ để chọn)."""
+    from api.routers.meta import get_enums
+
+    provinces = get_enums()["province_name"]
+
+    assert isinstance(provinces, list) and len(provinces) > 0
+    assert all(isinstance(p, str) and p.strip() == p and p for p in provinces)
+    assert len(provinces) == len(set(provinces))
+    assert "Khác" in provinces
+    assert "Remote" in provinces
+    # 34 tỉnh/thành sau sáp nhập + "Khác" + "Remote"
+    assert len(provinces) == 36
+
+
+def test_province_values_match_schema_seed_in_order():
+    """constants.PROVINCE_VALUES phải khớp ĐÚNG (cả thứ tự) seed trong
+    sql/schema.sql — DB mới dựng từ schema.sql phải cho ra đúng danh sách
+    mà /enums trả về."""
+    import constants
+
+    assert constants.PROVINCE_VALUES == _read_province_seed("sql/schema.sql")
+
+
+def test_province_values_match_migration_2025():
+    """Cùng danh sách với migration_update_provinces_2025.sql (đường
+    cập nhật cho DB đã có sẵn từ trước khi sáp nhập)."""
+    import constants
+
+    assert constants.PROVINCE_VALUES == _read_province_seed(
+        "sql/migration_update_provinces_2025.sql"
+    )
+
+
+def test_province_values_cover_every_alias_target():
+    """Mọi tên tỉnh MỚI mà province_alias.py quy đổi về (kể cả tên đã là
+    tên mới, map về chính nó) đều phải nằm trong PROVINCE_VALUES, và
+    ngược lại — nếu lệch, job crawl từ tên tỉnh cũ sẽ được gán vào 1
+    tỉnh mà dropdown không cho chọn (hoặc dropdown có tỉnh mà crawl
+    không bao giờ quy đổi ra)."""
+    import constants
+    from province_alias import PROVINCE_ALIAS_MAP
+
+    assert set(constants.PROVINCE_VALUES) == set(PROVINCE_ALIAS_MAP.values())
+
+
+def test_province_values_are_resolved_by_get_province_id_without_fallback():
+    """Chọn bất kỳ giá trị nào trong dropdown thì db.get_province_id()
+    phải tra ra ĐÚNG dòng đó (khớp trực tiếp tên, không cần quy đổi alias,
+    không rơi về "Khác") — đây là lý do cả danh sách này tồn tại. Giả lập
+    bảng `provinces` bằng chính danh sách đã seed, mỗi tên 1 id."""
+    from unittest.mock import MagicMock
+
+    import constants
+    from db.lookups import get_province_id
+
+    ids = {name: i + 1 for i, name in enumerate(constants.PROVINCE_VALUES)}
+
+    def make_conn(requested: str):
+        cur = MagicMock()
+        cur.fetchone.return_value = (ids[requested],) if requested in ids else None
+        conn = MagicMock()
+        conn.cursor.return_value.__enter__.return_value = cur
+        return conn, cur
+
+    for name in constants.PROVINCE_VALUES:
+        conn, cur = make_conn(name)
+        assert get_province_id(conn, name) == ids[name]
+        # đúng 1 lần tra trực tiếp, không cần bước quy đổi alias
+        assert cur.execute.call_count == 1

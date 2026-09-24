@@ -186,6 +186,7 @@ ra ngay, không đợi access token 30 phút tự hết hạn).
 | GET | `/dashboard/insights/monthly` | Thêm 09/2026 — tab "Báo cáo tháng": job/công ty mới + % so tháng trước, job hết hạn, top ngành/công ty, ứng tuyển/lưu job. Tháng theo lịch, giờ VN | API key + JWT (ss_team+) |
 | GET | `/messages/conversations/{partner_id}` | Thêm 09/2026 — tra đúng 1 người đối thoại (tên, role, `relationship_*`), kể cả chưa từng nhắn. `404` gộp "không tồn tại" và "không được phép thấy" | API key + JWT |
 | GET | `/sources` | Danh sách source/category có sẵn (đọc từ `sources_registry.py`, phái sinh từ `config.py::JOB_CATEGORIES` — 08/2026, xem README.md#thêm-ngành--nguồn-crawl-mới) — frontend render dropdown | API key |
+| GET | `/enums` | Danh sách enum hợp lệ dạng `{tên: [giá trị,...]}` (job_status, work_type, level_code, ... — không đọc DB, tính từ `constants.py`). Thêm 09/2026: `province_name` — 34 tỉnh/thành sau sáp nhập + `Khác`/`Remote`, dùng build dropdown "Địa điểm" của form job (gửi giá trị khác/gõ tự do sẽ bị backend âm thầm gán về `Khác`) | API key |
 | GET | `/health` | Health check | API key |
 | POST | `/auth/register` | Tự đăng ký (phone/track cho học viên, luôn role `user`), gửi email xác thực | **KHÔNG cần API key** |
 | GET | `/auth/verify-email?token=` | Kích hoạt tài khoản — bấm từ link trong email, trả HTML | **KHÔNG cần API key** |

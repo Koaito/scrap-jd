@@ -80,7 +80,16 @@ def get_enums():
 
     Response format: {"enum_name": ["VALUE1", "VALUE2", ...]}
     Frontend tự quyết định có map sang tiếng Việt hay không (có thể
-    hardcode map VN ở frontend, nhưng ít nhất danh sách values luôn đúng)."""
+    hardcode map VN ở frontend, nhưng ít nhất danh sách values luôn đúng).
+
+    `province_name` (thêm 09/2026): danh sách tỉnh/thành HỢP LỆ để chọn
+    ở form thêm/sửa job — 34 tỉnh sau sáp nhập + "Khác"/"Remote", đúng
+    thứ tự seed trong DB (Bắc -> Nam, KHÔNG sắp theo bảng chữ cái —
+    frontend tự sort nếu muốn). Cố ý KHÔNG đọc bảng `provinces` thật:
+    route này không đọc DB (xem test_get_enums_has_no_parameters), và
+    bảng thật có thể còn dòng tên tỉnh CŨ chỉ để giữ tham chiếu dữ liệu
+    lịch sử — không được cho chọn lại. Danh sách này được test tự động
+    so khớp với sql/schema.sql + migration + province_alias.py."""
     return {
         "job_status": constants.JOB_STATUS_VALUES,
         "work_type": constants.WORK_TYPE_VALUES,
@@ -90,6 +99,7 @@ def get_enums():
         "currency": constants.CURRENCY_VALUES,
         "contact_status": constants.CONTACT_STATUS_VALUES,
         "partnership_potential": constants.PARTNERSHIP_POTENTIAL_VALUES,
+        "province_name": constants.PROVINCE_VALUES,
         "user_role": constants.USER_ROLE_VALUES,
         "entity_type": constants.ENTITY_TYPE_VALUES,
         "action_type": constants.ACTION_TYPE_VALUES,
