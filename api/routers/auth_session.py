@@ -173,7 +173,13 @@ def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
     ĐÃ BỊ THU HỒI TỪ TRƯỚC (revoked_at đã có giá trị) — đây là dấu hiệu
     token bị đánh cắp (người dùng hợp lệ không có lý do dùng lại token đã
     đổi), phản ứng bằng cách thu hồi TOÀN BỘ token của user này, buộc
-    đăng nhập lại trên mọi thiết bị."""
+    đăng nhập lại trên mọi thiết bị.
+
+    NGOẠI LỆ (grace period, xem security.REFRESH_REUSE_GRACE_SECONDS):
+    nếu token thay thế (replaced_by_token_id) vẫn còn sống và việc revoke
+    vừa xảy ra trong vòng REFRESH_REUSE_GRACE_SECONDS giây, coi đây là
+    race hợp lệ giữa 2 request refresh song song (không phải bị đánh
+    cắp) và cấp thêm 1 cặp token mới thay vì đăng xuất toàn bộ."""
     token_hash = security.hash_refresh_token(payload.refresh_token)
     # for_update=True (BUG FIX, Phần 1 mục 3.11 của plan migrate
     # Next.js): khoá dòng token này cho tới khi request commit/rollback,
@@ -185,8 +191,56 @@ def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
         raise HTTPException(status_code=401, detail={"error_code": error_codes.AUTH_REFRESH_TOKEN_INVALID, "message": "Refresh token không hợp lệ."})
 
     if stored["revoked_at"] is not None:
-        # Token cũ đã bị revoke (do đã xoay vòng trước đó) nhưng vẫn có
-        # người gửi lên -> nghi bị đánh cắp -> thu hồi hết, chặn toàn bộ.
+        # GRACE PERIOD (BUG FIX, ưu tiên cao nhất của plan migrate
+        # Next.js — xem security.REFRESH_REUSE_GRACE_SECONDS): trước khi
+        # kết luận "bị đánh cắp", kiểm tra xem đây có phải race hợp lệ
+        # giữa 2 request refresh cùng gửi token A gần như đồng thời hay
+        # không — token THAY THẾ A (B, replaced_by_token_id) còn sống
+        # VÀ việc revoke A vừa xảy ra trong khung grace thì cấp thêm 1
+        # cặp token mới, không coi là đánh cắp. Mọi trường hợp khác (B
+        # cũng đã bị revoke, quá khung giờ, hoặc không có B) rơi xuống
+        # nhánh nghi đánh cắp như cũ.
+        revoked_at = stored["revoked_at"]
+        if revoked_at.tzinfo is None:
+            revoked_at = revoked_at.replace(tzinfo=timezone.utc)
+        seconds_since_revoke = (datetime.now(timezone.utc) - revoked_at).total_seconds()
+        replaced_by_id = stored.get("replaced_by_token_id")
+
+        replacement = None
+        if replaced_by_id is not None and 0 <= seconds_since_revoke <= security.REFRESH_REUSE_GRACE_SECONDS:
+            replacement = db_module.get_refresh_token_by_id(conn, str(replaced_by_id))
+
+        if replacement is not None and replacement["revoked_at"] is None:
+            logger.info(
+                "Refresh token bị gửi lại %.1fs sau khi đã xoay vòng, "
+                "trong grace period %ds — token thay thế vẫn còn sống, "
+                "coi là race hợp lệ giữa nhiều request refresh song "
+                "song, không phải bị đánh cắp. Cấp thêm 1 cặp token mới "
+                "cho user %s (token thay thế cũ vẫn giữ nguyên, không "
+                "revoke).",
+                seconds_since_revoke, security.REFRESH_REUSE_GRACE_SECONDS,
+                stored["ss_user_id"],
+            )
+            user = db_module.get_user_by_id(conn, str(stored["ss_user_id"]))
+            if user is None or not user.get("is_active", True):
+                raise HTTPException(status_code=403, detail={"error_code": error_codes.AUTH_ACCOUNT_INACTIVE, "message": "Tài khoản không còn hoạt động."})
+
+            # Tự chữa lành session_id NULL — cùng logic với nhánh refresh
+            # bình thường bên dưới (xem docstring ở đó).
+            session_id = user.get("active_session_id")
+            if session_id is None:
+                session_id = security.generate_session_id()
+                db_module.set_active_session_id(conn, str(user["ss_user_id"]), session_id)
+            else:
+                session_id = str(session_id)
+
+            access_token, new_refresh_token = _issue_token_pair(conn, user, request, session_id)
+            conn.commit()
+            return AccessTokenOut(access_token=access_token, refresh_token=new_refresh_token)
+
+        # Ngoài grace / token thay thế cũng đã bị revoke (logout, đổi
+        # mật khẩu, đăng nhập nơi khác...) -> nghi bị đánh cắp -> thu
+        # hồi hết, chặn toàn bộ.
         revoked_count = db_module.revoke_all_refresh_tokens_for_user(
             conn, str(stored["ss_user_id"])
         )

@@ -171,6 +171,29 @@ def get_refresh_token_by_hash(conn, token_hash: str, for_update: bool = False):
         return cur.fetchone()
 
 
+def get_refresh_token_by_id(conn, refresh_token_id: str):
+    """Trả dict token theo PRIMARY KEY (refresh_token_id) hoặc None —
+    KHÁC get_refresh_token_by_hash() (tra bằng token_hash, dùng khi
+    CLIENT tự gửi token thô lên). Hàm này dùng khi SERVER đã biết sẵn
+    id (đọc từ cột replaced_by_token_id của 1 dòng khác), cần kiểm tra
+    trạng thái hiện tại của token ĐÓ.
+
+    Dùng bởi refresh() (api/routers/auth_session.py) cho grace period
+    tái sử dụng refresh token vừa xoay vòng (xem
+    security.REFRESH_REUSE_GRACE_SECONDS): khi token A gửi lên đã bị
+    revoke, cần biết token THAY THẾ nó (B) còn sống hay không để phân
+    biệt race hợp lệ (B còn sống) với các tình huống phải chặn (B cũng
+    đã bị revoke — logout/đổi mật khẩu/đăng nhập nơi khác, xem docstring
+    hằng số trên). KHÔNG dùng FOR UPDATE — đây chỉ là đọc trạng thái để
+    quyết định nhánh xử lý, không sửa gì lên dòng này."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            "SELECT * FROM auth_refresh_tokens WHERE refresh_token_id = %s",
+            (refresh_token_id,),
+        )
+        return cur.fetchone()
+
+
 def revoke_refresh_token(conn, refresh_token_id: str,
                           replaced_by_token_id: Optional[str] = None) -> None:
     with conn.cursor() as cur:

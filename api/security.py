@@ -62,6 +62,34 @@ _JWT_ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 30
 
+# Grace period tái sử dụng refresh token VỪA xoay vòng (thêm khi migrate
+# Next.js — refresh() ở api/routers/auth_session.py). Chỉ áp dụng cho
+# ĐÚNG 1 tình huống: 2 request POST /auth/refresh gửi cùng 1 token cũ A
+# gần như đồng thời (race THẬT giữa nhiều tab/nhiều request song song,
+# không phải giả định — xem docstring get_refresh_token_by_hash() ở
+# db/auth.py) — request thắng cuộc xoay A -> B, request thua cuộc đọc
+# lại thấy A đã revoked. Nếu B (replaced_by_token_id) VẪN CÒN SỐNG và
+# việc revoke A xảy ra trong ĐÚNG khung giờ này, coi đây là race hợp lệ
+# thay vì "bị đánh cắp" — cấp THÊM 1 cặp token mới cho request thua
+# cuộc, KHÔNG đụng tới B (B có thể đang là cặp mà request thắng cuộc
+# đang giữ).
+#
+# CHẶT theo chủ đích (không nới), vì 3 tình huống khác cũng khiến A bị
+# revoke đều PHẢI bị chặn, và đều tự động bị chặn bởi cùng 1 điều kiện
+# "B còn sống" mà không cần thêm bất kỳ điều kiện phụ nào:
+#   - Vừa logout: logout() revoke đúng token hiện tại (B) -> B đã
+#     revoked -> điều kiện "B còn sống" sai -> chặn.
+#   - Vừa đổi mật khẩu / admin reset mật khẩu: revoke_all_refresh_
+#     tokens_for_user() revoke MỌI token của user (gồm B) -> chặn.
+#   - Vừa đăng nhập ở máy khác (single-session): login() cũng gọi
+#     revoke_all_refresh_tokens_for_user() trước khi cấp session mới
+#     -> B cũng bị revoke -> chặn.
+# Cái giá chấp nhận: nếu B lại tiếp tục xoay sang C trong ĐÚNG khung
+# giờ này (chuỗi A->B->C), request cầm A vẫn bị coi là tái sử dụng và
+# bị đăng xuất toàn bộ — chấp nhận được vì access token sống 30 phút,
+# tình huống này gần như không xảy ra trong luồng dùng bình thường.
+REFRESH_REUSE_GRACE_SECONDS = 10
+
 # Ngưỡng khoá tài khoản tạm thời sau nhiều lần đăng nhập sai liên tiếp —
 # xem db.record_failed_login(). 5 lần / khoá 15 phút: đủ chặn brute-force
 # thô sơ, không quá khắt khe với người dùng thật gõ nhầm vài lần.

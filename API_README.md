@@ -394,6 +394,31 @@ Trả `{"access_token", "refresh_token", "token_type": "bearer",
 mới tạo qua `POST /auth/users`/vừa bị admin reset — nên ép chuyển sang
 màn đổi mật khẩu trước khi cho dùng tiếp.
 
+### `POST /auth/refresh` — grace period tái sử dụng token vừa xoay vòng
+
+Mỗi lần gọi thành công, refresh token cũ bị thu hồi ngay và trả về 1
+cặp token mới (access + refresh) — xoay vòng 1 lần dùng (single-use).
+Gửi lại 1 refresh token đã bị thu hồi thường bị coi là dấu hiệu **bị
+đánh cắp**, phản ứng bằng cách thu hồi TOÀN BỘ refresh token của user
+đó (đăng xuất mọi thiết bị, `401 auth_refresh_token_already_revoked`).
+
+Ngoại lệ (thêm khi migrate Next.js, xem
+`api.security.REFRESH_REUSE_GRACE_SECONDS`, hiện = 10 giây): nhiều
+tab/nhiều request có thể vô tình gọi `/auth/refresh` gần như đồng thời
+với cùng 1 refresh token cũ (ví dụ nhiều Server Component cùng render 1
+lúc). Để không đăng xuất oan người dùng hợp lệ trong tình huống này,
+server chỉ **cho qua** đúng 1 trường hợp: token cũ vừa bị thu hồi (còn
+trong 10 giây) **và** token thay thế nó (`replaced_by_token_id`) **vẫn
+còn sống** — khi đó cấp thêm 1 cặp token mới, không đụng tới token thay
+thế. Thiết kế "chặt": mọi lý do khác khiến token cũ bị thu hồi (vừa
+`logout`, vừa đổi mật khẩu, vừa đăng nhập ở máy khác — single-session)
+đều khiến token thay thế cũng đã bị thu hồi theo, nên tự động rơi vào
+nhánh chặn như cũ, không cần thêm điều kiện riêng cho từng tình huống.
+Chi tiết đánh đổi và các ca đã xét: xem docstring hằng số
+`REFRESH_REUSE_GRACE_SECONDS` trong `api/security.py` và docstring hàm
+`refresh()` trong `api/routers/auth_session.py`. Test:
+`tests/test_api_auth.py`.
+
 ### `PATCH /auth/users/{id}/role` / `PATCH /auth/users/{id}/active-status`
 
 ```json
