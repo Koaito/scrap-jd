@@ -658,7 +658,7 @@ def get_partnership_signals(conn, company_ids: Optional[list] = None) -> dict:
     if company_ids is not None:
         if not company_ids:
             return {}
-        company_filter = "AND jp.company_id = ANY(%s)"
+        company_filter = "AND jp.company_id = ANY(%s::uuid[])"
         base_params = [list(company_ids)]
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -685,12 +685,12 @@ def get_partnership_signals(conn, company_ids: Optional[list] = None) -> dict:
         contact_filter = ""
         contact_params: list = []
         if company_ids is not None:
-            contact_filter = "AND cc.company_id = ANY(%s)"
+            contact_filter = "AND cc.company_id = ANY(%s::uuid[])"
             contact_params = [list(company_ids)]
 
         cur.execute(
             f"""
-            SELECT cc.company_id, bool_or(cc.contact_status = ANY(%s)) AS has_responded
+            SELECT cc.company_id, bool_or(cc.contact_status = ANY(%s::contact_status_enum[])) AS has_responded
             FROM company_contacts cc
             WHERE cc.is_active = true {contact_filter}
             GROUP BY cc.company_id

@@ -645,7 +645,7 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
         conditions.append("jp.created_by = %s")
         params.append(created_by)
     if ids:
-        conditions.append("jp.job_id = ANY(%s)")
+        conditions.append("jp.job_id = ANY(%s::uuid[])")
         params.append(ids)
 
     # cursor riêng biệt với các filter khác — luôn ANDed thêm vào SAU

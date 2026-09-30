@@ -385,7 +385,6 @@ CREATE INDEX IF NOT EXISTS idx_saved_jobs_job  ON saved_jobs(job_id);
 -- ============================================================
 
 DO $$ BEGIN
-DO $$ BEGIN
     CREATE TYPE audit_action_enum AS ENUM (
         'CREATE_JOB', 'UPDATE_JOB', 'DELETE_JOB',
         'CREATE_COMPANY', 'UPDATE_COMPANY', 'DELETE_COMPANY',

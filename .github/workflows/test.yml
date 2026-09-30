@@ -25,6 +25,24 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    # Postgres thật cho tests/test_pg_integration.py (thêm 09/2026). Các
+    # test còn lại mock DB nên KHÔNG bắt được lỗi nằm ở chính câu SQL
+    # (vd `uuid = text` làm GET /companies/partnership-signals trả 500).
+    # Tên database có chữ "test" là bắt buộc — fixture của file test đó
+    # DROP SCHEMA public CASCADE nên từ chối chạy nếu tên không chứa "test".
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: scrapjd_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
 
@@ -65,4 +83,5 @@ jobs:
         # tests/conftest.py) khiến DB thật KHÔNG bao giờ được gọi.
         env:
           JWT_SECRET_KEY: ci_placeholder_jwt_secret_not_used_in_production
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/scrapjd_test
         run: pytest
