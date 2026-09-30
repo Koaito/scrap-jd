@@ -27,6 +27,7 @@ tra cứu từ code khác.
 """
 
 import re
+import unicodedata
 
 # tỉnh cũ -> tỉnh mới (chỉ 23 tỉnh có sáp nhập thật sự đổi tên/hợp nhất)
 _MERGED = {
@@ -127,13 +128,62 @@ PROVINCE_ALIAS_MAP["Khác"] = "Khác"
 PROVINCE_ALIAS_MAP["Remote"] = "Remote"
 
 
+# Biến thể hay gặp KHÔNG suy ra được từ việc bỏ dấu/hoa-thường: viết tắt,
+# tên tiếng Anh, tên gọi thông tục, tên cũ dạng "Thừa Thiên Huế" (tỉnh
+# này đổi tên thành "Huế" nên không nằm trong _MERGED/_UNCHANGED). Key ở
+# dạng ĐÃ chuẩn hoá (xem _normalize_key): không dấu, chữ thường, chỉ chữ
+# và số cách nhau 1 dấu cách, đã bỏ tiền tố "tp"/"thanh pho"/"tinh".
+# Chỉ thêm khi nghĩa rõ ràng 1-1; KHÔNG thêm tên mơ hồ (vd "Vũng Tàu"
+# riêng lẻ, "Bình Dương" đã có sẵn ở _MERGED).
+_EXTRA_ALIASES = {
+    "hcm": "Hồ Chí Minh",
+    "tphcm": "Hồ Chí Minh",
+    "hcmc": "Hồ Chí Minh",
+    "ho chi minh city": "Hồ Chí Minh",
+    "sai gon": "Hồ Chí Minh",
+    "saigon": "Hồ Chí Minh",
+    "hn": "Hà Nội",
+    "hanoi": "Hà Nội",
+    "thua thien hue": "Huế",
+    "tt hue": "Huế",
+}
+
+_KEY_PREFIXES = ("thanh pho ", "tp ", "tinh ")
+
+
+def _normalize_key(raw_name: str) -> str:
+    """Đưa tên thô về dạng so khớp: bỏ dấu (kể cả đ/Đ), chữ thường, mọi ký
+    tự không phải chữ/số (dấu chấm, gạch ngang, nhiều khoảng trắng...) thành
+    1 dấu cách, rồi bỏ tiền tố "Thành phố"/"TP"/"Tỉnh" nếu có."""
+    text = raw_name.replace("đ", "d").replace("Đ", "D")
+    text = unicodedata.normalize("NFD", text)
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Mn")
+    text = re.sub(r"[^a-z0-9]+", " ", text.lower()).strip()
+    for prefix in _KEY_PREFIXES:
+        if text.startswith(prefix):
+            text = text[len(prefix):].strip()
+            break
+    return text
+
+
+# Chỉ mục tra cứu theo key đã chuẩn hoá. Dựng 1 lần lúc import. Chuẩn hoá
+# bỏ dấu KHÔNG làm 2 tỉnh khác nhau trùng key (đã kiểm tra toàn bộ
+# PROVINCE_ALIAS_MAP, xem tests/test_province_alias.py).
+_NORMALIZED_INDEX = {_normalize_key(k): v for k, v in PROVINCE_ALIAS_MAP.items()}
+_NORMALIZED_INDEX.update(_EXTRA_ALIASES)
+
+
 def resolve_province_alias(raw_name: str) -> str:
-    """Chuẩn hoá 1 tên tỉnh thô (có thể là tên CŨ, tên MỚI, hoặc có tiền
-    tố "TP."/"Tp. ") -> tên tỉnh MỚI đúng chuẩn 34 đơn vị hiện hành.
+    """Chuẩn hoá 1 tên tỉnh thô -> tên tỉnh MỚI đúng chuẩn 34 đơn vị hiện
+    hành (hoặc "Khác"/"Remote").
+
+    Nhận: tên CŨ (trước sáp nhập) hoặc MỚI; có/không dấu; hoa/thường tuỳ
+    ý; có tiền tố "TP."/"Tp "/"Thành phố"/"Tỉnh"; dấu gạch nối/khoảng
+    trắng lệch (vd "Bà Rịa-Vũng Tàu"); và vài viết tắt/tên tiếng Anh phổ
+    biến (HCM, TPHCM, Sài Gòn, Ho Chi Minh City, HN, Thừa Thiên Huế...).
 
     Trả "" nếu rỗng hoặc không nhận diện được (để nơi gọi tự quyết định
     fallback, thường là "Khác" — xem db.get_province_id())."""
     if not raw_name:
         return ""
-    name = re.sub(r"^\s*(TP\.|Tp\.)\s*", "", raw_name.strip()).strip()
-    return PROVINCE_ALIAS_MAP.get(name, "")
+    return _NORMALIZED_INDEX.get(_normalize_key(raw_name), "")

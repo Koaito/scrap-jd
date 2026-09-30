@@ -247,6 +247,9 @@ def test_list_companies_province_filter_is_exact(pg_conn):
         ("Long An", "Tây Ninh"),
         ("Hà Giang", "Tuyên Quang"),
         ("Huế", "Huế"),
+        ("Thừa Thiên Huế", "Huế"),                # tên cũ của Huế
+        ("TP.HCM", "Hồ Chí Minh"),                # viết tắt
+        ("Ho Chi Minh", "Hồ Chí Minh"),           # không dấu
         ("", "Khác"),                             # rỗng -> Khác
         ("Tỉnh không tồn tại", "Khác"),           # lạ -> Khác, KHÔNG tạo dòng mới
     ],
