@@ -26,20 +26,59 @@ hạn "5/hour" thực chất thành "5/hour x N process") — lúc đó cần đ
 sang storage dùng chung (Redis, xem storage_uri= của Limiter) mới đúng
 nghĩa giới hạn toàn cục.
 
-Key dùng để đếm: địa chỉ IP request (get_remote_address, đọc
-request.client.host) — ĐỦ cho quy mô hiện tại, dù có thể bị vượt qua
-nếu tấn công qua nhiều IP (proxy/botnet) hoặc bị hiểu sai nếu app đứng
-sau reverse proxy không forward đúng IP gốc (Render forward đúng IP
-thật qua request.client.host, đã xác nhận không cần đọc thêm header
-X-Forwarded-For thủ công).
+Key dùng để đếm: IP của người dùng cuối, lấy bằng get_client_ip() bên
+dưới (xem docstring hàm đó) — ĐỦ cho quy mô hiện tại, dù có thể bị vượt
+qua nếu tấn công qua nhiều IP (proxy/botnet).
+
+09/2026 (Phần 1 mục 3.14 của plan migrate Next.js): trước đây key là
+get_remote_address (request.client.host). Render forward đúng IP của
+NGƯỜI GỌI TRỰC TIẾP tới Render — nhưng người gọi trực tiếp luôn là
+server Next.js (Vercel), không phải trình duyệt, nên MỌI người dùng qua
+frontend dùng chung 1 hạn mức (vd GET /companies, GET /jobs 60/phút cho
+cả hệ thống, /auth/login 20/phút cho cả hệ thống). Sửa: Next.js gửi kèm
+IP thật qua header X-Client-IP, backend chỉ tin header này khi request
+có X-API-Key hợp lệ (xem get_client_ip).
 """
+
+import ipaddress
 
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
 from api import security
+from api.auth import has_valid_api_key_header
 
-limiter = Limiter(key_func=get_remote_address)
+# Header frontend dùng để khai báo IP thật của người dùng cuối. Đổi tên
+# ở đây thì phải đổi cả lib/client-ip.ts phía Next.js.
+CLIENT_IP_HEADER = "x-client-ip"
+
+
+def get_client_ip(request) -> str:
+    """IP dùng làm khoá đếm rate limit.
+
+    Tin header X-Client-IP CHỈ KHI request mang X-API-Key hợp lệ (chỉ
+    frontend chính thức cầm API_KEY, và nó tự lấy IP từ header do
+    Vercel gán — không phải giá trị trình duyệt tự khai). Không có API
+    key hợp lệ (gọi thẳng, Swagger, kẻ tấn công không biết key), header
+    không phải IP hợp lệ, hoặc thiếu header -> rơi về
+    get_remote_address như cũ. Không bao giờ raise: lỗi ở đây sẽ thành
+    500 cho mọi route có rate limit.
+
+    IPv4 viết dạng IPv6 (::ffff:1.2.3.4) được đưa về IPv4 để cùng 1
+    người không bị tách thành 2 khoá."""
+    forwarded = request.headers.get(CLIENT_IP_HEADER, "").strip()
+    if forwarded and has_valid_api_key_header(request):
+        try:
+            ip = ipaddress.ip_address(forwarded)
+        except ValueError:
+            return get_remote_address(request)
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+            ip = ip.ipv4_mapped
+        return str(ip)
+    return get_remote_address(request)
+
+
+limiter = Limiter(key_func=get_client_ip)
 
 
 def get_user_id_or_ip(request) -> str:
@@ -62,4 +101,4 @@ def get_user_id_or_ip(request) -> str:
         payload = security.decode_access_token(token)
         if payload and payload.get("sub"):
             return f"user:{payload['sub']}"
-    return get_remote_address(request)
+    return get_client_ip(request)

@@ -48,6 +48,18 @@ _header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 _query_scheme = APIKeyQuery(name="api_key", auto_error=False)
 
 
+def has_valid_api_key_header(request) -> bool:
+    """True nếu request mang header X-API-Key ĐÚNG giá trị API_KEY. Chỉ
+    đọc HEADER (không đọc ?api_key= trên query string) và không raise gì
+    — dành cho api/rate_limit.py quyết định có tin header X-Client-IP hay
+    không (chỉ frontend chính thức cầm API_KEY mới được khai báo IP thật
+    của người dùng cuối). Thiếu API_KEY cấu hình -> luôn False."""
+    if not _API_KEY:
+        return False
+    supplied = request.headers.get("x-api-key", "")
+    return bool(supplied) and secrets.compare_digest(supplied, _API_KEY)
+
+
 def require_api_key(
     header_key: str = Security(_header_scheme),
     query_key: str = Security(_query_scheme),

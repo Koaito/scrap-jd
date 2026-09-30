@@ -64,6 +64,14 @@ chặn hết, không âm thầm mở toang. Khoá "máy gọi máy" dùng chung 
 team, xác nhận "client này là frontend của mình" — KHÔNG phân biệt được
 người dùng cụ thể nào đang gọi. Chi tiết: `api/auth.py`.
 
+**Header `X-Client-IP` (rate limit theo IP người dùng cuối).** Frontend là
+server-to-server proxy nên backend chỉ thấy IP của server frontend. Để
+rate limit theo IP (`GET /jobs`, `GET /companies`, `/auth/login`,
+`/auth/register`...) đếm đúng từng người dùng, frontend gửi kèm IP thật
+qua header `X-Client-IP`. Backend CHỈ tin header này khi request có
+`X-API-Key` hợp lệ và giá trị là IP hợp lệ; ngược lại dùng IP kết nối
+trực tiếp như trước. Chi tiết: `api/rate_limit.py::get_client_ip()`.
+
 ### Lớp 2 — Đăng nhập JWT từng người
 
 Xác nhận AI thật đang gọi — dùng bảng `app_users` (`password_hash`,
