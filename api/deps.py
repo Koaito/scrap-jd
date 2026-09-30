@@ -90,12 +90,18 @@ def get_current_user(
     conn=Depends(get_db),
 ) -> dict:
     """Verify JWT access token trong header `Authorization: Bearer
-    <token>`, trả payload (dict có 'sub'=ss_user_id, 'role', 'email') —
-    trước 08/2026 CHỈ đọc chữ ký JWT, không query DB (đúng lợi thế JWT:
-    verify nhanh). Vì không query DB, route KHÔNG tự biết tài khoản có
-    bị is_active=False/xoá sau khi token đã phát hành hay không — chấp
-    nhận đánh đổi này vì access token sống ngắn (30 phút, xem
-    security.ACCESS_TOKEN_EXPIRE_MINUTES).
+    <token>`, trả payload (dict có 'sub'=ss_user_id, 'role', 'email',
+    'is_active') — 'role' và 'is_active' luôn là giá trị MỚI NHẤT đọc từ
+    DB (app_users) ở request này, không phải giá trị đóng băng trong JWT.
+
+    LỊCH SỬ (đọc để hiểu vì sao hàm có query DB): trước 08/2026 hàm CHỈ
+    đọc chữ ký JWT, không query DB (đúng lợi thế JWT: verify nhanh),
+    nên không biết tài khoản có bị is_active=False/xoá sau khi token đã
+    phát hành hay không — đánh đổi đó ĐÃ KHÔNG CÒN: hiện mỗi request
+    query DB 1 lần (theo primary key) để enforce single-session và
+    role/is_active, xem 2 đoạn ngay dưới. Khoá tài khoản/đổi role có
+    hiệu lực ngay ở request kế tiếp, không phải chờ access token hết hạn
+    (security.ACCESS_TOKEN_EXPIRE_MINUTES = 30 phút).
 
     08/2026 (single-session, xem sql/migration_add_single_session.sql):
     THÊM 1 lượt query DB mỗi request (tra theo primary key ss_user_id,
@@ -190,8 +196,9 @@ ROLE_HIERARCHY = {"user": 0, "ss_team": 1, "admin": 2}
 
 
 def require_role(min_role: str):
-    """Trả về 1 dependency FastAPI chặn nếu role của user (lấy từ JWT,
-    xem get_current_user) thấp hơn min_role theo ROLE_HIERARCHY. Dùng
+    """Trả về 1 dependency FastAPI chặn nếu role của user (lấy từ DB ở
+    request hiện tại qua get_current_user, không phải role cũ trong JWT)
+    thấp hơn min_role theo ROLE_HIERARCHY. Dùng
     kiểu Depends(require_role("ss_team")) ngay trong khai báo route,
     tương tự require_admin() cũ nhưng tổng quát cho cả 3 bậc thay vì chỉ
     biết mỗi 'admin'.

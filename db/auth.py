@@ -294,12 +294,14 @@ def update_user_active_status(conn, ss_user_id: str, is_active: bool) -> bool:
     CHÍNH MÌNH TRƯỚC KHI gọi hàm này, cùng nguyên tắc với
     update_user_role() ở trên. Trả False nếu ss_user_id không tồn tại.
 
-    Vô hiệu hoá KHÔNG revoke refresh token đang có — access token cũ
-    (JWT, tối đa 30 phút) vẫn dùng được tới khi hết hạn tự nhiên, nhưng
-    request refresh token tiếp theo sẽ bị chặn vì login()/refresh() đều
-    kiểm tra is_active (xem api/routers/auth.py). Chấp nhận độ trễ tối
-    đa 30 phút này — revoke JWT đang active cần thêm cơ chế blacklist,
-    không cần thiết ở quy mô team nhỏ."""
+    Hiệu lực NGAY ở request kế tiếp của người bị khoá (không còn độ trễ
+    tối đa 30 phút như trước): get_current_user() (api/deps.py) query
+    app_users MỖI request và trả 403 AUTH_ACCOUNT_INACTIVE nếu
+    is_active=false, nên access token còn hạn cũng bị chặn ngay (sửa
+    theo Phần 1 mục 3.10 của plan migrate Next.js). login()/refresh()
+    cũng kiểm tra is_active như cũ. Hàm này vẫn KHÔNG revoke refresh
+    token đang có — không cần, vì mọi đường vào (access token, refresh,
+    login) đều đã bị chặn bởi cờ is_active."""
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE app_users SET is_active = %s WHERE ss_user_id = %s",

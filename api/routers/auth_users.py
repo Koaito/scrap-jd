@@ -167,9 +167,10 @@ def update_user_active_status(
 
     Dùng khi 1 người rời nhóm/vi phạm cần chặn đăng nhập ngay — KHÁC
     locked_until (khoá TẠM THỜI, tự hết hạn do sai mật khẩu liên tiếp,
-    xem db.record_failed_login()). Vô hiệu hoá không revoke JWT access
-    token đang có hiệu lực (tối đa 30 phút) — xem docstring
-    db.update_user_active_status()."""
+    xem db.record_failed_login()). Có hiệu lực NGAY ở request kế tiếp của
+    người bị khoá: get_current_user() đọc is_active mới nhất từ DB mỗi
+    request và trả 403 AUTH_ACCOUNT_INACTIVE, kể cả khi access token
+    của họ còn hạn — xem docstring db.update_user_active_status()."""
     if ss_user_id == admin["sub"]:
         raise HTTPException(
             status_code=400,
