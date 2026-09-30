@@ -179,3 +179,86 @@ def test_list_jobs_ids_combined_with_status(pg_conn, seeded):
     )
     assert total == 0
     assert rows == []
+
+
+# ---------------------------------------------------------------------------
+# Tỉnh/thành (thêm 09/2026)
+#
+# Lỗi thật đã gặp: dropdown lọc /companies bên Next.js dùng 63 tên tỉnh cũ,
+# trong khi list_companies() so sánh BẰNG (`p.province_name = %s`) với bảng
+# `provinces` chỉ có 34 tỉnh sau sáp nhập -> chọn "TP. Hồ Chí Minh" luôn ra
+# 0 công ty. Các test dưới khoá lại hành vi bên backend để danh sách tỉnh
+# phía Next.js (lib/constants.ts::CITIES_VN) có mốc đối chiếu rõ ràng.
+# ---------------------------------------------------------------------------
+
+# 34 đơn vị hành chính cấp tỉnh hiện hành. PHẢI khớp CITIES_VN trong
+# lib/constants.ts bên Next.js (nếu sửa ở đây thì sửa cả bên đó).
+_PROVINCES_2025 = {
+    "Hà Nội", "Hồ Chí Minh", "Đà Nẵng", "Hải Phòng", "Cần Thơ", "Huế",
+    "An Giang", "Bắc Ninh", "Cà Mau", "Cao Bằng", "Đắk Lắk", "Điện Biên",
+    "Đồng Nai", "Đồng Tháp", "Gia Lai", "Hà Tĩnh", "Hưng Yên", "Khánh Hòa",
+    "Lai Châu", "Lâm Đồng", "Lạng Sơn", "Lào Cai", "Nghệ An", "Ninh Bình",
+    "Phú Thọ", "Quảng Ngãi", "Quảng Ninh", "Quảng Trị", "Sơn La", "Tây Ninh",
+    "Thái Nguyên", "Thanh Hóa", "Tuyên Quang", "Vĩnh Long",
+}
+
+
+def _province_id(cur, name):
+    cur.execute("SELECT province_id FROM provinces WHERE province_name = %s", (name,))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def test_provinces_seed_is_34_plus_special(pg_conn):
+    """schema.sql seed đúng 34 tỉnh mới + 2 giá trị đặc biệt, không còn tên
+    cũ/biến thể ("TP. Hồ Chí Minh", "Thừa Thiên Huế", "Bình Dương"...)."""
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT province_name FROM provinces")
+        names = {r[0] for r in cur.fetchall()}
+    assert names == _PROVINCES_2025 | {"Khác", "Remote"}
+    assert len(_PROVINCES_2025) == 34
+
+
+def test_list_companies_province_filter_is_exact(pg_conn):
+    """Lọc theo tỉnh là so sánh BẰNG: đúng tên trong bảng thì ra, thêm
+    "TP." thì ra 0 (đúng lỗi từng gặp ở dropdown Next.js)."""
+    with pg_conn.cursor() as cur:
+        cid = _insert_company(cur, "Công ty test lọc tỉnh HCM")
+        cur.execute(
+            "UPDATE companies SET province_id = %s WHERE company_id = %s",
+            (_province_id(cur, "Hồ Chí Minh"), cid),
+        )
+    pg_conn.commit()
+
+    rows, total = db.list_companies(pg_conn, province_name="Hồ Chí Minh", limit=50)
+    assert cid in {str(r["company_id"]) for r in rows}
+
+    rows, total = db.list_companies(pg_conn, province_name="TP. Hồ Chí Minh", limit=50)
+    assert total == 0 and rows == []
+
+
+@pytest.mark.parametrize(
+    "raw, expected",
+    [
+        ("Hồ Chí Minh", "Hồ Chí Minh"),           # tên mới, khớp thẳng
+        ("TP. Hồ Chí Minh", "Hồ Chí Minh"),       # bỏ tiền tố "TP."
+        ("Bình Dương", "Hồ Chí Minh"),            # tên cũ đã sáp nhập
+        ("Bà Rịa - Vũng Tàu", "Hồ Chí Minh"),
+        ("Long An", "Tây Ninh"),
+        ("Hà Giang", "Tuyên Quang"),
+        ("Huế", "Huế"),
+        ("", "Khác"),                             # rỗng -> Khác
+        ("Tỉnh không tồn tại", "Khác"),           # lạ -> Khác, KHÔNG tạo dòng mới
+    ],
+)
+def test_get_province_id_maps_old_names_to_new(pg_conn, raw, expected):
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM provinces")
+        before = cur.fetchone()[0]
+        expected_id = _province_id(cur, expected)
+
+    assert db.get_province_id(pg_conn, raw) == expected_id
+
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM provinces")
+        assert cur.fetchone()[0] == before  # bảng cứng, không bị INSERT thêm
