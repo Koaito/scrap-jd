@@ -29,9 +29,18 @@ class AuditLogOut(BaseModel):
     action_type: str = Field(
         description="CREATE_JOB | UPDATE_JOB | DELETE_JOB | CREATE_COMPANY | "
                     "UPDATE_COMPANY | DELETE_COMPANY | CREATE_CONTACT | "
-                    "UPDATE_CONTACT | DELETE_CONTACT | ASSIGN_CONTACT"
+                    "UPDATE_CONTACT | DELETE_CONTACT | ASSIGN_CONTACT | "
+                    "APPLY_JOB | WITHDRAW_JOB_APPLICATION | BULK_IMPORT_JOB | "
+                    "BULK_IMPORT_COMPANY | BULK_IMPORT_CONTACT | "
+                    "CREATE_EMAIL_TEMPLATE | UPDATE_EMAIL_TEMPLATE | "
+                    "DELETE_EMAIL_TEMPLATE"
     )
-    entity_type: str = Field(description="JOB | COMPANY | CONTACT")
+    entity_type: str = Field(
+        description="JOB | COMPANY | CONTACT | APPLICATION | EMAIL_TEMPLATE. Riêng "
+                    "BULK_IMPORT_*: entity_type là JOB/COMPANY/CONTACT nhưng entity_id "
+                    "là id phiên preview import (KHÔNG phải id JD/công ty/contact) nên "
+                    "client không được dùng nó để dựng link chi tiết."
+    )
     entity_id: str
     entity_label: Optional[str] = Field(
         default=None, description="Tên JD/company/contact SNAPSHOT tại thời điểm log — "
@@ -44,7 +53,12 @@ class AuditLogOut(BaseModel):
     )
     changes: Optional[dict] = Field(
         default=None,
-        description="{field: {old, new}} — chỉ có ở action UPDATE_*, null cho CREATE/DELETE/ASSIGN.",
+        description="{field: {old, new}} — chỉ gồm field THỰC SỰ đổi giá trị. Có ở "
+                    "UPDATE_*, ASSIGN_CONTACT (field assigned_ss_user, giá trị là "
+                    "ss_user_id) và DELETE_JOB khi đóng JD kèm sửa field khác; null "
+                    "cho CREATE/DELETE còn lại. Client nên hiển thị theo 'có changes' "
+                    "chứ không theo action_type. Giá trị số của log MỚI là số thật; "
+                    "log cũ có thể là chuỗi số (\"10000000.00\").",
     )
     is_manual_log: bool = Field(
         description="true = action này nằm trong view 'log thủ công' (subset các action nhạy "

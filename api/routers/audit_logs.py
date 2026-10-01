@@ -23,13 +23,14 @@ from api.schemas import AuditLogNoteUpdate, AuditLogOut, PaginatedAuditLogs
 
 router = APIRouter(prefix="/audit-logs", tags=["audit-logs"])
 
-_VALID_ACTION_TYPES = {
-    "CREATE_JOB", "UPDATE_JOB", "DELETE_JOB",
-    "CREATE_COMPANY", "UPDATE_COMPANY", "DELETE_COMPANY",
-    "CREATE_CONTACT", "UPDATE_CONTACT", "DELETE_CONTACT", "ASSIGN_CONTACT",
-    "APPLY_JOB", "WITHDRAW_JOB_APPLICATION",
-}
-_VALID_ENTITY_TYPES = {"JOB", "COMPANY", "CONTACT", "APPLICATION"}
+# Nguồn DUY NHẤT cho danh sách action hợp lệ: chính ACTION_LOG_RULES (nơi
+# log_action() tra rule). Trước đây là 1 set chép tay 12 action và bị lệch
+# khi thêm BULK_IMPORT_* / *_EMAIL_TEMPLATE -> lọc theo action mới trả 400
+# dù dữ liệu có thật. Dùng chung để thêm action mới ở 1 chỗ là đủ.
+_VALID_ACTION_TYPES = set(db_module.ACTION_LOG_RULES)
+# entity_type KHÔNG suy được từ ACTION_LOG_RULES (BULK_IMPORT_* ghi JOB/
+# COMPANY/CONTACT, không có entity riêng) nên giữ danh sách riêng.
+_VALID_ENTITY_TYPES = {"JOB", "COMPANY", "CONTACT", "APPLICATION", "EMAIL_TEMPLATE"}
 
 
 @router.get("", response_model=PaginatedAuditLogs)
@@ -38,11 +39,12 @@ def list_audit_logs(
         "auto",
         description="'auto' = TẤT CẢ thao tác (không note). 'manual' = chỉ tập "
                     "con action nhạy cảm (sửa/xoá JD, sửa/xoá company, mọi thao "
-                    "tác HR contact), kèm cột note. Đây là 2 CÁCH LỌC trên CÙNG "
+                    "tác HR contact, nhập hàng loạt, mẫu email), kèm cột note. Đây là 2 CÁCH LỌC trên CÙNG "
                     "1 bảng dữ liệu — 'manual' luôn là tập con của 'auto', "
                     "KHÔNG phải dữ liệu tách biệt.",
     ),
-    entity_type: Optional[str] = Query(None, description="JOB | COMPANY | CONTACT | APPLICATION"),
+    entity_type: Optional[str] = Query(None, description="JOB | COMPANY | CONTACT | APPLICATION | EMAIL_TEMPLATE. "
+                                                                  "BULK_IMPORT_* ghi entity_type là JOB/COMPANY/CONTACT."),
     company_id: Optional[str] = Query(None, description="Lọc mọi hoạt động (JD + HR contact) liên quan 1 công ty cụ thể"),
     actor_id: Optional[str] = Query(None, description="Lọc log do 1 thành viên ss_team/admin cụ thể thực hiện"),
     action_type: Optional[str] = Query(
@@ -50,7 +52,10 @@ def list_audit_logs(
         description="CREATE_JOB | UPDATE_JOB | DELETE_JOB | CREATE_COMPANY | "
                     "UPDATE_COMPANY | DELETE_COMPANY | CREATE_CONTACT | "
                     "UPDATE_CONTACT | DELETE_CONTACT | ASSIGN_CONTACT | "
-                    "APPLY_JOB | WITHDRAW_JOB_APPLICATION",
+                    "APPLY_JOB | WITHDRAW_JOB_APPLICATION | BULK_IMPORT_JOB | "
+                    "BULK_IMPORT_COMPANY | BULK_IMPORT_CONTACT | "
+                    "CREATE_EMAIL_TEMPLATE | UPDATE_EMAIL_TEMPLATE | "
+                    "DELETE_EMAIL_TEMPLATE",
     ),
     pending_note: Optional[bool] = Query(
         None,

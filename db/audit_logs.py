@@ -5,6 +5,7 @@ db.audit_logs — tách từ db.py (God module) theo domain.
 import json
 import logging
 from datetime import datetime, timezone
+from decimal import Decimal, InvalidOperation
 from typing import Optional
 
 import psycopg2
@@ -72,24 +73,60 @@ class NoteRequiredError(Exception):
     constraint ở DB), phòng router nào quên validate."""
 
 
+def _as_decimal(value):
+    """Decimal nếu `value` là số thật (int/float/Decimal, KHÔNG phải bool),
+    ngược lại None. Dùng để so sánh số bằng GIÁ TRỊ thay vì bằng chuỗi."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+        return None
+    try:
+        return Decimal(str(value))
+    except InvalidOperation:
+        return None
+
+
+def _same_value(old_val, new_val) -> bool:
+    """True nếu 2 giá trị coi như KHÔNG đổi.
+
+    Cả 2 vế là số -> so bằng giá trị (Decimal('10000000.00') == 10000000
+    == 10000000.0): so bằng str() sẽ báo \"thay đổi\" giả cho cột NUMERIC
+    của Postgres (psycopg2 trả Decimal có đuôi .00) dù staff không đổi gì,
+    và log sẽ hiện 2 số giống hệt nhau ở cột cũ -> mới. Các kiểu khác giữ
+    nguyên cách cũ (so str 2 vế, vì old_row có thể chứa date/UUID từ
+    psycopg2 trong khi payload là kiểu Python thuần từ Pydantic)."""
+    old_num, new_num = _as_decimal(old_val), _as_decimal(new_val)
+    if old_num is not None and new_num is not None:
+        return old_num == new_num
+    return str(old_val) == str(new_val)
+
+
+def _json_friendly(value):
+    """Decimal -> int (nếu nguyên) hoặc float, để cột `changes` (JSONB)
+    lưu SỐ thật thay vì chuỗi \"10000000.00\" do json.dumps(default=str).
+    Kiểu khác giữ nguyên (date/UUID vẫn đi qua default=str như trước)."""
+    if isinstance(value, Decimal):
+        if value == value.to_integral_value():
+            return int(value)
+        return float(value)
+    return value
+
+
 def diff_changed_fields(old_row: dict, payload_fields: dict) -> dict:
     """So sánh giá trị CŨ (old_row, lấy từ get_job_by_id()/get_company_by_id()/
     get_company_contact_by_id()) với các field THỰC SỰ có mặt trong request
     (payload_fields — dùng payload.model_dump(exclude_unset=True) ở router,
-    KHÔNG phải toàn bộ payload, để không coi field không gửi là "đổi
-    thành None"). Trả dict {field: {"old":..., "new":...}} CHỈ gồm field
+    KHÔNG phải toàn bộ payload, để không coi field không gửi là \"đổi
+    thành None\"). Trả dict {field: {\"old\":..., \"new\":...}} CHỈ gồm field
     có giá trị thực sự khác nhau — field gửi lên nhưng trùng giá trị cũ
     (PATCH lại y hệt) KHÔNG được tính là 1 thay đổi.
 
-    So sánh bằng str(...) 2 vế — old_row có thể chứa Decimal/date/UUID
-    từ psycopg2 trong khi payload_fields là kiểu Python thuần từ
-    Pydantic, so sánh trực tiếp (!=) dễ lệch kiểu dữ liệu dù giá trị
-    hiển thị giống hệt nhau (vd Decimal('0') != 0 tuỳ context)."""
+    So sánh: số so bằng giá trị (xem _same_value), kiểu khác so bằng
+    str() 2 vế. Giá trị `old` Decimal được đổi sang int/float trước khi
+    ghi để `changes` lưu số thật (xem _json_friendly)."""
     changes = {}
     for field, new_val in payload_fields.items():
         old_val = old_row.get(field)
-        if str(old_val) != str(new_val):
-            changes[field] = {"old": old_val, "new": new_val}
+        if not _same_value(old_val, new_val):
+            changes[field] = {"old": _json_friendly(old_val), "new": new_val}
     return changes
 
 
