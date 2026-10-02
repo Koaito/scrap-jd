@@ -207,7 +207,10 @@ def test_save_snapshots_gzips_body_and_cleans_old_rows():
     assert saved == 1
     insert_args = cur.execute.call_args_list[0].args[1]
     assert insert_args[0:5] == ("run-1", "topcv", "listing", "sample", "https://x/1")
-    assert gzip.decompress(insert_args[5]).decode("utf-8") == "<html>xin chào</html>"
+    # psycopg2.Binary(...) thật là 1 object bọc bytes (thuộc tính .adapted),
+    # KHÔNG phải bytes — lấy .adapted ra rồi mới giải nén.
+    payload = getattr(insert_args[5], "adapted", insert_args[5])
+    assert gzip.decompress(payload).decode("utf-8") == "<html>xin chào</html>"
     assert insert_args[6] == len("<html>xin chào</html>".encode("utf-8"))
     delete_sql, delete_params = cur.execute.call_args_list[1].args
     assert "DELETE FROM crawl_snapshots" in delete_sql and delete_params == (7,)
