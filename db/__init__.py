@@ -37,14 +37,20 @@ from db.companies import (
     merge_companies,
     find_company_by_tax_id,
     update_company_profile_with_merge,
+    soft_delete_company,
+)
+from db.company_enrichment import (
     get_companies_needing_profile_from_website,
     get_companies_needing_social_links,
     update_company_social_links,
     get_companies_needing_web_lookup,
     get_companies_needing_profile_backfill,
+)
+from db.company_queries import (
     list_companies,
     get_company_by_id,
-    soft_delete_company,
+)
+from db.company_analytics import (
     get_partnership_signals,
     get_company_data_health,
 )
@@ -63,9 +69,13 @@ from db.jobs import (
     create_manual_job,
     update_job,
     job_exists_by_id,
+)
+from db.job_queries import (
     list_jobs,
     get_job_by_id,
     get_jobs_by_company_id,
+)
+from db.job_health import (
     get_job_data_health,
 )
 from db.stats import (
