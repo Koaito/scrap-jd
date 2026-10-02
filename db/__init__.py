@@ -164,6 +164,12 @@ from db.crawl_runs import (
     append_log as append_crawl_run_log,
     get_logs as get_crawl_run_logs,
     get_latest_run as get_latest_crawl_run,
+    get_recent_blocked_run as get_recent_blocked_crawl_run,
+)
+from db.crawl_snapshots import (
+    save_snapshots as save_crawl_snapshots,
+    list_snapshots as list_crawl_snapshots,
+    get_snapshot as get_crawl_snapshot,
 )
 from db.crawl_batches import (
     create_batch as create_crawl_batch,
@@ -355,6 +361,10 @@ __all__ = [
     "append_crawl_run_log",
     "get_crawl_run_logs",
     "get_latest_crawl_run",
+    "get_recent_blocked_crawl_run",
+    "save_crawl_snapshots",
+    "list_crawl_snapshots",
+    "get_crawl_snapshot",
     "create_crawl_batch",
     "advance_crawl_batch",
     "mark_crawl_batch_done",

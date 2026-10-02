@@ -189,21 +189,59 @@ def mark_done(conn, run_id: str, stats: dict) -> None:
     conn.commit()
 
 
-def mark_error(conn, run_id: str, error: str) -> None:
+def mark_error(conn, run_id: str, error: str, stats: Optional[dict] = None) -> None:
     """Đổi status -> 'error', điền error + finished_at — gọi khi
     run_pipeline() raise exception, hoặc source không có adapter đăng ký
     (lỗi xảy ra TRƯỚC khi kịp mark_running(), vẫn hợp lệ đi thẳng từ
-    'queued' -> 'error')."""
+    'queued' -> 'error').
+
+    stats (đợt 3, 10/2026): thống kê TẠM THỜI tới lúc lỗi — dùng khi bị chặn
+    giữa chừng để không mất số job đã lưu, kèm "blocked": True (xem
+    get_recent_blocked_run). None -> không đụng cột stats như trước."""
+    with conn.cursor() as cur:
+        if stats is None:
+            cur.execute(
+                """
+                UPDATE crawl_runs
+                SET status = 'error', error = %s, finished_at = %s
+                WHERE run_id = %s
+                """,
+                (error, datetime.now(timezone.utc), run_id),
+            )
+        else:
+            cur.execute(
+                """
+                UPDATE crawl_runs
+                SET status = 'error', error = %s, finished_at = %s, stats = %s
+                WHERE run_id = %s
+                """,
+                (error, datetime.now(timezone.utc),
+                 json.dumps(stats, ensure_ascii=False, default=str), run_id),
+            )
+    conn.commit()
+
+
+def get_recent_blocked_run(conn, source: str, within_minutes: int) -> Optional[dict]:
+    """Lượt crawl GẦN NHẤT của `source` bị chặn (status='error' và
+    stats.blocked = true) trong `within_minutes` phút qua, hoặc None. Dùng để
+    cảnh báo trong log lúc bắt đầu lượt mới — KHÔNG dùng để chặn bấm chạy."""
+    if within_minutes <= 0:
+        return None
     with conn.cursor() as cur:
         cur.execute(
             """
-            UPDATE crawl_runs
-            SET status = 'error', error = %s, finished_at = %s
-            WHERE run_id = %s
+            SELECT run_id, finished_at FROM crawl_runs
+            WHERE source = %s AND status = 'error'
+              AND stats->>'blocked' = 'true'
+              AND finished_at > now() - make_interval(mins => %s)
+            ORDER BY finished_at DESC LIMIT 1
             """,
-            (error, datetime.now(timezone.utc), run_id),
+            (source, within_minutes),
         )
-    conn.commit()
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {"run_id": str(row[0]), "finished_at": row[1]}
 
 
 _CRAWL_RUN_SELECT_COLUMNS = """

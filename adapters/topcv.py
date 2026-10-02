@@ -146,7 +146,18 @@ class TopCVAdapter(BaseAdapter):
                 break
 
             records = list(self._parse_listing_page(html, matching_industry))
+            if page == 1 and records:
+                # Snapshot HTML trang đầu làm mẫu (đợt 3) — nguyên liệu để
+                # thay fixture tổng hợp bằng HTML thật.
+                self._snapshot("listing", page_url, html)
             if not records:
+                if page == 1:
+                    # Tải được HTML nhưng parse ra 0 job ngay trang đầu: hoặc
+                    # category rỗng thật, hoặc selector/giao diện đã đổi (hay
+                    # WAF trả trang challenge HTTP 200). Cờ này + snapshot để
+                    # lượt crawl bị đánh dấu degraded thay vì "xong, 0 job".
+                    self._flag_listing_anomaly("first_page_no_jobs")
+                    self._snapshot("listing", page_url, html, reason="listing_empty")
                 logger.info("Trang %d không còn job -> dừng phân trang.", page)
                 break
 
@@ -690,6 +701,13 @@ class TopCVAdapter(BaseAdapter):
             brand_pro_date = soup.find("div", class_="job-detail__info--deadline-date")
             if brand_pro_date:
                 result["deadline_text"] = brand_pro_date.get_text(strip=True)
+
+        # Snapshot (đợt 3): mẫu trang chi tiết đầu tiên của lượt; riêng trang
+        # không trích được chút nội dung nào là bất thường đáng giữ nhất.
+        if self._detail_is_blank(result):
+            self._snapshot("detail", source_url, html, reason="detail_blank")
+        else:
+            self._snapshot("detail", source_url, html)
 
         return result
 

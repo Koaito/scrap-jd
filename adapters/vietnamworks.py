@@ -236,7 +236,18 @@ class VietnamWorksAdapter(BaseAdapter):
                 break
 
             jobs = self._extract_job_list(data)
+            if page == 0 and jobs:
+                # Snapshot response JSON trang đầu làm mẫu (đợt 3) — để thay
+                # fixture tổng hợp bằng response thật khi cần.
+                self._snapshot("listing", VNW_SEARCH_URL, self._json_text(data))
             if not jobs:
+                if page == 0:
+                    # Gọi API OK nhưng trang đầu không có job nào: có thể
+                    # category thật sự rỗng, nhưng cũng là dấu hiệu vỏ
+                    # response đổi (data/meta). Giữ lại để so sánh.
+                    self._flag_listing_anomaly("first_page_no_jobs")
+                    self._snapshot("listing", VNW_SEARCH_URL, self._json_text(data),
+                                   reason="listing_empty")
                 logger.info("Trang %d không còn job -> dừng phân trang.", page)
                 break
 
@@ -281,6 +292,14 @@ class VietnamWorksAdapter(BaseAdapter):
     # BaseAdapter được — nhưng PHẢI giữ cùng chính sách retry/backoff với
     # BaseAdapter._fetch_html() (nếu sửa 1 bên, nhớ sửa bên kia).
     # ------------------------------------------------------------------
+    @staticmethod
+    def _json_text(data) -> str:
+        """JSON -> text để lưu snapshot; lỗi serialize không được làm hỏng crawl."""
+        try:
+            return json.dumps(data, ensure_ascii=False)
+        except (TypeError, ValueError):
+            return ""
+
     def _post_json(self, url: str, body: dict, max_retries: int = 3) -> Optional[dict]:
         """POST JSON tới API search — throttle + retry/backoff giống hệt
         BaseAdapter._fetch_html() (429/403 VÀ lỗi kết nối không có status
@@ -290,10 +309,12 @@ class VietnamWorksAdapter(BaseAdapter):
         Trả None khi: hết retry, hoặc response không phải JSON hợp lệ
         (lỗi JSON không retry — gọi lại cũng ra đúng response đó)."""
         self._throttle()
+        last_reason = "không rõ"
         for attempt in range(1, max_retries + 1):
             try:
                 resp = self.session.post(url, json=body, timeout=20)
                 if resp.status_code in (429, 403):
+                    last_reason = f"HTTP {resp.status_code}"
                     wait = self._delay_seconds * (2 ** attempt)
                     logger.warning(
                         "%d tại %s (lần %d/%d) -> chờ %.1fs",
@@ -305,15 +326,22 @@ class VietnamWorksAdapter(BaseAdapter):
                 resp.raise_for_status()
                 self._last_request_time = time.monotonic()
                 try:
-                    return resp.json()
+                    data = resp.json()
                 except (json.JSONDecodeError, ValueError):
+                    # 200 nhưng không phải JSON: thường là trang chặn/challenge
+                    # của WAF — tính như 1 lần thất bại cho ngắt mạch (không
+                    # retry: gọi lại cũng ra đúng response đó).
                     logger.error("Response không phải JSON hợp lệ tại %s", url)
+                    self._note_fetch_failure(url, "response không phải JSON")
                     return None
+                self._note_fetch_success()
+                return data
             except requests.exceptions.RequestException as exc:
                 # Trước đây trả None ngay ở lần lỗi đầu tiên (bug mà
                 # BaseAdapter._fetch_html() đã sửa cho GET) -> 1 lần
                 # stream reset thoáng qua ở trang đầu bị coi là "bị
                 # chặn". Giờ thử lại như GET.
+                last_reason = f"{type(exc).__name__}: {exc}"
                 wait = self._delay_seconds * (2 ** attempt)
                 logger.warning(
                     "Lỗi kết nối POST %s (lần %d/%d): %s -> chờ %.1fs rồi thử lại",
@@ -323,6 +351,7 @@ class VietnamWorksAdapter(BaseAdapter):
                 self._last_request_time = time.monotonic()
                 continue
         logger.error("Bỏ cuộc sau %d lần liên tiếp (429/403/lỗi kết nối): %s", max_retries, url)
+        self._note_fetch_failure(url, last_reason)
         return None
 
     # _fetch_html() (dùng cho trang công ty SSR — GET thường, khác

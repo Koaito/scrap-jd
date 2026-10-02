@@ -7,7 +7,7 @@ from typing import Callable, Iterator, Optional
 from curl_cffi import requests as curl_requests
 
 from models import RawJobRecord
-from config import REQUEST_DELAY_SECONDS
+from config import REQUEST_DELAY_SECONDS, CRAWL_BLOCK_CONSECUTIVE_FAILURES
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,20 @@ class CrawlBlockedError(Exception):
     api/crawl_runner.py::execute(), nơi bắt bằng except Exception chung
     và ghi status='error' + error message thay vì 'done' với stats toàn
     số 0, để UI (bảng Lịch sử crawl) phân biệt được 2 tình huống: "bị
-    chặn ngay từ đầu" vs "chạy xong, đúng là 0 job mới"."""
+    chặn ngay từ đầu" vs "chạy xong, đúng là 0 job mới".
+
+    ĐỢT 3 (10/2026) — raise thêm ở GIỮA CHỪNG (ngắt mạch): khi
+    CRAWL_BLOCK_CONSECUTIVE_FAILURES lần fetch liên tiếp thất bại (mỗi lần đã
+    hết retry, chưa có request nào thành công xen giữa) thì dừng cả lượt
+    thay vì để từng job còn lại tự retry đủ 3 lần rồi bỏ qua — xem
+    BaseAdapter._note_fetch_failure(). Nguồn nào cũng dùng chung cơ chế này
+    qua _fetch_html()/_post_json().
+
+    `stats`: run_pipeline() gắn thống kê TẠM THỜI (số job đã lưu trước khi bị
+    chặn...) vào đây trước khi raise tiếp, để execute() không làm mất con số
+    đó khi ghi status='error'. None nếu lỗi raise từ adapter ngoài pipeline."""
+
+    stats: Optional[dict] = None
 
 
 class BaseAdapter(ABC):
@@ -99,6 +112,79 @@ class BaseAdapter(ABC):
         # Số URL đã bị bỏ qua nhờ hook trên trong lượt chạy này —
         # pipeline đọc lại cuối lượt để đưa vào stats.
         self.skipped_known_count: int = 0
+
+        # Ngắt mạch (đợt 3, 10/2026): đếm số lần fetch THẤT BẠI liên tiếp (đã
+        # hết retry). Về 0 ngay khi có 1 request thành công. Đạt ngưỡng ->
+        # raise CrawlBlockedError, xem _note_fetch_failure().
+        self._consecutive_failures: int = 0
+        self._block_threshold: int = CRAWL_BLOCK_CONSECUTIVE_FAILURES
+
+        # Snapshot HTML/JSON gốc để debug (đợt 3) — None = tắt (CLI, test),
+        # _snapshot() khi đó là no-op. api/crawl_runner.py gắn recorder thật.
+        self.snapshot_recorder = None
+        # Các bất thường adapter tự phát hiện ở TRANG LISTING ĐẦU (vd trang
+        # tải được nhưng parse ra 0 job). pipeline đọc cuối lượt để đánh dấu
+        # degraded — KHÁC CrawlBlockedError (không tải được trang).
+        self.listing_anomalies: list = []
+
+    def set_snapshot_recorder(self, recorder) -> None:
+        """Gắn (hoặc gỡ bằng None) SnapshotRecorder cho lượt crawl này."""
+        self.snapshot_recorder = recorder
+
+    def _snapshot(self, kind: str, url: str, body, reason: str = "sample") -> None:
+        """Đề nghị lưu snapshot gốc. No-op nếu chưa gắn recorder; recorder
+        tự quyết định có giữ hay không (xem snapshots.py). Không bao giờ
+        raise — debug không được làm hỏng crawl."""
+        recorder = self.snapshot_recorder
+        if recorder is None:
+            return
+        try:
+            recorder.offer(kind, url, body, reason)
+        except Exception:  # noqa: BLE001
+            logger.exception("Ghi snapshot lỗi (%s %s), bỏ qua", kind, url)
+
+    def _flag_listing_anomaly(self, code: str) -> None:
+        if code not in self.listing_anomalies:
+            self.listing_anomalies.append(code)
+
+    @staticmethod
+    def _detail_is_blank(detail: Optional[dict]) -> bool:
+        """True nếu dict chi tiết job KHÔNG có chút nội dung nào (mô tả, yêu
+        cầu, quyền lợi, kỹ năng đều rỗng) — dấu hiệu rõ nhất selector trang
+        chi tiết đã hỏng, vì 1 tin tuyển dụng thật luôn có ít nhất 1 khối."""
+        if not detail:
+            return True
+        for key in ("job_description", "requirements", "perks"):
+            value = detail.get(key)
+            if isinstance(value, str) and value.strip():
+                return False
+        skills = detail.get("required_skills")
+        return not skills
+
+    # ------------------------------------------------------------------
+    # Ngắt mạch (đợt 3) — dùng chung cho _fetch_html() và các hàm HTTP riêng
+    # của adapter (vd VietnamWorksAdapter._post_json()).
+    # ------------------------------------------------------------------
+    def _note_fetch_success(self) -> None:
+        self._consecutive_failures = 0
+
+    def _note_fetch_failure(self, url: str, reason: str) -> None:
+        """Ghi nhận 1 lần fetch thất bại SAU KHI đã hết retry. Đạt ngưỡng liên
+        tiếp thì raise CrawlBlockedError để dừng cả lượt.
+
+        Vì sao raise ở tầng HTTP mà không để pipeline tự đếm: thất bại có
+        thể xảy ra ở listing, chi tiết hay hồ sơ công ty — chỉ tầng HTTP thấy
+        đủ mọi loại request. Counter reset khi có request thành công nên 1 job
+        lỗi lẻ tẻ (tin đã gỡ trả 5xx...) không kích hoạt."""
+        self._consecutive_failures += 1
+        threshold = self._block_threshold
+        if threshold and self._consecutive_failures >= threshold:
+            raise CrawlBlockedError(
+                f"{self._consecutive_failures} lần fetch liên tiếp thất bại sau "
+                f"khi hết retry (gần nhất: {url} — {reason}). Khả năng cao bị "
+                f"{self.source_name} chặn (403/429/lỗi kết nối) hoặc site đang "
+                f"lỗi — dừng lượt crawl để không đập tiếp vào site."
+            )
 
     def set_known_url_checker(self, checker: Optional[Callable[[str], bool]]) -> None:
         """Đặt hàm kiểm tra "URL job này đã có trong DB và KHÔNG cần fetch
@@ -196,9 +282,21 @@ class BaseAdapter(ABC):
         tiếp không nghỉ dù config đã tăng delay lên."""
         self._throttle()
 
+        last_reason = "không rõ"
         for attempt in range(1, max_retries + 1):
             try:
                 resp = self.session.get(url, timeout=20)
+                if resp.status_code in (404, 410):
+                    # Tin đã gỡ/hết hạn: trang KHÔNG tồn tại, gọi lại cũng ra
+                    # đúng kết quả đó. Trước đây rơi vào raise_for_status()
+                    # -> bị coi như lỗi kết nối và retry 3 lần (TopCV ~168s
+                    # cho 1 tin đã gỡ). KHÔNG tính vào ngắt mạch: đây không
+                    # phải dấu hiệu bị chặn, và 1 response hợp lệ cho thấy
+                    # site vẫn đang trả lời bình thường.
+                    logger.info("HTTP %d (trang không còn tồn tại): %s", resp.status_code, url)
+                    self._last_request_time = time.monotonic()
+                    self._note_fetch_success()
+                    return None
                 if resp.status_code in (429, 403):
                     # 429 = rate limit theo cửa sổ thời gian.
                     # 403 = WAF/Cloudflare chặn theo fingerprint request
@@ -206,6 +304,7 @@ class BaseAdapter(ABC):
                     # HOẶC IP tạm thời bị đánh dấu do crawl dồn dập
                     # trước đó) — cả 2 trường hợp đều ĐÁNG thử lại sau
                     # khi chờ, thay vì bỏ cuộc ngay ở request đầu tiên.
+                    last_reason = f"HTTP {resp.status_code}"
                     wait = self._delay_seconds * (2 ** attempt)
                     logger.warning(
                         "%d tại %s (lần %d/%d) -> chờ %.1fs",
@@ -216,6 +315,7 @@ class BaseAdapter(ABC):
                     continue
                 resp.raise_for_status()
                 self._last_request_time = time.monotonic()
+                self._note_fetch_success()
                 return resp.text
             except curl_requests.exceptions.RequestException as exc:
                 # Retry cả lỗi kết nối không có status code (vd HTTP/2
@@ -223,6 +323,7 @@ class BaseAdapter(ABC):
                 # lỗi đầu tiên — đã xác nhận bằng dữ liệu thật (08/2026)
                 # loại lỗi này thường chỉ TẠM THỜI (WAF chặn tạm do
                 # request dồn dập), không phải trang đã đổi/hết dữ liệu.
+                last_reason = f"{type(exc).__name__}: {exc}"
                 wait = self._delay_seconds * (2 ** attempt)
                 logger.warning(
                     "Lỗi kết nối tại %s (lần %d/%d): %s -> chờ %.1fs rồi thử lại",
@@ -233,4 +334,5 @@ class BaseAdapter(ABC):
                 continue
 
         logger.error("Bỏ cuộc sau %d lần liên tiếp (429/403/lỗi kết nối): %s", max_retries, url)
+        self._note_fetch_failure(url, last_reason)
         return None

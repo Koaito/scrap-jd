@@ -294,6 +294,45 @@ CRAWL_STALE_TIMEOUT_MINUTES = int(os.getenv("CRAWL_STALE_TIMEOUT_MINUTES", "120"
 # treo trong thời gian hợp lý mà không tốn tài nguyên quét liên tục.
 CRAWL_WATCHDOG_INTERVAL_MINUTES = int(os.getenv("CRAWL_WATCHDOG_INTERVAL_MINUTES", "10"))
 
+# ------------------------------------------------------------------
+# Ngắt mạch khi bị chặn GIỮA CHỪNG (đợt 3, 10/2026, xem
+# adapters/base.py::BaseAdapter._note_fetch_failure).
+#
+# CrawlBlockedError cũ chỉ raise ở TRANG ĐẦU. IP bị ban ở job thứ 10 thì mọi
+# job còn lại vẫn chạy đủ 3 lần retry (TopCV: 12s x (2+4+8) ~ 168s/lần fetch)
+# rồi ghi skipped_fetch_failed và đi tiếp — phí hàng giờ và còn đập tiếp vào
+# IP đã bị đánh dấu.
+#
+# CRAWL_BLOCK_CONSECUTIVE_FAILURES: số lần fetch thất bại LIÊN TIẾP (mỗi lần
+# đã hết retry, chưa có request nào thành công xen giữa) thì dừng cả lượt.
+# 3 lần TopCV ~ 8 phút không tiến độ, vẫn thấp hơn ngưỡng watchdog
+# CRAWL_STALE_NO_PROGRESS_MINUTES (30). Đặt 0 để tắt ngắt mạch.
+# 404/410 (tin đã gỡ) KHÔNG tính — đó là trang hết hạn thật, không phải bị chặn.
+CRAWL_BLOCK_CONSECUTIVE_FAILURES = max(0, int(os.getenv("CRAWL_BLOCK_CONSECUTIVE_FAILURES", "3")))
+
+# Chỉ để CẢNH BÁO: khi bắt đầu 1 lượt crawl, nếu cùng nguồn vừa có lượt bị
+# chặn trong ngần này phút thì ghi WARNING vào log live. KHÔNG chặn bấm chạy
+# (admin có thể vừa đổi proxy/IP và muốn thử lại ngay).
+CRAWL_BLOCK_COOLDOWN_MINUTES = max(0, int(os.getenv("CRAWL_BLOCK_COOLDOWN_MINUTES", "60")))
+
+# ------------------------------------------------------------------
+# Đánh dấu lượt crawl "degraded" (đợt 3, 10/2026, xem field_stats.py::
+# degraded_reasons): lượt vẫn status='done' nhưng dữ liệu nhiều khả năng sai
+# vì selector hỏng. Chỉ xét các field BẮT BUỘC phải có nội dung (xem
+# CRITICAL_FIELDS trong field_stats.py), nên ngưỡng cao mới an toàn.
+DEGRADED_EMPTY_RATE = min(1.0, max(0.0, float(os.getenv("DEGRADED_EMPTY_RATE", "0.9"))))
+
+# ------------------------------------------------------------------
+# Snapshot HTML/JSON gốc để debug khi parser hỏng (đợt 3, 10/2026, xem
+# snapshots.py + sql/migration_add_crawl_snapshots.sql). Lưu trong Postgres
+# (gzip), giới hạn cứng để không ăn hết dung lượng gói free.
+SNAPSHOT_MAX_PER_RUN = max(0, int(os.getenv("SNAPSHOT_MAX_PER_RUN", "6")))
+# Cắt body dài hơn mức này (ký tự) trước khi nén — trang listing/chi tiết
+# thật thường < 500k ký tự.
+SNAPSHOT_MAX_CHARS = max(1000, int(os.getenv("SNAPSHOT_MAX_CHARS", "1500000")))
+# Snapshot cũ hơn ngần này ngày bị xoá mỗi lần lưu snapshot mới.
+SNAPSHOT_RETENTION_DAYS = max(1, int(os.getenv("SNAPSHOT_RETENTION_DAYS", "14")))
+
 # 08/2026 (xem sql/migration_add_maintenance_runs.sql,
 # api/services/maintenance_watchdog.py) — đối xứng CRAWL_STALE_TIMEOUT_MINUTES/
 # CRAWL_WATCHDOG_INTERVAL_MINUTES ở trên nhưng cho 5 job bảo trì dữ liệu

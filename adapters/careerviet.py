@@ -274,7 +274,17 @@ class CareerVietAdapter(BaseAdapter):
 
             job_urls = self._extract_job_detail_urls(html)
             new_urls = [u for u in job_urls if u not in seen_urls]
+            if page == 1 and job_urls:
+                # Snapshot HTML trang listing đầu làm mẫu (đợt 3).
+                self._snapshot("listing", page_url, html)
             if not new_urls:
+                if page == 1 and not job_urls:
+                    # Tải được HTML nhưng không trích được URL job nào ở
+                    # trang đầu: category rỗng thật, hoặc cấu trúc link đổi,
+                    # hoặc WAF trả trang challenge HTTP 200. Xem
+                    # BaseAdapter._flag_listing_anomaly().
+                    self._flag_listing_anomaly("first_page_no_jobs")
+                    self._snapshot("listing", page_url, html, reason="listing_empty")
                 # Bình thường là trang thật sự đã hết job. Pattern phân
                 # trang thật (".../k-trang-{N}-vi.html", xem
                 # _build_page_url()) ĐÃ XÁC NHẬN hoạt động (08/2026),
@@ -320,6 +330,7 @@ class CareerVietAdapter(BaseAdapter):
         if html is None:
             return None
         parsed = self._parse_detail_page(html, source_url)
+        self._snapshot_detail(source_url, html, parsed)
         if parsed is None:
             return None
 
@@ -503,6 +514,7 @@ class CareerVietAdapter(BaseAdapter):
         if html is None:
             return None
         parsed = self._parse_detail_page(html, url)
+        self._snapshot_detail(url, html, parsed)
         if parsed is None:
             return None
 
@@ -526,6 +538,17 @@ class CareerVietAdapter(BaseAdapter):
             company_url=parsed["company_url"],
             raw_tags=parsed["required_skills"],
         )
+
+    def _snapshot_detail(self, url: str, html: str, parsed: Optional[dict]) -> None:
+        """Snapshot trang chi tiết (đợt 3): không parse được hoặc parse ra
+        không có chút nội dung nào là bất thường đáng giữ nhất; ngoài ra giữ
+        mẫu đầu tiên của lượt."""
+        if parsed is None:
+            self._snapshot("detail", url, html, reason="detail_unparsable")
+        elif self._detail_is_blank(self._detail_dict_from_parsed(parsed)):
+            self._snapshot("detail", url, html, reason="detail_blank")
+        else:
+            self._snapshot("detail", url, html)
 
     @staticmethod
     def _detail_dict_from_parsed(parsed: dict) -> dict:

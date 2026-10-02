@@ -55,6 +55,22 @@ bộ; KHÔNG phù hợp nếu cần queue thật với retry/backoff):
     vào heartbeat, mọi job xử lý xong (kể cả job bị bỏ qua) PHẢI kích hoạt
     on_progress — xem `finally` trong pipeline.run_pipeline().
 
+ĐỢT 3 (10/2026) — bị chặn, snapshot, degraded:
+  - CrawlBlockedError (trang đầu thất bại HOẶC ngắt mạch giữa chừng, xem
+    adapters/base.py::_note_fetch_failure) được bắt RIÊNG ở _execute_one():
+    status='error' như trước (cột enum giữ nguyên 4 giá trị, frontend không
+    phải đổi) nhưng KÈM stats tạm (số job đã lưu...) và stats["blocked"]=True.
+    Nếu run thuộc 1 batch thì DỪNG cả batch (đánh dấu batch 'error'), không
+    chạy tiếp các category còn lại — cùng nguồn là cùng IP, chạy tiếp chỉ
+    đập thêm vào site đang chặn.
+  - Mỗi lượt gắn 1 SnapshotRecorder vào adapter; xong (thành công hay lỗi)
+    thì lưu vài mẫu HTML/JSON gốc xuống crawl_snapshots (xem snapshots.py).
+  - Lượt xong nhưng dữ liệu nghi hỏng có stats["degraded"] (xem
+    pipeline._finalize_stats) — status vẫn 'done'.
+  - Lúc bắt đầu, nếu nguồn vừa có lượt bị chặn trong
+    CRAWL_BLOCK_COOLDOWN_MINUTES thì ghi WARNING vào log live. Chỉ cảnh báo,
+    không chặn bấm chạy.
+
 NÂNG CẤP SAU (chỉ làm khi thật sự cần, đừng làm sớm — đúng tinh thần
 "free-tier, rẻ, an toàn trước" xuyên suốt project):
   - Cần retry/backoff, hàng đợi ưu tiên -> đổi sang queue thật (Celery +
@@ -88,8 +104,10 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import db as db_module
+from adapters.base import CrawlBlockedError
 from pipeline import run_pipeline
-from config import DEFAULT_MAX_PAGES
+from snapshots import SnapshotRecorder
+from config import DEFAULT_MAX_PAGES, CRAWL_BLOCK_COOLDOWN_MINUTES
 from api.concurrency import GLOBAL_JOB_SEMAPHORE
 # _SOURCE_ADAPTERS giờ import từ sources_registry.py (nguồn sự thật duy
 # nhất) thay vì tự khai báo lặp lại ở đây — đây CHÍNH LÀ nơi từng gây
@@ -385,6 +403,42 @@ def _run_batch_locked(run_id: str) -> None:
         _run_batch_locked(next_run_id)
 
 
+def _warn_if_recently_blocked(conn, source: str) -> None:
+    """Ghi WARNING vào log live nếu nguồn này vừa có lượt bị chặn trong
+    CRAWL_BLOCK_COOLDOWN_MINUTES. Chỉ cảnh báo: admin có thể vừa đổi IP/proxy
+    và muốn thử lại ngay. Lỗi DB ở đây không được làm hỏng lượt crawl."""
+    if CRAWL_BLOCK_COOLDOWN_MINUTES <= 0:
+        return
+    try:
+        recent = db_module.get_recent_blocked_crawl_run(
+            conn, source, CRAWL_BLOCK_COOLDOWN_MINUTES,
+        )
+    except Exception:  # noqa: BLE001
+        conn.rollback()
+        logger.exception("Không tra được lượt bị chặn gần đây của nguồn %s, bỏ qua", source)
+        return
+    if recent:
+        logger.warning(
+            "Nguồn '%s' vừa có lượt crawl bị chặn (run %s, kết thúc %s, trong %d phút "
+            "qua). Lượt này vẫn chạy nhưng nhiều khả năng sẽ bị chặn lại — nên đổi "
+            "IP/proxy hoặc chờ thêm trước khi thử.",
+            source, recent["run_id"], recent["finished_at"], CRAWL_BLOCK_COOLDOWN_MINUTES,
+        )
+
+
+def _save_run_snapshots(conn, run_id: str, source: str, recorder: SnapshotRecorder) -> None:
+    """Lưu snapshot đã gom trong RAM xuống DB. db.save_crawl_snapshots() không
+    raise (xem docstring); bọc thêm try phòng trường hợp mock/lỗi bất ngờ."""
+    if not recorder.items:
+        return
+    try:
+        saved = db_module.save_crawl_snapshots(conn, run_id, source, recorder.items)
+        if saved:
+            logger.info("Đã lưu %d snapshot HTML/JSON gốc của lượt này (debug).", saved)
+    except Exception:  # noqa: BLE001
+        logger.exception("Lưu snapshot lỗi, bỏ qua")
+
+
 def _execute_one(run_id: str) -> Optional[str]:
     """Chạy ĐÚNG 1 run (1 category), trả về run_id của category KẾ TIẾP
     nếu run này thuộc 1 batch và batch còn category chưa crawl, hoặc
@@ -395,6 +449,7 @@ def _execute_one(run_id: str) -> Optional[str]:
     trong cùng 1 khối try/finally lồng nhau khó đọc."""
     conn = db_module.get_connection()
     next_run_id: Optional[str] = None
+    blocked = False
     try:
         run = db_module.get_crawl_run(conn, run_id)
         if run is None:
@@ -432,8 +487,11 @@ def _execute_one(run_id: str) -> Optional[str]:
                     "last_update": datetime.now(timezone.utc).isoformat(),
                 })
 
+            recorder = SnapshotRecorder()
             try:
                 adapter = adapter_cls()
+                adapter.set_snapshot_recorder(recorder)
+                _warn_if_recently_blocked(conn, run["source"])
                 stats = run_pipeline(
                     adapter, conn, run["category"], run["pages"],
                     max_jobs=run.get("max_jobs"), on_progress=_on_progress,
@@ -448,10 +506,22 @@ def _execute_one(run_id: str) -> Optional[str]:
                     "last_update": datetime.now(timezone.utc).isoformat(),
                 })
                 db_module.mark_crawl_run_done(conn, run_id, stats)
+            except CrawlBlockedError as exc:
+                # Bị chặn: giữ stats tạm (số job đã lưu...) + cờ blocked để
+                # UI/get_recent_blocked_crawl_run phân biệt với lỗi thường.
+                blocked = True
+                partial = dict(exc.stats) if exc.stats else {}
+                partial["blocked"] = True
+                logger.error("Crawl run %s bị chặn, dừng lượt: %s", run_id, exc)
+                db_module.mark_crawl_run_error(conn, run_id, str(exc), stats=partial)
             except Exception as exc:  # noqa: BLE001 - ghi lại lỗi vào run, không làm chết background task
                 logger.error("Crawl run %s lỗi: %s", run_id, exc)
                 db_module.mark_crawl_run_error(conn, run_id, str(exc))
             finally:
+                # Lưu snapshot TRƯỚC khi gỡ handler để dòng log "Đã lưu N
+                # snapshot" còn hiện ở log live; chạy cả khi lượt lỗi/bị
+                # chặn vì đó là lúc cần HTML gốc nhất.
+                _save_run_snapshots(conn, run_id, run["source"], recorder)
                 root_logger.removeHandler(log_handler)
                 log_handler.close()
 
@@ -462,9 +532,20 @@ def _execute_one(run_id: str) -> Optional[str]:
         # thúc của run này, không riêng nhánh "chạy pipeline thành công".
         if run.get("batch_id"):
             try:
-                next_run_id = db_module.advance_crawl_batch(
-                    conn, run["batch_id"], run["batch_position"],
-                )
+                if blocked:
+                    # Bị chặn thì KHÔNG chạy tiếp category còn lại: cùng
+                    # nguồn là cùng IP, chạy tiếp chỉ đập thêm vào site
+                    # đang chặn. Các category sau đơn giản là không được tạo
+                    # (run chỉ được tạo lười ở advance_crawl_batch()).
+                    db_module.mark_crawl_batch_error(
+                        conn, run["batch_id"],
+                        f"Dừng batch: category '{run['category']}' bị {run['source']} "
+                        f"chặn, các category còn lại không được chạy.",
+                    )
+                else:
+                    next_run_id = db_module.advance_crawl_batch(
+                        conn, run["batch_id"], run["batch_position"],
+                    )
             except Exception as exc:  # noqa: BLE001 - lỗi advance KHÔNG được làm mất kết quả run vừa xong
                 logger.error(
                     "Batch %s: không tạo được category kế tiếp sau run %s: %s",

@@ -7,6 +7,8 @@ Ví dụ:
     python main.py crawl --category data-engineer --pages 5
     python main.py crawl --category data-analyst --max-jobs 20
     python main.py stats
+    python main.py snapshots --source careerviet
+    python main.py snapshot-export 12 --out tests/fixture_careerviet_listing.html
     python main.py create-admin --email admin@congty.vn --name "Nguyễn Văn A"
 """
 
@@ -16,6 +18,7 @@ import logging
 import sys
 
 import db
+from adapters.base import CrawlBlockedError
 from pipeline import run_pipeline
 from config import (
     TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
@@ -155,8 +158,19 @@ def cmd_crawl(args):
     conn = db.get_connection()
     try:
         adapter = source_cfg["adapter_cls"]()
-        stats = run_pipeline(adapter, conn, args.category, effective_pages,
-                              max_jobs=args.max_jobs)
+        try:
+            stats = run_pipeline(adapter, conn, args.category, effective_pages,
+                                  max_jobs=args.max_jobs)
+        except CrawlBlockedError as exc:
+            # Bị chặn (trang đầu thất bại hoặc ngắt mạch giữa chừng): in gọn
+            # + exit code 2 thay vì traceback, để script/cron phân biệt được
+            # "bị chặn" (2) với lỗi chương trình (1).
+            partial = exc.stats or {}
+            print("\n===== BỊ CHẶN =====")
+            print(f"❌ {exc}")
+            print(f"Đã crawl {partial.get('fetched', 0)} job, lưu {partial.get('inserted', 0)} "
+                  f"trước khi dừng.")
+            sys.exit(2)
         print("\n===== KẾT QUẢ =====")
         if args.max_jobs is not None:
             print(f"(Giới hạn theo --max-jobs={args.max_jobs})")
@@ -178,7 +192,55 @@ def cmd_crawl(args):
             ]
             print(f"Trường rỗng ({label}, {info['total']} record): "
                   f"{', '.join(empties) if empties else 'không có'}")
+        degraded = (stats.get("degraded") or {}).get("reasons")
+        if degraded:
+            print("⚠️  DEGRADED — dữ liệu lượt này nhiều khả năng sai (selector/cấu trúc "
+                  "trang đổi?):")
+            for reason in degraded:
+                if reason.get("type") == "field_empty":
+                    print(f"   - '{reason['field']}' ({reason['group']}) rỗng "
+                          f"{reason['empty']}/{reason['total']} ({reason['rate']:.0%})")
+                else:
+                    print(f"   - {reason.get('type')}")
         print(f"Tổng job trong DB hiện tại: {db.count_jobs(conn)}")
+    finally:
+        conn.close()
+
+
+def cmd_snapshots(args):
+    """Liệt kê snapshot HTML/JSON gốc đã lưu (không kèm nội dung)."""
+    conn = db.get_connection()
+    try:
+        rows = db.list_crawl_snapshots(
+            conn, run_id=args.run_id, source=args.source, limit=args.limit,
+        )
+        if not rows:
+            print("Không có snapshot nào (chưa chạy migration? chưa có lượt crawl qua API?).")
+            return
+        for r in rows:
+            print(f"#{r['id']:<6} {r['created_at']:%Y-%m-%d %H:%M}  {r['source']:<13} "
+                  f"{r['kind']:<8} {r['reason']:<18} {r['raw_bytes']:>8}B  run={r['run_id']}  {r['url']}")
+    finally:
+        conn.close()
+
+
+def cmd_snapshot_export(args):
+    """Ghi nội dung 1 snapshot ra file — dùng để thay fixture tổng hợp trong
+    tests/ bằng HTML/JSON thật (vd: snapshot-export 12 --out
+    tests/fixture_careerviet_listing.html)."""
+    conn = db.get_connection()
+    try:
+        snap = db.get_crawl_snapshot(conn, args.id)
+        if snap is None:
+            print(f"❌ Không có snapshot id={args.id}.")
+            sys.exit(1)
+        with open(args.out, "w", encoding="utf-8") as f:
+            f.write(snap["body"])
+        note = " (BỊ CẮT theo SNAPSHOT_MAX_CHARS)" if snap["truncated"] else ""
+        print(f"✅ Đã ghi {snap['raw_bytes']} byte -> {args.out}{note}")
+        print(f"   {snap['source']} / {snap['kind']} / {snap['reason']} / {snap['url']}")
+        print("   ⚠️  Kiểm tra và ẩn dữ liệu cá nhân (email, số điện thoại) trước khi commit "
+              "làm fixture.")
     finally:
         conn.close()
 
@@ -228,6 +290,21 @@ def main():
 
     sub.add_parser("stats", help="Xem số lượng job hiện có trong DB")
 
+    p_snaps = sub.add_parser(
+        "snapshots",
+        help="Liệt kê snapshot HTML/JSON gốc của các lượt crawl (qua API) để debug parser",
+    )
+    p_snaps.add_argument("--run-id", default=None, help="Chỉ lấy snapshot của 1 lượt crawl")
+    p_snaps.add_argument("--source", default=None, help="Chỉ lấy snapshot của 1 nguồn")
+    p_snaps.add_argument("--limit", type=int, default=30, help="Số dòng tối đa (mặc định 30)")
+
+    p_snap_export = sub.add_parser(
+        "snapshot-export",
+        help="Ghi nội dung 1 snapshot ra file (dùng làm fixture thật cho tests/)",
+    )
+    p_snap_export.add_argument("id", type=int, help="id snapshot (xem lệnh `snapshots`)")
+    p_snap_export.add_argument("--out", required=True, help="Đường dẫn file đầu ra")
+
     p_create_admin = sub.add_parser(
         "create-admin",
         help="Tạo tài khoản admin đầu tiên cho hệ thống login (chỉ dùng lúc khởi tạo)",
@@ -245,6 +322,10 @@ def main():
         cmd_crawl(args)
     elif args.command == "stats":
         cmd_stats(args)
+    elif args.command == "snapshots":
+        cmd_snapshots(args)
+    elif args.command == "snapshot-export":
+        cmd_snapshot_export(args)
     elif args.command == "create-admin":
         cmd_create_admin(args)
 

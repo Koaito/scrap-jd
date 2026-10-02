@@ -49,12 +49,29 @@ DETAIL_FIELDS = (
 WARN_RATE = 0.5
 WARN_MIN_SAMPLES = 10
 
+# Field BẮT BUỘC phải có nội dung (đợt 3, 10/2026): 1 tin tuyển dụng thật luôn
+# có tiêu đề + tên công ty + nội dung mô tả. Nếu những field này rỗng gần hết
+# thì gần như chắc chắn selector/cấu trúc trang đã đổi, KHÁC các field rỗng
+# hợp lệ (job không ghi lương, không có phúc lợi...) nên cố ý không đưa
+# salary_text/perks/... vào đây. Dùng cho degraded_reasons().
+CRITICAL_FIELDS = {
+    "listing": ("job_title", "company_name"),
+    "detail": ("job_description",),
+}
+
+# Giá trị placeholder adapter tự điền khi không tìm thấy dữ liệu thật — tính
+# như RỖNG để thống kê không bị che. Vd TopCV điền "Chưa xác định" khi không
+# bắt được tên công ty (adapters/topcv.py), nếu không loại trừ thì
+# company_name không bao giờ hiện là rỗng dù parser đã hỏng.
+PLACEHOLDER_VALUES = frozenset({"chưa xác định"})
+
 
 def is_empty(value) -> bool:
     if value is None:
         return True
     if isinstance(value, str):
-        return not value.strip()
+        text = value.strip()
+        return not text or text.lower() in PLACEHOLDER_VALUES
     if isinstance(value, (list, tuple, set, dict)):
         return len(value) == 0
     return False
@@ -138,3 +155,30 @@ class EmptyFieldCounter:
                         "cấu trúc trang của nguồn này.",
                         name, group, f["empty"], total, f["rate"] * 100,
                     )
+
+
+def degraded_reasons(summary: dict, *, rate_threshold: float, min_samples: int = WARN_MIN_SAMPLES) -> list:
+    """Danh sách field BẮT BUỘC (CRITICAL_FIELDS) có tỷ lệ rỗng >= rate_threshold
+    trong summary() — rỗng nghĩa là lượt crawl vẫn 'done' nhưng dữ liệu nhiều
+    khả năng sai (selector hỏng âm thầm), cần người xem lại.
+
+    Chỉ xét nhóm đủ min_samples record: mẫu quá nhỏ (vd crawl thử 3 job) làm
+    tỷ lệ vô nghĩa và dễ báo nhầm. Mỗi phần tử:
+        {"type": "field_empty", "group": "detail", "field": "job_description",
+         "empty": 38, "total": 40, "rate": 0.95}
+    """
+    reasons = []
+    for group, fields in CRITICAL_FIELDS.items():
+        info = summary.get(group)
+        if not info or info["total"] < min_samples:
+            continue
+        for name in fields:
+            f = info["fields"].get(name)
+            if f is None:
+                continue
+            if f["rate"] >= rate_threshold:
+                reasons.append({
+                    "type": "field_empty", "group": group, "field": name,
+                    "empty": f["empty"], "total": info["total"], "rate": f["rate"],
+                })
+    return reasons

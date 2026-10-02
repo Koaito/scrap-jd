@@ -382,3 +382,67 @@ def test_mark_running_writes_first_heartbeat(pg_conn, clean_crawl_runs):
     assert _status_of(pg_conn, run_id) == "running"
     assert db.reconcile_stale_crawl_runs(pg_conn, 120, no_progress_minutes=30) == 0
     assert _status_of(pg_conn, run_id) == "running"
+
+
+# ----------------------------------------------------------------------
+# Đợt 3 (10/2026): lượt bị chặn + snapshot. Cần Postgres thật vì logic nằm
+# ở câu SQL (stats->>'blocked', make_interval, bytea gzip, ON DELETE CASCADE).
+# ----------------------------------------------------------------------
+@pytest.fixture
+def clean_crawl_snapshots(pg_conn, clean_crawl_runs):
+    sql_dir = os.path.join(os.path.dirname(__file__), "..", "sql")
+    with open(os.path.join(sql_dir, "migration_add_crawl_snapshots.sql"), encoding="utf-8") as f:
+        with pg_conn.cursor() as cur:
+            cur.execute(f.read())
+    pg_conn.commit()
+    yield
+
+
+def test_get_recent_blocked_run_only_matches_blocked_errors_in_window(pg_conn, clean_crawl_runs):
+    blocked = _insert_run(pg_conn, "blk_src", "running", started_min_ago=10, last_update=1)
+    db.mark_crawl_run_error(pg_conn, blocked, "bị chặn", stats={"blocked": True, "inserted": 3})
+    plain = _insert_run(pg_conn, "plain_src", "running", started_min_ago=10, last_update=1)
+    db.mark_crawl_run_error(pg_conn, plain, "lỗi thường")
+
+    found = db.get_recent_blocked_crawl_run(pg_conn, "blk_src", 60)
+    assert found is not None and found["run_id"] == blocked
+    assert db.get_recent_blocked_crawl_run(pg_conn, "plain_src", 60) is None   # lỗi thường
+    assert db.get_recent_blocked_crawl_run(pg_conn, "other_src", 60) is None   # nguồn khác
+
+    with pg_conn.cursor() as cur:   # đẩy finished_at ra ngoài cửa sổ
+        cur.execute("UPDATE crawl_runs SET finished_at = now() - interval '3 hours' WHERE run_id = %s",
+                    (blocked,))
+    pg_conn.commit()
+    assert db.get_recent_blocked_crawl_run(pg_conn, "blk_src", 60) is None
+
+
+def test_snapshot_roundtrip_retention_and_cascade(pg_conn, clean_crawl_snapshots):
+    from snapshots import SnapshotRecorder
+
+    run_id = _insert_run(pg_conn, "snap_src", "running", started_min_ago=1, last_update=0)
+    rec = SnapshotRecorder()
+    rec.offer("listing", "https://x/1", "<html>xin chào</html>")
+    rec.offer("detail", "https://x/2", "<html>chi tiết</html>", reason="detail_blank")
+
+    assert db.save_crawl_snapshots(pg_conn, run_id, "snap_src", rec.items) == 2
+
+    rows = db.list_crawl_snapshots(pg_conn, run_id=run_id)
+    assert {(r["kind"], r["reason"]) for r in rows} == {("listing", "sample"), ("detail", "detail_blank")}
+    snap = db.get_crawl_snapshot(pg_conn, rows[0]["id"])
+    assert snap["body"] in ("<html>xin chào</html>", "<html>chi tiết</html>")
+
+    # bản cũ hơn retention bị xoá ở lần lưu kế tiếp
+    with pg_conn.cursor() as cur:
+        cur.execute("UPDATE crawl_snapshots SET created_at = now() - interval '30 days' WHERE run_id = %s",
+                    (run_id,))
+    pg_conn.commit()
+    rec2 = SnapshotRecorder()
+    rec2.offer("listing", "https://x/3", "<html>mới</html>")
+    db.save_crawl_snapshots(pg_conn, run_id, "snap_src", rec2.items)
+    assert len(db.list_crawl_snapshots(pg_conn, run_id=run_id)) == 1
+
+    # xoá run -> snapshot đi theo (ON DELETE CASCADE)
+    with pg_conn.cursor() as cur:
+        cur.execute("DELETE FROM crawl_runs WHERE run_id = %s", (run_id,))
+    pg_conn.commit()
+    assert db.list_crawl_snapshots(pg_conn, run_id=run_id) == []
