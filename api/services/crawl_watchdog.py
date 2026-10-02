@@ -1,6 +1,7 @@
 """
 Crawl watchdog — quét định kỳ bảng crawl_runs, tự đánh dấu 'error' cho
-lượt crawl bị TREO (started_at quá lâu mà chưa 'done'/'error') để giải
+lượt crawl bị TREO (đang 'running' mà progress.last_update quá lâu không
+đổi, hoặc 'queued' quá lâu chưa chạy — xem db.reconcile_stale_runs) để giải
 phóng UNIQUE INDEX idx_crawl_runs_one_active_per_source, tránh 1 nguồn
 bị "khoá" crawl mãi mãi (08/2026, xem sql/migration_add_crawl_runs.sql).
 
@@ -19,7 +20,7 @@ preview_cleanup.py) — không tạo thêm scheduler riêng, cùng tinh thần
 import logging
 
 import db as db_module
-from config import CRAWL_STALE_TIMEOUT_MINUTES
+from config import CRAWL_STALE_NO_PROGRESS_MINUTES, CRAWL_STALE_TIMEOUT_MINUTES
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +31,16 @@ def run_crawl_watchdog_once() -> None:
     (cùng lý do run_cleanup_once() ở preview_cleanup.py)."""
     conn = db_module.get_pooled_connection()
     try:
-        count = db_module.reconcile_stale_crawl_runs(conn, CRAWL_STALE_TIMEOUT_MINUTES)
+        count = db_module.reconcile_stale_crawl_runs(
+            conn, CRAWL_STALE_TIMEOUT_MINUTES,
+            no_progress_minutes=CRAWL_STALE_NO_PROGRESS_MINUTES,
+        )
         if count:
             logger.warning(
-                "Crawl watchdog: đã tự đánh dấu 'error' %d lượt crawl treo quá %d phút.",
-                count, CRAWL_STALE_TIMEOUT_MINUTES,
+                "Crawl watchdog: đã tự đánh dấu 'error' %d lượt crawl treo "
+                "(đang chạy mà không có tiến độ mới quá %d phút, hoặc chờ "
+                "chưa chạy quá %d phút).",
+                count, CRAWL_STALE_NO_PROGRESS_MINUTES, CRAWL_STALE_TIMEOUT_MINUTES,
             )
     except Exception:
         conn.rollback()

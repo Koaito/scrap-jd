@@ -148,11 +148,24 @@ def mark_running(conn, run_id: str) -> None:
     """Đổi status 'queued' -> 'running' — gọi ngay khi execute() bắt đầu
     chạy pipeline thật (TRƯỚC khi gọi run_pipeline(), có thể mất vài
     phút), để GET /crawl/{run_id} poll thấy đúng trạng thái thay vì kẹt
-    ở 'queued' suốt lúc đang crawl."""
+    ở 'queued' suốt lúc đang crawl.
+
+    Đồng thời ghi heartbeat ĐẦU TIÊN (progress.last_update = bây giờ) trong
+    CÙNG câu UPDATE (10/2026). Watchdog (reconcile_stale_runs) tính "treo"
+    theo progress.last_update; nếu để trống tới lần on_progress đầu tiên,
+    1 run phải xếp hàng lâu ở 'queued' (chờ GLOBAL_JOB_SEMAPHORE) rồi mới
+    chạy sẽ bị so với started_at là mốc từ lúc tạo, và bị đánh dấu 'error'
+    ngay lượt quét kế tiếp dù vừa mới bắt đầu chạy. Gộp vào 1 câu UPDATE để
+    không có khoảng hở giữa 'running' và heartbeat đầu."""
+    initial_progress = {
+        "fetched": 0,
+        "inserted": 0,
+        "last_update": datetime.now(timezone.utc).isoformat(),
+    }
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE crawl_runs SET status = 'running' WHERE run_id = %s",
-            (run_id,),
+            "UPDATE crawl_runs SET status = 'running', progress = %s WHERE run_id = %s",
+            (json.dumps(initial_progress), run_id),
         )
     conn.commit()
 
@@ -323,11 +336,25 @@ def reconcile_orphaned_runs(conn) -> int:
     return count
 
 
-def reconcile_stale_runs(conn, timeout_minutes: int) -> int:
-    """Đánh dấu 'error' các dòng 'queued'/'running' đã quá `timeout_minutes`
-    kể từ started_at MÀ CHƯA đổi trạng thái — gọi ĐỊNH KỲ qua APScheduler
-    (api/services/crawl_watchdog.py), KHÁC reconcile_orphaned_runs()
-    (chỉ gọi 1 lần lúc khởi động).
+# Mốc "lần cuối có tiến độ" của 1 dòng crawl_runs: progress.last_update do
+# api/crawl_runner.py ghi sau mỗi job. Regex chặn giá trị không phải ISO
+# datetime (dữ liệu lỗi/ghi tay) trả NULL thay vì để ép kiểu ::timestamptz
+# raise lỗi làm hỏng cả câu UPDATE của watchdog — khi đó COALESCE rơi về
+# started_at.
+_LAST_PROGRESS_AT_SQL = r"""
+    CASE
+        WHEN progress->>'last_update' ~
+             '^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$'
+        THEN (progress->>'last_update')::timestamptz
+    END
+"""
+
+
+def reconcile_stale_runs(conn, timeout_minutes: int, *,
+                         no_progress_minutes: Optional[int] = None) -> int:
+    """Đánh dấu 'error' các lượt crawl bị TREO — gọi ĐỊNH KỲ qua APScheduler
+    (api/services/crawl_watchdog.py), KHÁC reconcile_orphaned_runs() (chỉ
+    gọi 1 lần lúc khởi động). Trả về tổng số dòng đã đánh dấu.
 
     Bắt trường hợp reconcile_orphaned_runs() KHÔNG bắt được: process
     KHÔNG restart nhưng riêng 1 background task bị TREO (vd network
@@ -335,29 +362,63 @@ def reconcile_stale_runs(conn, timeout_minutes: int) -> int:
     vẫn nhận request bình thường, nên "lúc khởi động" không xảy ra để
     reconcile_orphaned_runs() có cơ hội chạy lại.
 
-    timeout_minutes: xem CRAWL_STALE_TIMEOUT_MINUTES (config.py) — PHẢI
-    đủ lớn hơn thời gian 1 lượt crawl HỢP LỆ có thể chạy (worst case
-    max_jobs=1000), nếu không sẽ tự huỷ nhầm crawl vẫn đang chạy bình
-    thường."""
+    2 quy tắc khác nhau theo status (đổi 10/2026 — trước đây MỌI dòng đều
+    so với started_at với 1 ngưỡng cố định):
+
+    - 'running': treo nếu KHÔNG có tiến độ mới trong `no_progress_minutes`
+      kể từ progress.last_update (heartbeat sau mỗi job, xem
+      api/crawl_runner.py), rơi về started_at nếu chưa có heartbeat nào
+      (dòng cũ trước khi có cột progress). Tính theo tiến độ thay vì tổng
+      thời gian chạy vì thời gian 1 lượt hợp lệ rất khó ước lượng (max_jobs
+      lớn x delay 5-16s/request có thể vượt 2-3 giờ) — ngưỡng theo tổng
+      thời gian hoặc huỷ nhầm lượt đang chạy đều, hoặc phải đặt quá lớn nên
+      treo thật vẫn giữ khoá nguồn rất lâu.
+    - 'queued': so với started_at (mốc tạo dòng) với `timeout_minutes`.
+      Không có heartbeat để dựa vào, và 1 run có thể xếp hàng hợp lệ chờ
+      GLOBAL_JOB_SEMAPHORE (xem api/concurrency.py) trong lúc job khác chạy.
+      Vì vậy ngưỡng này phải LỚN (xem CRAWL_STALE_TIMEOUT_MINUTES).
+
+    no_progress_minutes=None -> dùng timeout_minutes cho cả 2 status."""
+    running_limit = timeout_minutes if no_progress_minutes is None else no_progress_minutes
+    total = 0
     with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            UPDATE crawl_runs
+            SET status = 'error',
+                error = %s,
+                finished_at = now()
+            WHERE status = 'running'
+              AND COALESCE({_LAST_PROGRESS_AT_SQL}, started_at)
+                  < now() - make_interval(mins => %s)
+            RETURNING run_id
+            """,
+            (
+                f"Lượt crawl không có tiến độ mới trong {running_limit} phút, "
+                f"tự động đánh dấu lỗi để giải phóng nguồn — có thể do process "
+                f"bị treo/kill giữa chừng.",
+                running_limit,
+            ),
+        )
+        total += cur.rowcount
+
         cur.execute(
             """
             UPDATE crawl_runs
             SET status = 'error',
                 error = %s,
                 finished_at = now()
-            WHERE status IN ('queued', 'running')
-              AND started_at < now() - (%s || ' minutes')::interval
+            WHERE status = 'queued'
+              AND started_at < now() - make_interval(mins => %s)
             RETURNING run_id
             """,
             (
-                f"Lượt crawl treo quá {timeout_minutes} phút không cập nhật "
-                f"trạng thái, tự động đánh dấu lỗi để giải phóng nguồn — có "
-                f"thể do process bị treo/kill giữa chừng.",
+                f"Lượt crawl nằm ở trạng thái chờ quá {timeout_minutes} phút "
+                f"mà chưa bắt đầu chạy, tự động đánh dấu lỗi để giải phóng "
+                f"nguồn — có thể do background task bị mất.",
                 timeout_minutes,
             ),
         )
-        count = cur.rowcount
+        total += cur.rowcount
     conn.commit()
-    return count
-
+    return total

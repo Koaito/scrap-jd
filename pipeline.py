@@ -9,6 +9,7 @@ import logging
 from adapters.base import BaseAdapter
 import db
 import normalize
+from field_stats import EmptyFieldCounter
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +67,8 @@ def _build_parsed_content_and_raw(job_detail: dict):
     return parsed_content, raw_jd_content
 
 
-def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: dict) -> None:
+def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: dict,
+                          field_counter: "EmptyFieldCounter | None" = None) -> None:
     """Xử lý job ĐÃ TỪNG crawl trước đó (source_url trùng) — tách ra từ
     run_pipeline() (08/2026, xem lịch sử trao đổi refactor pipeline.py)
     thuần vì lý do đọc/test dễ hơn, KHÔNG đổi hành vi: bản gốc đây là
@@ -83,6 +85,8 @@ def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: dict
     existing_job_id = job_probe[0]
     if db.job_needs_detail_enrichment(job_probe):
         detail = adapter.fetch_job_full_detail(raw.source_url)
+        if field_counter is not None:
+            field_counter.record_detail(detail)
         if detail is None:
             # Fetch thất bại thật sự — KHÔNG update gì cả (khác
             # với "update bằng rỗng"), để job này vẫn được
@@ -167,6 +171,36 @@ def _resolve_company(adapter: BaseAdapter, conn, raw, company_name: str, provinc
     return company_id
 
 
+def _make_known_url_checker(conn, on_known_skipped=None):
+    """Hàm kiểm tra cho BaseAdapter.set_known_url_checker(): True khi URL
+    đã có trong DB VÀ không cần vá nữa (đủ work_type/deadline/
+    parsed_content) — dùng cùng tiêu chí db.job_needs_detail_enrichment()
+    như _handle_existing_job(), nên job cũ còn thiếu field vẫn được adapter
+    yield và vá như trước, không bị bỏ sót.
+
+    Lỗi DB -> rollback rồi trả False (coi như chưa biết, adapter fetch bình
+    thường): tối đa tốn thêm 1 request, tốt hơn bỏ nhầm 1 job mới.
+
+    on_known_skipped: gọi mỗi lần trả True. Job bị bỏ qua kiểu này không bao
+    giờ tới vòng lặp run_pipeline() nên không kích hoạt heartbeat ở đó; nếu
+    cả trang toàn job đã biết (crawl theo max_jobs có thể đi qua rất nhiều
+    trang như vậy) thì progress.last_update đứng yên và watchdog sẽ tưởng
+    lượt crawl bị treo."""
+    def checker(source_url: str) -> bool:
+        try:
+            probe = db.get_job_probe_by_source_url(conn, source_url)
+        except Exception:  # noqa: BLE001
+            conn.rollback()
+            logger.exception("Tra cứu URL đã biết lỗi (%s), coi như chưa có", source_url)
+            return False
+        known = probe is not None and not db.job_needs_detail_enrichment(probe)
+        if known and on_known_skipped is not None:
+            on_known_skipped()
+        return known
+
+    return checker
+
+
 def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
                   max_jobs: "int | None" = None, on_progress=None) -> dict:
     """
@@ -192,7 +226,15 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
     (xem adapters/topcv.py, adapters/vietnamworks.py) — dừng vòng lặp
     for ở đây (break) trước khi gọi next() lần nữa sẽ tự động khiến
     adapter KHÔNG fetch thêm trang mới nữa, không tốn request thừa ra
-    ngoài internet. Không cần sửa gì trong adapter."""
+    ngoài internet. Không cần sửa gì trong adapter.
+
+    Đợt 2 (10/2026):
+    - Đặt hook adapter.set_known_url_checker() để adapter fetch chi tiết
+      sớm (CareerViet) bỏ qua job đã có đủ field, không fetch lại. Job bị
+      bỏ qua kiểu này KHÔNG tới được vòng lặp dưới nên không tính vào
+      stats["fetched"]/max_jobs; số lượng nằm ở stats["skipped_known_url"].
+    - stats["field_empty"]: tỷ lệ trường rỗng của dữ liệu adapter trả về,
+      xem field_stats.py. Chỉ có khi đã ghi nhận ít nhất 1 record."""
     stats = {
         "fetched": 0, "inserted": 0, "skipped_duplicate": 0,
         # Trùng theo (company_id, job_title, level_id, province_id) —
@@ -209,13 +251,31 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
         # Client"), bỏ hẳn không insert. Xem docstring hàm đó trong
         # normalize.py để biết đầy đủ pattern.
         "skipped_anonymous_employer": 0,
+        # Thêm 10/2026 — URL đã có trong DB và đủ field nên adapter bỏ qua
+        # từ trước khi fetch chi tiết (xem docstring run_pipeline()). Điền
+        # sau vòng lặp, từ adapter.skipped_known_count.
+        "skipped_known_url": 0,
     }
+    field_counter = EmptyFieldCounter()
+
+    def _emit_progress() -> None:
+        if on_progress is None:
+            return
+        try:
+            on_progress({"fetched": stats["fetched"], "inserted": stats["inserted"]})
+        except Exception:  # noqa: BLE001 - heartbeat lỗi không được làm hỏng crawl
+            logger.exception("on_progress callback lỗi, bỏ qua và crawl tiếp tục")
+
+    set_checker = getattr(adapter, "set_known_url_checker", None)
+    if callable(set_checker):
+        set_checker(_make_known_url_checker(conn, on_known_skipped=_emit_progress))
 
     for raw in adapter.fetch_jobs(category_key, max_pages):
         if max_jobs is not None and stats["fetched"] >= max_jobs:
             logger.info("Đã đạt giới hạn --max-jobs=%d, dừng crawl.", max_jobs)
             break
         stats["fetched"] += 1
+        field_counter.record_listing(raw)
         try:
             # 1) Chống trùng theo link JD gốc. Job đã crawl trước đó thì KHÔNG
             # insert lại, nhưng job cũ có thể còn thiếu work_type/deadline/
@@ -224,7 +284,7 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             # như 1 lỗi.
             job_probe = db.get_job_probe_by_source_url(conn, raw.source_url)
             if job_probe is not None:
-                _handle_existing_job(adapter, conn, raw, job_probe, stats)
+                _handle_existing_job(adapter, conn, raw, job_probe, stats, field_counter)
                 continue
 
             # 2) Chuẩn hóa (phần DÙNG CHUNG, không quan tâm nguồn)
@@ -260,6 +320,7 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             # cách âm thầm, dễ nhầm tưởng "trang JD thật sự không có dữ
             # liệu này" trong khi thực ra là bị chặn lúc crawl.
             job_detail = adapter.fetch_job_full_detail(raw.source_url)
+            field_counter.record_detail(job_detail)
             if job_detail is None:
                 stats["skipped_fetch_failed"] += 1
                 logger.warning(
@@ -345,11 +406,22 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             conn.rollback()
             stats["errors"] += 1
             logger.error("Lỗi xử lý job '%s': %s", raw.job_title, exc)
+        finally:
+            # Đặt trong `finally` (10/2026) để heartbeat chạy cho MỌI job xử
+            # lý xong, kể cả nhánh `continue` ở trên (trùng URL, ẩn danh,
+            # đăng lại, fetch chi tiết thất bại). Trước đây đoạn này nằm sau
+            # khối try nên mỗi `continue` bỏ qua heartbeat: 1 chuỗi dài job
+            # bị bỏ qua (mỗi job vẫn có thể tốn 1 request fetch) khiến
+            # progress.last_update đứng yên, và watchdog tính theo tiến độ
+            # (db.reconcile_stale_runs) sẽ tưởng lượt crawl đang treo.
+            _emit_progress()
 
-        if on_progress is not None:
-            try:
-                on_progress({"fetched": stats["fetched"], "inserted": stats["inserted"]})
-            except Exception:  # noqa: BLE001 - heartbeat lỗi không được làm hỏng crawl
-                logger.exception("on_progress callback lỗi, bỏ qua và crawl tiếp tục")
+    skipped_known = getattr(adapter, "skipped_known_count", 0)
+    stats["skipped_known_url"] = skipped_known if isinstance(skipped_known, int) else 0
+
+    field_empty = field_counter.summary()
+    if field_empty:
+        stats["field_empty"] = field_empty
+        field_counter.log_summary()
 
     return stats

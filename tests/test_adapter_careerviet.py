@@ -206,6 +206,66 @@ def test_fetch_jobs_skips_job_whose_detail_fetch_fails():
     assert [r.source_url for r in records] == [JOB_URLS[0], JOB_URLS[2]]
 
 
+def test_fetch_jobs_skips_known_urls_without_fetching_their_detail():
+    """Đợt 2: job đã có trong DB (hook do pipeline đặt) KHÔNG bị fetch lại
+    trang chi tiết — đây là phần tiết kiệm request của lượt crawl lặp lại."""
+    adapter = CareerVietAdapter()
+    requested = _stub_fetch(adapter, _mapping_with_details())
+    known = {JOB_URLS[0], JOB_URLS[2]}
+    adapter.set_known_url_checker(lambda url: url in known)
+
+    records = list(adapter.fetch_jobs(CATEGORY, max_pages=1))
+
+    assert [r.source_url for r in records] == [JOB_URLS[1]]
+    assert not (set(requested) & known)          # URL đã biết không bị fetch chi tiết
+    assert JOB_URLS[1] in requested
+    assert adapter.skipped_known_count == 2
+
+
+def test_fetch_jobs_known_urls_do_not_stop_pagination():
+    """Trang toàn job đã biết vẫn phải đi tiếp trang sau (dừng chỉ khi trang
+    không có URL job nào mới theo seen_urls, không phải theo 'đã biết')."""
+    adapter = CareerVietAdapter()
+    page2_job = f"{BASE_URL}/vi/tim-viec-lam/new-job.99999999.html"
+    mapping = _mapping_with_details()
+    mapping[PAGE2_URL] = f'<a href="{page2_job}">job</a>'
+    mapping[page2_job] = DETAIL_HTML
+    requested = _stub_fetch(adapter, mapping)
+    adapter.set_known_url_checker(lambda url: url in JOB_URLS)  # cả trang 1 đã biết
+
+    records = list(adapter.fetch_jobs(CATEGORY, max_pages=2))
+
+    assert [r.source_url for r in records] == [page2_job]
+    assert PAGE2_URL in requested
+    assert adapter.skipped_known_count == len(JOB_URLS)
+
+
+def test_fetch_jobs_checker_error_falls_back_to_fetching():
+    adapter = CareerVietAdapter()
+    _stub_fetch(adapter, _mapping_with_details())
+
+    def broken(url):
+        raise RuntimeError("DB lỗi")
+
+    adapter.set_known_url_checker(broken)
+
+    records = list(adapter.fetch_jobs(CATEGORY, max_pages=1))
+    assert [r.source_url for r in records] == JOB_URLS  # không mất job nào
+    assert adapter.skipped_known_count == 0
+
+
+def test_set_known_url_checker_resets_counter_and_none_disables():
+    adapter = CareerVietAdapter()
+    _stub_fetch(adapter, _mapping_with_details())
+    adapter.set_known_url_checker(lambda url: True)
+    assert list(adapter.fetch_jobs(CATEGORY, max_pages=1)) == []
+    assert adapter.skipped_known_count == len(JOB_URLS)
+
+    adapter.set_known_url_checker(None)
+    assert adapter.skipped_known_count == 0
+    assert len(list(adapter.fetch_jobs(CATEGORY, max_pages=1))) == len(JOB_URLS)
+
+
 def test_fetch_jobs_unknown_category():
     with pytest.raises(ValueError):
         list(CareerVietAdapter().fetch_jobs("khong-ton-tai", max_pages=1))

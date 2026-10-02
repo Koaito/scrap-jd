@@ -43,15 +43,17 @@ sql/migration_add_crawl_runs.sql), giải quyết 2 giới hạn cũ:
 
 GIỚI HẠN CÒN LẠI (chấp nhận được ở quy mô hiện tại — ít người dùng nội
 bộ; KHÔNG phù hợp nếu cần queue thật với retry/backoff):
-  - Không có cơ chế phát hiện "run kẹt mãi ở running" nếu process bị
-    kill CỨNG giữa chừng (vd Render OOM-kill) — mark_error() nằm trong
-    finally nên bắt được exception Python bình thường, nhưng không bắt
-    được process bị giết từ bên ngoài. Dòng đó sẽ đứng yên ở 'running'
-    mãi (và do UNIQUE INDEX, nguồn đó sẽ bị "khoá" không crawl lại được
-    tới khi có người tự sửa tay status trong DB) — chấp nhận đánh đổi
-    này vì tần suất Render bị OOM-kill giữa 1 lượt crawl là rất hiếm ở
-    quy mô hiện tại; nếu cần chặt hơn, thêm 1 job định kỳ tự đổi
-    'running' quá X phút chưa xong thành 'error'.
+  - Run bị kill CỨNG giữa chừng (vd Render OOM-kill) không chạy được
+    mark_error() trong finally. 2 lớp dự phòng xử lý: (1) lúc app khởi
+    động lại, db.reconcile_orphaned_crawl_runs() đánh dấu 'error' mọi dòng
+    còn 'queued'/'running'; (2) khi process KHÔNG restart mà task bị treo,
+    api/services/crawl_watchdog.py quét định kỳ — 'running' không có tiến
+    độ mới (progress.last_update, ghi ở _on_progress bên dưới) quá
+    CRAWL_STALE_NO_PROGRESS_MINUTES, hoặc 'queued' quá
+    CRAWL_STALE_TIMEOUT_MINUTES, thì tự đổi thành 'error' để nhả khoá
+    UNIQUE INDEX của nguồn (xem db.reconcile_stale_runs). Vì watchdog dựa
+    vào heartbeat, mọi job xử lý xong (kể cả job bị bỏ qua) PHẢI kích hoạt
+    on_progress — xem `finally` trong pipeline.run_pipeline().
 
 NÂNG CẤP SAU (chỉ làm khi thật sự cần, đừng làm sớm — đúng tinh thần
 "free-tier, rẻ, an toàn trước" xuyên suốt project):

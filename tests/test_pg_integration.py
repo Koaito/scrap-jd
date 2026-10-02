@@ -265,3 +265,120 @@ def test_get_province_id_maps_old_names_to_new(pg_conn, raw, expected):
     with pg_conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM provinces")
         assert cur.fetchone()[0] == before  # bảng cứng, không bị INSERT thêm
+
+
+# ----------------------------------------------------------------------
+# Crawl watchdog: db.reconcile_stale_runs() tính theo tiến độ gần nhất
+# (10/2026). Cần Postgres thật vì logic nằm ở câu SQL (regex + COALESCE +
+# make_interval), mock conn không bắt được.
+# ----------------------------------------------------------------------
+@pytest.fixture
+def clean_crawl_runs(pg_conn):
+    # sql/schema.sql KHÔNG có bảng crawl_runs (chỉ có trong file migration),
+    # nên tự áp dụng 2 migration liên quan. Cả 2 đều idempotent.
+    sql_dir = os.path.join(os.path.dirname(__file__), "..", "sql")
+    for name in ("migration_add_crawl_runs.sql", "migration_add_crawl_progress_logs.sql"):
+        with open(os.path.join(sql_dir, name), encoding="utf-8") as f:
+            with pg_conn.cursor() as cur:
+                cur.execute(f.read())
+        pg_conn.commit()
+
+    def _wipe():
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute("DELETE FROM crawl_runs")
+        pg_conn.commit()
+
+    _wipe()
+    yield
+    _wipe()
+
+
+def _insert_run(pg_conn, source, status, *, started_min_ago, last_update=None):
+    """last_update: None (progress NULL), str (ghi nguyên văn, kể cả giá trị
+    rác), hoặc số phút trước (float/int -> ISO datetime UTC)."""
+    import json
+    from datetime import datetime, timedelta, timezone
+
+    progress = None
+    if isinstance(last_update, (int, float)):
+        ts = datetime.now(timezone.utc) - timedelta(minutes=last_update)
+        progress = {"fetched": 1, "inserted": 0, "last_update": ts.isoformat()}
+    elif isinstance(last_update, str):
+        progress = {"fetched": 1, "inserted": 0, "last_update": last_update}
+
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO crawl_runs (source, category, pages, status, started_at, progress)
+            VALUES (%s, 'data-analyst', 1, %s::crawl_status_enum,
+                    now() - make_interval(mins => %s), %s)
+            RETURNING run_id
+            """,
+            (source, status, started_min_ago,
+             json.dumps(progress) if progress is not None else None),
+        )
+        run_id = str(cur.fetchone()[0])
+    pg_conn.commit()
+    return run_id
+
+
+def _status_of(pg_conn, run_id):
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT status::text FROM crawl_runs WHERE run_id = %s", (run_id,))
+        return cur.fetchone()[0]
+
+
+def test_reconcile_stale_runs_uses_last_progress_not_started_at(pg_conn, clean_crawl_runs):
+    from datetime import datetime, timezone
+
+    z_fresh = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")  # dạng 'Z'
+    cases = {
+        # (status, started_min_ago, last_update) -> trạng thái sau khi quét
+        "long_but_progressing": (("running", 300, 1), "running"),
+        "long_progress_z_suffix": (("running", 300, z_fresh), "running"),
+        "silent_after_progress": (("running", 40, 35), "error"),
+        "no_progress_old": (("running", 40, None), "error"),
+        "no_progress_recent": (("running", 5, None), "running"),
+        "garbage_last_update_old": (("running", 300, "không phải ngày"), "error"),
+        "garbage_last_update_recent": (("running", 5, "không phải ngày"), "running"),
+        # queued: so với started_at + ngưỡng timeout (120), không bị ngưỡng 30 phút
+        # của 'running' áp vào (có thể đang xếp hàng chờ GLOBAL_JOB_SEMAPHORE).
+        "queued_waiting_50": (("queued", 50, None), "queued"),
+        "queued_stuck_130": (("queued", 130, None), "error"),
+        "done_untouched": (("done", 500, 400), "done"),
+    }
+    ids = {
+        name: _insert_run(
+            pg_conn, f"wd_{name}", status, started_min_ago=started, last_update=last
+        )
+        for name, ((status, started, last), _) in cases.items()
+    }
+
+    count = db.reconcile_stale_crawl_runs(pg_conn, 120, no_progress_minutes=30)
+
+    for name, (_, expected) in cases.items():
+        assert _status_of(pg_conn, ids[name]) == expected, name
+    assert count == sum(1 for _, exp in cases.values() if exp == "error")
+
+    # dòng bị đánh dấu có finished_at + thông báo lỗi
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            "SELECT error, finished_at FROM crawl_runs WHERE run_id = %s",
+            (ids["silent_after_progress"],),
+        )
+        error, finished_at = cur.fetchone()
+    assert "30 phút" in error and finished_at is not None
+
+
+def test_mark_running_writes_first_heartbeat(pg_conn, clean_crawl_runs):
+    """Run xếp hàng lâu ở 'queued' rồi mới chạy: mark_running() phải ghi
+    heartbeat cùng lúc, nếu không watchdog so với started_at (mốc lúc tạo)
+    sẽ huỷ nhầm ngay lượt quét sau."""
+    run_id = _insert_run(pg_conn, "wd_waited_long", "queued", started_min_ago=100)
+
+    db.mark_crawl_run_running(pg_conn, run_id)
+
+    assert _status_of(pg_conn, run_id) == "running"
+    assert db.reconcile_stale_crawl_runs(pg_conn, 120, no_progress_minutes=30) == 0
+    assert _status_of(pg_conn, run_id) == "running"

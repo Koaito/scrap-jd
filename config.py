@@ -270,13 +270,23 @@ DB_POOL_WAIT_TIMEOUT = float(os.getenv("DB_POOL_WAIT_TIMEOUT", "2.0"))
 # dấu 'error' để giải phóng UNIQUE INDEX idx_crawl_runs_one_active_per_source,
 # tránh 1 nguồn bị "khoá" crawl mãi mãi.
 #
-# CRAWL_STALE_TIMEOUT_MINUTES: ước lượng THỜI GIAN TỐI ĐA 1 lượt crawl
-# hợp lệ có thể chạy, cộng buffer an toàn — worst case max_jobs=1000
-# (giới hạn ở CrawlRequest.max_jobs, xem api/schemas/crawl.py),
-# REQUEST_DELAY_SECONDS=5s/job -> ~1000*5s ≈ 83 phút riêng phần
-# fetch detail, CHƯA kể trang danh sách + enrich company. 120 phút mặc
-# định đã dư buffer so với ước lượng đó — chỉnh qua env nếu sau này
-# max_jobs tối đa đổi khác.
+# Watchdog tính theo 2 ngưỡng (đổi 10/2026, xem db.reconcile_stale_runs):
+#
+# CRAWL_STALE_NO_PROGRESS_MINUTES: lượt 'running' bị coi là treo nếu KHÔNG có
+# tiến độ mới (progress.last_update, ghi sau MỖI job xử lý xong) trong ngần
+# này phút. Khoảng lặng hợp lệ dài nhất là 1 job đơn lẻ: tối đa vài lần
+# fetch (chi tiết + hồ sơ công ty), mỗi lần retry 3 lần backoff
+# delay*2/4/8 — TopCV (delay ~12s) khoảng 3 phút/lần fetch, tức < 10 phút
+# cho cả job. 30 phút là dư buffer. Không phụ thuộc max_jobs/số trang nên
+# crawl dài vẫn chạy được miễn còn có tiến độ (trước đây đo tổng thời gian
+# từ lúc tạo, 120 phút, dễ huỷ nhầm lượt hợp lệ như TopCV max_jobs=1000).
+CRAWL_STALE_NO_PROGRESS_MINUTES = max(1, int(os.getenv("CRAWL_STALE_NO_PROGRESS_MINUTES", "30")))
+
+# CRAWL_STALE_TIMEOUT_MINUTES: giờ CHỈ áp cho lượt 'queued' (chưa chạy, không
+# có heartbeat), tính từ lúc tạo dòng — dùng cho trường hợp background task bị
+# mất trước khi kịp chạy. Phải LỚN hơn thời gian 1 lượt có thể xếp hàng chờ
+# slot trong GLOBAL_JOB_SEMAPHORE (api/concurrency.py) vì job đang giữ slot có
+# thể chạy rất lâu; 120 phút giữ nguyên như trước.
 CRAWL_STALE_TIMEOUT_MINUTES = int(os.getenv("CRAWL_STALE_TIMEOUT_MINUTES", "120"))
 
 # Tần suất watchdog quét bảng crawl_runs — không cần nhanh (đây là lớp

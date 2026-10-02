@@ -2,7 +2,7 @@ import logging
 import random
 import time
 from abc import ABC, abstractmethod
-from typing import Iterator, Optional
+from typing import Callable, Iterator, Optional
 
 from curl_cffi import requests as curl_requests
 
@@ -86,6 +86,46 @@ class BaseAdapter(ABC):
         self._last_request_time: Optional[float] = None
         self._delay_seconds = delay_seconds
         self._jitter_seconds = jitter_seconds
+
+        # Hook "URL này đã có trong DB và không cần vá nữa -> đừng tốn
+        # request fetch trang chi tiết" (đợt 2, 10/2026). Mặc định None =
+        # không bỏ qua gì cả, giữ hành vi cũ cho mọi nguồn/test không đặt
+        # hook. pipeline.run_pipeline() là nơi đặt hook (xem
+        # set_known_url_checker()), adapter nào fetch chi tiết SỚM ngay
+        # trong fetch_jobs() (hiện chỉ CareerViet) thì gọi
+        # _is_known_url() trước khi fetch để khỏi lặp lại request cho job
+        # đã crawl từ các lần trước.
+        self._known_url_checker: Optional[Callable[[str], bool]] = None
+        # Số URL đã bị bỏ qua nhờ hook trên trong lượt chạy này —
+        # pipeline đọc lại cuối lượt để đưa vào stats.
+        self.skipped_known_count: int = 0
+
+    def set_known_url_checker(self, checker: Optional[Callable[[str], bool]]) -> None:
+        """Đặt hàm kiểm tra "URL job này đã có trong DB và KHÔNG cần fetch
+        lại chi tiết" (True = bỏ qua). Truyền None để tắt. Reset bộ đếm
+        skipped_known_count mỗi lần đặt, vì mỗi lượt crawl là 1 lần đặt.
+
+        checker PHẢI trả True CHỈ KHI bỏ qua là an toàn: job đã có đủ
+        work_type/deadline/parsed_content. Job cũ còn thiếu các field đó
+        phải trả False để vẫn đi qua pipeline và được vá như trước (xem
+        pipeline._handle_existing_job)."""
+        self._known_url_checker = checker
+        self.skipped_known_count = 0
+
+    def _is_known_url(self, url: str) -> bool:
+        """True nếu hook đã đặt và báo URL này nên bỏ qua. Lỗi trong hook
+        KHÔNG được làm hỏng lượt crawl: coi như "chưa biết" (False) để
+        quay về hành vi cũ là fetch như bình thường."""
+        if self._known_url_checker is None:
+            return False
+        try:
+            known = bool(self._known_url_checker(url))
+        except Exception:  # noqa: BLE001 - hook lỗi thì fetch như cũ, không dừng crawl
+            logger.exception("known_url_checker lỗi cho %s, bỏ qua hook và fetch bình thường", url)
+            return False
+        if known:
+            self.skipped_known_count += 1
+        return known
 
     @abstractmethod
     def fetch_jobs(self, category_key: str, max_pages: int) -> Iterator[RawJobRecord]:

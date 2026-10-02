@@ -53,6 +53,11 @@ job_id=35C82AC4, fetch 08/2026):
    VỐN DĨ đã gọi fetch_job_full_detail() cho MỌI job mới, nên tổng số
    request KHÔNG đổi, chỉ đổi THỨ TỰ (fetch sớm hơn + cache lại, xem
    _detail_cache bên dưới, giống pattern VietnamWorksAdapter đã dùng).
+   Đợt 2 (10/2026): job đã có trong DB và đã đủ field thì BỎ QUA hẳn, không
+   fetch lại trang chi tiết (qua hook BaseAdapter.set_known_url_checker do
+   pipeline đặt) -> lượt crawl lại cùng category chỉ còn tốn request cho job
+   thật sự mới hoặc job cũ còn thiếu field. Hệ quả: max_jobs giờ đếm theo
+   job KHÔNG bị bỏ qua (trước đây tính cả job đã biết).
 
 3. CẬP NHẬT 08/2026 — đã kiểm chứng thêm bằng dữ liệu/response thật
    (robots.txt + so2.txt trang công ty + so sánh page 1 vs page 2 +
@@ -281,13 +286,26 @@ class CareerVietAdapter(BaseAdapter):
                 break
 
             new_count = 0
+            known_count = 0
             for job_url in new_urls:
                 seen_urls.add(job_url)
+                # Job đã có trong DB (và đã đủ work_type/deadline/nội dung
+                # JD, xem BaseAdapter.set_known_url_checker) thì KHÔNG fetch
+                # lại trang chi tiết: trước đây mỗi lượt crawl tốn 1 request
+                # (~delay 5s) cho MỖI job đã biết rồi pipeline mới bỏ qua nó
+                # ở bước chống trùng. Job cũ còn thiếu field vẫn được yield
+                # như trước để pipeline vá.
+                if self._is_known_url(job_url):
+                    known_count += 1
+                    continue
                 record = self._build_record_from_detail(job_url, matching_industry)
                 if record is not None:
                     new_count += 1
                     yield record
-            logger.info("Trang %d: %d job mới", page, new_count)
+            logger.info(
+                "Trang %d: %d job mới, %d job đã có (bỏ qua, không fetch chi tiết)",
+                page, new_count, known_count,
+            )
 
     def fetch_job_full_detail(self, source_url: str) -> Optional[dict]:
         cached = self._detail_cache.get(source_url)

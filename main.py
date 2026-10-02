@@ -166,7 +166,18 @@ def cmd_crawl(args):
         print(f"Đã vá job cũ (work_type/deadline): {stats.get('updated_existing', 0)}")
         print(f"Bỏ qua (fetch chi tiết thất bại)  : {stats.get('skipped_fetch_failed', 0)}")
         print(f"Bỏ qua (nhà tuyển dụng ẩn danh)   : {stats.get('skipped_anonymous_employer', 0)}")
+        print(f"Bỏ qua (URL đã có, không fetch lại): {stats.get('skipped_known_url', 0)}")
         print(f"Lỗi                  : {stats['errors']}")
+        for group, label in (("listing", "danh sách"), ("detail", "chi tiết JD")):
+            info = (stats.get("field_empty") or {}).get(group)
+            if not info:
+                continue
+            empties = [
+                f"{name}={f['empty']}/{info['total']} ({f['rate']:.0%})"
+                for name, f in info["fields"].items() if f["empty"]
+            ]
+            print(f"Trường rỗng ({label}, {info['total']} record): "
+                  f"{', '.join(empties) if empties else 'không có'}")
         print(f"Tổng job trong DB hiện tại: {db.count_jobs(conn)}")
     finally:
         conn.close()
