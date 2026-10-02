@@ -6,6 +6,7 @@ Ví dụ:
     python main.py crawl --category data-analyst --pages 3
     python main.py crawl --category data-engineer --pages 5
     python main.py crawl --category data-analyst --max-jobs 20
+    python main.py crawl --category data-analyst --max-jobs 5 --no-track   # chạy thử, không ghi lịch sử
     python main.py stats
     python main.py snapshots --source careerviet
     python main.py snapshot-export 12 --out tests/fixture_careerviet_listing.html
@@ -155,6 +156,64 @@ def cmd_crawl(args):
     else:
         effective_pages = DEFAULT_MAX_PAGES
 
+    if getattr(args, "no_track", False):
+        _crawl_untracked(args, source_cfg, effective_pages)
+        return
+
+    # Mặc định (đợt 3.5, 10/2026): chạy qua CÙNG đường với nút "Crawl" trên web
+    # (api/crawl_runner.execute) — có dòng trong crawl_runs, cờ blocked/degraded,
+    # snapshot HTML gốc, log live. Trước đây CLI gọi thẳng run_pipeline() nên
+    # lượt chạy trên máy không để lại dấu vết nào trong DB.
+    from api import crawl_runner
+
+    conn = db.get_connection()
+    try:
+        try:
+            run_id = db.create_crawl_run(
+                conn, source=args.source, category=args.category,
+                pages=effective_pages, max_jobs=args.max_jobs, triggered_by=None,
+            )
+        except db.ActiveCrawlExistsError as exc:
+            print(f"❌ {exc}")
+            print("   (Mỗi nguồn chỉ chạy 1 lượt tại 1 thời điểm — kể cả lượt bấm trên web.)")
+            sys.exit(1)
+        except Exception as exc:  # noqa: BLE001 - vd bảng crawl_runs chưa có (chưa migrate)
+            conn.rollback()
+            print(f"⚠️  Không tạo được dòng theo dõi lượt crawl ({exc}).")
+            print("   Chạy `python main.py migrate` để bật theo dõi. Lượt này chạy KHÔNG ghi lịch sử.")
+            _crawl_untracked(args, source_cfg, effective_pages)
+            return
+
+        try:
+            crawl_runner.execute(run_id)
+        except KeyboardInterrupt:
+            # Ctrl+C: execute() không bắt KeyboardInterrupt nên dòng sẽ kẹt
+            # 'running' tới khi watchdog dọn (30 phút). Đánh dấu lỗi ngay.
+            conn.rollback()
+            db.mark_crawl_run_error(conn, run_id, "Bị dừng thủ công (Ctrl+C) trên máy chạy CLI.")
+            print("\n⛔ Đã dừng thủ công. Lượt crawl được ghi nhận là lỗi trong lịch sử.")
+            sys.exit(130)
+
+        row = db.get_crawl_run(conn, run_id)
+        stats = (row or {}).get("stats") or {}
+        if row and row["status"] == "error":
+            print("\n===== LỖI =====")
+            print(f"❌ {row.get('error')}")
+            if stats.get("blocked"):
+                print(f"Đã crawl {stats.get('fetched', 0)} job, lưu {stats.get('inserted', 0)} "
+                      f"trước khi dừng. (bị chặn)")
+                sys.exit(2)
+            sys.exit(1)
+        _print_crawl_result(conn, args, stats)
+        print(f"(run_id={run_id} — xem trong lịch sử crawl; snapshot: "
+              f"`python main.py snapshots --run-id {run_id}`)")
+    finally:
+        conn.close()
+
+
+def _crawl_untracked(args, source_cfg, effective_pages):
+    """Đường cũ: gọi thẳng run_pipeline(), KHÔNG ghi crawl_runs/snapshot. Dùng
+    khi `--no-track` hoặc bảng crawl_runs chưa có."""
     conn = db.get_connection()
     try:
         adapter = source_cfg["adapter_cls"]()
@@ -171,40 +230,44 @@ def cmd_crawl(args):
             print(f"Đã crawl {partial.get('fetched', 0)} job, lưu {partial.get('inserted', 0)} "
                   f"trước khi dừng.")
             sys.exit(2)
-        print("\n===== KẾT QUẢ =====")
-        if args.max_jobs is not None:
-            print(f"(Giới hạn theo --max-jobs={args.max_jobs})")
-        print(f"Tổng job crawl được : {stats['fetched']}")
-        print(f"Đã lưu vào DB        : {stats['inserted']}")
-        print(f"Bỏ qua (đã tồn tại)  : {stats['skipped_duplicate']}")
-        print(f"Đã vá job cũ (work_type/deadline): {stats.get('updated_existing', 0)}")
-        print(f"Bỏ qua (fetch chi tiết thất bại)  : {stats.get('skipped_fetch_failed', 0)}")
-        print(f"Bỏ qua (nhà tuyển dụng ẩn danh)   : {stats.get('skipped_anonymous_employer', 0)}")
-        print(f"Bỏ qua (URL đã có, không fetch lại): {stats.get('skipped_known_url', 0)}")
-        print(f"Lỗi                  : {stats['errors']}")
-        for group, label in (("listing", "danh sách"), ("detail", "chi tiết JD")):
-            info = (stats.get("field_empty") or {}).get(group)
-            if not info:
-                continue
-            empties = [
-                f"{name}={f['empty']}/{info['total']} ({f['rate']:.0%})"
-                for name, f in info["fields"].items() if f["empty"]
-            ]
-            print(f"Trường rỗng ({label}, {info['total']} record): "
-                  f"{', '.join(empties) if empties else 'không có'}")
-        degraded = (stats.get("degraded") or {}).get("reasons")
-        if degraded:
-            print("⚠️  DEGRADED — dữ liệu lượt này nhiều khả năng sai (selector/cấu trúc "
-                  "trang đổi?):")
-            for reason in degraded:
-                if reason.get("type") == "field_empty":
-                    print(f"   - '{reason['field']}' ({reason['group']}) rỗng "
-                          f"{reason['empty']}/{reason['total']} ({reason['rate']:.0%})")
-                else:
-                    print(f"   - {reason.get('type')}")
-        print(f"Tổng job trong DB hiện tại: {db.count_jobs(conn)}")
+        _print_crawl_result(conn, args, stats)
     finally:
         conn.close()
+
+
+def _print_crawl_result(conn, args, stats):
+    print("\n===== KẾT QUẢ =====")
+    if args.max_jobs is not None:
+        print(f"(Giới hạn theo --max-jobs={args.max_jobs})")
+    print(f"Tổng job crawl được : {stats.get('fetched', 0)}")
+    print(f"Đã lưu vào DB        : {stats.get('inserted', 0)}")
+    print(f"Bỏ qua (đã tồn tại)  : {stats.get('skipped_duplicate', 0)}")
+    print(f"Đã vá job cũ (work_type/deadline): {stats.get('updated_existing', 0)}")
+    print(f"Bỏ qua (fetch chi tiết thất bại)  : {stats.get('skipped_fetch_failed', 0)}")
+    print(f"Bỏ qua (nhà tuyển dụng ẩn danh)   : {stats.get('skipped_anonymous_employer', 0)}")
+    print(f"Bỏ qua (URL đã có, không fetch lại): {stats.get('skipped_known_url', 0)}")
+    print(f"Lỗi                  : {stats.get('errors', 0)}")
+    for group, label in (("listing", "danh sách"), ("detail", "chi tiết JD")):
+        info = (stats.get("field_empty") or {}).get(group)
+        if not info:
+            continue
+        empties = [
+            f"{name}={f['empty']}/{info['total']} ({f['rate']:.0%})"
+            for name, f in info["fields"].items() if f["empty"]
+        ]
+        print(f"Trường rỗng ({label}, {info['total']} record): "
+              f"{', '.join(empties) if empties else 'không có'}")
+    degraded = (stats.get("degraded") or {}).get("reasons")
+    if degraded:
+        print("⚠️  DEGRADED — dữ liệu lượt này nhiều khả năng sai (selector/cấu trúc "
+              "trang đổi?):")
+        for reason in degraded:
+            if reason.get("type") == "field_empty":
+                print(f"   - '{reason['field']}' ({reason['group']}) rỗng "
+                      f"{reason['empty']}/{reason['total']} ({reason['rate']:.0%})")
+            else:
+                print(f"   - {reason.get('type')}")
+    print(f"Tổng job trong DB hiện tại: {db.count_jobs(conn)}")
 
 
 def cmd_snapshots(args):
@@ -287,6 +350,10 @@ def main():
                                "trang. Có thể dùng CÙNG --pages (dừng ở điều kiện "
                                "nào tới trước); nếu chỉ truyền --max-jobs mà không "
                                "truyền --pages, tự động crawl đủ số trang cần thiết.")
+
+    p_crawl.add_argument("--no-track", action="store_true",
+                          help="Không ghi lượt crawl vào lịch sử (crawl_runs) và không lưu "
+                               "snapshot — hành vi cũ, tiện khi chạy thử nhanh.")
 
     sub.add_parser("stats", help="Xem số lượng job hiện có trong DB")
 
