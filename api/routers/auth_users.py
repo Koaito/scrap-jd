@@ -75,6 +75,28 @@ def list_users(
     return db_module.list_users(conn)
 
 
+@router.get("/users/{ss_user_id}", response_model=UserOut)
+def get_user(
+    ss_user_id: str,
+    user: dict = Depends(require_role("ss_team")),
+    conn=Depends(get_db),
+):
+    """Thêm 10/2026 — xem đúng 1 tài khoản, shape GIỐNG HỆT 1 phần tử của
+    GET /auth/users, cùng quyền (ss_team trở lên, ss_team xem được cả
+    admin như ở danh sách). Thay cho việc frontend (trang /staff-activity/
+    [id], /student-activity/[id]) tải cả danh sách rồi lọc theo id — tốn
+    băng thông và chậm dần khi số tài khoản tăng.
+
+    400 USER_SS_USER_ID_INVALID_UUID nếu id sai dạng (cùng mã với
+    /users/{id}/applications), 404 USER_ACCOUNT_NOT_FOUND nếu không có."""
+    if not db_module.is_valid_uuid(ss_user_id):
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.USER_SS_USER_ID_INVALID_UUID, "message": f"ss_user_id '{ss_user_id}' không đúng định dạng UUID.", "params": {"value": ss_user_id}})
+    row = db_module.get_user_summary_by_id(conn, ss_user_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail={"error_code": error_codes.USER_ACCOUNT_NOT_FOUND, "message": "Không tìm thấy tài khoản."})
+    return row
+
+
 @router.get("/users/{ss_user_id}/applications", response_model=list[JobApplicationOut])
 def list_applications_of_user(
     ss_user_id: str,

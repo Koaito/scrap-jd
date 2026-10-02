@@ -98,7 +98,7 @@ bậc, không so khớp đúng 1 chuỗi):
 | Role | Cấp | Được làm |
 |---|---|---|
 | `user` | 0 | Chỉ route `GET` đọc dữ liệu + `/me/*` (ứng tuyển/lưu job của chính mình) — mặc định khi tự đăng ký |
-| `ss_team` | 1 | + `POST`/`PATCH /jobs`, `POST /companies`, CRUD `/companies/{id}/contacts`, `GET /auth/users` |
+| `ss_team` | 1 | + `POST`/`PATCH /jobs`, `POST /companies`, CRUD `/companies/{id}/contacts`, `GET /auth/users`, `GET /auth/users/{id}` |
 | `admin` | 2 | + `POST /crawl`, `POST /auth/users`, `PATCH /auth/users/{id}/role`, `PATCH /auth/users/{id}/active-status` |
 
 Nâng `user` lên `ss_team` phải nhờ admin gọi `PATCH
@@ -208,6 +208,7 @@ ra ngay, không đợi access token 30 phút tự hết hạn).
 | POST | `/auth/change-password` | Tự đổi mật khẩu | API key + JWT |
 | POST | `/auth/users` | Admin tạo hộ tài khoản mới, chọn được role | API key + JWT (admin) |
 | GET | `/auth/users` | Danh sách toàn bộ tài khoản | API key + JWT (ss_team+) |
+| GET | `/auth/users/{id}` | Xem 1 tài khoản (cùng shape 1 phần tử của `GET /auth/users`; 400 nếu id sai dạng UUID, 404 nếu không có) | API key + JWT (ss_team+) |
 | PATCH | `/auth/users/{id}/role` | Đổi role tài khoản khác (không tự đổi role chính mình) | API key + JWT (admin) |
 | PATCH | `/auth/users/{id}/active-status` | Khoá/mở khoá vĩnh viễn tài khoản khác (không tự khoá chính mình) | API key + JWT (admin) |
 

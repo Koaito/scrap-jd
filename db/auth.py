@@ -236,6 +236,15 @@ def revoke_all_refresh_tokens_for_user(conn, ss_user_id: str) -> int:
         return cur.rowcount
 
 
+# Cột trả ra cho màn quản lý user (GET /auth/users và GET /auth/users/{id}).
+# Dùng chung 1 hằng để danh sách và chi tiết LUÔN cùng shape (khớp UserOut)
+# và không bao giờ kéo password_hash ra khỏi DB — thêm cột mới chỉ sửa 1 chỗ.
+USER_SUMMARY_COLUMNS = (
+    "ss_user_id, full_name, email, role, is_active, "
+    "must_change_password, last_login_at, created_at, phone, track"
+)
+
+
 def list_users(conn):
     """Danh sách thành viên team (không lộ password_hash) — ss_team trở
     lên xem được (GET /auth/users, thêm 08/2026), dùng cho trang quản lý
@@ -243,12 +252,18 @@ def list_users(conn):
     migration_add_phone_track.sql) để khớp UserOut mới, không bắt buộc
     frontend phải dùng ngay."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            "SELECT ss_user_id, full_name, email, role, is_active, "
-            "must_change_password, last_login_at, created_at, phone, track "
-            "FROM app_users ORDER BY created_at"
-        )
+        cur.execute(f"SELECT {USER_SUMMARY_COLUMNS} FROM app_users ORDER BY created_at")
         return cur.fetchall()
+
+
+def get_user_summary_by_id(conn, ss_user_id: str):
+    """1 phần tử của list_users() theo ss_user_id (GET /auth/users/{id}, thêm
+    10/2026) — cùng cột USER_SUMMARY_COLUMNS, KHÔNG có password_hash (khác
+    get_user_by_id dùng SELECT *). Trả None nếu không tồn tại. Gọi CHỈ SAU
+    KHI route đã kiểm tra is_valid_uuid."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(f"SELECT {USER_SUMMARY_COLUMNS} FROM app_users WHERE ss_user_id = %s", (ss_user_id,))
+        return cur.fetchone()
 
 
 def update_user_profile(conn, ss_user_id: str, *, full_name: str,

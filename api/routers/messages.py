@@ -245,8 +245,11 @@ def list_pending_requests(
     return db_module.list_pending_requests_for_ss(conn, user["sub"])
 
 
+# Rate limit tính theo TỪNG USER, không theo từng tab (key_func=get_user_id_or_ip).
+# Frontend poll badge mỗi 20s = 3 lần/phút/tab -> 15/phút chịu được ~5 tab mở
+# cùng lúc; trước đây 6/phút chạm trần ngay từ tab thứ 3.
 @router.get("/unread-count", response_model=UnreadCountOut)
-@limiter.limit("6/minute", key_func=get_user_id_or_ip)
+@limiter.limit("15/minute", key_func=get_user_id_or_ip)
 def unread_count(
     request: Request,
     response: Response,
@@ -281,7 +284,7 @@ def search_people(
 def get_history(
     request: Request,
     partner_id: str,
-    before_id: int | None = Query(None),
+    before_id: int | None = Query(None, ge=0, le=db_module.MAX_MESSAGE_ID),
     limit: int = Query(50, ge=1, le=100),
     user: dict = Depends(get_current_user),
     conn=Depends(get_db),
@@ -297,13 +300,15 @@ def get_history(
     return db_module.get_messages_between(conn, user["sub"], partner_id, before_id=before_id, limit=limit)
 
 
+# Frontend poll mỗi 5s = 12 lần/phút/khung chat; 60/phút chịu được ~5 khung
+# chat mở cùng lúc (trước đây 30/phút chạm trần từ khung thứ 3).
 @router.get("/since/{partner_id}", response_model=list[ChatMessageOut])
-@limiter.limit("30/minute", key_func=get_user_id_or_ip)
+@limiter.limit("60/minute", key_func=get_user_id_or_ip)
 def get_new_messages(
     request: Request,
     response: Response,
     partner_id: str,
-    after_id: int = Query(...),
+    after_id: int = Query(..., ge=0, le=db_module.MAX_MESSAGE_ID),
     user: dict = Depends(get_current_user),
     conn=Depends(get_db),
 ):

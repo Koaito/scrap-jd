@@ -962,3 +962,89 @@ def test_valid_uuid_still_reaches_db(mock_conn, student_user, fake_request):
 
         assert result == {"marked_read": 2}
         mock_db.mark_read.assert_called_once_with(mock_conn, student_user["sub"], partner_id)
+
+
+# ==================================================================
+# 11. Rate limit theo cách frontend poll + trần id bigint
+#     (nâng unread-count 6 -> 15/phút, since 30 -> 60/phút vì giới hạn
+#     tính theo USER chứ không theo tab: mở 3 tab là chạm trần cũ.)
+# ==================================================================
+
+def _route_limit_strings(route_fn) -> list[str]:
+    from api.rate_limit import limiter
+
+    key = f"{route_fn.__module__}.{route_fn.__name__}"
+    return [str(item.limit) for item in limiter._route_limits[key]]
+
+
+def test_unread_count_rate_limit_is_15_per_minute():
+    from api.routers.messages import unread_count
+
+    assert _route_limit_strings(unread_count) == ["15 per 1 minute"]
+
+
+def test_since_rate_limit_is_60_per_minute():
+    from api.routers.messages import get_new_messages
+
+    assert _route_limit_strings(get_new_messages) == ["60 per 1 minute"]
+
+
+def test_polling_limits_cover_frontend_poll_rate_for_5_tabs():
+    """Ràng buộc gốc của con số: poll 20s (badge) và 5s (khung chat) x 5 tab
+    phải nằm trong hạn mức. Đổi nhịp poll ở frontend thì phải xem lại đây."""
+    from api.routers.messages import get_new_messages, unread_count
+
+    def per_minute(route_fn) -> int:
+        return int(_route_limit_strings(route_fn)[0].split()[0])
+
+    tabs = 5
+    assert per_minute(unread_count) >= tabs * (60 // 20)
+    assert per_minute(get_new_messages) >= tabs * (60 // 5)
+
+
+def test_message_id_query_params_are_bounded_to_bigint():
+    """before_id/after_id vượt bigint làm Postgres raise NumericValueOutOfRange
+    -> 500. Query(ge=0, le=MAX_MESSAGE_ID) chặn ở tầng validate (422)."""
+    import inspect
+
+    import db
+    from api.routers.messages import get_history, get_new_messages
+
+    assert db.MAX_MESSAGE_ID == 2**63 - 1
+
+    for fn, param in ((get_history, "before_id"), (get_new_messages, "after_id")):
+        meta = inspect.signature(fn).parameters[param].default.metadata
+        bounds = {type(m).__name__: m for m in meta}
+        assert bounds["Ge"].ge == 0
+        assert bounds["Le"].le == db.MAX_MESSAGE_ID
+
+
+def test_message_id_query_params_rejected_by_fastapi_over_bigint():
+    """Đi qua tầng validate THẬT của FastAPI (không gọi hàm trực tiếp): giá
+    trị vượt bigint hoặc âm -> 422, giá trị hợp lệ -> qua được validate."""
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    import db
+    from api.deps import get_current_user, get_db
+    from api.routers.messages import router
+
+    app = FastAPI()
+    app.include_router(router)
+    app.dependency_overrides[get_current_user] = lambda: {"sub": str(uuid.uuid4()), "role": "user", "email": "x@y.z"}
+    app.dependency_overrides[get_db] = lambda: object()
+    client = TestClient(app, raise_server_exceptions=False)
+    partner = str(uuid.uuid4())
+
+    with patch("api.routers.messages.db_module.get_messages_since", return_value=[]), \
+         patch("api.routers.messages.db_module.get_messages_between", return_value=[]):
+        from api.rate_limit import limiter
+        limiter.reset()
+
+        too_big = db.MAX_MESSAGE_ID + 1
+        assert client.get(f"/messages/since/{partner}", params={"after_id": too_big}).status_code == 422
+        assert client.get(f"/messages/since/{partner}", params={"after_id": -1}).status_code == 422
+        assert client.get(f"/messages/with/{partner}", params={"before_id": too_big}).status_code == 422
+        assert client.get(f"/messages/since/{partner}", params={"after_id": db.MAX_MESSAGE_ID}).status_code == 200
+        assert client.get(f"/messages/since/{partner}", params={"after_id": 0}).status_code == 200
+        assert client.get(f"/messages/with/{partner}", params={"before_id": 10}).status_code == 200

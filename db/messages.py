@@ -30,6 +30,14 @@ MAX_PENDING_PER_STUDENT = 3
 # Cooldown trước khi học viên được gửi lại request sau khi bị declined.
 DECLINE_COOLDOWN_DAYS = 7
 
+# Trần của messages.id (BIGSERIAL = bigint có dấu 64-bit). Query param
+# before_id/after_id vượt trần này làm Postgres raise NumericValueOutOfRange
+# (bigint out of range) -> 500 vì api/app.py không bắt lỗi DB. Router dùng hằng
+# này làm `le=` của Query để trả 422 ngay ở tầng validate của FastAPI. Giữ cạnh
+# schema thật của cột (sql/migration_add_chat_messages.sql) để nếu sau này đổi
+# kiểu cột thì chỉ phải sửa đúng 1 chỗ.
+MAX_MESSAGE_ID = 9_223_372_036_854_775_807
+
 
 # ============================================================
 # chat_relationships — state machine
