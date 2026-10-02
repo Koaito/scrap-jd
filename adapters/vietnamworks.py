@@ -96,7 +96,6 @@ from config import (
     VNW_HEADERS,
     VNW_HITS_PER_PAGE,
     VNW_RETRIEVE_FIELDS,
-    REQUEST_DELAY_SECONDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -105,9 +104,9 @@ BASE_URL = "https://www.vietnamworks.com"
 
 # typeWorkingId -> nhãn tiếng Việt KHỚP ĐÚNG key trong normalize._WORK_TYPE_MAP
 # (chữ thường, không dấu câu) -> tái dùng normalize.normalize_work_type()
-# có sẵn, KHÔNG cần sửa normalize.py. Chỉ map số ĐÃ XÁC NHẬN bằng dữ liệu
-# thật (xem "Việc 1" trong cuộc trò chuyện trước) — số khác để trống, để
-# normalize_work_type() tự trả None thay vì đoán sai.
+# có sẵn, KHÔNG cần sửa normalize.py. Chỉ 2 số ĐÃ XÁC NHẬN chắc chắn nằm
+# trong bảng này (1, 3). Số 0/None -> "" và mọi số khác -> "Khác" được xử
+# lý trong _work_type_text_from_id() bên dưới (xem docstring hàm đó).
 _TYPE_WORKING_ID_MAP = {
     1: "Toàn thời gian",
     3: "Thực tập",
@@ -279,17 +278,23 @@ class VietnamWorksAdapter(BaseAdapter):
     # Internal — HTTP. _throttle() dùng chung từ BaseAdapter (xem
     # adapters/base.py). _post_json() bên dưới là phần RIÊNG của
     # VietnamWorks (API JSON, không phải GET-HTML) nên không rút lên
-    # BaseAdapter được — vẫn tận dụng lại _throttle() dùng chung để giữ
-    # đúng 1 nơi kiểm soát nhịp độ request cho cả 2 kiểu (JSON API +
-    # GET-HTML company profile qua _fetch_html() cũng dùng chung).
+    # BaseAdapter được — nhưng PHẢI giữ cùng chính sách retry/backoff với
+    # BaseAdapter._fetch_html() (nếu sửa 1 bên, nhớ sửa bên kia).
     # ------------------------------------------------------------------
     def _post_json(self, url: str, body: dict, max_retries: int = 3) -> Optional[dict]:
+        """POST JSON tới API search — throttle + retry/backoff giống hệt
+        BaseAdapter._fetch_html() (429/403 VÀ lỗi kết nối không có status
+        code như HTTP/2 stream reset/timeout đều được thử lại; backoff
+        theo self._delay_seconds của adapter, không dùng hằng số cứng).
+
+        Trả None khi: hết retry, hoặc response không phải JSON hợp lệ
+        (lỗi JSON không retry — gọi lại cũng ra đúng response đó)."""
         self._throttle()
         for attempt in range(1, max_retries + 1):
             try:
                 resp = self.session.post(url, json=body, timeout=20)
                 if resp.status_code in (429, 403):
-                    wait = REQUEST_DELAY_SECONDS * (2 ** attempt)
+                    wait = self._delay_seconds * (2 ** attempt)
                     logger.warning(
                         "%d tại %s (lần %d/%d) -> chờ %.1fs",
                         resp.status_code, url, attempt, max_retries, wait,
@@ -305,10 +310,19 @@ class VietnamWorksAdapter(BaseAdapter):
                     logger.error("Response không phải JSON hợp lệ tại %s", url)
                     return None
             except requests.exceptions.RequestException as exc:
-                logger.error("Lỗi POST %s: %s", url, exc)
+                # Trước đây trả None ngay ở lần lỗi đầu tiên (bug mà
+                # BaseAdapter._fetch_html() đã sửa cho GET) -> 1 lần
+                # stream reset thoáng qua ở trang đầu bị coi là "bị
+                # chặn". Giờ thử lại như GET.
+                wait = self._delay_seconds * (2 ** attempt)
+                logger.warning(
+                    "Lỗi kết nối POST %s (lần %d/%d): %s -> chờ %.1fs rồi thử lại",
+                    url, attempt, max_retries, exc, wait,
+                )
+                time.sleep(wait)
                 self._last_request_time = time.monotonic()
-                return None
-        logger.error("Bỏ cuộc sau %d lần liên tiếp bị chặn (429/403): %s", max_retries, url)
+                continue
+        logger.error("Bỏ cuộc sau %d lần liên tiếp (429/403/lỗi kết nối): %s", max_retries, url)
         return None
 
     # _fetch_html() (dùng cho trang công ty SSR — GET thường, khác
@@ -320,10 +334,12 @@ class VietnamWorksAdapter(BaseAdapter):
     # ------------------------------------------------------------------
     @staticmethod
     def _extract_job_list(data) -> list:
-        """CHƯA XÁC NHẬN bằng response thật đầy đủ — thử các key phổ biến
-        theo thứ tự khả năng cao nhất, log CẢNH BÁO nếu không khớp key
-        nào (khác với coi im lặng là 'hết job', tránh hiểu nhầm dừng crawl
-        sớm do đoán sai key thay vì thật sự hết trang)."""
+        """Lấy list job từ response search. Vỏ response ĐÃ XÁC NHẬN
+        (08/2026, xem docstring đầu file): {"meta": {...}, "data": [...]}
+        -> key "data" là đường chính. Các key còn lại (hits/results/...)
+        chỉ là lưới an toàn nếu VNW đổi vỏ; log CẢNH BÁO nếu không khớp
+        key nào (khác với coi im lặng là 'hết job', tránh hiểu nhầm dừng
+        crawl sớm do đổi key thay vì thật sự hết trang)."""
         if isinstance(data, list):
             return data
         if isinstance(data, dict):
@@ -334,7 +350,7 @@ class VietnamWorksAdapter(BaseAdapter):
             logger.warning(
                 "Không tìm thấy key danh sách job quen thuộc trong response "
                 "(đã thử: data/hits/results/jobs/items/list). Các key có sẵn: %s. "
-                "CẦN kiểm tra lại response thật để sửa _extract_job_list().",
+                "VNW có thể đã đổi vỏ response -> kiểm tra lại để sửa _extract_job_list().",
                 list(data.keys()),
             )
         return []
@@ -607,9 +623,11 @@ class VietnamWorksAdapter(BaseAdapter):
     def _format_deadline(expired_on) -> str:
         """Trả về text dạng 'dd/mm/yyyy' để tương thích thẳng với
         normalize.normalize_deadline() có sẵn (không sửa normalize.py).
-        CHƯA XÁC NHẬN expiredOn là epoch giây, mili-giây, hay chuỗi ISO ->
-        thử lần lượt, log cảnh báo nếu không parse được thay vì âm thầm
-        trả rỗng (để dev nhận ra cần sửa lại hàm này)."""
+        expiredOn ĐÃ XÁC NHẬN là chuỗi ISO 8601 có timezone, vd
+        "2026-08-13T23:59:59+07:00" (xem docstring đầu file mục 3) ->
+        nhánh chính là "%Y-%m-%dT%H:%M:%S" trên expired_on[:19]. Các nhánh
+        epoch giây/mili-giây/"%Y-%m-%d"/"%d/%m/%Y" giữ lại làm lưới an
+        toàn; log cảnh báo nếu không parse được thay vì âm thầm trả rỗng."""
         if expired_on is None or expired_on == "":
             return ""
         try:

@@ -2,12 +2,18 @@
 Adapter RIÊNG cho CareerViet.vn.
 
 =======================================================================
-TRẠNG THÁI: Phần 1 (Discovery) + Phần 2 (viết code) theo checklist đã
-thống nhất trong phiên chat 08/2026. PHẦN 3 (tích hợp hệ thống chung —
-sửa normalize.py/infer_level, đăng ký adapter trong main.py/routers,
-viết fixture test, cập nhật README) CỐ Ý CHƯA LÀM trong lần này theo
-yêu cầu — file này viết SAO CHO CHẠY ĐƯỢC ĐỘC LẬP với normalize.py hiện
-tại, KHÔNG cần sửa gì ở đó (xem phần "Tương thích ngược" bên dưới).
+TRẠNG THÁI (cập nhật 10/2026): adapter ĐÃ được đăng ký trong
+sources_registry.py (main.py/API/crawl_runner dùng chung), README đã nhắc
+tới CareerViet, và đã có test trong tests/ (test_adapter_careerviet.py,
+test_crawl_blocked.py). Việc sửa thẳng normalize.py để nhận ISO/số tháng
+vẫn CHƯA làm — file này vẫn viết SAO CHO CHẠY ĐƯỢC ĐỘC LẬP với
+normalize.py hiện tại, KHÔNG cần sửa gì ở đó (xem phần "Tương thích
+ngược" bên dưới).
+
+Lưu ý về fixture test: tests/fixture_careerviet_listing.html và
+tests/fixture_careerviet_job_detail.html là fixture TỔNG HỢP, dựng theo
+đúng cấu trúc đã mô tả trong docstring này — chưa phải HTML thật lưu từ
+site. Nên thay bằng view-source thật khi có.
 =======================================================================
 
 Kết luận Discovery (xác nhận qua chat trước + 1 mẫu HTML thật, so1.txt —
@@ -138,7 +144,7 @@ from urllib.parse import urljoin, urlsplit
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 
-from adapters.base import BaseAdapter
+from adapters.base import BaseAdapter, CrawlBlockedError
 from models import RawJobRecord
 from config import CAREERVIET_CATEGORIES, DEFAULT_HEADERS
 
@@ -243,6 +249,21 @@ class CareerVietAdapter(BaseAdapter):
 
             html = self._fetch_html(page_url)
             if html is None:
+                if page == 1:
+                    # Trang ĐẦU TIÊN thất bại sau khi hết retry -> rất có
+                    # thể bị CareerViet chặn (403/429/lỗi kết nối liên
+                    # tục), KHÔNG PHẢI "hết job". Raise thay vì chỉ
+                    # break để api/crawl_runner.py::execute() ghi
+                    # status='error' thay vì 'done' với 0 job — đồng bộ
+                    # với topcv.py/vietnamworks.py, xem docstring
+                    # CrawlBlockedError. Trang sau (page >= 2) thất bại
+                    # vẫn giữ nguyên break như cũ.
+                    raise CrawlBlockedError(
+                        f"Không lấy được HTML trang listing đầu tiên "
+                        f"({page_url}) sau khi hết retry — khả năng bị "
+                        f"CareerViet chặn (403/429/lỗi kết nối liên tục), "
+                        f"không phải hết job."
+                    )
                 logger.warning("Không lấy được HTML trang %d, dừng lại.", page)
                 break
 

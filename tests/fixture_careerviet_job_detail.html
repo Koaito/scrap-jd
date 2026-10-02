@@ -1,0 +1,43 @@
+<!-- FIXTURE TỔNG HỢP: dựng theo cấu trúc đã mô tả trong docstring adapters/careerviet.py
+     (JSON-LD JobPosting + section.job-detail-content + ul.welfare-list + div.map).
+     KHÔNG phải HTML thật lưu từ site. -->
+<html><head>
+<script type="application/ld+json">{"@type":"WebSite","name":"CareerViet"}</script>
+<script type="application/ld+json">
+{
+  "@type": "JobPosting",
+  "title": "Data Engineer",
+  "datePosted": "2026-08-01",
+  "validThrough": "2026-09-05T23:59:00Z",
+  "employmentType": ["\"FULL_TIME\""],
+  "hiringOrganization": {"@type": "Organization", "name": "CÔNG TY CP DƯỢC PHẨM FPT LONG CHÂU", "url": "https://careerviet.vn/vi/nha-tuyen-dung/fpt-long-chau.123.html"},
+  "jobLocation": [{"@type": "Place", "address": {"addressLocality": "Hồ Chí Minh"}}, {"@type": "Place", "address": {"addressLocality": "Hà Nội"}}],
+  "experienceRequirements": {"monthsOfExperience": 36},
+  "baseSalary": {"value": {"minValue": 20000000, "maxValue": 30000000}},
+  "skills": "Python, SQL, Airflow, Python",
+  "description": "<p>Mô tả gộp</p>"
+}
+</script></head>
+<body>
+<section class="job-detail-content">
+  <div class="detail-box has-background">
+    <ul>
+      <li><strong>Lương</strong><p>Cạnh tranh</p></li>
+      <li><strong>Kinh nghiệm</strong><p>3 năm</p></li>
+      <li><strong>Hết hạn nộp</strong><p>05/09/2026</p></li>
+      <li><strong>Ngày cập nhật</strong><p>01/08/2026</p></li>
+    </ul>
+  </div>
+  <div class="detail-box" style="display:none">
+    <ul><li><strong>Lương</strong><p>GIÁ TRỊ KHỐI ẨN (không được ưu tiên)</p></li></ul>
+  </div>
+  <div class="map"><a title="Hồ Chí Minh">Xem bản đồ</a></div>
+  <div class="detail-content">
+    <h2>Mô tả công việc</h2>
+    <div><ul><li>Xây dựng pipeline dữ liệu</li><li>Tối ưu truy vấn SQL</li></ul></div>
+    <h2>Yêu cầu công việc</h2>
+    <div><ul><li>Tốt nghiệp Đại học</li><li>Thành thạo Python</li></ul></div>
+  </div>
+  <ul class="welfare-list"><li>Thưởng tháng 13</li><li>Bảo hiểm sức khoẻ</li></ul>
+</section>
+</body></html>
