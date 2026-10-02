@@ -23,8 +23,8 @@ sql/migration_add_crawl_progress_logs.sql):
     này qua GET /crawl/{run_id} (đã có sẵn field "progress" trong
     response, xem api/schemas/crawl.py::CrawlStatusOut).
   - crawl_run_logs (bảng riêng): từng dòng log kiểu terminal, ghi qua
-    _RunLogHandler (logging.Handler gắn tạm vào root logger trong lúc
-    execute() chạy) — khu "Xem log live" ở /crawl poll GET
+    api/run_log.py::capture_run_logs (logging.Handler gắn tạm vào root logger
+    trong lúc execute() chạy, chỉ nhận log của chính lượt này) — khu "Xem log live" ở /crawl poll GET
     /crawl/{run_id}/logs?after_id=N.
 
 max_jobs (08/2026, khớp với --max-jobs đã có ở CLI): body POST /crawl
@@ -89,7 +89,7 @@ cảnh "lỗi 500 khi nhiều tab poll dồn dập"):
     connection từ pool chung (db.get_pooled_connection()/
     release_connection(), xem api/deps.py:get_db()) thay vì tự mở
     connection Postgres MỚI mỗi lần gọi.
-  - execute()/_execute_one() + _RunLogHandler: CỐ Ý GIỮ NGUYÊN
+  - execute()/_execute_one() + connection ghi log (api/run_log.py): CỐ Ý GIỮ NGUYÊN
     get_connection() độc lập (không qua pool) — giữ connection SUỐT
     quá trình crawl thật (có thể vài phút - vài chục phút). Nếu đổi
     sang pool, mỗi lượt crawl sẽ khoá cứng 1-2 slot pool trong thời
@@ -109,6 +109,7 @@ from pipeline import run_pipeline
 from snapshots import SnapshotRecorder
 from config import DEFAULT_MAX_PAGES, CRAWL_BLOCK_COOLDOWN_MINUTES
 from api.concurrency import GLOBAL_JOB_SEMAPHORE
+from api.run_log import capture_run_logs
 # _SOURCE_ADAPTERS giờ import từ sources_registry.py (nguồn sự thật duy
 # nhất) thay vì tự khai báo lặp lại ở đây — đây CHÍNH LÀ nơi từng gây
 # bug CareerViet "crawl được qua CLI nhưng không hiện trên web" (thiếu
@@ -117,65 +118,6 @@ from api.concurrency import GLOBAL_JOB_SEMAPHORE
 from sources_registry import SOURCE_ADAPTERS as _SOURCE_ADAPTERS
 
 logger = logging.getLogger(__name__)
-
-
-class _RunLogHandler(logging.Handler):
-    """logging.Handler tạm thời, gắn vào ROOT logger đúng lúc execute()
-    bắt đầu chạy pipeline thật và GỠ RA ngay khi xong (finally) — nhờ
-    vậy bắt được TOÀN BỘ log do pipeline.py, adapters/topcv.py,
-    adapters/vietnamworks.py phát ra qua logger chuẩn
-    (logging.getLogger(__name__) ở từng file) trong đúng khoảng thời
-    gian lượt crawl này chạy, mà KHÔNG cần sửa từng file logger.info()
-    rải rác thành 2 lời gọi (1 cái cũ + 1 cái ghi DB).
-
-    Gắn ở ROOT (không phải 1 logger cụ thể) vì pipeline.py/adapters/*.py
-    mỗi file có 1 logger riêng theo tên module — bắt ở root là cách duy
-    nhất tóm được hết mà không cần liệt kê tên từng module.
-
-    Rủi ro: nếu server chạy NHIỀU crawl cùng lúc (2 nguồn TopCV +
-    VietnamWorks chạy song song, đúng use case thật của trang /crawl),
-    2 handler cùng gắn vào root cùng lúc — MỖI handler tự lọc bằng cách
-    chỉ nhận log record nào có run_id khớp (gắn kèm run_id vào LogRecord
-    qua logging.LoggerAdapter ở nơi gọi... nhưng pipeline.py/adapters
-    dùng logger thường, không phải LoggerAdapter, nên KHÔNG có run_id
-    trong record để lọc).
-
-    -> Chấp nhận: khi 2 lượt crawl chạy song song, log của cả 2 sẽ được
-    ghi lẫn vào CẢ HAI run's log (mỗi handler ghi mọi record nó nhận
-    được, kể cả record phát sinh từ lượt crawl kia). Đây là đánh đổi
-    chấp nhận được cho use case xem log kiểu "console" (người xem tự
-    phân biệt qua nội dung dòng log, vd có tên nguồn TopCV/VietnamWorks
-    trong message) — KHÔNG dùng bảng crawl_run_logs này cho mục đích cần
-    tách bạch tuyệt đối theo run_id (vd audit). Nếu sau này cần tách
-    tuyệt đối, đổi pipeline.py/adapters/*.py sang dùng
-    logging.LoggerAdapter(extra={"run_id": ...}) truyền run_id thật vào
-    LogRecord, rồi lọc record.run_id != self.run_id ở đây."""
-
-    def __init__(self, run_id: str):
-        super().__init__(level=logging.INFO)
-        self.run_id = run_id
-        # Mở connection RIÊNG cho việc ghi log (không dùng chung conn với
-        # execute()/run_pipeline() — record log có thể tới bất kỳ lúc nào
-        # giữa các câu lệnh SQL khác của run_pipeline(), dùng chung conn
-        # sẽ làm rối transaction đang dang dở của nó). CỐ Ý không qua
-        # pool — cùng lý do "sống suốt job nền dài" nêu ở mục CONNECTION
-        # POOL trong docstring module đầu file.
-        self._conn = db_module.get_connection()
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            db_module.append_crawl_run_log(
-                self._conn, self.run_id, record.levelname, self.format(record),
-            )
-        except Exception:  # noqa: BLE001 - lỗi ghi log KHÔNG được làm crawl thật bị dừng
-            pass
-
-    def close(self) -> None:
-        try:
-            self._conn.close()
-        except Exception:  # noqa: BLE001
-            pass
-        super().close()
 
 
 def get_run(run_id: str) -> Optional[dict]:
@@ -464,66 +406,67 @@ def _execute_one(run_id: str) -> Optional[str]:
         else:
             db_module.mark_crawl_run_running(conn, run_id)
 
-            log_handler = _RunLogHandler(run_id)
-            root_logger = logging.getLogger()
-            root_logger.addHandler(log_handler)
+            # Log live của lượt này (xem api/run_log.py): chỉ nhận log phát ra
+            # từ chính lượt này, không lẫn với lượt chạy song song khác.
+            with capture_run_logs(
+                run_id,
+                open_connection=db_module.get_connection,
+                append_log=db_module.append_crawl_run_log,
+            ):
+                # Throttle ghi progress xuống DB tối đa 1 lần/giây — on_progress
+                # trong pipeline.py gọi lại SAU MỖI JOB (có thể hàng chục
+                # job/giây với trang ít lỗi mạng), ghi DB mỗi lần sẽ tốn round
+                # -trip vô ích và làm chậm crawl thật không cần thiết. Progress
+                # dùng để NGƯỜI XEM theo dõi bằng mắt + watchdog phát hiện
+                # "treo lâu" (phút, không phải giây) nên 1 lần/giây là đủ mịn.
+                _last_write = {"t": 0.0}
 
-            # Throttle ghi progress xuống DB tối đa 1 lần/giây — on_progress
-            # trong pipeline.py gọi lại SAU MỖI JOB (có thể hàng chục
-            # job/giây với trang ít lỗi mạng), ghi DB mỗi lần sẽ tốn round
-            # -trip vô ích và làm chậm crawl thật không cần thiết. Progress
-            # dùng để NGƯỜI XEM theo dõi bằng mắt + watchdog phát hiện
-            # "treo lâu" (phút, không phải giây) nên 1 lần/giây là đủ mịn.
-            _last_write = {"t": 0.0}
+                def _on_progress(p: dict) -> None:
+                    now = time.monotonic()
+                    if now - _last_write["t"] < 1.0:
+                        return
+                    _last_write["t"] = now
+                    db_module.update_crawl_run_progress(conn, run_id, {
+                        "fetched": p["fetched"],
+                        "inserted": p["inserted"],
+                        "last_update": datetime.now(timezone.utc).isoformat(),
+                    })
 
-            def _on_progress(p: dict) -> None:
-                now = time.monotonic()
-                if now - _last_write["t"] < 1.0:
-                    return
-                _last_write["t"] = now
-                db_module.update_crawl_run_progress(conn, run_id, {
-                    "fetched": p["fetched"],
-                    "inserted": p["inserted"],
-                    "last_update": datetime.now(timezone.utc).isoformat(),
-                })
-
-            recorder = SnapshotRecorder()
-            try:
-                adapter = adapter_cls()
-                adapter.set_snapshot_recorder(recorder)
-                _warn_if_recently_blocked(conn, run["source"])
-                stats = run_pipeline(
-                    adapter, conn, run["category"], run["pages"],
-                    max_jobs=run.get("max_jobs"), on_progress=_on_progress,
-                )
-                # Ghi progress LẦN CUỐI không qua throttle — đảm bảo con số
-                # hiển thị cuối cùng khớp đúng stats thật trả về, không kẹt
-                # lại ở giá trị của lần throttle gần nhất (có thể cũ hơn tới
-                # gần 1 giây so với thực tế).
-                db_module.update_crawl_run_progress(conn, run_id, {
-                    "fetched": stats["fetched"],
-                    "inserted": stats["inserted"],
-                    "last_update": datetime.now(timezone.utc).isoformat(),
-                })
-                db_module.mark_crawl_run_done(conn, run_id, stats)
-            except CrawlBlockedError as exc:
-                # Bị chặn: giữ stats tạm (số job đã lưu...) + cờ blocked để
-                # UI/get_recent_blocked_crawl_run phân biệt với lỗi thường.
-                blocked = True
-                partial = dict(exc.stats) if exc.stats else {}
-                partial["blocked"] = True
-                logger.error("Crawl run %s bị chặn, dừng lượt: %s", run_id, exc)
-                db_module.mark_crawl_run_error(conn, run_id, str(exc), stats=partial)
-            except Exception as exc:  # noqa: BLE001 - ghi lại lỗi vào run, không làm chết background task
-                logger.error("Crawl run %s lỗi: %s", run_id, exc)
-                db_module.mark_crawl_run_error(conn, run_id, str(exc))
-            finally:
-                # Lưu snapshot TRƯỚC khi gỡ handler để dòng log "Đã lưu N
-                # snapshot" còn hiện ở log live; chạy cả khi lượt lỗi/bị
-                # chặn vì đó là lúc cần HTML gốc nhất.
-                _save_run_snapshots(conn, run_id, run["source"], recorder)
-                root_logger.removeHandler(log_handler)
-                log_handler.close()
+                recorder = SnapshotRecorder()
+                try:
+                    adapter = adapter_cls()
+                    adapter.set_snapshot_recorder(recorder)
+                    _warn_if_recently_blocked(conn, run["source"])
+                    stats = run_pipeline(
+                        adapter, conn, run["category"], run["pages"],
+                        max_jobs=run.get("max_jobs"), on_progress=_on_progress,
+                    )
+                    # Ghi progress LẦN CUỐI không qua throttle — đảm bảo con số
+                    # hiển thị cuối cùng khớp đúng stats thật trả về, không kẹt
+                    # lại ở giá trị của lần throttle gần nhất (có thể cũ hơn tới
+                    # gần 1 giây so với thực tế).
+                    db_module.update_crawl_run_progress(conn, run_id, {
+                        "fetched": stats["fetched"],
+                        "inserted": stats["inserted"],
+                        "last_update": datetime.now(timezone.utc).isoformat(),
+                    })
+                    db_module.mark_crawl_run_done(conn, run_id, stats)
+                except CrawlBlockedError as exc:
+                    # Bị chặn: giữ stats tạm (số job đã lưu...) + cờ blocked để
+                    # UI/get_recent_blocked_crawl_run phân biệt với lỗi thường.
+                    blocked = True
+                    partial = dict(exc.stats) if exc.stats else {}
+                    partial["blocked"] = True
+                    logger.error("Crawl run %s bị chặn, dừng lượt: %s", run_id, exc)
+                    db_module.mark_crawl_run_error(conn, run_id, str(exc), stats=partial)
+                except Exception as exc:  # noqa: BLE001 - ghi lại lỗi vào run, không làm chết background task
+                    logger.error("Crawl run %s lỗi: %s", run_id, exc)
+                    db_module.mark_crawl_run_error(conn, run_id, str(exc))
+                finally:
+                    # Lưu snapshot TRƯỚC khi gỡ handler để dòng log "Đã lưu N
+                    # snapshot" còn hiện ở log live; chạy cả khi lượt lỗi/bị
+                    # chặn vì đó là lúc cần HTML gốc nhất.
+                    _save_run_snapshots(conn, run_id, run["source"], recorder)
 
         # 08/2026 (xem docstring execute() ở trên) — run vừa xong (done
         # HOẶC error, kể cả nhánh "source không tồn tại" phía trên đều

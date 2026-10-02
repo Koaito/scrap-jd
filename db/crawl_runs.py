@@ -110,7 +110,7 @@ def update_progress(conn, run_id: str, progress: dict) -> None:
 
 def append_log(conn, run_id: str, level: str, message: str) -> None:
     """Thêm 1 dòng log live cho run_id — gọi từ logging.Handler gắn tạm
-    thời trong execute() (xem api/crawl_runner.py::_RunLogHandler), bắt
+    thời trong execute() (xem api/run_log.py::capture_run_logs), bắt
     MỌI log do pipeline.py/adapters/*.py phát ra qua logger chuẩn
     (logging.getLogger(__name__)) trong lúc lượt crawl này đang chạy —
     không cần sửa từng file logger.info() rải rác thành 2 lời gọi.

@@ -149,8 +149,7 @@ class PaginatedCrawlBatches(BaseModel):
 
 # ------------------------------------------------------------------
 # Log live — GET /crawl/{run_id}/logs (08/2026, xem docstring
-# sql/migration_add_crawl_progress_logs.sql và api/crawl_runner.py::
-# _RunLogHandler)
+# sql/migration_add_crawl_progress_logs.sql và api/run_log.py)
 # ------------------------------------------------------------------
 
 class CrawlLogOut(BaseModel):

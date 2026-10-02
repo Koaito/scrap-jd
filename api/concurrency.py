@@ -17,7 +17,7 @@ vượt giới hạn Supabase.
 
 VÌ SAO GLOBAL_JOB_LIMIT mặc định = 2: mỗi job nền đang chạy giữ 2
 connection Postgres NGOÀI POOL cùng lúc — 1 cho execute()/_execute_one()
-(chạy job thật), 1 riêng cho _RunLogHandler (ghi log live) — cả 2 CỐ Ý
+(chạy job thật), 1 riêng cho api/run_log.py (ghi log live) — cả 2 CỐ Ý
 dùng db.get_connection() (không qua pool, xem docstring db/connection.py
 và mục CONNECTION POOL ở đầu api/maintenance_runner.py +
 api/crawl_runner.py). Vậy tối đa 2 job * 2 connection = 4 connection

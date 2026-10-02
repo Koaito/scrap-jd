@@ -32,7 +32,7 @@ xem lịch sử trao đổi "lỗi 500 khi chạy Tìm Facebook/LinkedIn"):
     (đặc biệt tier free) khi nhiều polling loop bắn gần như đồng
     thời -> lỗi 500 (không phải JSON, rơi thẳng qua FastAPI/Starlette
     default handler vì lỗi không được try/except ở đây).
-  - execute() + _RunLogHandler: CỐ Ý GIỮ NGUYÊN get_connection() độc
+  - execute() + connection ghi log (api/run_log.py): CỐ Ý GIỮ NGUYÊN get_connection() độc
     lập (không qua pool) — 2 hàm này giữ connection SUỐT quá trình
     chạy job nền (có thể vài phút với get_fb_linkedin/enrich_*, hàng
     trăm công ty). Nếu đổi sang pool, mỗi lượt bấm chạy job sẽ khoá
@@ -67,6 +67,7 @@ from typing import Optional
 import db as db_module
 
 from api.concurrency import GLOBAL_JOB_SEMAPHORE
+from api.run_log import capture_run_logs
 
 import backfill_company_profiles
 import enrich_company_profile_from_website
@@ -87,38 +88,6 @@ _JOB_RUNNERS = {
     "get_fb_linkedin": get_company_fb_linkedin_link.run,
     "check_expired_jobs": check_expired_source_jobs.run,
 }
-
-
-class _RunLogHandler(logging.Handler):
-    """Đối xứng api.crawl_runner._RunLogHandler — cùng cách gắn tạm vào
-    ROOT logger trong lúc execute() chạy, cùng đánh đổi CHẤP NHẬN ĐƯỢC
-    khi 2 job_type chạy song song (log lẫn vào cả 2 run's log, xem
-    docstring gốc ở crawl_runner.py để biết đầy đủ lý do).
-
-    CỐ Ý dùng get_connection() (KHÔNG qua pool) — cùng lý do với
-    execute(): handler này sống suốt thời gian job chạy, ghi log liên
-    tục, không phải traffic ngắn hạn phù hợp cho pool. Xem docstring
-    module ở đầu file (mục CONNECTION POOL)."""
-
-    def __init__(self, run_id: str):
-        super().__init__(level=logging.INFO)
-        self.run_id = run_id
-        self._conn = db_module.get_connection()
-
-    def emit(self, record: logging.LogRecord) -> None:
-        try:
-            db_module.append_maintenance_run_log(
-                self._conn, self.run_id, record.levelname, self.format(record),
-            )
-        except Exception:  # noqa: BLE001 - lỗi ghi log KHÔNG được làm job thật bị dừng
-            pass
-
-    def close(self) -> None:
-        try:
-            self._conn.close()
-        except Exception:  # noqa: BLE001
-            pass
-        super().close()
 
 
 def get_run(run_id: str) -> Optional[dict]:
@@ -255,19 +224,19 @@ def _execute_locked(run_id: str) -> None:
 
         db_module.mark_maintenance_run_running(conn, run_id)
 
-        log_handler = _RunLogHandler(run_id)
-        root_logger = logging.getLogger()
-        root_logger.addHandler(log_handler)
-
-        try:
-            params = run["params"] or {}
-            stats = run_func(**params)
-            db_module.mark_maintenance_run_done(conn, run_id, stats)
-        except Exception as exc:  # noqa: BLE001 - ghi lại lỗi vào run, không làm chết background task
-            logger.error("Maintenance run %s (%s) lỗi: %s", run_id, run["job_type"], exc)
-            db_module.mark_maintenance_run_error(conn, run_id, str(exc))
-        finally:
-            root_logger.removeHandler(log_handler)
-            log_handler.close()
+        # Log live của lượt này (xem api/run_log.py): chỉ nhận log phát ra từ
+        # chính lượt này, không lẫn với lượt chạy song song khác.
+        with capture_run_logs(
+            run_id,
+            open_connection=db_module.get_connection,
+            append_log=db_module.append_maintenance_run_log,
+        ):
+            try:
+                params = run["params"] or {}
+                stats = run_func(**params)
+                db_module.mark_maintenance_run_done(conn, run_id, stats)
+            except Exception as exc:  # noqa: BLE001 - ghi lại lỗi vào run, không làm chết background task
+                logger.error("Maintenance run %s (%s) lỗi: %s", run_id, run["job_type"], exc)
+                db_module.mark_maintenance_run_error(conn, run_id, str(exc))
     finally:
         conn.close()

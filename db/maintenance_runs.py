@@ -71,7 +71,7 @@ def create_run(conn, *, job_type: str, params: dict,
 
 def append_log(conn, run_id: str, level: str, message: str) -> None:
     """Thêm 1 dòng log live cho run_id — gọi từ logging.Handler gắn tạm
-    thời trong execute() (xem api/maintenance_runner.py::_RunLogHandler),
+    thời trong execute() (xem api/run_log.py::capture_run_logs),
     đối xứng db.crawl_runs.append_log()."""
     with conn.cursor() as cur:
         cur.execute(
