@@ -1,10 +1,16 @@
 """
 api/storage.py — Module upload, tạo signed URL và xóa file PDF trên Supabase Storage
-Sử dụng Supabase Storage REST API qua HTTP requests (nhẹ, không cần cài thêm SDK).
+Sử dụng Supabase Storage REST API qua HTTP (nhẹ, không cần cài thêm SDK).
+
+Dùng curl_cffi — cùng thư viện HTTP với các adapter crawl, nên cả repo chỉ
+cần một thư viện HTTP duy nhất. Không dùng impersonate vì đây là gọi API
+của chính mình, không phải vượt WAF.
 """
 import logging
 from typing import Optional
-import requests
+
+from curl_cffi import requests as curl_requests
+
 from config import SUPABASE_CV_BUCKET, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 
 logger = logging.getLogger(__name__)
@@ -34,16 +40,23 @@ def upload_cv(file_bytes: bytes, user_id: str, application_id: str) -> str:
     object_path = f"{user_id}/{application_id}.pdf"
     url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_CV_BUCKET}/{object_path}"
 
-    res = requests.post(
-        url,
-        headers={
-            **_headers(),
-            "Content-Type": "application/pdf",
-            "x-upsert": "true",
-        },
-        data=file_bytes,
-        timeout=_TIMEOUT,
-    )
+    # Lỗi mạng/timeout phải thành RuntimeError: api/routers/me.py chỉ bắt
+    # RuntimeError quanh upload_cv (trả PROFILE_CV_UPLOAD_FAILED + rollback).
+    # Để exception của thư viện HTTP lọt ra thì thành 500 không có error_code.
+    try:
+        res = curl_requests.post(
+            url,
+            headers={
+                **_headers(),
+                "Content-Type": "application/pdf",
+                "x-upsert": "true",
+            },
+            data=file_bytes,
+            timeout=_TIMEOUT,
+        )
+    except Exception as exc:  # noqa: BLE001 - mọi lỗi HTTP/mạng đều gói lại
+        logger.error("Supabase Storage upload lỗi kết nối: %s", exc)
+        raise RuntimeError("Không kết nối được tới storage, vui lòng thử lại") from exc
 
     if res.status_code not in (200, 201):
         logger.error(
@@ -70,7 +83,7 @@ def get_signed_url(cv_path: str, expires_in: int = 3600) -> Optional[str]:
     url = f"{SUPABASE_URL}/storage/v1/object/sign/{bucket}/{object_path}"
 
     try:
-        res = requests.post(
+        res = curl_requests.post(
             url,
             headers={**_headers(), "Content-Type": "application/json"},
             json={"expiresIn": expires_in},
@@ -107,7 +120,7 @@ def delete_cv(cv_path: str) -> None:
     url = f"{SUPABASE_URL}/storage/v1/object/{bucket}"
 
     try:
-        requests.delete(
+        curl_requests.delete(
             url,
             headers={**_headers(), "Content-Type": "application/json"},
             json={"prefixes": [object_path]},
