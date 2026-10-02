@@ -801,3 +801,164 @@ def test_cancel_then_resend_no_cooldown(mock_conn, student_user, fake_request):
 #   giây — cần TestClient thật hoặc chạy uvicorn + gọi HTTP thật,
 #   không phải gọi hàm Python trực tiếp như file này.
 # ==================================================================
+
+
+# ==================================================================
+# 9. GET /messages/conversations/{partner_id} — MESSAGE_PARTNER_NOT_FOUND
+#    (trước đây hằng này KHÔNG có trong api/error_codes.py nên nhánh 404
+#    ném AttributeError -> API trả 500; không test nào chạm route này
+#    nên lỗi lọt qua.)
+# ==================================================================
+
+def test_get_conversation_partner_not_found_404(mock_conn, student_user, fake_request):
+    from api import error_codes
+
+    partner_id = str(uuid.uuid4())
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.is_valid_uuid.return_value = True
+        mock_db.get_conversation_with.return_value = None
+
+        from api.routers.messages import get_conversation
+
+        with pytest.raises(HTTPException) as exc_info:
+            get_conversation(request=fake_request, partner_id=partner_id, user=student_user, conn=mock_conn)
+
+        assert exc_info.value.status_code == 404
+        assert exc_info.value.detail["error_code"] == error_codes.MESSAGE_PARTNER_NOT_FOUND
+        # Next.js so khớp đúng chuỗi này — không được đổi giá trị.
+        assert exc_info.value.detail["error_code"] == "message_partner_not_found"
+
+
+def test_get_conversation_existing_partner_200(mock_conn, ss_user, fake_request):
+    partner_id = str(uuid.uuid4())
+    row = {
+        "partner_id": partner_id,
+        "partner_name": "Học Viên A",
+        "partner_role": "user",
+        "last_message_preview": None,
+        "last_message_at": None,
+        "unread_count": 0,
+        "relationship_status": None,
+        "relationship_id": None,
+    }
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.is_valid_uuid.return_value = True
+        mock_db.get_conversation_with.return_value = row
+
+        from api.routers.messages import get_conversation
+
+        result = get_conversation(request=fake_request, partner_id=partner_id, user=ss_user, conn=mock_conn)
+
+        assert result == row
+        mock_db.get_conversation_with.assert_called_once_with(mock_conn, ss_user["sub"], True, partner_id)
+
+
+def test_get_conversation_invalid_uuid_400(mock_conn, student_user, fake_request):
+    from api import error_codes
+
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.is_valid_uuid.return_value = False
+
+        from api.routers.messages import get_conversation
+
+        with pytest.raises(HTTPException) as exc_info:
+            get_conversation(request=fake_request, partner_id="abc", user=student_user, conn=mock_conn)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["error_code"] == error_codes.MESSAGE_INVALID
+        mock_db.get_conversation_with.assert_not_called()
+
+
+def test_every_error_code_used_by_messages_router_is_defined():
+    """Chặn lặp lại lỗi MESSAGE_PARTNER_NOT_FOUND: quét mã nguồn router,
+    mọi `error_codes.X` được dùng phải tồn tại trong api/error_codes.py
+    (nếu thiếu thì chỉ lộ ra lúc runtime, ở đúng nhánh lỗi hiếm gặp)."""
+    import inspect
+    import re
+
+    from api import error_codes
+    from api.routers import messages as messages_router
+
+    used = set(re.findall(r"error_codes\.([A-Z0-9_]+)", inspect.getsource(messages_router)))
+    assert used, "không tìm thấy error_codes nào trong router — regex hỏng?"
+    missing = sorted(name for name in used if not hasattr(error_codes, name))
+    assert missing == []
+
+
+# ==================================================================
+# 10. Validate UUID ở mọi route nhận id trên path / body — id sai dạng
+#     phải ra 400 MESSAGE_INVALID TRƯỚC KHI chạm DB (nếu không psycopg2
+#     raise InvalidTextRepresentation -> 500).
+# ==================================================================
+
+def _call_with_invalid_id(route_name, user, conn, request):
+    """Gọi route `route_name` với id sai dạng; trả (hàm db đã bị gọi?)."""
+    import api.routers.messages as m
+
+    bad = "abc"
+    if route_name == "send_message":
+        return m.send_message(request=request, payload=MessageCreate(receiver_id=bad, content="hi"), user=user, conn=conn)
+    if route_name == "get_history":
+        return m.get_history(request=request, partner_id=bad, before_id=None, limit=50, user=user, conn=conn)
+    if route_name == "get_new_messages":
+        from fastapi import Response
+        return m.get_new_messages(request=request, response=Response(), partner_id=bad, after_id=0, user=user, conn=conn)
+    if route_name == "mark_read":
+        return m.mark_read(request=request, partner_id=bad, user=user, conn=conn)
+    if route_name == "cancel_my_pending_request":
+        return m.cancel_my_pending_request(request=request, ss_id=bad, user=user, conn=conn)
+    if route_name == "block_student":
+        return m.block_student(request=request, student_id=bad, user=user, conn=conn)
+    # accept_request / decline_request / block_by_relationship / unblock_request
+    return getattr(m, route_name)(request=request, relationship_id=bad, user=user, conn=conn)
+
+
+_INVALID_UUID_ROUTES = [
+    # (tên route, fixture user hợp lệ về role, các hàm db KHÔNG được gọi)
+    ("send_message", "student_user", ["get_user_by_id", "insert_message"]),
+    ("get_history", "student_user", ["get_messages_between"]),
+    ("get_new_messages", "student_user", ["get_messages_since"]),
+    ("mark_read", "student_user", ["mark_read"]),
+    ("cancel_my_pending_request", "student_user", ["get_relationship", "cancel_pending_request"]),
+    ("accept_request", "ss_user", ["accept_relationship"]),
+    ("decline_request", "ss_user", ["decline_relationship"]),
+    ("block_by_relationship", "ss_user", ["block_relationship"]),
+    ("unblock_request", "ss_user", ["unblock_relationship"]),
+    ("block_student", "ss_user", ["get_user_by_id", "block_student_by_ss"]),
+]
+
+
+@pytest.mark.parametrize("route_name,user_fixture,forbidden_db_calls", _INVALID_UUID_ROUTES)
+def test_invalid_uuid_returns_400_before_touching_db(
+    route_name, user_fixture, forbidden_db_calls, mock_conn, fake_request, request
+):
+    from api import error_codes
+
+    user = request.getfixturevalue(user_fixture)
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.is_valid_uuid.return_value = False
+
+        with pytest.raises(HTTPException) as exc_info:
+            _call_with_invalid_id(route_name, user, mock_conn, fake_request)
+
+        assert exc_info.value.status_code == 400
+        assert exc_info.value.detail["error_code"] == error_codes.MESSAGE_INVALID
+        for fn in forbidden_db_calls:
+            getattr(mock_db, fn).assert_not_called()
+        mock_conn.commit.assert_not_called()
+
+
+def test_valid_uuid_still_reaches_db(mock_conn, student_user, fake_request):
+    """Đối chứng: id đúng dạng thì validate không cản đường — route vẫn
+    chạy xuống tầng DB như cũ."""
+    partner_id = str(uuid.uuid4())
+    with patch("api.routers.messages.db_module") as mock_db:
+        mock_db.is_valid_uuid.return_value = True
+        mock_db.mark_read.return_value = 2
+
+        from api.routers.messages import mark_read
+
+        result = mark_read(request=fake_request, partner_id=partner_id, user=student_user, conn=mock_conn)
+
+        assert result == {"marked_read": 2}
+        mock_db.mark_read.assert_called_once_with(mock_conn, student_user["sub"], partner_id)

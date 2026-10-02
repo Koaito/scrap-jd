@@ -43,6 +43,23 @@ def _is_ss(role: str) -> bool:
     return role in ("ss_team", "admin")
 
 
+def _require_valid_uuid(value: str, label: str) -> None:
+    """400 MESSAGE_INVALID nếu `value` không đúng định dạng UUID.
+
+    Mọi cột id đi vào query của router này (ss_user_id, chat_relationships.id,
+    messages.sender_id/receiver_id) đều là kiểu UUID trong Postgres — truyền
+    chuỗi sai dạng (vd "abc") thẳng vào query làm psycopg2 raise
+    InvalidTextRepresentation, api/app.py không có handler bắt lỗi này nên
+    thành 500 mù mờ. Check ở đầu route để trả 400 rõ ràng, cùng error_code
+    với route GET /conversations/{partner_id} (xem is_valid_uuid ở
+    db/connection.py)."""
+    if not db_module.is_valid_uuid(value):
+        raise HTTPException(
+            status_code=400,
+            detail={"error_code": error_codes.MESSAGE_INVALID, "message": f"{label} không hợp lệ."},
+        )
+
+
 def _resolve_student_ss_pair(sender_id: str, sender_role: str, receiver_id: str, receiver_role: str):
     """Suy ra (student_id, ss_id) từ 1 cặp gửi/nhận theo role thật —
     dùng ở mọi chỗ cần tra/tạo chat_relationships. Trả None nếu cặp
@@ -97,6 +114,8 @@ def send_message(
 
     if payload.receiver_id == sender_id:
         raise HTTPException(status_code=400, detail={"error_code": error_codes.MESSAGE_FORBIDDEN, "message": "Không thể tự nhắn tin cho chính mình."})
+
+    _require_valid_uuid(payload.receiver_id, "receiver_id")
 
     receiver = db_module.get_user_by_id(conn, payload.receiver_id)
     if receiver is None:
@@ -274,6 +293,7 @@ def get_history(
     không nhận user_id thứ 2 từ đâu khác ngoài current_user)."""
     if partner_id == user["sub"]:
         raise HTTPException(status_code=400, detail={"error_code": error_codes.MESSAGE_INVALID, "message": "partner_id không hợp lệ."})
+    _require_valid_uuid(partner_id, "partner_id")
     return db_module.get_messages_between(conn, user["sub"], partner_id, before_id=before_id, limit=limit)
 
 
@@ -296,6 +316,7 @@ def get_new_messages(
     đổi hẳn sang JSONResponse thủ công, giữ nguyên response_model và
     shape response cũ."""
     response.headers["Cache-Control"] = "no-store"
+    _require_valid_uuid(partner_id, "partner_id")
     return db_module.get_messages_since(conn, user["sub"], partner_id, after_id)
 
 
@@ -307,6 +328,7 @@ def mark_read(
     user: dict = Depends(get_current_user),
     conn=Depends(get_db),
 ):
+    _require_valid_uuid(partner_id, "partner_id")
     updated = db_module.mark_read(conn, user["sub"], partner_id)
     conn.commit()
     return {"marked_read": updated}
@@ -339,6 +361,8 @@ def cancel_my_pending_request(
     xoá), KHÔNG dùng để query lại relationship này sau đó."""
     if user["role"] != "user":
         raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_ONLY_STUDENT_CAN_CANCEL_REQUEST, "message": "Chỉ học viên mới có thể huỷ yêu cầu nhắn tin của mình."})
+
+    _require_valid_uuid(ss_id, "ss_id")
 
     relationship = db_module.get_relationship(conn, user["sub"], ss_id)
     if relationship is None or relationship["status"] != "pending" or relationship["initiated_by"] != user["sub"]:
@@ -378,6 +402,7 @@ def accept_request(
 ):
     if not _is_ss(user["role"]):
         raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_ONLY_SS_ADMIN_CAN_ACCEPT, "message": "Chỉ SS/admin mới có quyền chấp nhận yêu cầu."})
+    _require_valid_uuid(relationship_id, "relationship_id")
     ok = db_module.accept_relationship(conn, relationship_id, user["sub"])
     if not ok:
         raise HTTPException(
@@ -399,6 +424,7 @@ def decline_request(
 ):
     if not _is_ss(user["role"]):
         raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_ONLY_SS_ADMIN_CAN_REJECT, "message": "Chỉ SS/admin mới có quyền từ chối yêu cầu."})
+    _require_valid_uuid(relationship_id, "relationship_id")
     ok = db_module.decline_relationship(conn, relationship_id, user["sub"])
     if not ok:
         raise HTTPException(
@@ -420,6 +446,7 @@ def block_by_relationship(
 ):
     if not _is_ss(user["role"]):
         raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_ONLY_SS_ADMIN_CAN_BLOCK, "message": "Chỉ SS/admin mới có quyền chặn."})
+    _require_valid_uuid(relationship_id, "relationship_id")
     ok = db_module.block_relationship(conn, relationship_id, user["sub"])
     if not ok:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.MESSAGE_RELATIONSHIP_NOT_FOUND, "message": "Không tìm thấy quan hệ này, hoặc không thuộc về bạn."})
@@ -440,6 +467,7 @@ def block_student(
     relationship_id để gọi route trên)."""
     if not _is_ss(user["role"]):
         raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_ONLY_SS_ADMIN_CAN_BLOCK, "message": "Chỉ SS/admin mới có quyền chặn."})
+    _require_valid_uuid(student_id, "student_id")
     student = db_module.get_user_by_id(conn, student_id)
     if student is None or student["role"] != "user":
         raise HTTPException(status_code=404, detail={"error_code": error_codes.MESSAGE_STUDENT_NOT_FOUND, "message": "Không tìm thấy học viên này."})
@@ -458,6 +486,7 @@ def unblock_request(
 ):
     if not _is_ss(user["role"]):
         raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_ONLY_SS_ADMIN_CAN_UNBLOCK, "message": "Chỉ SS/admin mới có quyền bỏ chặn."})
+    _require_valid_uuid(relationship_id, "relationship_id")
     ok = db_module.unblock_relationship(conn, relationship_id, user["sub"])
     if not ok:
         raise HTTPException(

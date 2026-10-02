@@ -246,4 +246,5 @@ MESSAGE_RELATIONSHIP_NOT_FOUND = "message_relationship_not_found"
 MESSAGE_STUDENT_NOT_FOUND = "message_student_not_found"
 MESSAGE_ONLY_SS_ADMIN_CAN_UNBLOCK = "message_only_ss_admin_can_unblock"
 MESSAGE_RELATIONSHIP_NOT_FOUND_2 = "message_relationship_not_found_2"
+MESSAGE_PARTNER_NOT_FOUND = "message_partner_not_found"
 
