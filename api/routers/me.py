@@ -29,7 +29,6 @@ khi ứng tuyển là hành động 1 chiều, ít lý do bấm nhiều lần li
 
 from typing import Optional
 import psycopg2.errors
-import psycopg2.extras
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
 
 import db as db_module
@@ -94,11 +93,7 @@ def apply_to_job(
             user_id=user["sub"],
             application_id=application_id,
         )
-        with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE job_applications SET cv_url = %s WHERE application_id = %s",
-                (cv_path, application_id),
-            )
+        db_module.set_application_cv_url(conn, application_id, cv_path)
     except RuntimeError as exc:
         conn.rollback()
         raise HTTPException(status_code=500, detail={"error_code": error_codes.PROFILE_CV_UPLOAD_FAILED, "message": str(exc)})
@@ -170,17 +165,7 @@ def withdraw_application(
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID.", "params": {"value": job_id}})
 
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute(
-            """
-            SELECT ja.application_id, ja.cv_url, jp.job_title, jp.company_id
-            FROM job_applications ja
-            JOIN job_postings jp ON jp.job_id = ja.job_id
-            WHERE ja.ss_user_id = %s AND ja.job_id = %s
-            """,
-            (user["sub"], job_id),
-        )
-        row = cur.fetchone()
+    row = db_module.get_application_with_job_info(conn, ss_user_id=user["sub"], job_id=job_id)
 
     deleted = db_module.delete_job_application(conn, ss_user_id=user["sub"], job_id=job_id)
     if not deleted:

@@ -3,7 +3,6 @@ import binascii
 from datetime import datetime
 from typing import Optional
 
-import psycopg2.extras
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 import db as db_module
@@ -223,14 +222,11 @@ def get_cv_signed_url(
     if not db_module.is_valid_uuid(application_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_INVALID, "message": "application_id không hợp lệ."})
 
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("SELECT cv_url FROM job_applications WHERE application_id = %s", (application_id,))
-        row = cur.fetchone()
-
-    if not row or not row["cv_url"]:
+    cv_path = db_module.get_application_cv_url(conn, application_id)
+    if not cv_path:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.PROFILE_CV_NOT_SUBMITTED, "message": "Học viên chưa nộp CV cho đơn này."})
 
-    signed_url = cv_storage.get_signed_url(row["cv_url"])
+    signed_url = cv_storage.get_signed_url(cv_path)
     if not signed_url:
         raise HTTPException(status_code=500, detail={"error_code": error_codes.PROFILE_CANNOT_CREATE, "message": "Không thể tạo link tải file lúc này."})
 

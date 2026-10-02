@@ -170,6 +170,51 @@ def clear_application_cv(conn, application_id: str) -> None:
         )
 
 
+def get_application_cv_url(conn, application_id: str) -> Optional[str]:
+    """Đường dẫn CV (path nội bộ trong bucket storage) của 1 application.
+    Trả None nếu application không tồn tại HOẶC chưa có CV — người gọi
+    (GET /jobs/applications/{id}/cv-url) xử lý chung 2 trường hợp này là
+    "chưa nộp CV", không cần phân biệt."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT cv_url FROM job_applications WHERE application_id = %s",
+            (application_id,),
+        )
+        row = cur.fetchone()
+    return row[0] if row and row[0] else None
+
+
+def set_application_cv_url(conn, application_id: str, cv_url: str) -> None:
+    """Gắn đường dẫn CV vừa upload lên storage vào application. KHÔNG
+    commit — nằm chung transaction với create_job_application() và
+    log_action() của POST /me/applications, để upload lỗi thì rollback
+    được cả đơn vừa tạo (xem api/routers/me.py::apply_to_job). Đối xứng
+    với clear_application_cv() ở trên."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE job_applications SET cv_url = %s WHERE application_id = %s",
+            (cv_url, application_id),
+        )
+
+
+def get_application_with_job_info(conn, *, ss_user_id: str, job_id: str) -> Optional[dict]:
+    """Đơn ứng tuyển của 1 học viên cho 1 job, kèm job_title/company_id để
+    ghi audit log và đường dẫn CV để dọn file khi huỷ ứng tuyển. Trả None nếu
+    học viên chưa ứng tuyển job này. Gọi TRƯỚC delete_job_application() vì
+    sau khi xoá không còn dòng nào để đọc."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT ja.application_id, ja.cv_url, jp.job_title, jp.company_id
+            FROM job_applications ja
+            JOIN job_postings jp ON jp.job_id = ja.job_id
+            WHERE ja.ss_user_id = %s AND ja.job_id = %s
+            """,
+            (ss_user_id, job_id),
+        )
+        return cur.fetchone()
+
+
 def delete_saved_job(conn, *, ss_user_id: str, job_id: str) -> bool:
     """Bỏ lưu — DELETE thật (không soft-delete, đây chỉ là bookmark,
     không cần giữ lịch sử như company_contacts)."""
