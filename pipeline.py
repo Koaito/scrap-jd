@@ -207,13 +207,193 @@ def _make_known_url_checker(conn, on_known_skipped=None):
     return checker
 
 
+def _import_repost(conn, raw, duplicate_job_id, deadline, raw_jd_content,
+                    stats: PipelineStats) -> None:
+    """Nhánh "tin đăng lại" (bước 3c): URL mới nhưng trùng company + title +
+    level + province với job đã có -> KHÔNG insert job mới, ghi source_url mới
+    vào job cũ như nguồn phụ. Tách ra từ _process_jobs() (đợt B2, 10/2026),
+    KHÔNG đổi hành vi.
+
+    Trước đây bỏ hẳn mà không ghi gì, nên lượt crawl sau URL này vẫn "chưa
+    từng thấy": fetch chi tiết + xử lý công ty rồi lại bỏ, lặp mãi. Có dòng
+    log thì lần sau URL đi nhánh "job đã có" và không tốn request nếu job cũ
+    đã đủ field.
+
+    Tin đăng lại có thể là bản MỚI HƠN thật sự (job cũ đã quá hạn, được đăng
+    lại với deadline mới) nên deadline của job cũ được dời ra sau nếu hạn mới
+    muộn hơn (db.extend_job_deadline, không bao giờ rút ngắn). Nội dung
+    (parsed_content, work_type) thì KHÔNG vá từ tin đăng lại. raw_jd_content
+    của tin đăng lại được giữ lại để còn dữ liệu xem lại các trường hợp gộp
+    nhầm.
+
+    Commit ở cuối để chốt cả phần ghi công ty ở bước trước (nhánh này không
+    đi qua commit của bước insert)."""
+    stats.skipped_duplicate_repost += 1
+    db.link_repost_source(
+        conn, duplicate_job_id,
+        source_name=raw.source_name, source_url=raw.source_url,
+        raw_jd_content=raw_jd_content, salary_raw_text=raw.salary_text,
+    )
+    extended = db.extend_job_deadline(conn, duplicate_job_id, deadline)
+    if extended:
+        stats.repost_deadline_extended += 1
+    conn.commit()
+    logger.info(
+        "Tin đăng lại (trùng company/title/level/province với "
+        "job_id=%s), không tạo job mới, đã ghi URL làm nguồn phụ%s: "
+        "%s @ %s",
+        duplicate_job_id,
+        f", dời deadline sang {deadline}" if extended else "",
+        raw.job_title, raw.source_url,
+    )
+
+
+def _insert_new_job(conn, raw, *, company_id, level_id, province_id, work_type, salary,
+                     deadline, parsed_content, raw_jd_content, level_code: str,
+                     company_name: str, stats: PipelineStats) -> None:
+    """Bước 4: insert job mới (content_hash tự tính bởi trigger Postgres) rồi
+    commit. Tách ra từ _process_jobs() (đợt B2), KHÔNG đổi hành vi."""
+    db.insert_job(
+        conn,
+        company_id=company_id,
+        job_title=raw.job_title,
+        matching_industry=raw.matching_industry,
+        level_id=level_id,
+        province_id=province_id,
+        work_type=work_type,
+        currency=salary.currency,
+        salary_min=salary.salary_min,
+        salary_max=salary.salary_max,
+        salary_type=salary.salary_type,
+        salary_period=salary.salary_period,
+        source_url=raw.source_url,
+        source_name=raw.source_name,
+        salary_raw_text=raw.salary_text,
+        deadline=deadline,
+        parsed_content=parsed_content,
+        raw_jd_content=raw_jd_content,
+        detail_fetched=True,
+    )
+    conn.commit()
+    stats.inserted += 1
+    logger.info("Đã lưu: [%s] %s @ %s", level_code, raw.job_title, company_name)
+
+
+def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
+                     field_counter: EmptyFieldCounter) -> None:
+    """Xử lý job CHƯA từng crawl (source_url chưa có trong DB): chuẩn hoá, lọc
+    nhà tuyển dụng ẩn danh, fetch chi tiết, tìm/tạo company, rồi hoặc ghi
+    nhận tin đăng lại hoặc insert job mới. Tách ra từ _process_jobs() (đợt B2,
+    10/2026), KHÔNG đổi hành vi — `return` ở đây thay cho `continue` của vòng
+    lặp cũ. Ngoại lệ KHÔNG bắt ở đây: _process_jobs() rollback + đếm lỗi."""
+    # 2) Chuẩn hóa (phần DÙNG CHUNG, không quan tâm nguồn)
+    salary = normalize.normalize_salary(raw.salary_text)
+    level_code = normalize.infer_level(raw.experience_text, raw.job_title)
+    company_name = normalize.clean_company_name(raw.company_name)
+
+    # 2a) Nhà tuyển dụng ẨN DANH (site tự điền placeholder thay tên công ty
+    # thật, vd "Vietnamworks' Client") — bỏ hẳn job này TRƯỚC khi
+    # fetch_job_full_detail() (đỡ tốn 1 request thật ra ngoài cho job chắc
+    # chắn sẽ bị vứt), không tạo company/job rác. Xem
+    # normalize.is_anonymous_employer_name().
+    if normalize.is_anonymous_employer_name(company_name):
+        stats.skipped_anonymous_employer += 1
+        logger.info(
+            "Bỏ qua job (nhà tuyển dụng ẩn danh, company_name='%s'): %s @ %s",
+            company_name, raw.job_title, raw.source_url,
+        )
+        return
+
+    # 2b) Crawl sâu vào trang chi tiết JD để lấy work_type/deadline + nội dung
+    # mô tả đầy đủ (job_description/requirements/perks/required_skills) — các
+    # field này KHÔNG có trên trang listing, chỉ hiển thị ở trang chi tiết job
+    # (giống cách fetch_company_profile() crawl sâu vào trang công ty).
+    #
+    # QUYẾT ĐỊNH: nếu fetch_job_full_detail() THẤT BẠI THẬT SỰ (trả None —
+    # network error/bị chặn, KHÁC với dict rỗng khi trang fetch OK nhưng thiếu
+    # field), BỎ HẲN job này — không insert. Lý do: thà thiếu 1 job (sẽ được
+    # nhặt lại ở lần crawl sau, vì job chưa từng insert nên vẫn được coi là
+    # "job mới") còn hơn insert job với work_type/deadline/parsed_content =
+    # NULL một cách âm thầm, dễ nhầm tưởng "trang JD thật sự không có dữ liệu
+    # này" trong khi thực ra là bị chặn lúc crawl.
+    job_detail = adapter.fetch_job_full_detail(raw.source_url)
+    field_counter.record_detail(job_detail)
+    if job_detail is None:
+        stats.skipped_fetch_failed += 1
+        logger.warning(
+            "Bỏ qua job (fetch chi tiết thất bại): %s @ %s",
+            raw.job_title, raw.source_url,
+        )
+        return
+
+    work_type = normalize.normalize_work_type(
+        job_detail.get("work_type") or raw.work_type_text
+    )
+    deadline = normalize.normalize_deadline(job_detail.get("deadline_text", ""))
+    parsed_content, raw_jd_content = _build_parsed_content_and_raw(job_detail)
+
+    # 3) Map sang khóa ngoại thật trong DB
+    province_id = db.get_or_create_province(conn, raw.province_text)
+    level_id = db.get_level_id(conn, level_code)
+
+    # 3b) Quyết định có cần crawl sâu vào trang công ty không + tìm/tạo
+    # company tương ứng — xem docstring _resolve_company().
+    company_id = _resolve_company(adapter, conn, raw, company_name, province_id)
+
+    # 3c) Chống trùng kiểu "đăng lại dưới URL khác" — job_probe ở bước (1)
+    # (_process_job) chỉ bắt được trùng THEO source_url, không bắt được
+    # trường hợp TopCV/VietnamWorks cấp source_url MỚI cho job đã đăng trước
+    # đó (cùng company + title + level + province, thường do nhà tuyển dụng
+    # "làm mới" tin để đẩy lên top tìm kiếm — đã xác nhận thực tế 08/2026, 2
+    # tin "Fullstack Developer" cùng công ty, cùng nội dung, khác job_id/URL,
+    # đăng cách nhau ~1 phút). Dùng lại find_manual_job_duplicate() (vốn viết
+    # cho luồng nhập tay ở POST /jobs) vì cùng bộ khoá (company_id,
+    # job_title, level_id, province_id) với generate_job_hash().
+    #
+    # CHƯA làm (để riêng): siết khoá trùng (hiện company + title + level +
+    # province, so khớp cả NULL với NULL nên có thể gộp nhầm 2 tin khác nhau).
+    duplicate_job_id = db.find_manual_job_duplicate(
+        conn, company_id=company_id, job_title=raw.job_title,
+        level_id=level_id, province_id=province_id,
+    )
+    if duplicate_job_id is not None:
+        _import_repost(conn, raw, duplicate_job_id, deadline, raw_jd_content, stats)
+        return
+
+    # 4) Insert job mới
+    _insert_new_job(
+        conn, raw, company_id=company_id, level_id=level_id, province_id=province_id,
+        work_type=work_type, salary=salary, deadline=deadline,
+        parsed_content=parsed_content, raw_jd_content=raw_jd_content,
+        level_code=level_code, company_name=company_name, stats=stats,
+    )
+
+
+def _process_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
+                  field_counter: EmptyFieldCounter) -> None:
+    """Xử lý 1 job adapter trả về. Tách ra từ _process_jobs() (đợt B2,
+    10/2026), KHÔNG đổi hành vi.
+
+    1) Chống trùng theo link JD gốc. Job đã crawl trước đó thì KHÔNG insert
+    lại, nhưng job cũ có thể còn thiếu work_type/deadline/parsed_content (nếu
+    được crawl từ trước khi các field này tồn tại) -> vá thêm rồi bỏ qua phần
+    insert, không dừng cả job này như 1 lỗi. Chưa có thì đi tiếp
+    _import_new_job()."""
+    job_probe = db.get_job_probe_by_source_url(conn, raw.source_url)
+    if job_probe is not None:
+        _handle_existing_job(adapter, conn, raw, job_probe, stats, field_counter)
+        return
+    _import_new_job(adapter, conn, raw, stats, field_counter)
+
+
 def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
                    max_jobs: "int | None", stats: PipelineStats,
                    field_counter: EmptyFieldCounter, _emit_progress) -> None:
     """Vòng lặp xử lý từng job adapter trả về — tách ra từ run_pipeline() (đợt
     3, 10/2026) để run_pipeline() bọc được 1 try/except CrawlBlockedError quanh
-    TOÀN BỘ vòng lặp mà không phải thụt lề lại ~150 dòng. Nội dung vòng lặp
-    giữ nguyên, chỉ thêm nhánh `except CrawlBlockedError` (xem bên dưới).
+    TOÀN BỘ vòng lặp. Đợt B2 (10/2026): phần xử lý từng job đã chuyển xuống
+    _process_job() và các hàm nó gọi; ở đây chỉ còn vòng lặp, giới hạn
+    max_jobs, xử lý lỗi từng job và heartbeat.
     Cập nhật trực tiếp `stats`/`field_counter` do run_pipeline() truyền vào."""
     for raw in adapter.fetch_jobs(category_key, max_pages):
         if max_jobs is not None and stats.fetched >= max_jobs:
@@ -222,154 +402,7 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
         stats.fetched += 1
         field_counter.record_listing(raw)
         try:
-            # 1) Chống trùng theo link JD gốc. Job đã crawl trước đó thì KHÔNG
-            # insert lại, nhưng job cũ có thể còn thiếu work_type/deadline/
-            # parsed_content (nếu được crawl từ trước khi các field này tồn
-            # tại) -> vá thêm rồi bỏ qua phần insert, không dừng cả job này
-            # như 1 lỗi.
-            job_probe = db.get_job_probe_by_source_url(conn, raw.source_url)
-            if job_probe is not None:
-                _handle_existing_job(adapter, conn, raw, job_probe, stats, field_counter)
-                continue
-
-            # 2) Chuẩn hóa (phần DÙNG CHUNG, không quan tâm nguồn)
-            salary = normalize.normalize_salary(raw.salary_text)
-            level_code = normalize.infer_level(raw.experience_text, raw.job_title)
-            company_name = normalize.clean_company_name(raw.company_name)
-
-            # 2a) Nhà tuyển dụng ẨN DANH (site tự điền placeholder thay
-            # tên công ty thật, vd "Vietnamworks' Client") — bỏ hẳn job
-            # này TRƯỚC khi fetch_job_full_detail() (đỡ tốn 1 request
-            # thật ra ngoài cho job chắc chắn sẽ bị vứt), không tạo
-            # company/job rác. Xem normalize.is_anonymous_employer_name().
-            if normalize.is_anonymous_employer_name(company_name):
-                stats.skipped_anonymous_employer += 1
-                logger.info(
-                    "Bỏ qua job (nhà tuyển dụng ẩn danh, company_name='%s'): %s @ %s",
-                    company_name, raw.job_title, raw.source_url,
-                )
-                continue
-
-            # 2b) Crawl sâu vào trang chi tiết JD để lấy work_type/deadline
-            # + nội dung mô tả đầy đủ (job_description/requirements/perks/
-            # required_skills) — các field này KHÔNG có trên trang listing,
-            # chỉ hiển thị ở trang chi tiết job (giống cách
-            # fetch_company_profile() crawl sâu vào trang công ty).
-            #
-            # QUYẾT ĐỊNH: nếu fetch_job_full_detail() THẤT BẠI THẬT SỰ (trả
-            # None — network error/bị chặn, KHÁC với dict rỗng khi trang
-            # fetch OK nhưng thiếu field), BỎ HẲN job này — không insert.
-            # Lý do: thà thiếu 1 job (sẽ được nhặt lại ở lần crawl sau, vì
-            # job chưa từng insert nên vẫn được coi là "job mới") còn hơn
-            # insert job với work_type/deadline/parsed_content = NULL một
-            # cách âm thầm, dễ nhầm tưởng "trang JD thật sự không có dữ
-            # liệu này" trong khi thực ra là bị chặn lúc crawl.
-            job_detail = adapter.fetch_job_full_detail(raw.source_url)
-            field_counter.record_detail(job_detail)
-            if job_detail is None:
-                stats.skipped_fetch_failed += 1
-                logger.warning(
-                    "Bỏ qua job (fetch chi tiết thất bại): %s @ %s",
-                    raw.job_title, raw.source_url,
-                )
-                continue
-
-            work_type = normalize.normalize_work_type(
-                job_detail.get("work_type") or raw.work_type_text
-            )
-            deadline = normalize.normalize_deadline(job_detail.get("deadline_text", ""))
-            parsed_content, raw_jd_content = _build_parsed_content_and_raw(job_detail)
-
-            # 3) Map sang khóa ngoại thật trong DB
-            province_id = db.get_or_create_province(conn, raw.province_text)
-            level_id = db.get_level_id(conn, level_code)
-
-            # 3b) Quyết định có cần crawl sâu vào trang công ty không +
-            # tìm/tạo company tương ứng — xem docstring _resolve_company().
-            company_id = _resolve_company(adapter, conn, raw, company_name, province_id)
-
-            # 3c) Chống trùng kiểu "đăng lại dưới URL khác" — job_probe ở
-            # bước (1) chỉ bắt được trùng THEO source_url, không bắt được
-            # trường hợp TopCV/VietnamWorks cấp source_url MỚI cho job đã
-            # đăng trước đó (cùng company + title + level + province,
-            # thường do nhà tuyển dụng "làm mới" tin để đẩy lên top tìm
-            # kiếm — đã xác nhận thực tế 08/2026, 2 tin "Fullstack
-            # Developer" cùng công ty, cùng nội dung, khác job_id/URL,
-            # đăng cách nhau ~1 phút). Dùng lại find_manual_job_duplicate()
-            # (vốn viết cho luồng nhập tay ở POST /jobs) vì cùng bộ khoá
-            # (company_id, job_title, level_id, province_id) với
-            # generate_job_hash() -> tái dùng được, không cần viết hàm
-            # match riêng cho crawl.
-            #
-            # QUYẾT ĐỊNH: nếu trùng -> KHÔNG insert job mới, nhưng GHI source_url
-            # mới vào job cũ như một nguồn phụ (db.link_repost_source). Trước
-            # đây bỏ hẳn mà không ghi gì, nên lượt crawl sau URL này vẫn "chưa
-            # từng thấy": fetch chi tiết + xử lý công ty rồi lại bỏ, lặp mãi.
-            # Có dòng log thì lần sau URL đi nhánh "job đã có" (bước 1) và
-            # không tốn request nếu job cũ đã đủ field.
-            #
-            # Tin đăng lại có thể là bản MỚI HƠN thật sự (job cũ đã quá hạn, được
-            # đăng lại với deadline mới) nên deadline của job cũ được dời ra sau
-            # nếu hạn mới muộn hơn (db.extend_job_deadline, không bao giờ rút
-            # ngắn). Nội dung (parsed_content, work_type) thì KHÔNG vá từ tin
-            # đăng lại.
-            #
-            # CHƯA làm (để riêng): siết khoá trùng (hiện company + title + level
-            # + province, so khớp cả NULL với NULL nên có thể gộp nhầm 2 tin
-            # khác nhau). raw_jd_content của tin đăng lại được giữ lại để còn
-            # dữ liệu xem lại các trường hợp gộp nhầm.
-            duplicate_job_id = db.find_manual_job_duplicate(
-                conn, company_id=company_id, job_title=raw.job_title,
-                level_id=level_id, province_id=province_id,
-            )
-            if duplicate_job_id is not None:
-                stats.skipped_duplicate_repost += 1
-                db.link_repost_source(
-                    conn, duplicate_job_id,
-                    source_name=raw.source_name, source_url=raw.source_url,
-                    raw_jd_content=raw_jd_content, salary_raw_text=raw.salary_text,
-                )
-                extended = db.extend_job_deadline(conn, duplicate_job_id, deadline)
-                if extended:
-                    stats.repost_deadline_extended += 1
-                # Commit luôn để chốt cả phần ghi công ty ở bước trước (nhánh
-                # này không đi qua commit của bước insert bên dưới).
-                conn.commit()
-                logger.info(
-                    "Tin đăng lại (trùng company/title/level/province với "
-                    "job_id=%s), không tạo job mới, đã ghi URL làm nguồn phụ%s: "
-                    "%s @ %s",
-                    duplicate_job_id,
-                    f", dời deadline sang {deadline}" if extended else "",
-                    raw.job_title, raw.source_url,
-                )
-                continue
-
-            # 4) Insert (content_hash tự tính bởi trigger Postgres)
-            db.insert_job(
-                conn,
-                company_id=company_id,
-                job_title=raw.job_title,
-                matching_industry=raw.matching_industry,
-                level_id=level_id,
-                province_id=province_id,
-                work_type=work_type,
-                currency=salary.currency,
-                salary_min=salary.salary_min,
-                salary_max=salary.salary_max,
-                salary_type=salary.salary_type,
-                salary_period=salary.salary_period,
-                source_url=raw.source_url,
-                source_name=raw.source_name,
-                salary_raw_text=raw.salary_text,
-                deadline=deadline,
-                parsed_content=parsed_content,
-                raw_jd_content=raw_jd_content,
-                detail_fetched=True,
-            )
-            conn.commit()
-            stats.inserted += 1
-            logger.info("Đã lưu: [%s] %s @ %s", level_code, raw.job_title, company_name)
+            _process_job(adapter, conn, raw, stats, field_counter)
 
         except CrawlBlockedError:
             # Ngắt mạch (adapters/base.py::_note_fetch_failure) raise ngay
@@ -387,10 +420,10 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             logger.error("Lỗi xử lý job '%s': %s", raw.job_title, exc)
         finally:
             # Đặt trong `finally` (10/2026) để heartbeat chạy cho MỌI job xử
-            # lý xong, kể cả nhánh `continue` ở trên (trùng URL, ẩn danh,
-            # đăng lại, fetch chi tiết thất bại). Trước đây đoạn này nằm sau
-            # khối try nên mỗi `continue` bỏ qua heartbeat: 1 chuỗi dài job
-            # bị bỏ qua (mỗi job vẫn có thể tốn 1 request fetch) khiến
+            # lý xong, kể cả các nhánh return sớm (trùng URL, ẩn danh, đăng
+            # lại, fetch chi tiết thất bại). Trước đây đoạn này nằm sau khối
+            # try nên mỗi `continue` bỏ qua heartbeat: 1 chuỗi dài job bị bỏ
+            # qua (mỗi job vẫn có thể tốn 1 request fetch) khiến
             # progress.last_update đứng yên, và watchdog tính theo tiến độ
             # (db.reconcile_stale_runs) sẽ tưởng lượt crawl đang treo.
             _emit_progress()
