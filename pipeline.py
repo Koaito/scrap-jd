@@ -11,6 +11,7 @@ import db
 import normalize
 from config import DEGRADED_EMPTY_RATE
 from field_stats import EmptyFieldCounter, degraded_reasons
+from pipeline_stats import PipelineStats
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,7 @@ def _build_parsed_content_and_raw(job_detail: dict):
     return parsed_content, raw_jd_content
 
 
-def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: dict,
+def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: PipelineStats,
                           field_counter: "EmptyFieldCounter | None" = None) -> None:
     """Xử lý job ĐÃ TỪNG crawl trước đó (source_url trùng) — tách ra từ
     run_pipeline() (08/2026, xem lịch sử trao đổi refactor pipeline.py)
@@ -80,7 +81,7 @@ def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: dict
     khi các field này tồn tại) -> vá thêm rồi bỏ qua phần insert, không
     dừng cả job này như 1 lỗi.
 
-    Luôn cộng stats["skipped_duplicate"] (job này chắc chắn KHÔNG được
+    Luôn cộng stats.skipped_duplicate (job này chắc chắn KHÔNG được
     insert mới, có vá được hay không không ảnh hưởng điều đó) — người
     gọi (run_pipeline) luôn `continue` ngay sau khi gọi hàm này."""
     existing_job_id = job_probe[0]
@@ -93,7 +94,7 @@ def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: dict
             # với "update bằng rỗng"), để job này vẫn được
             # job_needs_detail_enrichment() nhận diện là còn
             # thiếu và tự thử lại ở lần crawl kế tiếp.
-            stats["skipped_fetch_failed"] += 1
+            stats.skipped_fetch_failed += 1
             logger.warning(
                 "Bỏ qua vá job cũ (fetch chi tiết thất bại): %s @ %s",
                 raw.job_title, raw.source_url,
@@ -115,12 +116,12 @@ def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: dict
             db.mark_source_detail_checked(conn, raw.source_url)
             conn.commit()
             if new_work_type or new_deadline or new_parsed_content:
-                stats["updated_existing"] += 1
+                stats.updated_existing += 1
                 logger.info(
                     "Đã vá work_type/deadline/parsed_content cho job cũ: %s",
                     raw.job_title,
                 )
-    stats["skipped_duplicate"] += 1
+    stats.skipped_duplicate += 1
 
 
 def _resolve_company(adapter: BaseAdapter, conn, raw, company_name: str, province_id) -> str:
@@ -207,7 +208,7 @@ def _make_known_url_checker(conn, on_known_skipped=None):
 
 
 def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
-                   max_jobs: "int | None", stats: dict,
+                   max_jobs: "int | None", stats: PipelineStats,
                    field_counter: EmptyFieldCounter, _emit_progress) -> None:
     """Vòng lặp xử lý từng job adapter trả về — tách ra từ run_pipeline() (đợt
     3, 10/2026) để run_pipeline() bọc được 1 try/except CrawlBlockedError quanh
@@ -215,10 +216,10 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
     giữ nguyên, chỉ thêm nhánh `except CrawlBlockedError` (xem bên dưới).
     Cập nhật trực tiếp `stats`/`field_counter` do run_pipeline() truyền vào."""
     for raw in adapter.fetch_jobs(category_key, max_pages):
-        if max_jobs is not None and stats["fetched"] >= max_jobs:
+        if max_jobs is not None and stats.fetched >= max_jobs:
             logger.info("Đã đạt giới hạn --max-jobs=%d, dừng crawl.", max_jobs)
             break
-        stats["fetched"] += 1
+        stats.fetched += 1
         field_counter.record_listing(raw)
         try:
             # 1) Chống trùng theo link JD gốc. Job đã crawl trước đó thì KHÔNG
@@ -242,7 +243,7 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             # thật ra ngoài cho job chắc chắn sẽ bị vứt), không tạo
             # company/job rác. Xem normalize.is_anonymous_employer_name().
             if normalize.is_anonymous_employer_name(company_name):
-                stats["skipped_anonymous_employer"] += 1
+                stats.skipped_anonymous_employer += 1
                 logger.info(
                     "Bỏ qua job (nhà tuyển dụng ẩn danh, company_name='%s'): %s @ %s",
                     company_name, raw.job_title, raw.source_url,
@@ -266,7 +267,7 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             job_detail = adapter.fetch_job_full_detail(raw.source_url)
             field_counter.record_detail(job_detail)
             if job_detail is None:
-                stats["skipped_fetch_failed"] += 1
+                stats.skipped_fetch_failed += 1
                 logger.warning(
                     "Bỏ qua job (fetch chi tiết thất bại): %s @ %s",
                     raw.job_title, raw.source_url,
@@ -322,7 +323,7 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
                 level_id=level_id, province_id=province_id,
             )
             if duplicate_job_id is not None:
-                stats["skipped_duplicate_repost"] += 1
+                stats.skipped_duplicate_repost += 1
                 db.link_repost_source(
                     conn, duplicate_job_id,
                     source_name=raw.source_name, source_url=raw.source_url,
@@ -330,7 +331,7 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
                 )
                 extended = db.extend_job_deadline(conn, duplicate_job_id, deadline)
                 if extended:
-                    stats["repost_deadline_extended"] += 1
+                    stats.repost_deadline_extended += 1
                 # Commit luôn để chốt cả phần ghi công ty ở bước trước (nhánh
                 # này không đi qua commit của bước insert bên dưới).
                 conn.commit()
@@ -367,7 +368,7 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
                 detail_fetched=True,
             )
             conn.commit()
-            stats["inserted"] += 1
+            stats.inserted += 1
             logger.info("Đã lưu: [%s] %s @ %s", level_code, raw.job_title, company_name)
 
         except CrawlBlockedError:
@@ -382,7 +383,7 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             raise
         except Exception as exc:  # noqa: BLE001 - log rồi tiếp tục, không dừng cả pipeline
             conn.rollback()
-            stats["errors"] += 1
+            stats.errors += 1
             logger.error("Lỗi xử lý job '%s': %s", raw.job_title, exc)
         finally:
             # Đặt trong `finally` (10/2026) để heartbeat chạy cho MỌI job xử
@@ -426,8 +427,8 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
     - Đặt hook adapter.set_known_url_checker() để adapter fetch chi tiết
       sớm (CareerViet) bỏ qua job đã có đủ field, không fetch lại. Job bị
       bỏ qua kiểu này KHÔNG tới được vòng lặp dưới nên không tính vào
-      stats["fetched"]/max_jobs; số lượng nằm ở stats["skipped_known_url"].
-    - stats["field_empty"]: tỷ lệ trường rỗng của dữ liệu adapter trả về,
+      stats.fetched/max_jobs; số lượng nằm ở stats.skipped_known_url.
+    - stats.field_empty: tỷ lệ trường rỗng của dữ liệu adapter trả về,
       xem field_stats.py. Chỉ có khi đã ghi nhận ít nhất 1 record.
 
     Đợt 3 (10/2026):
@@ -435,39 +436,21 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
       chừng khi N lần fetch liên tiếp thất bại) KHÔNG bị nuốt vào except
       từng job: rollback job dở dang, gắn stats tạm (kèm "blocked": True) vào
       exc.stats rồi raise tiếp để execute() ghi status='error'.
-    - stats["degraded"] = {"reasons": [...]}: lượt vẫn 'done' nhưng field bắt
+    - stats.degraded = {"reasons": [...]}: lượt vẫn 'done' nhưng field bắt
       buộc rỗng gần hết, hoặc trang listing đầu parse ra 0 job. Chỉ có khi có
-      lý do; xem _finalize_stats()."""
-    stats = {
-        "fetched": 0, "inserted": 0, "skipped_duplicate": 0,
-        # Trùng theo (company_id, job_title, level_id, province_id) —
-        # KHÁC "skipped_duplicate" ở trên (vốn là trùng theo source_url).
-        # Trường hợp này là tin ĐĂNG LẠI dưới URL mới (vd TopCV cấp
-        # job_id mới mỗi lần nhà tuyển dụng "làm mới" tin) nhưng nội
-        # dung/vị trí thực chất là 1 job — tách riêng để audit dễ hơn,
-        # không lẫn với trùng source_url thông thường (xem
-        # find_manual_job_duplicate() trong db.py).
-        "skipped_duplicate_repost": 0,
-        # Số tin đăng lại làm deadline của job cũ được dời ra sau.
-        "repost_deadline_extended": 0,
-        "updated_existing": 0, "skipped_fetch_failed": 0, "errors": 0,
-        # Thêm 08/2026 — job có company_name khớp
-        # normalize.is_anonymous_employer_name() (vd "Vietnamworks'
-        # Client"), bỏ hẳn không insert. Xem docstring hàm đó trong
-        # normalize.py để biết đầy đủ pattern.
-        "skipped_anonymous_employer": 0,
-        # Thêm 10/2026 — URL đã có trong DB và đủ field nên adapter bỏ qua
-        # từ trước khi fetch chi tiết (xem docstring run_pipeline()). Điền
-        # sau vòng lặp, từ adapter.skipped_known_count.
-        "skipped_known_url": 0,
-    }
+      lý do; xem _finalize_stats().
+
+    Đợt B1 (10/2026): bên trong pipeline thống kê nằm trong PipelineStats
+    (pipeline_stats.py); run_pipeline() vẫn TRẢ VỀ dict (to_dict()), cùng tập
+    khoá như trước — các chú thích stats.xxx ở trên là tên khoá của dict đó."""
+    stats = PipelineStats()
     field_counter = EmptyFieldCounter()
 
     def _emit_progress() -> None:
         if on_progress is None:
             return
         try:
-            on_progress({"fetched": stats["fetched"], "inserted": stats["inserted"]})
+            on_progress(stats.progress())
         except Exception:  # noqa: BLE001 - heartbeat lỗi không được làm hỏng crawl
             logger.exception("on_progress callback lỗi, bỏ qua và crawl tiếp tục")
 
@@ -482,24 +465,24 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
         # Bị chặn (trang đầu thất bại, hoặc ngắt mạch giữa chừng). Giữ lại
         # số liệu ĐÃ CÓ (vd đã lưu bao nhiêu job trước khi bị chặn) thay vì
         # mất hết khi execute() ghi status='error'.
-        stats["blocked"] = True
+        stats.blocked = True
         _finalize_stats(adapter, stats, field_counter)
-        exc.stats = stats
+        exc.stats = stats.to_dict()
         raise
 
     _finalize_stats(adapter, stats, field_counter)
-    return stats
+    return stats.to_dict()
 
 
-def _finalize_stats(adapter: BaseAdapter, stats: dict, field_counter: EmptyFieldCounter) -> None:
+def _finalize_stats(adapter: BaseAdapter, stats: PipelineStats, field_counter: EmptyFieldCounter) -> None:
     """Điền các chỉ số tổng hợp cuối lượt: skipped_known_url, field_empty và
     cờ "degraded" (đợt 3). Dùng chung cho nhánh chạy xong và nhánh bị chặn."""
     skipped_known = getattr(adapter, "skipped_known_count", 0)
-    stats["skipped_known_url"] = skipped_known if isinstance(skipped_known, int) else 0
+    stats.skipped_known_url = skipped_known if isinstance(skipped_known, int) else 0
 
     field_empty = field_counter.summary()
     if field_empty:
-        stats["field_empty"] = field_empty
+        stats.field_empty = field_empty
         field_counter.log_summary()
 
     # "degraded": lượt vẫn status='done' nhưng dữ liệu nhiều khả năng sai vì
@@ -511,7 +494,7 @@ def _finalize_stats(adapter: BaseAdapter, stats: dict, field_counter: EmptyField
     if isinstance(anomalies, list):
         reasons.extend({"type": code} for code in anomalies)
     if reasons:
-        stats["degraded"] = {"reasons": reasons}
+        stats.degraded = {"reasons": reasons}
         logger.warning(
             "Lượt crawl bị đánh dấu DEGRADED (dữ liệu có thể sai do selector/"
             "cấu trúc trang đổi): %s", reasons,
