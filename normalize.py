@@ -234,6 +234,12 @@ def infer_level(experience_text: str, job_title: str = "", level_hint: str = "")
     if "dưới 1 năm" in text or "duoi 1 nam" in text:
         return "Fresher"
 
+    # "Trên 5 năm" (nhãn của TopCV) PHẢI xét TRƯỚC regex "(\d+) năm" bên dưới:
+    # regex đó bắt được "5 năm" trong chính cụm này nên nếu để sau thì job
+    # "Trên 5 năm" ra Senior (5 năm) và nhánh Lead không bao giờ chạy tới.
+    if "trên 5 năm" in text or "tren 5 nam" in text:
+        return "Lead"
+
     m = re.search(r"(\d+)\s*năm", text)
     if m:
         years = int(m.group(1))
@@ -243,9 +249,6 @@ def infer_level(experience_text: str, job_title: str = "", level_hint: str = "")
             return "Middle"
         if years <= 5:
             return "Senior"
-        return "Lead"
-
-    if "trên 5 năm" in text:
         return "Lead"
 
     if level_hint in LEVEL_ORDER:

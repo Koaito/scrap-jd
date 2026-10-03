@@ -92,3 +92,23 @@ def test_infer_level_without_hint_unchanged():
     assert normalize.infer_level("8 năm") == "Lead"
     assert normalize.infer_level("", "Thực tập sinh Data") == "Intern"
     assert normalize.infer_level("") == "Junior"
+
+
+def test_infer_level_tren_5_nam_la_lead():
+    """Nhãn "Trên 5 năm" của TopCV phải ra Lead, không phải Senior.
+
+    Lỗi cũ: regex "(\\d+) năm" bắt "5 năm" trong cụm này trước nên ra Senior,
+    nhánh Lead phía dưới không bao giờ chạy tới."""
+    assert normalize.infer_level("Trên 5 năm") == "Lead"
+    assert normalize.infer_level("trên 5 năm") == "Lead"
+    # đúng 5 năm vẫn là Senior, ranh giới không bị lệch
+    assert normalize.infer_level("5 năm") == "Senior"
+    assert normalize.infer_level("4 năm") == "Senior"
+    assert normalize.infer_level("6 năm") == "Lead"
+
+
+def test_infer_level_tren_5_nam_title_van_uu_tien():
+    """Từ khoá trong tiêu đề vẫn thắng số năm, kể cả với "Trên 5 năm"."""
+    assert normalize.infer_level("Trên 5 năm", "Senior Data Engineer") == "Senior"
+    assert normalize.infer_level("Trên 5 năm", "Giám đốc kinh doanh") == "Manager"
+    assert normalize.infer_level("Trên 5 năm", "Intern") == "Intern"
