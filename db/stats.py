@@ -33,7 +33,7 @@ def get_stats_summary(conn) -> dict:
         by_industry = cur.fetchall()
 
         cur.execute(
-            "SELECT source_name, count(*) AS n FROM job_sources_log "
+            "SELECT source_name, count(DISTINCT job_id) AS n FROM job_sources_log "
             "GROUP BY source_name ORDER BY n DESC"
         )
         by_source = cur.fetchall()

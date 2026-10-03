@@ -296,23 +296,37 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             # generate_job_hash() -> tái dùng được, không cần viết hàm
             # match riêng cho crawl.
             #
-            # QUYẾT ĐỊNH: nếu trùng -> BỎ QUA insert hoàn toàn (không tạo
-            # job_postings/job_sources_log mới), KHÔNG cố gắng "vá" job cũ
-            # bằng dữ liệu job mới lần này (khác với nhánh job_probe ở bước
-            # 1) — vì đây có thể là job MỚI HƠN thật sự (job cũ đã
-            # deadline, được đăng lại với nội dung/deadline mới), nhưng để
-            # tránh làm phức tạp thêm 1 khái niệm "vá theo repost" trong
-            # lần sửa này, ưu tiên đơn giản: chỉ chặn insert trùng, xử lý
-            # cập nhật nội dung job cũ (nếu cần) để làm riêng sau.
+            # QUYẾT ĐỊNH: nếu trùng -> KHÔNG insert job mới, nhưng GHI source_url
+            # mới vào job cũ như một nguồn phụ (db.link_repost_source). Trước
+            # đây bỏ hẳn mà không ghi gì, nên lượt crawl sau URL này vẫn "chưa
+            # từng thấy": fetch chi tiết + xử lý công ty rồi lại bỏ, lặp mãi.
+            # Có dòng log thì lần sau URL đi nhánh "job đã có" (bước 1) và
+            # không tốn request nếu job cũ đã đủ field.
+            #
+            # CHƯA làm (để riêng): vá nội dung/deadline job cũ bằng tin đăng
+            # lại (có thể là bản MỚI HƠN thật sự: job cũ đã hết hạn, được đăng
+            # lại với deadline mới), và siết khoá trùng (hiện company + title
+            # + level + province, so khớp cả NULL với NULL nên có thể gộp nhầm
+            # 2 tin khác nhau). raw_jd_content của tin đăng lại được giữ lại để
+            # còn dữ liệu xem lại các trường hợp gộp nhầm.
             duplicate_job_id = db.find_manual_job_duplicate(
                 conn, company_id=company_id, job_title=raw.job_title,
                 level_id=level_id, province_id=province_id,
             )
             if duplicate_job_id is not None:
                 stats["skipped_duplicate_repost"] += 1
+                db.link_repost_source(
+                    conn, duplicate_job_id,
+                    source_name=raw.source_name, source_url=raw.source_url,
+                    raw_jd_content=raw_jd_content, salary_raw_text=raw.salary_text,
+                )
+                # Commit luôn để chốt cả phần ghi công ty ở bước trước (nhánh
+                # này không đi qua commit của bước insert bên dưới).
+                conn.commit()
                 logger.info(
-                    "Bỏ qua job đăng lại (trùng company/title/level/province "
-                    "với job_id=%s, khác source_url): %s @ %s",
+                    "Tin đăng lại (trùng company/title/level/province với "
+                    "job_id=%s), không tạo job mới, đã ghi URL làm nguồn phụ: "
+                    "%s @ %s",
                     duplicate_job_id, raw.job_title, raw.source_url,
                 )
                 continue

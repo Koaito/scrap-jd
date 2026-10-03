@@ -244,6 +244,36 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
         return str(job_id)
 
 
+def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
+                       raw_jd_content: str = "", salary_raw_text: str = "") -> bool:
+    """Ghi 1 source_url mới vào job ĐÃ CÓ như một nguồn phụ (job_sources_log),
+    không tạo job mới. Dùng khi pipeline nhận ra tin vừa crawl là đăng lại của
+    job đã có (cùng company/title/level/province nhưng khác source_url).
+
+    Trước đây tin đăng lại bị bỏ mà KHÔNG ghi gì, nên lượt crawl sau URL đó vẫn
+    "chưa từng thấy": fetch chi tiết, xử lý công ty rồi lại bỏ, lặp mãi. Có dòng
+    log này thì get_job_probe_by_source_url() nhận ra URL, đi nhánh "job đã có"
+    và không fetch lại nếu job đã đủ field.
+
+    raw_jd_content được giữ làm bằng chứng gốc của tin đăng lại: nếu sau này
+    khoá trùng được siết chặt hơn thì còn dữ liệu để xem lại tin nào từng bị
+    gộp nhầm. job_postings.source_url (nguồn gốc của job) KHÔNG đổi.
+
+    Không tự commit (đúng quy ước của lớp db: nơi gọi chịu trách nhiệm).
+    Trả True nếu vừa thêm dòng mới, False nếu (job_id, source_url) đã có."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            INSERT INTO job_sources_log (job_id, source_name, source_url,
+                                          salary_raw_content, raw_jd_content)
+            VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (job_id, source_url) DO NOTHING
+            """,
+            (job_id, source_name, source_url, salary_raw_text, raw_jd_content or None),
+        )
+        return cur.rowcount > 0
+
+
 def count_jobs(conn) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM job_postings")
