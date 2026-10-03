@@ -587,6 +587,57 @@ class VietnamWorksAdapter(BaseAdapter):
         return cached
 
     # ------------------------------------------------------------------
+    # Tải lại trang chi tiết cho job ĐÃ LƯU (dùng bởi backfill_vnw_detail.py)
+    # ------------------------------------------------------------------
+    REFRESH_OK = "ok"
+    REFRESH_UNAVAILABLE = "unavailable"
+    REFRESH_UNPARSABLE = "unparsable"
+
+    def fetch_refreshed_job(self, source_url: str) -> tuple:
+        """Tải trang chi tiết của một job VietnamWorks đã có trong DB và trả
+        (trạng thái, dữ liệu) để vá JD bị cắt + level sai của job cũ.
+
+        Khác fetch_jobs(): không có dữ liệu search đi kèm, nên chỉ dùng thông tin
+        trên chính trang chi tiết. Không đọc/ghi _detail_cache.
+
+        Trạng thái:
+          - REFRESH_OK: dữ liệu = {"detail": {job_description, requirements,
+            perks, required_skills}, "experience_text", "level_hint"}.
+          - REFRESH_UNAVAILABLE: không tải được (404/410/lỗi mạng) -> dữ liệu None.
+          - REFRESH_UNPARSABLE: tải được nhưng không giải mã được, hoặc trang trả
+            job KHÁC với jobId trong URL (dạng ...-<jobId>-jv) -> dữ liệu None.
+        CrawlBlockedError (ngắt mạch của BaseAdapter) vẫn được để lan lên."""
+        html = self._fetch_html(source_url)
+        if html is None:
+            return self.REFRESH_UNAVAILABLE, None
+
+        detail_job = parse_detail_page(html)
+        if detail_job is None:
+            logger.warning("Không giải mã được trang chi tiết %s", source_url)
+            return self.REFRESH_UNPARSABLE, None
+
+        m = re.search(r"-(\d+)-jv", source_url)
+        if m and str(detail_job.get("jobId")) != m.group(1):
+            logger.warning(
+                "Trang chi tiết %s trả job khác (jobId=%r, kỳ vọng %s)",
+                source_url, detail_job.get("jobId"), m.group(1),
+            )
+            return self.REFRESH_UNPARSABLE, None
+
+        experience_text, level_hint = self._experience_fields(detail_job)
+        detail = self._detail_dict_from_job(detail_job, "", "")
+        return self.REFRESH_OK, {
+            "detail": {
+                "job_description": detail["job_description"],
+                "requirements": detail["requirements"],
+                "perks": detail["perks"],
+                "required_skills": detail["required_skills"],
+            },
+            "experience_text": experience_text,
+            "level_hint": level_hint,
+        }
+
+    # ------------------------------------------------------------------
     # Company profile — trang SSR, dùng requests+BeautifulSoup như TopCV
     # ------------------------------------------------------------------
     def fetch_company_profile(self, company_url: str) -> dict:

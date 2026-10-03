@@ -27,3 +27,6 @@ Thumbs.db
 *.log
 
 tools/hr_contact_tool.html
+
+# File tiến độ của backfill_vnw_detail.py (cục bộ, không commit)
+.backfill_vnw_detail.done
