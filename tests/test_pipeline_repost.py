@@ -57,6 +57,7 @@ def fake_db(monkeypatch):
     fdb.get_or_create_company_by_profile.return_value = "company-1"
     fdb.find_manual_job_duplicate.return_value = None
     fdb.insert_job.return_value = "new-job"
+    fdb.extend_job_deadline.return_value = False
     monkeypatch.setattr(pipeline, "db", fdb)
     return fdb
 
@@ -101,3 +102,27 @@ def test_link_failure_counts_error_rolls_back_and_continues(fake_db):
     assert stats["errors"] == 1
     assert stats["inserted"] == 1  # lỗi một job không kéo sập cả lượt
     conn.rollback.assert_called()
+
+
+def test_repost_extends_deadline_of_existing_job(fake_db):
+    from datetime import date
+
+    fake_db.find_manual_job_duplicate.return_value = "job-orig"
+    fake_db.extend_job_deadline.return_value = True
+    conn = MagicMock()
+
+    stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), conn, "data-analyst", 1)
+
+    fake_db.extend_job_deadline.assert_called_once_with(conn, "job-orig", date(2026, 9, 5))
+    assert stats["repost_deadline_extended"] == 1
+    assert stats["skipped_duplicate_repost"] == 1
+
+
+def test_repost_deadline_not_counted_when_db_keeps_later_deadline(fake_db):
+    fake_db.find_manual_job_duplicate.return_value = "job-orig"
+    fake_db.extend_job_deadline.return_value = False  # job cũ đã có hạn muộn hơn
+
+    stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), MagicMock(), "data-analyst", 1)
+
+    assert stats["repost_deadline_extended"] == 0
+    assert stats["skipped_duplicate_repost"] == 1

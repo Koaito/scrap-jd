@@ -274,6 +274,32 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
         return cur.rowcount > 0
 
 
+def extend_job_deadline(conn, job_id: str, new_deadline) -> bool:
+    """Dời deadline của job OPEN ra SAU (hoặc điền khi đang NULL), không bao
+    giờ rút ngắn. Dùng khi pipeline nhận ra tin đăng lại có hạn nộp mới hơn:
+    job cũ đã quá hạn (deadline < hôm nay nhưng vẫn OPEN, đang nằm trong danh
+    sách "job hết hạn" của tab tình trạng dữ liệu) sẽ sống lại đúng với thực
+    tế là nhà tuyển dụng vừa đăng lại.
+
+    Một câu UPDATE có điều kiện nên không cần đọc deadline cũ trước và không
+    có race giữa đọc-rồi-ghi. Job CLOSED không bị đụng (người dùng đã chủ động
+    đóng). Không tự commit. Trả True nếu có dòng được cập nhật."""
+    if new_deadline is None:
+        return False
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE job_postings
+               SET deadline = %s
+             WHERE job_id = %s
+               AND job_status = 'OPEN'
+               AND (deadline IS NULL OR deadline < %s)
+            """,
+            (new_deadline, job_id, new_deadline),
+        )
+        return cur.rowcount > 0
+
+
 def count_jobs(conn) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM job_postings")

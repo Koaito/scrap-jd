@@ -303,12 +303,16 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             # Có dòng log thì lần sau URL đi nhánh "job đã có" (bước 1) và
             # không tốn request nếu job cũ đã đủ field.
             #
-            # CHƯA làm (để riêng): vá nội dung/deadline job cũ bằng tin đăng
-            # lại (có thể là bản MỚI HƠN thật sự: job cũ đã hết hạn, được đăng
-            # lại với deadline mới), và siết khoá trùng (hiện company + title
-            # + level + province, so khớp cả NULL với NULL nên có thể gộp nhầm
-            # 2 tin khác nhau). raw_jd_content của tin đăng lại được giữ lại để
-            # còn dữ liệu xem lại các trường hợp gộp nhầm.
+            # Tin đăng lại có thể là bản MỚI HƠN thật sự (job cũ đã quá hạn, được
+            # đăng lại với deadline mới) nên deadline của job cũ được dời ra sau
+            # nếu hạn mới muộn hơn (db.extend_job_deadline, không bao giờ rút
+            # ngắn). Nội dung (parsed_content, work_type) thì KHÔNG vá từ tin
+            # đăng lại.
+            #
+            # CHƯA làm (để riêng): siết khoá trùng (hiện company + title + level
+            # + province, so khớp cả NULL với NULL nên có thể gộp nhầm 2 tin
+            # khác nhau). raw_jd_content của tin đăng lại được giữ lại để còn
+            # dữ liệu xem lại các trường hợp gộp nhầm.
             duplicate_job_id = db.find_manual_job_duplicate(
                 conn, company_id=company_id, job_title=raw.job_title,
                 level_id=level_id, province_id=province_id,
@@ -320,14 +324,19 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
                     source_name=raw.source_name, source_url=raw.source_url,
                     raw_jd_content=raw_jd_content, salary_raw_text=raw.salary_text,
                 )
+                extended = db.extend_job_deadline(conn, duplicate_job_id, deadline)
+                if extended:
+                    stats["repost_deadline_extended"] += 1
                 # Commit luôn để chốt cả phần ghi công ty ở bước trước (nhánh
                 # này không đi qua commit của bước insert bên dưới).
                 conn.commit()
                 logger.info(
                     "Tin đăng lại (trùng company/title/level/province với "
-                    "job_id=%s), không tạo job mới, đã ghi URL làm nguồn phụ: "
+                    "job_id=%s), không tạo job mới, đã ghi URL làm nguồn phụ%s: "
                     "%s @ %s",
-                    duplicate_job_id, raw.job_title, raw.source_url,
+                    duplicate_job_id,
+                    f", dời deadline sang {deadline}" if extended else "",
+                    raw.job_title, raw.source_url,
                 )
                 continue
 
@@ -434,6 +443,8 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
         # không lẫn với trùng source_url thông thường (xem
         # find_manual_job_duplicate() trong db.py).
         "skipped_duplicate_repost": 0,
+        # Số tin đăng lại làm deadline của job cũ được dời ra sau.
+        "repost_deadline_extended": 0,
         "updated_existing": 0, "skipped_fetch_failed": 0, "errors": 0,
         # Thêm 08/2026 — job có company_name khớp
         # normalize.is_anonymous_employer_name() (vd "Vietnamworks'

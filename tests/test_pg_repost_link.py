@@ -10,6 +10,7 @@ pipeline THẬT 3 lượt liên tiếp và đếm số lần adapter phải fetc
 """
 import os
 import uuid
+from datetime import date
 from urllib.parse import urlparse
 
 import psycopg2
@@ -174,3 +175,76 @@ def test_repost_url_is_not_refetched_on_later_crawls(pg_conn):
     assert _count(pg_conn, "SELECT count(*) FROM job_sources_log jsl JOIN job_postings jp "
                            "USING (job_id) JOIN companies c USING (company_id) "
                            "WHERE c.company_name = %s", (company,)) == 2
+
+
+# ------------------------------------------------------- dời deadline (1c)
+
+def _deadline(conn, job_id):
+    with conn.cursor() as cur:
+        cur.execute("SELECT deadline FROM job_postings WHERE job_id = %s", (job_id,))
+        return cur.fetchone()[0]
+
+
+def _set_deadline(conn, job_id, d):
+    with conn.cursor() as cur:
+        cur.execute("UPDATE job_postings SET deadline = %s WHERE job_id = %s", (d, job_id))
+    conn.commit()
+
+
+def test_extend_job_deadline_only_moves_forward(pg_conn):
+    job_id = _make_job(pg_conn, "https://topcv/d1")
+    _set_deadline(pg_conn, job_id, date(2026, 8, 1))
+
+    assert db.extend_job_deadline(pg_conn, job_id, date(2026, 10, 30)) is True
+    assert _deadline(pg_conn, job_id) == date(2026, 10, 30)
+
+    # Hạn sớm hơn / bằng hạn hiện tại: không rút ngắn, không báo là đã đổi.
+    assert db.extend_job_deadline(pg_conn, job_id, date(2026, 9, 1)) is False
+    assert db.extend_job_deadline(pg_conn, job_id, date(2026, 10, 30)) is False
+    assert _deadline(pg_conn, job_id) == date(2026, 10, 30)
+
+
+def test_extend_job_deadline_fills_null_and_ignores_none(pg_conn):
+    job_id = _make_job(pg_conn, "https://topcv/d2")
+    assert _deadline(pg_conn, job_id) is None
+
+    assert db.extend_job_deadline(pg_conn, job_id, None) is False
+    assert db.extend_job_deadline(pg_conn, job_id, date(2026, 10, 30)) is True
+    assert _deadline(pg_conn, job_id) == date(2026, 10, 30)
+
+
+def test_extend_job_deadline_does_not_touch_closed_job(pg_conn):
+    job_id = _make_job(pg_conn, "https://topcv/d3")
+    _set_deadline(pg_conn, job_id, date(2026, 8, 1))
+    with pg_conn.cursor() as cur:
+        cur.execute("UPDATE job_postings SET job_status = 'CLOSED' WHERE job_id = %s", (job_id,))
+    pg_conn.commit()
+
+    assert db.extend_job_deadline(pg_conn, job_id, date(2026, 10, 30)) is False
+    assert _deadline(pg_conn, job_id) == date(2026, 8, 1)
+
+
+def test_repost_revives_expired_job_through_real_pipeline(pg_conn):
+    company = f"Công ty Hết Hạn {uuid.uuid4().hex[:6]}"
+    original, repost = "https://topcv/exp", "https://topcv/exp-repost"
+
+    a1 = CountingAdapter([original], company)
+    assert pipeline.run_pipeline(a1, pg_conn, "data-analyst", 1)["inserted"] == 1
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            "SELECT jp.job_id FROM job_postings jp JOIN companies c USING (company_id) "
+            "WHERE c.company_name = %s", (company,))
+        job_id = cur.fetchone()[0]
+    _set_deadline(pg_conn, job_id, date(2020, 1, 1))  # job cũ đã quá hạn từ lâu
+
+    # Tin đăng lại với hạn mới (DETAIL của CountingAdapter: 05/09/2026).
+    a2 = CountingAdapter([repost], company)
+    s2 = pipeline.run_pipeline(a2, pg_conn, "data-analyst", 1)
+
+    assert s2["skipped_duplicate_repost"] == 1
+    assert s2["repost_deadline_extended"] == 1
+    assert _deadline(pg_conn, job_id) == date(2026, 9, 5)
+
+    # Crawl lại đúng tin đó: hạn không đổi nữa, không đếm thêm.
+    s3 = pipeline.run_pipeline(CountingAdapter([repost], company), pg_conn, "data-analyst", 1)
+    assert s3["repost_deadline_extended"] == 0
