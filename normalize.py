@@ -206,7 +206,15 @@ def _parse_number(raw: str) -> Optional[float]:
 LEVEL_ORDER = ["Intern", "Fresher", "Junior", "Middle", "Senior", "Lead", "Manager"]
 
 
-def infer_level(experience_text: str, job_title: str = "") -> str:
+def infer_level(experience_text: str, job_title: str = "", level_hint: str = "") -> str:
+    """Suy luận level. Thứ tự ưu tiên: từ khoá trong tiêu đề > số năm kinh
+    nghiệm trong experience_text > level_hint (nhãn cấp bậc nguồn tự gán, vd
+    jobLevel của VietnamWorks, adapter đã đổi sang 1 giá trị trong
+    LEVEL_ORDER) > mặc định Junior.
+
+    level_hint CHỈ là phương án dự phòng khi không đọc được số năm: nhãn cấp
+    bậc do nhà tuyển dụng tự chọn nên nhiễu (vd vị trí "Data Modeler" gắn
+    "Trưởng phòng"), không để nó ghi đè số năm đã đọc được."""
     text = (experience_text or "").lower()
     title = (job_title or "").lower()
 
@@ -240,7 +248,82 @@ def infer_level(experience_text: str, job_title: str = "") -> str:
     if "trên 5 năm" in text:
         return "Lead"
 
+    if level_hint in LEVEL_ORDER:
+        return level_hint
+
     return "Junior"  # mặc định an toàn khi không rõ
+
+
+# ----------------------------------------------------------------------
+# Đọc số năm kinh nghiệm tối thiểu từ đoạn văn yêu cầu công việc
+# ----------------------------------------------------------------------
+# Dùng cho nguồn không có trường "số năm" đáng tin (VietnamWorks: API search
+# luôn trả yearsOfExperience=0). Chỉ tính con số đứng GẦN cụm "kinh nghiệm"/
+# "experience" để không bắt nhầm "sinh viên năm cuối", "năm 2026"...
+#
+# Quy tắc (đã chốt với người dùng, 10/2026):
+#  - Khoảng "3-5 năm" lấy SỐ NHỎ (mức tối thiểu để ứng tuyển) -> 3.
+#  - Nhiều đoạn nêu số năm thì lấy đoạn xuất hiện ĐẦU TIÊN (yêu cầu chính
+#    thường ghi trước; các đoạn sau hay là "trong đó X năm ở vị trí quản lý",
+#    "ưu tiên", "nice to have").
+#  - "Không yêu cầu kinh nghiệm", "dưới 1 năm", "X tháng" (X < 12) -> 0.
+_YEARS_NEAR = 40  # ký tự tối đa giữa con số và chữ "kinh nghiệm"/"experience"
+_MAX_PLAUSIBLE_YEARS = 40
+
+_VI_YEARS_RE = re.compile(
+    r"(dưới\s*)?(\d{1,2})(?:\s*(?:-|–|—|~|đến|tới)\s*\d{1,2})?\s*\+?\s*năm",
+    re.IGNORECASE,
+)
+_EN_YEARS_RE = re.compile(
+    r"(less\s+than\s+)?(\d{1,2})(?:\s*(?:-|–|—|~|to)\s*\d{1,2})?\s*\+?\s*(?:years?|yrs?)\b",
+    re.IGNORECASE,
+)
+_MONTHS_RE = re.compile(r"(\d{1,2})\s*(?:tháng|months?)", re.IGNORECASE)
+_EXPERIENCE_WORD_RE = re.compile(r"kinh nghiệm|experience|\bexp\b", re.IGNORECASE)
+_NO_EXPERIENCE_RE = re.compile(
+    r"(?:không|khong)\s+(?:yêu\s+cầu|cần|đòi\s+hỏi)\s+(?:có\s+)?kinh\s+nghiệm"
+    r"|chưa\s+có\s+kinh\s+nghiệm"
+    r"|no\s+(?:prior\s+)?experience(?:\s+(?:is\s+)?required)?",
+    re.IGNORECASE,
+)
+
+
+def _near_experience_word(text: str, start: int, end: int) -> bool:
+    window = text[max(0, start - _YEARS_NEAR): end + _YEARS_NEAR]
+    return _EXPERIENCE_WORD_RE.search(window) is not None
+
+
+def extract_min_years(text: str) -> Optional[int]:
+    """Số năm kinh nghiệm TỐI THIỂU ghi trong `text` (0 = không yêu cầu/dưới 1
+    năm), hoặc None nếu không đọc được. Xem ghi chú quy tắc ở trên."""
+    if not text:
+        return None
+    candidates = []  # (vị trí, số năm)
+
+    for regex in (_VI_YEARS_RE, _EN_YEARS_RE):
+        for m in regex.finditer(text):
+            if not _near_experience_word(text, m.start(), m.end()):
+                continue
+            years = int(m.group(2))
+            if years > _MAX_PLAUSIBLE_YEARS:
+                continue
+            if m.group(1):  # "dưới 1 năm" / "less than 1 year"
+                years = 0
+            candidates.append((m.start(), years))
+
+    for m in _MONTHS_RE.finditer(text):
+        if not _near_experience_word(text, m.start(), m.end()):
+            continue
+        months = int(m.group(1))
+        if months < 12:
+            candidates.append((m.start(), 0))
+
+    for m in _NO_EXPERIENCE_RE.finditer(text):
+        candidates.append((m.start(), 0))
+
+    if not candidates:
+        return None
+    return min(candidates)[1]
 
 
 # ----------------------------------------------------------------------

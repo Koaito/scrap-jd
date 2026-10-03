@@ -234,3 +234,12 @@ def test_normalize_is_used_for_level_and_company_name(fake_db):
     expected_level = normalize.infer_level(raw.experience_text, raw.job_title)
     fake_db.get_level_id.assert_called_once_with(fake_db.get_level_id.call_args.args[0], expected_level)
     assert fake_db.get_or_create_company_by_profile.call_args.args[1] == normalize.clean_company_name(raw.company_name)
+
+
+def test_level_hint_from_source_reaches_infer_level(fake_db):
+    """Pipeline phải truyền raw.level_hint vào infer_level (VietnamWorks dùng
+    jobLevel làm dự phòng khi không đọc được số năm)."""
+    raw = _raw(experience_text="", job_title="Quản lý vận hành", level_hint="Manager")
+    _run_step(StubAdapter(), MagicMock(), raw)
+    assert fake_db.get_level_id.call_args.args[1] == "Manager"
+

@@ -9,6 +9,7 @@ import json
 import os
 import sys
 from unittest.mock import MagicMock
+from urllib.parse import urljoin
 
 import pytest
 
@@ -20,6 +21,7 @@ from adapters.topcv import TopCVAdapter
 from adapters.vietnamworks import VietnamWorksAdapter
 from db.crawl_snapshots import save_snapshots
 from snapshots import MAX_PER_ANOMALY, SnapshotRecorder
+from vnw_page_builder import build_detail_html
 
 HERE = os.path.dirname(__file__)
 
@@ -181,10 +183,15 @@ def test_vietnamworks_first_page_sample_is_json():
     adapter.set_snapshot_recorder(rec)
     payload = json.loads(_read("fixture_vietnamworks_search.json"))
     adapter._post_json = lambda url, body, max_retries=3: payload
+    # Từ 10/2026 mỗi job mới còn tải trang chi tiết (giả lập, không đụng mạng).
+    pages = {}
+    for j in payload["data"]:
+        pages.setdefault(urljoin("https://www.vietnamworks.com", j["jobUrl"]), build_detail_html(j))
+    adapter._fetch_html = lambda url, max_retries=3: pages[url]
 
     assert list(adapter.fetch_jobs("data-analyst", 1))
-    assert [(i.kind, i.reason) for i in rec.items] == [("listing", "sample")]
-    json.loads(rec.items[0].body)   # là JSON hợp lệ
+    assert [(i.kind, i.reason) for i in rec.items] == [("listing", "sample"), ("detail", "sample")]
+    json.loads(rec.items[0].body)   # snapshot listing là JSON hợp lệ
 
 
 # ----------------------------------------------------------------------

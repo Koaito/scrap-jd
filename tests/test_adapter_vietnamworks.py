@@ -18,6 +18,8 @@ from curl_cffi import requests as curl_requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+from urllib.parse import urljoin
+
 from adapters.base import CrawlBlockedError
 from adapters.vietnamworks import (
     VietnamWorksAdapter,
@@ -26,6 +28,7 @@ from adapters.vietnamworks import (
     _work_type_text_from_id,
 )
 from config import VNW_SEARCH_URL
+from vnw_page_builder import build_detail_html
 
 FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixture_vietnamworks_search.json")
 CATEGORY = "data-analyst"
@@ -75,6 +78,17 @@ def sleeps(monkeypatch):
     recorded = []
     monkeypatch.setattr(time, "sleep", lambda s: recorded.append(s))
     return recorded
+
+
+def _serve_detail_pages(adapter, jobs):
+    """Từ 10/2026 fetch_jobs() tải thêm trang chi tiết cho mỗi job mới. Giả lập
+    bằng cách trả trang dựng từ chính job trong search (cùng jobId, nội dung
+    không bị cắt như fixture) -> test không đụng mạng thật."""
+    pages = {}
+    for j in jobs:
+        # setdefault: fixture có job trùng URL (1005 trùng 1001), bản đầu tiên thắng
+        pages.setdefault(urljoin("https://www.vietnamworks.com", j["jobUrl"]), build_detail_html(j))
+    adapter._fetch_html = lambda url, max_retries=3: pages[url]
 
 
 def _adapter_with(script, delay=2.0):
@@ -145,6 +159,7 @@ def test_fetch_jobs_parses_fixture_and_skips_invalid_and_duplicates():
 
     adapter = VietnamWorksAdapter()
     adapter._post_json = lambda url, body, **kw: pages[body["page"]]
+    _serve_detail_pages(adapter, fixture["data"])
 
     records = list(adapter.fetch_jobs(CATEGORY, max_pages=3))
 
@@ -154,12 +169,15 @@ def test_fetch_jobs_parses_fixture_and_skips_invalid_and_duplicates():
         "https://www.vietnamworks.com/chuyen-vien-ban-hang-1002-jv",  # URL tương đối được nối BASE_URL
         "https://www.vietnamworks.com/thuc-tap-sinh-data-1003-jv",
     ]
+    # Mọi trang chi tiết đều giải mã được (không rơi vào đường dự phòng)
+    assert adapter.listing_anomalies == []
 
 
 def test_fetch_jobs_maps_fields_of_first_job():
     fixture = _load_fixture()
     adapter = VietnamWorksAdapter()
     adapter._post_json = lambda url, body, **kw: {"meta": {"nbPages": 1}, "data": fixture["data"][:1]}
+    _serve_detail_pages(adapter, fixture["data"][:1])
 
     (rec,) = list(adapter.fetch_jobs(CATEGORY, max_pages=3))
 
@@ -174,6 +192,7 @@ def test_fetch_jobs_maps_fields_of_first_job():
         "https://www.vietnamworks.com/nha-tuyen-dung/"
         "ngan-hang-tmcp-cong-thuong-viet-nam-vietinbank-c34511"
     )
+    assert adapter.listing_anomalies == []
 
 
 def test_fetch_jobs_edge_case_fields():
@@ -182,6 +201,7 @@ def test_fetch_jobs_edge_case_fields():
     fixture = _load_fixture()
     adapter = VietnamWorksAdapter()
     adapter._post_json = lambda url, body, **kw: {"meta": {"nbPages": 1}, "data": [fixture["data"][1]]}
+    _serve_detail_pages(adapter, [fixture["data"][1]])
 
     (rec,) = list(adapter.fetch_jobs(CATEGORY, max_pages=1))
 
@@ -199,6 +219,7 @@ def test_fetch_jobs_stops_at_meta_nb_pages():
 
     adapter = VietnamWorksAdapter()
     adapter._post_json = lambda url, body, **kw: (calls.append(body["page"]), page)[1]
+    _serve_detail_pages(adapter, fixture["data"])
 
     list(adapter.fetch_jobs(CATEGORY, max_pages=5))
     assert calls == [0]
@@ -217,6 +238,7 @@ def test_fetch_jobs_later_page_failure_is_not_blocked():
     pages = {0: fixture, 1: None}
     adapter = VietnamWorksAdapter()
     adapter._post_json = lambda url, body, **kw: pages[body["page"]]
+    _serve_detail_pages(adapter, fixture["data"])
 
     records = list(adapter.fetch_jobs(CATEGORY, max_pages=3))
     assert len(records) == 3
@@ -228,12 +250,14 @@ def test_fetch_jobs_unknown_category():
 
 
 # ----------------------------------------------------------------------
-# fetch_job_full_detail (cache từ search API)
+# fetch_job_full_detail (cache dựng trong fetch_jobs; luồng trang chi tiết xem
+# tests/test_vietnamworks_detail.py)
 # ----------------------------------------------------------------------
 def test_job_full_detail_comes_from_search_cache():
     fixture = _load_fixture()
     adapter = VietnamWorksAdapter()
     adapter._post_json = lambda url, body, **kw: {"meta": {"nbPages": 1}, "data": fixture["data"][:1]}
+    _serve_detail_pages(adapter, fixture["data"][:1])
     (rec,) = list(adapter.fetch_jobs(CATEGORY, max_pages=1))
 
     detail = adapter.fetch_job_full_detail(rec.source_url)

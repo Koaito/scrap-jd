@@ -288,7 +288,7 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     lặp cũ. Ngoại lệ KHÔNG bắt ở đây: _process_jobs() rollback + đếm lỗi."""
     # 2) Chuẩn hóa (phần DÙNG CHUNG, không quan tâm nguồn)
     salary = normalize.normalize_salary(raw.salary_text)
-    level_code = normalize.infer_level(raw.experience_text, raw.job_title)
+    level_code = normalize.infer_level(raw.experience_text, raw.job_title, raw.level_hint)
     company_name = normalize.clean_company_name(raw.company_name)
 
     # 2a) Nhà tuyển dụng ẨN DANH (site tự điền placeholder thay tên công ty

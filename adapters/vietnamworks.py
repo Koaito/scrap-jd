@@ -88,7 +88,9 @@ from urllib.parse import urljoin
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 
+import normalize
 from adapters.base import BaseAdapter, CrawlBlockedError
+from adapters.vietnamworks_detail import parse_detail_page
 from models import RawJobRecord
 from config import (
     VIETNAMWORKS_CATEGORIES,
@@ -126,6 +128,30 @@ def _work_type_text_from_id(type_working_id) -> str:
     if not type_working_id:  # None hoặc 0
         return ""
     return "Khác"
+
+# Mã bất thường adapter tự báo (BaseAdapter._flag_listing_anomaly) khi tải được
+# trang chi tiết nhưng không giải mã được -> lượt crawl bị đánh dấu degraded.
+ANOMALY_DETAIL_UNPARSABLE = "vnw_detail_unparsable"
+
+
+def _level_hint_from_job_level(job_level) -> str:
+    """Nhãn jobLevel của VietnamWorks -> 1 giá trị trong normalize.LEVEL_ORDER,
+    hoặc "" nếu không biết. Chỉ là dự phòng khi không đọc được số năm (xem
+    normalize.infer_level). Nhãn ĐÃ THẤY trong dữ liệu thật (10/2026): "Fresher/
+    Entry level", "Experienced (non-manager)", "Manager", "Director and above".
+    "Experienced (non-manager)" chứa chữ "manager" nên PHẢI loại trước, nếu không
+    toàn bộ nhân viên thường bị gán nhầm Manager."""
+    label = str(job_level or "").strip().lower()
+    if not label or "non-manager" in label:
+        return ""
+    if "intern" in label:
+        return "Intern"
+    if "fresher" in label or "entry" in label:
+        return "Fresher"
+    if "director" in label or "manager" in label:
+        return "Manager"
+    return ""
+
 
 # Bảng chuyển ký tự có dấu tiếng Việt -> không dấu, dùng cho
 # _slugify_company_name(). Liệt kê thủ công (không phụ thuộc thư viện
@@ -252,6 +278,7 @@ class VietnamWorksAdapter(BaseAdapter):
                 break
 
             new_count = 0
+            known_count = 0
             for job in jobs:
                 record = self._parse_job(job, matching_industry)
                 if record is None:
@@ -259,6 +286,15 @@ class VietnamWorksAdapter(BaseAdapter):
                 if record.source_url in seen_urls:
                     continue
                 seen_urls.add(record.source_url)
+                # Job đã có trong DB và không cần vá nữa -> bỏ qua TRƯỚC khi tải
+                # trang chi tiết (mỗi trang tốn 1 request thật). Job cũ còn
+                # thiếu field vẫn đi tiếp để pipeline vá, giống CareerViet.
+                if self._is_known_url(record.source_url):
+                    known_count += 1
+                    continue
+                record = self._enrich_from_detail_page(record, job)
+                if record is None:
+                    continue
                 new_count += 1
                 yield record
 
@@ -271,8 +307,10 @@ class VietnamWorksAdapter(BaseAdapter):
             meta = data.get("meta", {}) if isinstance(data, dict) else {}
             nb_pages = meta.get("nbPages")
             logger.info(
-                "Trang %d: %d job mới (tổng %s hits, %s trang theo API)",
-                page, new_count, meta.get("nbHits", "?"), nb_pages if nb_pages is not None else "?",
+                "Trang %d: %d job mới, %d job đã có (bỏ qua, không tải chi tiết) "
+                "(tổng %s hits, %s trang theo API)",
+                page, new_count, known_count, meta.get("nbHits", "?"),
+                nb_pages if nb_pages is not None else "?",
             )
 
             if isinstance(nb_pages, int) and page + 1 >= nb_pages:
@@ -402,21 +440,12 @@ class VietnamWorksAdapter(BaseAdapter):
         work_type_text = _work_type_text_from_id(job.get("typeWorkingId"))
         deadline_text = self._format_deadline(job.get("expiredOn"))
 
-        # experience_text: XÁC NHẬN bằng dữ liệu thật (08/2026) — VNW CÓ
-        # field "yearsOfExperience" (số nguyên) -> chuyển thành text "X năm"
-        # khớp THẲNG với regex r"(\d+)\s*năm" đã có sẵn trong
-        # normalize.infer_level(), không cần sửa normalize.py. Đáng tin hơn
-        # jobLevelVI (nhãn cấp bậc chung chung, không khớp pattern nào của
-        # infer_level()).
-        # yearsOfExperience == 0: CHƯA RÕ nghĩa là "không yêu cầu kinh
-        # nghiệm" hay "dữ liệu trống/chưa có" (job mẫu thật duy nhất thấy
-        # được đều =0 nhưng cũng đồng thời rỗng gần hết field khác, khả
-        # năng cao là tin đăng thiếu dữ liệu chứ không phải cố ý "0 năm")
-        # -> AN TOÀN: chỉ set khi > 0, để trống khi =0 (infer_level() sẽ tự
-        # fallback về "Junior" mặc định, giống hệt kết quả nếu hiểu 0 là
-        # "không yêu cầu" nên không mất gì khi đoán sai theo hướng này).
-        years_exp = job.get("yearsOfExperience")
-        experience_text = f"{years_exp} năm" if isinstance(years_exp, int) and years_exp > 0 else ""
+        # experience_text / level_hint: xem _experience_fields(). API search luôn
+        # trả yearsOfExperience=0 và jobRequirement bị cắt, nên với job MỚI giá
+        # trị đầy đủ được cập nhật lại từ trang chi tiết trong
+        # _enrich_from_detail_page(); ở đây chỉ là bản dựa trên dữ liệu search
+        # (dùng làm dự phòng khi trang chi tiết không giải mã được).
+        experience_text, level_hint = self._experience_fields(job)
 
         # company_url: "companyUrl"/"companyProfile" trả về từ API XÁC
         # NHẬN LUÔN RỖNG ở toàn bộ mẫu thật soi được (xem docstring đầu
@@ -433,32 +462,108 @@ class VietnamWorksAdapter(BaseAdapter):
             province_text=province_text,
             experience_text=experience_text,
             work_type_text=work_type_text,
+            posted_text=(job.get("approvedOnText") or "").strip(),
             deadline_text=deadline_text,
             matching_industry=matching_industry,
             company_url=company_url,
             raw_tags=job.get("skills") or [],
+            level_hint=level_hint,
         )
 
-        # Cache chi tiết job (JD/requirement/perks/skills) NGAY TỪ ĐÂY vì
-        # search API đã trả đủ -> fetch_job_full_detail() dùng lại, không
-        # gọi thêm request nào cho nguồn này.
-        self._detail_cache[source_url] = {
-            "work_type": work_type_text,
-            "deadline_text": deadline_text,
-            "job_description": self._strip_html(job.get("jobDescription", "")),
-            "requirements": self._strip_html(job.get("jobRequirement", "")),
-            "perks": self._format_benefits(job.get("benefits")),
-            "required_skills": self._extract_skills(job.get("skills")),
-        }
+        # Cache chi tiết job (JD/requirement/perks/skills) từ dữ liệu search
+        # -> fetch_job_full_detail() dùng lại, không gọi thêm request. LƯU Ý:
+        # bản này bị API search CẮT NGẮN (mô tả/yêu cầu kết thúc bằng "...");
+        # với job mới, _enrich_from_detail_page() ghi đè bằng bản đầy đủ.
+        self._detail_cache[source_url] = self._detail_dict_from_job(
+            job, work_type_text, deadline_text
+        )
 
         return record
+
+    # ------------------------------------------------------------------
+    # Trang chi tiết job (10/2026): bản đầy đủ của mô tả/yêu cầu + số năm
+    # ------------------------------------------------------------------
+    def _enrich_from_detail_page(self, record: RawJobRecord, listing_job: dict) -> Optional[RawJobRecord]:
+        """Tải trang chi tiết của job MỚI, cập nhật record + cache bằng dữ liệu
+        đầy đủ. Trả record đã cập nhật, hoặc None nếu KHÔNG tải được trang
+        (lỗi mạng/bị chặn/404) -> bỏ job này lượt này, cùng quy ước với
+        pipeline ("thà thiếu 1 job, lượt sau nhặt lại, còn hơn lưu JD bị cắt
+        một cách âm thầm"); lỗi liên tiếp thì ngắt mạch dừng cả lượt.
+
+        Tải được nhưng KHÔNG giải mã được (VNW đổi cấu trúc trang): vẫn trả
+        record dựa trên dữ liệu search (như trước đây), đồng thời lưu snapshot
+        và báo degraded để người xem biết JD đang lưu là bản cắt ngắn."""
+        url = record.source_url
+        html = self._fetch_html(url)
+        if html is None:
+            logger.warning("Bỏ qua job (không tải được trang chi tiết): %s @ %s", record.job_title, url)
+            return None
+
+        detail_job = parse_detail_page(html)
+        if detail_job is not None and str(detail_job.get("jobId")) != str(listing_job.get("jobId")):
+            logger.warning(
+                "Trang chi tiết %s trả job khác (jobId=%r, kỳ vọng %r) -> coi như không giải mã được",
+                url, detail_job.get("jobId"), listing_job.get("jobId"),
+            )
+            detail_job = None
+
+        if detail_job is None:
+            logger.warning(
+                "Không giải mã được trang chi tiết %s -> dùng dữ liệu search (mô tả/yêu cầu có thể bị cắt)", url
+            )
+            self._snapshot("detail", url, html, reason="detail_unparsable")
+            self._flag_listing_anomaly(ANOMALY_DETAIL_UNPARSABLE)
+            return record
+
+        self._snapshot("detail", url, html)
+        # Trang chi tiết là nguồn chính; khoá nào nó để trống thì giữ giá trị search.
+        merged = {**listing_job, **{k: v for k, v in detail_job.items() if v not in (None, "")}}
+        record.experience_text, record.level_hint = self._experience_fields(merged)
+        record.posted_text = (merged.get("approvedOnText") or "").strip() or record.posted_text
+        self._detail_cache[url] = self._detail_dict_from_job(
+            merged, record.work_type_text, record.deadline_text
+        )
+        return record
+
+    @classmethod
+    def _experience_fields(cls, job: dict) -> tuple:
+        """(experience_text, level_hint) từ 1 dict job (search hoặc đã gộp chi
+        tiết). Thứ tự: (1) yearsOfExperience > 0 (trường có cấu trúc, chỉ có số
+        thật ở trang chi tiết); (2) số năm tối thiểu đọc từ jobRequirement (xem
+        normalize.extract_min_years); (3) không có số năm -> experience_text
+        rỗng và để jobLevel làm level_hint dự phòng (infer_level quyết định).
+
+        Số 0 từ extract_min_years nghĩa là "không yêu cầu"/"dưới 1 năm" nên
+        đổi thành "Dưới 1 năm" (infer_level -> Fresher); yearsOfExperience == 0
+        thì KHÔNG đoán gì (nguồn không phân biệt "không yêu cầu" với "chưa điền")."""
+        level_hint = _level_hint_from_job_level(job.get("jobLevel"))
+        years = job.get("yearsOfExperience")
+        if isinstance(years, int) and not isinstance(years, bool) and years > 0:
+            return f"{years} năm", level_hint
+        parsed = normalize.extract_min_years(cls._strip_html(job.get("jobRequirement")))
+        if parsed is None:
+            return "", level_hint
+        return ("Dưới 1 năm" if parsed == 0 else f"{parsed} năm"), level_hint
+
+    @classmethod
+    def _detail_dict_from_job(cls, job: dict, work_type_text: str, deadline_text: str) -> dict:
+        return {
+            "work_type": work_type_text,
+            "deadline_text": deadline_text,
+            "job_description": cls._strip_html(job.get("jobDescription", "")),
+            "requirements": cls._strip_html(job.get("jobRequirement", "")),
+            "perks": cls._format_benefits(job.get("benefits")),
+            "required_skills": cls._extract_skills(job.get("skills")),
+        }
 
     # ------------------------------------------------------------------
     # fetch_job_full_detail — override để dùng cache thay vì fetch thêm
     # ------------------------------------------------------------------
     def fetch_job_full_detail(self, source_url: str) -> Optional[dict]:
         """Khác hẳn TopCV: dữ liệu này đã có sẵn từ lúc fetch_jobs() chạy
-        (search API trả kèm luôn) -> trả từ cache, MIỄN PHÍ (0 request).
+        (job mới: bản đầy đủ từ trang chi tiết, xem _enrich_from_detail_page();
+        job đã biết: bản search, có thể bị cắt) -> trả từ cache, MIỄN PHÍ
+        (0 request).
 
         Trường hợp cache miss (source_url không nằm trong lần fetch_jobs()
         gần nhất — vd job cũ trong DB từ lần crawl trước, nay chỉ đang
