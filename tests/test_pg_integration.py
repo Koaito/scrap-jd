@@ -446,3 +446,67 @@ def test_snapshot_roundtrip_retention_and_cascade(pg_conn, clean_crawl_snapshots
         cur.execute("DELETE FROM crawl_runs WHERE run_id = %s", (run_id,))
     pg_conn.commit()
     assert db.list_crawl_snapshots(pg_conn, run_id=run_id) == []
+
+
+# ---------------------------------------------------------------------------
+# init-db + migrate --baseline trên Postgres thật
+# ---------------------------------------------------------------------------
+
+def _reset_migration_log(conn):
+    with conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS schema_migrations")
+    conn.commit()
+
+
+def test_init_db_flow_leaves_no_pending_migration(pg_conn):
+    """DB dựng bằng schema.sql rồi baseline thì `migrate` không còn gì để chạy
+    (đặc biệt không chạy lại các migration cũ vốn lỗi trên DB mới)."""
+    _reset_migration_log(pg_conn)
+    db.baseline_migrations(pg_conn)
+    assert db.list_pending_migrations(pg_conn) == []
+    assert db.apply_migrations(pg_conn) == []
+
+
+def test_baseline_except_then_migrate_creates_only_the_excepted_table(pg_conn):
+    """Mô phỏng DB cũ thiếu bảng crawl_snapshots và chưa có log migration:
+    baseline giữ lại đúng file đó, `migrate` tạo bảng."""
+    import argparse
+    import main as cli
+
+    with pg_conn.cursor() as cur:
+        cur.execute("DROP TABLE IF EXISTS crawl_snapshots")
+    pg_conn.commit()
+    _reset_migration_log(pg_conn)
+
+    args = argparse.Namespace(
+        except_files=["migration_add_crawl_snapshots.sql"], yes=True
+    )
+    cli._cmd_migrate_baseline(pg_conn, args)
+
+    assert db.list_pending_migrations(pg_conn) == ["migration_add_crawl_snapshots.sql"]
+    assert db.apply_migrations(pg_conn) == ["migration_add_crawl_snapshots.sql"]
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('public.crawl_snapshots')")
+        assert cur.fetchone()[0] is not None
+    assert db.list_pending_migrations(pg_conn) == []
+
+
+def test_baseline_refuses_when_required_table_is_missing(pg_conn):
+    import argparse
+    import main as cli
+
+    with pg_conn.cursor() as cur:
+        cur.execute("ALTER TABLE crawl_run_logs RENAME TO crawl_run_logs_tmp")
+    pg_conn.commit()
+    _reset_migration_log(pg_conn)
+    try:
+        with pytest.raises(SystemExit):
+            cli._cmd_migrate_baseline(
+                pg_conn, argparse.Namespace(except_files=[], yes=True)
+            )
+        # Từ chối thì không ghi nhận gì.
+        assert len(db.list_pending_migrations(pg_conn)) > 0
+    finally:
+        with pg_conn.cursor() as cur:
+            cur.execute("ALTER TABLE crawl_run_logs_tmp RENAME TO crawl_run_logs")
+        pg_conn.commit()

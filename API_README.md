@@ -492,37 +492,20 @@ trực tiếp như cũ — KHÔNG qua pool, vì tần suất chạy thấp (1 l�
 `API_BASE_URL`, `DB_POOL_MIN`/`DB_POOL_MAX`, Tavily/Gemini key). URL
 public: `https://scrap-jd-api.onrender.com`.
 
-**Trước khi deploy bản có JWT/phân quyền/đăng ký/ứng tuyển/lưu job
-này**, phải chạy trên Postgres thật **đúng thứ tự sau** (migration sau
-phụ thuộc bảng/cột migration trước tạo ra) — repo hiện có **13 file**
-migration cần chạy tay cho DB cũ, không chỉ 4:
+**Trước mỗi lần deploy**, kiểm tra DB đã theo kịp migration của code mới:
 
 ```bash
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_auth.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_audit_columns.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_role_hierarchy.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_email_verification.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_rename_ss_team_members.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_applications_saved_jobs.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_phone_track.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_password_reset.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_tax_id.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_work_type_deadline.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_update_provinces_2025.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_salary_period.sql
-psql -U postgres -d "Student Success — Job Postings & Company Contacts" -f sql/migration_add_products_services.sql
+python main.py migrate --check     # exit code 1 nếu còn migration chưa áp dụng
+python main.py migrate             # áp dụng các migration còn thiếu
 ```
 
-Deploy code trước khi chạy đủ 13 migration → `POST`/`PATCH /jobs`,
-`POST /companies`, CRUD `/companies/{id}/contacts`, `POST /auth/register`,
-đăng nhập, quên mật khẩu, ứng tuyển, lưu job, hoặc crawl sẽ lỗi 500 (bảng/
-cột liên quan chưa tồn tại). DB tạo mới hoàn toàn từ `sql/schema.sql` đã
-có sẵn đầy đủ, **không cần** chạy lại các migration này.
-
-⚠️ **KHÔNG chạy `sql/migration_drop_products_services.sql`** — file này
-`DROP COLUMN companies.products_services`, cột mà pipeline crawl và
-`enrich_company_profile_from_website.py` đang chủ động ghi vào. Chạy nó
-sẽ khiến crawl lỗi 500 ngay lập tức.
+Chạy hai lệnh này với biến `PG*` trỏ vào DB production (lấy từ phần
+Environment của service trên Render). Deploy code khi DB còn thiếu
+migration thì các route liên quan (ghi job/công ty, liên hệ, đăng ký, đăng
+nhập, ứng tuyển, lưu job, crawl...) sẽ lỗi 500 vì bảng hoặc cột chưa tồn
+tại. DB dựng mới bằng `python main.py init-db` đã có đủ schema. DB đã ở
+trạng thái mới nhất nhưng chưa có log migration thì dùng
+`python main.py migrate --baseline`, xem `sql/README_MIGRATIONS.md`.
 
 Khi làm frontend và deploy lên Vercel: quay lại Render, sửa
 `ALLOWED_ORIGINS` cho khớp domain Vercel thật, KHÔNG quên bước này.

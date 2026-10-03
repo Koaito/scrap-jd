@@ -3,6 +3,9 @@ CLI chạy crawler.
 
 Ví dụ:
     python main.py init-db
+    python main.py migrate --check
+    python main.py migrate
+    python main.py migrate --baseline --except migration_add_crawl_snapshots.sql
     python main.py crawl --category data-analyst --pages 3
     python main.py crawl --category data-engineer --pages 5
     python main.py crawl --category data-analyst --max-jobs 20
@@ -41,12 +44,87 @@ logger = logging.getLogger(__name__)
 
 
 def cmd_init_db(args):
+    """Dựng/cập nhật schema từ sql/schema.sql, rồi ghi nhận mọi migration_*.sql
+    hiện có là đã áp dụng (schema.sql đã chứa kết quả của chúng), để `migrate`
+    về sau chỉ chạy các migration mới."""
     conn = db.get_connection()
     try:
         db.apply_schema(conn)
+        db.baseline_migrations(conn)
         print("✅ Đã tạo/cập nhật schema trong database.")
     finally:
         conn.close()
+
+
+# Bảng mà `migrate --baseline` yêu cầu phải có sẵn trước khi ghi nhận DB là
+# "đã ở trạng thái mới nhất". Giá trị là file migration tạo bảng đó (None =
+# luôn bắt buộc). Bảng thiếu mà file tạo nó nằm trong --except thì được bỏ qua.
+_BASELINE_REQUIRED_TABLES = {
+    "app_users": None,
+    "job_postings": None,
+    "companies": None,
+    "crawl_runs": "migration_add_crawl_runs.sql",
+    "crawl_batches": "migration_add_crawl_batches.sql",
+    "crawl_run_logs": "migration_add_crawl_progress_logs.sql",
+    "maintenance_runs": "migration_add_maintenance_runs.sql",
+    "import_previews": "migration_add_import_export.sql",
+}
+
+
+def _missing_baseline_tables(conn, except_files):
+    """Các bảng bắt buộc còn thiếu trong DB (sau khi trừ bảng sẽ được tạo bởi
+    file nằm trong except_files)."""
+    missing = []
+    with conn.cursor() as cur:
+        for table, creator in _BASELINE_REQUIRED_TABLES.items():
+            cur.execute("SELECT to_regclass(%s)", (f"public.{table}",))
+            if cur.fetchone()[0] is None and creator not in except_files:
+                missing.append(table)
+    return missing
+
+
+def _cmd_migrate_baseline(conn, args):
+    """`migrate --baseline`: ghi nhận migration chưa có log là đã áp dụng mà
+    KHÔNG chạy SQL. Chỉ dùng khi DB đã ở trạng thái mới nhất."""
+    except_files = set(args.except_files or [])
+    pending = db.list_pending_migrations(conn)
+    unknown = sorted(except_files - set(pending))
+    if unknown:
+        print("❌ --except chứa file không nằm trong danh sách migration chưa áp dụng:")
+        for filename in unknown:
+            print(f"   - {filename}")
+        sys.exit(1)
+
+    missing = _missing_baseline_tables(conn, except_files)
+    if missing:
+        print("❌ DB này chưa có đủ bảng để coi là \"đã ở trạng thái mới nhất\":")
+        for table in missing:
+            print(f"   - thiếu bảng {table}")
+        print("   Không baseline. Với DB mới hãy dùng `python main.py init-db`; "
+              "với DB cũ, thêm file tạo bảng đó vào --except để chạy thật.")
+        sys.exit(1)
+
+    to_mark = [f for f in pending if f not in except_files]
+    if not to_mark:
+        print("✅ Không có migration nào cần ghi nhận.")
+        return
+    print(f"Sẽ GHI NHẬN {len(to_mark)} migration là đã áp dụng (KHÔNG chạy SQL):")
+    for filename in to_mark:
+        print(f"   - {filename}")
+    if except_files:
+        print("Giữ nguyên chưa áp dụng (sẽ chạy ở lần `migrate` sau):")
+        for filename in sorted(except_files):
+            print(f"   - {filename}")
+    if not args.yes:
+        answer = input("Gõ 'yes' để xác nhận: ").strip().lower()
+        if answer != "yes":
+            print("Đã huỷ, không thay đổi gì.")
+            sys.exit(1)
+
+    marked = db.baseline_migrations(conn, except_files=except_files)
+    print(f"✅ Đã ghi nhận {len(marked)} migration.")
+    if except_files:
+        print("   Chạy tiếp `python main.py migrate` để áp dụng các file còn lại.")
 
 
 def cmd_migrate(args):
@@ -59,9 +137,23 @@ def cmd_migrate(args):
     kiểm tra trước khi deploy (vd script CI/CD có thể gọi lệnh này,
     exit code khác 0 nếu còn migration chưa chạy, để chặn deploy sớm
     thay vì phát hiện lỗi sau khi code mới đã lên production mà DB
-    chưa kịp cập nhật)."""
+    chưa kịp cập nhật).
+
+    --baseline: chỉ ghi nhận migration chưa có log là đã áp dụng, KHÔNG chạy
+    SQL — dùng một lần cho DB đã ở trạng thái mới nhất nhưng bảng
+    schema_migrations còn thiếu. --except <file> (lặp lại được) giữ file đó
+    ở trạng thái chưa áp dụng để lần `migrate` sau chạy thật."""
+    if (args.except_files or args.yes) and not args.baseline:
+        print("❌ --except và --yes chỉ dùng kèm --baseline.")
+        sys.exit(1)
+    if args.baseline and args.check:
+        print("❌ Không dùng --baseline cùng --check.")
+        sys.exit(1)
     conn = db.get_connection()
     try:
+        if args.baseline:
+            _cmd_migrate_baseline(conn, args)
+            return
         if args.check:
             pending = db.list_pending_migrations(conn)
             if not pending:
@@ -329,6 +421,21 @@ def main():
     p_migrate.add_argument(
         "--check", action="store_true",
         help="Chỉ liệt kê migration còn thiếu, không chạy gì (exit code 1 nếu còn thiếu)",
+    )
+    p_migrate.add_argument(
+        "--baseline", action="store_true",
+        help="Ghi nhận migration chưa có log là ĐÃ áp dụng mà không chạy SQL "
+             "(dùng một lần cho DB đã ở trạng thái mới nhất)",
+    )
+    p_migrate.add_argument(
+        "--except", dest="except_files", action="append", default=[],
+        metavar="FILE",
+        help="Kèm --baseline: giữ file migration này ở trạng thái chưa áp dụng "
+             "để lần migrate sau chạy thật (lặp lại được)",
+    )
+    p_migrate.add_argument(
+        "--yes", action="store_true",
+        help="Kèm --baseline: bỏ qua bước hỏi xác nhận",
     )
 
     p_crawl = sub.add_parser("crawl", help="Crawl job từ TopCV/VietnamWorks và lưu vào DB")

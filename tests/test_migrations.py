@@ -11,6 +11,8 @@ khác") + file migration THẬT trong thư mục tạm (tmp_path) để test đ�
 hành vi đọc file, không mock open()/os.listdir() (dễ test sai logic
 thật).
 """
+import os
+import re
 from unittest.mock import MagicMock
 
 import pytest
@@ -156,3 +158,82 @@ class TestApplyMigrations:
         # 2 migration pending -> commit() gọi ít nhất 2 lần (có thể thêm
         # 1 lần nữa từ _ensure_schema_migrations_table, không sao).
         assert conn.commit.call_count >= 2
+
+
+class TestBaselineMigrations:
+    def test_marks_pending_without_running_their_sql(self, migrations_dir):
+        conn = _FakeConn(applied_filenames=[])
+        marked = db.baseline_migrations(conn, migrations_dir)
+        assert marked == ["migration_aaa_first.sql", "migration_zzz_second.sql"]
+        executed_sql = [sql for sql, _ in conn._cursor.executed]
+        # Chỉ có CREATE TABLE schema_migrations + INSERT ghi log; SQL của file
+        # migration (ALTER TABLE ...) KHÔNG được chạy.
+        assert not any("aaa_col" in sql or "zzz_col" in sql for sql in executed_sql)
+        inserted = {
+            params[0] for sql, params in conn._cursor.executed
+            if "INSERT INTO schema_migrations" in sql
+        }
+        assert inserted == set(marked)
+
+    def test_skips_files_already_applied(self, migrations_dir):
+        conn = _FakeConn(applied_filenames=["migration_aaa_first.sql"])
+        assert db.baseline_migrations(conn, migrations_dir) == ["migration_zzz_second.sql"]
+
+    def test_except_files_stay_pending(self, migrations_dir):
+        conn = _FakeConn(applied_filenames=[])
+        marked = db.baseline_migrations(
+            conn, migrations_dir, except_files=["migration_zzz_second.sql"]
+        )
+        assert marked == ["migration_aaa_first.sql"]
+        inserted = {
+            params[0] for sql, params in conn._cursor.executed
+            if "INSERT INTO schema_migrations" in sql
+        }
+        assert "migration_zzz_second.sql" not in inserted
+
+    def test_nothing_pending_returns_empty_and_commits_nothing_new(self, migrations_dir):
+        conn = _FakeConn(applied_filenames=[
+            "migration_aaa_first.sql", "migration_zzz_second.sql",
+        ])
+        assert db.baseline_migrations(conn, migrations_dir) == []
+        insert_calls = [
+            sql for sql, _ in conn._cursor.executed
+            if "INSERT INTO schema_migrations" in sql
+        ]
+        assert insert_calls == []
+
+
+class TestSchemaCoversMigrations:
+    """schema.sql là nguồn dựng DB mới và `init-db` coi mọi migration hiện có
+    là đã áp dụng. Nếu một migration tạo bảng mà schema.sql không có thì DB
+    mới thiếu bảng đó mà không ai biết."""
+
+    _SQL_DIR = os.path.join(os.path.dirname(__file__), "..", "sql")
+
+    def _read(self, name):
+        with open(os.path.join(self._SQL_DIR, name), encoding="utf-8") as f:
+            return f.read()
+
+    def test_every_table_created_by_a_migration_is_in_schema(self):
+        schema = self._read("schema.sql")
+        pattern = re.compile(r"CREATE TABLE IF NOT EXISTS\s+([a-z_]+)", re.IGNORECASE)
+        schema_tables = {m.group(1).lower() for m in pattern.finditer(schema)}
+        missing = {}
+        for name in sorted(os.listdir(self._SQL_DIR)):
+            if not (name.startswith("migration_") and name.endswith(".sql")):
+                continue
+            for m in pattern.finditer(self._read(name)):
+                table = m.group(1).lower()
+                if table not in schema_tables:
+                    missing.setdefault(name, []).append(table)
+        assert missing == {}
+
+    def test_retired_drop_products_services_migration_is_a_no_op(self):
+        """Cột companies.products_services đang được code ghi vào; migration
+        này không được xoá nó."""
+        statements = "\n".join(
+            line for line in self._read("migration_drop_products_services.sql").splitlines()
+            if not line.strip().startswith("--")
+        )
+        assert "DROP" not in statements.upper()
+        assert "products_services TEXT" in self._read("schema.sql")

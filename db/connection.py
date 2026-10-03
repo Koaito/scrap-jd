@@ -157,28 +157,25 @@ def apply_schema(conn, schema_path: str = "sql/schema.sql"):
 
 
 # ---------------------------------------------------------------------------
-# Migration tracking (thêm 08/2026)
+# Migration tracking
 # ---------------------------------------------------------------------------
-# Trước đây sql/ có 29 file migration_*.sql rời rạc, KHÔNG có cơ chế nào
-# ghi lại DB nào (dev/staging/prod) đã chạy file nào — schema.sql là bản
-# "snapshot" phải tự tay cập nhật khớp sau mỗi migration, dễ lệch giữa
-# các môi trường hoặc quên chạy 1 file khi deploy thủ công qua Render.
+# Hai cơ chế đi cùng nhau, không thay thế nhau:
 #
-# apply_migrations() dưới đây KHÔNG thay thế schema.sql (vẫn giữ nguyên
-# vai trò: setup DB MỚI TỪ ĐẦU qua `python main.py init-db`, xem
-# apply_schema() ở trên) — mà giải quyết bài toán khác: DB ĐÃ CÓ SẴN dữ
-# liệu (dev lâu năm/staging/prod), cần biết CHÍNH XÁC migration nào đã
-# chạy, migration nào chưa, để deploy an toàn.
+# - sql/schema.sql là schema ĐẦY ĐỦ, mới nhất. `init-db` chạy file này để dựng
+#   DB mới, rồi ghi nhận mọi migration_*.sql hiện có vào schema_migrations
+#   (baseline_migrations) vì schema.sql đã chứa sẵn kết quả của chúng.
+# - migration_*.sql + bảng schema_migrations dùng để nâng cấp DB đã có dữ liệu.
+#   apply_migrations() chạy các file chưa có trong schema_migrations, mỗi file
+#   một transaction.
 #
-# An toàn để chạy `apply_migrations()` bất kỳ lúc nào, kể cả trên DB đã
-# chạy tay 1 số migration trước đó KHÔNG qua cơ chế này: mọi file
-# migration_*.sql trong repo đều viết idempotent (ADD COLUMN IF NOT
-# EXISTS, CREATE ... IF NOT EXISTS, ON CONFLICT DO NOTHING...) — đã rà
-# soát mẫu nhiều file xác nhận quy ước này. Vì vậy chạy lại 1 migration
-# ĐÃ áp dụng trước đó (nhưng chưa từng được ghi log) vẫn AN TOÀN (no-op),
-# chỉ hơi tốn công quét lại — apply_migrations() gọi 1 lần lúc adopt
-# tính năng này sẽ tự "bắt kịp" (catch up) đúng trạng thái thật của DB
-# đó, không cần thao tác thủ công nào thêm.
+# DB đã dựng từ trước khi có bảng schema_migrations (chưa biết file nào đã
+# chạy) thì dùng baseline_migrations() một lần để ghi nhận trạng thái hiện tại,
+# KHÔNG chạy lại SQL. Lý do: các migration cũ chạy theo thứ tự tên file, mà
+# thứ tự đó không khớp thứ tự phụ thuộc thật (ví dụ crawl_batches cần kiểu
+# enum do crawl_runs tạo; vài file còn viết theo tên bảng ss_team_members đã
+# đổi thành app_users), nên chạy lại cả chuỗi trên DB đã ở trạng thái mới sẽ
+# lỗi. Migration viết MỚI phải idempotent (IF NOT EXISTS...) và chỉ phụ thuộc
+# trạng thái schema hiện tại.
 _MIGRATIONS_DIR = "sql"
 
 
@@ -243,3 +240,29 @@ def apply_migrations(conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
         newly_applied.append(filename)
         logger.info("Đã áp dụng migration: %s", filename)
     return newly_applied
+
+
+def baseline_migrations(conn, migrations_dir: str = _MIGRATIONS_DIR,
+                        except_files=()) -> list:
+    """Ghi vào schema_migrations mọi migration CHƯA có log, KHÔNG chạy SQL
+    của chúng. Dùng khi DB đã ở trạng thái mới nhất nhưng bảng
+    schema_migrations còn thiếu/trống (xem khối chú thích "Migration
+    tracking" phía trên).
+
+    `except_files`: các migration để nguyên ở trạng thái chưa áp dụng, để lần
+    `apply_migrations()` sau chạy thật (ví dụ file tạo một bảng DB chưa có).
+
+    Trả về danh sách filename vừa được ghi nhận."""
+    skip = set(except_files)
+    marked = [
+        f for f in list_pending_migrations(conn, migrations_dir) if f not in skip
+    ]
+    with conn.cursor() as cur:
+        for filename in marked:
+            cur.execute(
+                "INSERT INTO schema_migrations (filename) VALUES (%s) "
+                "ON CONFLICT DO NOTHING",
+                (filename,),
+            )
+    conn.commit()
+    return marked

@@ -20,6 +20,7 @@ from db.connection import (
     close_pool,
     apply_schema,
     apply_migrations,
+    baseline_migrations,
     list_pending_migrations,
 )
 from db.lookups import (
@@ -255,6 +256,7 @@ __all__ = [
     "close_pool",
     "apply_schema",
     "apply_migrations",
+    "baseline_migrations",
     "list_pending_migrations",
     "get_province_id",
     "list_email_templates",
