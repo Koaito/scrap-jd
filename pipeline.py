@@ -394,7 +394,22 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
     TOÀN BỘ vòng lặp. Đợt B2 (10/2026): phần xử lý từng job đã chuyển xuống
     _process_job() và các hàm nó gọi; ở đây chỉ còn vòng lặp, giới hạn
     max_jobs, xử lý lỗi từng job và heartbeat.
-    Cập nhật trực tiếp `stats`/`field_counter` do run_pipeline() truyền vào."""
+    Cập nhật trực tiếp `stats`/`field_counter` do run_pipeline() truyền vào.
+
+    QUY TẮC TRANSACTION (đợt B3, 10/2026) — 1 job = 1 transaction:
+      - Các hàm db.* KHÔNG tự commit/rollback, người gọi (pipeline) quyết định.
+      - Mỗi nhánh CÓ ghi DB tự commit đúng 1 lần ở CUỐI nhánh thành công:
+        _handle_existing_job (sau khi vá job cũ), _import_repost,
+        _insert_new_job. Commit chốt luôn các ghi phụ trước đó của cùng job
+        (tỉnh, công ty).
+      - Nhánh KHÔNG ghi gì (job trùng đã đủ field, ẩn danh, fetch chi tiết
+        thất bại) không commit.
+      - Mọi lỗi (kể cả CrawlBlockedError) -> rollback ở vòng lặp dưới, huỷ
+        toàn bộ phần CHƯA commit của job đó. Job đã commit không bị ảnh hưởng.
+      - Chỗ rollback thứ hai: _make_known_url_checker() khi tra cứu URL lỗi.
+    Thêm nhánh mới có ghi DB thì phải tự commit ở cuối nhánh đó. Quên thì
+    tests/test_pipeline_transactions.py báo đỏ (và buộc phân loại mọi hàm db.*
+    mới pipeline gọi là đọc hay ghi)."""
     for raw in adapter.fetch_jobs(category_key, max_pages):
         if max_jobs is not None and stats.fetched >= max_jobs:
             logger.info("Đã đạt giới hạn --max-jobs=%d, dừng crawl.", max_jobs)
