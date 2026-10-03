@@ -180,20 +180,22 @@ def _run(monkeypatch, adapter, fake_db):
 
 
 # (tên kịch bản, adapter, FakeDB, số commit mong đợi, số rollback mong đợi)
+# Mọi kịch bản có đúng 1 rollback: lần đóng transaction đọc sau câu probe ở đầu job
+# (pipeline._release_read_transaction), không phải rollback do lỗi.
 def _scenarios():
     return [
-        ("job mới -> insert", OneJobAdapter(_raw()), FakeDB(), 1, 0),
+        ("job mới -> insert", OneJobAdapter(_raw()), FakeDB(), 1, 1),
         ("job mới + enrich công ty", OneJobAdapter(_raw(company_url="https://x/c"),
          company_profile={"tax_id": "123", "description": "d"}),
-         FakeDB(needs_company_profile=True), 1, 0),
-        ("tin đăng lại", OneJobAdapter(_raw()), FakeDB(duplicate="old-job"), 1, 0),
-        ("job cũ cần vá, fetch OK", OneJobAdapter(_raw()), FakeDB(probe=NEEDS_PATCH_PROBE), 1, 0),
-        ("job cũ đã đủ field", OneJobAdapter(_raw()), FakeDB(probe=COMPLETE_PROBE), 0, 0),
+         FakeDB(needs_company_profile=True), 1, 1),
+        ("tin đăng lại", OneJobAdapter(_raw()), FakeDB(duplicate="old-job"), 1, 1),
+        ("job cũ cần vá, fetch OK", OneJobAdapter(_raw()), FakeDB(probe=NEEDS_PATCH_PROBE), 1, 1),
+        ("job cũ đã đủ field", OneJobAdapter(_raw()), FakeDB(probe=COMPLETE_PROBE), 0, 1),
         ("job cũ cần vá, fetch lỗi", OneJobAdapter(_raw(), detail=None),
-         FakeDB(probe=NEEDS_PATCH_PROBE), 0, 0),
+         FakeDB(probe=NEEDS_PATCH_PROBE), 0, 1),
         ("nhà tuyển dụng ẩn danh", OneJobAdapter(_raw(company_name="Vietnamworks' Client")),
-         FakeDB(), 0, 0),
-        ("job mới, fetch chi tiết lỗi", OneJobAdapter(_raw(), detail=None), FakeDB(), 0, 0),
+         FakeDB(), 0, 1),
+        ("job mới, fetch chi tiết lỗi", OneJobAdapter(_raw(), detail=None), FakeDB(), 0, 1),
     ]
 
 
@@ -223,7 +225,7 @@ def test_error_in_any_write_rolls_back_everything_uncommitted(monkeypatch, fail_
         FakeDB(probe=probe, duplicate=duplicate, fail_on=fail_on),
     )
     assert stats.errors == 1
-    assert conn.rollbacks == 1
+    assert conn.rollbacks == 2, "1 lần đóng transaction đọc + 1 lần huỷ phần ghi dở"
     assert conn.commits == 0, "lỗi giữa chừng thì không được commit phần dở"
     assert pending == 0
 
@@ -232,7 +234,7 @@ def test_blocked_mid_job_rolls_back_partial_work_and_does_not_count_as_error(mon
     conn, stats, pending = _run(
         monkeypatch, OneJobAdapter(_raw(), detail_error=CrawlBlockedError("bị chặn")), FakeDB(),
     )
-    assert conn.rollbacks == 1 and conn.commits == 0
+    assert conn.rollbacks == 2 and conn.commits == 0
     assert stats.errors == 0
     assert pending == 0
 
@@ -255,5 +257,77 @@ def test_committed_job_is_not_undone_by_error_in_next_job(monkeypatch):
     pipeline._process_jobs(TwoJobs(_raw()), conn, "da", 1, None, stats, EmptyFieldCounter(), lambda: None)
 
     assert stats.inserted == 1 and stats.errors == 1
-    assert conn.commits == 1 and conn.rollbacks == 1
+    # 2 lần đóng transaction đọc (mỗi job 1) + 1 lần huỷ phần ghi dở của job B
+    assert conn.commits == 1 and conn.rollbacks == 3
     assert conn.pending == 0
+
+
+# ----------------------------------------------------------------------
+# Không để transaction mở lúc chờ mạng ("idle in transaction")
+# ----------------------------------------------------------------------
+class TxnTrackingConn(FakeConn):
+    """Thêm cờ `open`: bật khi có câu đọc/ghi, tắt khi commit/rollback.
+    `lost_writes` đếm số lần rollback làm mất ghi chưa commit."""
+
+    def __init__(self):
+        super().__init__()
+        self.open = False
+        self.lost_writes = 0
+
+    def commit(self):
+        super().commit()
+        self.open = False
+
+    def rollback(self):
+        if self.pending:
+            self.lost_writes += 1
+        super().rollback()
+        self.open = False
+
+
+class TxnTrackingDB(FakeDB):
+    def get_job_probe_by_source_url(self, conn, url):
+        conn.open = True  # SELECT cũng mở transaction (autocommit=False)
+        return self._probe
+
+    def _write(self, name, conn, ret=None):
+        conn.open = True
+        return super()._write(name, conn, ret)
+
+
+class NetworkSpyAdapter(OneJobAdapter):
+    """Ghi lại trạng thái transaction của conn đúng lúc adapter gọi mạng."""
+
+    def __init__(self, conn, *a, **k):
+        super().__init__(*a, **k)
+        self.conn, self.open_during_detail = conn, None
+
+    def fetch_job_full_detail(self, source_url):
+        self.open_during_detail = self.conn.open
+        return super().fetch_job_full_detail(source_url)
+
+
+@pytest.mark.parametrize("probe", [None, NEEDS_PATCH_PROBE], ids=["job mới", "job cũ cần vá"])
+def test_no_transaction_open_while_fetching_job_detail(monkeypatch, probe):
+    conn, stats = TxnTrackingConn(), PipelineStats()
+    adapter = NetworkSpyAdapter(conn, _raw())
+    monkeypatch.setattr(pipeline, "db", TxnTrackingDB(probe=probe))
+
+    pipeline._process_jobs(adapter, conn, "da", 1, None, stats, EmptyFieldCounter(), lambda: None)
+
+    assert adapter.open_during_detail is False, (
+        "câu probe đã mở transaction và chưa đóng khi chờ fetch chi tiết -> "
+        "kết nối đứng 'idle in transaction'"
+    )
+    assert conn.lost_writes == 0, "việc đóng transaction đọc không được huỷ ghi chưa commit"
+    assert stats.errors == 0
+
+
+def test_known_url_checker_closes_read_transaction_after_probe(monkeypatch):
+    conn = TxnTrackingConn()
+    monkeypatch.setattr(pipeline, "db", TxnTrackingDB(probe=COMPLETE_PROBE))
+
+    assert pipeline._make_known_url_checker(conn)("u-1") is True
+
+    assert conn.open is False
+    assert conn.rollbacks == 1

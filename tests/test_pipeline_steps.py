@@ -193,7 +193,8 @@ def test_error_inside_insert_step_is_rolled_back_counted_and_heartbeat_still_fir
     stats, progress = _run_loop(OneJobAdapter(), conn)
 
     assert stats.errors == 1 and stats.inserted == 0
-    conn.rollback.assert_called_once()
+    # 2 lần: 1 lần đóng transaction đọc sau câu probe + 1 lần huỷ phần ghi dở do lỗi
+    assert conn.rollback.call_count == 2
     conn.commit.assert_not_called()
     progress.assert_called_once()
 
@@ -206,7 +207,8 @@ def test_error_inside_repost_step_is_rolled_back_and_counted(fake_db):
     stats, _ = _run_loop(OneJobAdapter(), conn)
 
     assert stats.errors == 1
-    conn.rollback.assert_called_once()
+    # 2 lần: 1 lần đóng transaction đọc sau câu probe + 1 lần huỷ phần ghi dở do lỗi
+    assert conn.rollback.call_count == 2
     conn.commit.assert_not_called()
 
 
@@ -221,7 +223,8 @@ def test_block_inside_nested_step_rolls_back_and_propagates(fake_db):
     with pytest.raises(CrawlBlockedError):
         pipeline._process_jobs(BlockedAdapter(), conn, "da", 1, None, stats, EmptyFieldCounter(), progress)
 
-    conn.rollback.assert_called_once()
+    # 2 lần: 1 lần đóng transaction đọc sau câu probe + 1 lần huỷ phần ghi dở do lỗi
+    assert conn.rollback.call_count == 2
     assert stats.errors == 0  # bị chặn không bị đếm như lỗi từng job
     progress.assert_called_once()
 

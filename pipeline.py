@@ -177,6 +177,21 @@ def _resolve_company(adapter: BaseAdapter, conn, raw, company_name: str, provinc
     return company_id
 
 
+def _release_read_transaction(conn) -> None:
+    """Đóng transaction mà một câu SELECT vừa mở, TRƯỚC khi chờ mạng.
+
+    Kết nối chạy autocommit=False nên chỉ một câu SELECT cũng mở transaction và
+    giữ nó tới khi commit/rollback. Nếu ngay sau đó pipeline đi fetch trang chi
+    tiết (vài giây tới hàng chục giây), kết nối đứng ở trạng thái
+    "idle in transaction" suốt thời gian chờ: giữ snapshot, chặn vacuum dọn và
+    chiếm 1 slot kết nối vô ích.
+
+    CHỈ gọi khi chắc chắn transaction hiện tại chưa có ghi nào (rollback sẽ huỷ
+    cả ghi chưa commit). Ở đầu mỗi job thì đúng như vậy: job trước đã commit
+    hoặc rollback xong, chỉ còn câu SELECT tra cứu trùng URL."""
+    conn.rollback()
+
+
 def _make_known_url_checker(conn, on_known_skipped=None):
     """Hàm kiểm tra cho BaseAdapter.set_known_url_checker(): True khi URL
     đã có trong DB VÀ không cần vá nữa (đủ work_type/deadline/
@@ -199,6 +214,9 @@ def _make_known_url_checker(conn, on_known_skipped=None):
             conn.rollback()
             logger.exception("Tra cứu URL đã biết lỗi (%s), coi như chưa có", source_url)
             return False
+        # Checker chạy giữa 2 job (adapter gọi khi quét listing), lúc này không
+        # còn ghi dở nào. Adapter sắp đi fetch mạng nên đóng transaction đọc.
+        _release_read_transaction(conn)
         known = probe is not None and not db.job_needs_detail_enrichment(probe)
         if known and on_known_skipped is not None:
             on_known_skipped()
@@ -380,6 +398,9 @@ def _process_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     insert, không dừng cả job này như 1 lỗi. Chưa có thì đi tiếp
     _import_new_job()."""
     job_probe = db.get_job_probe_by_source_url(conn, raw.source_url)
+    # Cả 2 nhánh bên dưới đều fetch trang chi tiết ngay (chờ mạng) nên đóng
+    # transaction đọc của câu probe trước. Các ghi của job bắt đầu sau điểm này.
+    _release_read_transaction(conn)
     if job_probe is not None:
         _handle_existing_job(adapter, conn, raw, job_probe, stats, field_counter)
         return
@@ -406,7 +427,11 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
         thất bại) không commit.
       - Mọi lỗi (kể cả CrawlBlockedError) -> rollback ở vòng lặp dưới, huỷ
         toàn bộ phần CHƯA commit của job đó. Job đã commit không bị ảnh hưởng.
-      - Chỗ rollback thứ hai: _make_known_url_checker() khi tra cứu URL lỗi.
+      - Rollback "đóng transaction đọc" (_release_read_transaction): ngay sau
+        câu probe ở đầu job và sau câu probe của _make_known_url_checker(), để
+        kết nối không đứng "idle in transaction" lúc chờ fetch mạng. Chỉ làm
+        lúc chưa có ghi nào.
+      - Chỗ rollback khác: _make_known_url_checker() khi tra cứu URL lỗi.
     Thêm nhánh mới có ghi DB thì phải tự commit ở cuối nhánh đó. Quên thì
     tests/test_pipeline_transactions.py báo đỏ (và buộc phân loại mọi hàm db.*
     mới pipeline gọi là đọc hay ghi)."""
