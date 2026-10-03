@@ -8,8 +8,10 @@ thống kê sang db/job_health.py (get_job_data_health).
 
 import json
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
+from config import DETAIL_RECHECK_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -129,8 +131,9 @@ def job_exists_by_source_url(conn, source_url: str) -> bool:
 
 def get_job_probe_by_source_url(conn, source_url: str):
     """Tra cứu nhanh 1 job đã có theo source_url — trả về
-    (job_id, work_type, deadline, parsed_content) hoặc None nếu job này
-    chưa từng crawl.
+    (job_id, work_type, deadline, parsed_content, detail_checked_at) hoặc None
+    nếu job này chưa từng crawl. detail_checked_at là lần gần nhất fetch thành
+    công trang chi tiết của CHÍNH URL này (NULL = chưa ghi nhận).
 
     Dùng để quyết định có cần fetch_job_full_detail() + update lại job CŨ
     hay không (job cũ có thể được crawl từ TRƯỚC khi tính năng work_type/
@@ -138,7 +141,8 @@ def get_job_probe_by_source_url(conn, source_url: str):
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT jp.job_id, jp.work_type, jp.deadline, jp.parsed_content
+            SELECT jp.job_id, jp.work_type, jp.deadline, jp.parsed_content,
+                   jsl.detail_checked_at
             FROM job_postings jp
             JOIN job_sources_log jsl ON jsl.job_id = jp.job_id
             WHERE jsl.source_url = %s
@@ -149,16 +153,45 @@ def get_job_probe_by_source_url(conn, source_url: str):
         return cur.fetchone()
 
 
-def job_needs_detail_enrichment(probe) -> bool:
+def job_needs_detail_enrichment(probe, *, now=None, recheck_days=None) -> bool:
     """probe = kết quả get_job_probe_by_source_url() (job_id, work_type,
-    deadline, parsed_content) hoặc None. Trả True nếu nên gọi
-    fetch_job_full_detail() — tức là job chưa từng thấy, hoặc đã thấy
-    nhưng còn thiếu work_type/deadline/parsed_content (job cũ crawl từ
-    trước khi có các tính năng này)."""
+    deadline, parsed_content, detail_checked_at) hoặc None. Trả True nếu nên gọi
+    fetch_job_full_detail().
+
+    - Job chưa từng thấy -> True.
+    - Job đã đủ work_type + deadline + parsed_content -> False.
+    - Job còn thiếu field: True nếu CHƯA từng ghi nhận fetch chi tiết (job cũ,
+      crawl từ trước khi có cột detail_checked_at) HOẶC lần fetch gần nhất đã
+      cách đây >= DETAIL_RECHECK_DAYS ngày. Trước đây điều kiện này luôn True,
+      nên tin nào nguồn không ghi hạn nộp thì bị fetch lại ở mọi lượt crawl,
+      mãi mãi. Vẫn tự chữa được: sửa xong selector bị hỏng thì tối đa chừng ấy
+      ngày sau job được vá. recheck_days=0 -> luôn True (hành vi cũ)."""
     if probe is None:
         return True
-    _, work_type, deadline, parsed_content = probe
-    return not work_type or not deadline or not parsed_content
+    _, work_type, deadline, parsed_content, checked_at = probe
+    if work_type and deadline and parsed_content:
+        return False
+    if checked_at is None:
+        return True
+    if recheck_days is None:
+        recheck_days = DETAIL_RECHECK_DAYS
+    if recheck_days <= 0:
+        return True
+    if checked_at.tzinfo is None:
+        checked_at = checked_at.replace(tzinfo=timezone.utc)
+    now = now or datetime.now(timezone.utc)
+    return now - checked_at >= timedelta(days=recheck_days)
+
+
+def mark_source_detail_checked(conn, source_url: str) -> None:
+    """Ghi nhận vừa fetch THÀNH CÔNG trang chi tiết của source_url này (không
+    ghi khi fetch lỗi: lỗi có thể chỉ là tạm thời, lượt sau thử lại ngay).
+    Không đụng job_postings nên không làm nhảy updated_at. Không tự commit."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE job_sources_log SET detail_checked_at = now() WHERE source_url = %s",
+            (source_url,),
+        )
 
 
 def update_job_fields(conn, job_id: str, *, work_type: Optional[str] = None,
@@ -199,7 +232,8 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
                 parsed_content: Optional[dict] = None,
                 raw_jd_content: str = "",
                 salary_period: str = "MONTH",
-                created_by: Optional[str] = None) -> str:
+                created_by: Optional[str] = None,
+                detail_fetched: bool = False) -> str:
     """Insert 1 job_postings + 1 job_sources_log tương ứng. content_hash được
     trigger Postgres tự tính (xem sql/schema.sql mục 5).
 
@@ -235,11 +269,13 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
         cur.execute(
             """
             INSERT INTO job_sources_log (job_id, source_name, source_url,
-                                          salary_raw_content, raw_jd_content)
-            VALUES (%s, %s, %s, %s, %s)
+                                          salary_raw_content, raw_jd_content,
+                                          detail_checked_at)
+            VALUES (%s, %s, %s, %s, %s, CASE WHEN %s THEN now() END)
             ON CONFLICT (job_id, source_url) DO NOTHING
             """,
-            (job_id, source_name, source_url, salary_raw_text, raw_jd_content or None),
+            (job_id, source_name, source_url, salary_raw_text, raw_jd_content or None,
+             detail_fetched),
         )
         return str(job_id)
 
@@ -265,8 +301,9 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
         cur.execute(
             """
             INSERT INTO job_sources_log (job_id, source_name, source_url,
-                                          salary_raw_content, raw_jd_content)
-            VALUES (%s, %s, %s, %s, %s)
+                                          salary_raw_content, raw_jd_content,
+                                          detail_checked_at)
+            VALUES (%s, %s, %s, %s, %s, now())
             ON CONFLICT (job_id, source_url) DO NOTHING
             """,
             (job_id, source_name, source_url, salary_raw_text, raw_jd_content or None),

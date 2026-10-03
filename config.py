@@ -323,6 +323,16 @@ CRAWL_BLOCK_COOLDOWN_MINUTES = max(0, int(os.getenv("CRAWL_BLOCK_COOLDOWN_MINUTE
 DEGRADED_EMPTY_RATE = min(1.0, max(0.0, float(os.getenv("DEGRADED_EMPTY_RATE", "0.9"))))
 
 # ------------------------------------------------------------------
+# Job đã có trong DB nhưng còn thiếu work_type/deadline/parsed_content: sau
+# khi đã fetch chi tiết, chỉ fetch lại sau ngần này NGÀY (xem
+# db/jobs.py::job_needs_detail_enrichment). Nhiều tin trên nguồn không ghi hạn
+# nộp, nếu cứ thiếu là fetch lại thì mọi lượt crawl đều tốn request cho
+# chính những job đó mãi mãi. Vẫn giữ khả năng tự chữa: sửa xong selector bị
+# hỏng thì tối đa chừng này ngày sau job được vá. Đặt 0 để về hành vi cũ
+# (fetch lại ở mọi lượt crawl).
+DETAIL_RECHECK_DAYS = max(0, int(os.getenv("DETAIL_RECHECK_DAYS", "7")))
+
+# ------------------------------------------------------------------
 # Snapshot HTML/JSON gốc để debug khi parser hỏng (đợt 3, 10/2026, xem
 # snapshots.py + sql/migration_add_crawl_snapshots.sql). Lưu trong Postgres
 # (gzip), giới hạn cứng để không ăn hết dung lượng gói free.

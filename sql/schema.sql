@@ -316,6 +316,10 @@ CREATE TABLE IF NOT EXISTS job_sources_log (
     raw_jd_content    TEXT,
     salary_raw_content VARCHAR(255),
     collected_date    DATE NOT NULL DEFAULT CURRENT_DATE,
+    -- Lần gần nhất pipeline fetch THÀNH CÔNG trang chi tiết của URL này. NULL =
+    -- chưa từng ghi nhận (job cũ, trước khi có cột). Xem
+    -- db/jobs.py::job_needs_detail_enrichment.
+    detail_checked_at TIMESTAMPTZ,
 
     CONSTRAINT uq_job_source UNIQUE (job_id, source_url)
 );

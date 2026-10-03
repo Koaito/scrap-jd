@@ -17,8 +17,8 @@ import pipeline
 from adapters.base import BaseAdapter
 from models import RawJobRecord
 
-COMPLETE_PROBE = ("job-complete", "Toàn thời gian", "2026-09-05", {"job_description": "x"})
-NEEDS_PATCH_PROBE = ("job-old", None, None, None)  # job cũ thiếu field -> phải vá
+COMPLETE_PROBE = ("job-complete", "Toàn thời gian", "2026-09-05", {"job_description": "x"}, None)
+NEEDS_PATCH_PROBE = ("job-old", None, None, None, None)  # job cũ chưa ghi nhận fetch + thiếu field -> phải vá
 
 DETAIL = {
     "work_type": "Toàn thời gian", "deadline_text": "05/09/2026",

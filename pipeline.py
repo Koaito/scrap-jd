@@ -109,6 +109,10 @@ def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: dict
                 deadline=new_deadline,
                 parsed_content=new_parsed_content,
             )
+            # Ghi dấu "đã fetch chi tiết": nếu nguồn thật sự không có field
+            # còn thiếu thì job không bị fetch lại ở mọi lượt crawl nữa, chỉ
+            # sau DETAIL_RECHECK_DAYS ngày (xem db.job_needs_detail_enrichment).
+            db.mark_source_detail_checked(conn, raw.source_url)
             conn.commit()
             if new_work_type or new_deadline or new_parsed_content:
                 stats["updated_existing"] += 1
@@ -360,6 +364,7 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
                 deadline=deadline,
                 parsed_content=parsed_content,
                 raw_jd_content=raw_jd_content,
+                detail_fetched=True,
             )
             conn.commit()
             stats["inserted"] += 1
