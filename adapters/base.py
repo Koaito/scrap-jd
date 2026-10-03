@@ -11,6 +11,12 @@ from config import REQUEST_DELAY_SECONDS, CRAWL_BLOCK_CONSECUTIVE_FAILURES
 
 logger = logging.getLogger(__name__)
 
+# Mã bất thường (BaseAdapter._flag_listing_anomaly) khi 1 trang listing SAU trang
+# đầu tải thất bại (đã hết retry) và adapter dừng phân trang: lượt crawl chỉ lấy
+# được 1 phần job nhưng vẫn kết thúc 'done'. Cờ này đánh dấu lượt đó là degraded
+# thay vì để nó trông như đã crawl đủ.
+ANOMALY_LISTING_PAGE_FAILED = "listing_page_failed"
+
 
 class CrawlBlockedError(Exception):
     """Raise khi TRANG ĐẦU TIÊN (page 1, hoặc page 0 với adapter đánh số
@@ -126,6 +132,11 @@ class BaseAdapter(ABC):
         # tải được nhưng parse ra 0 job). pipeline đọc cuối lượt để đánh dấu
         # degraded — KHÁC CrawlBlockedError (không tải được trang).
         self.listing_anomalies: list = []
+        # Số job adapter tự BỎ ngay trong fetch_jobs() vì không lấy/giải mã được
+        # trang chi tiết (adapter nào tải chi tiết sớm: CareerViet, VietnamWorks).
+        # Job bị bỏ kiểu này không bao giờ tới pipeline nên stats.fetched không
+        # đếm; pipeline đọc cuối lượt để đưa vào stats.skipped_detail_unavailable.
+        self.skipped_detail_unavailable_count: int = 0
 
     def set_snapshot_recorder(self, recorder) -> None:
         """Gắn (hoặc gỡ bằng None) SnapshotRecorder cho lượt crawl này."""
@@ -146,6 +157,23 @@ class BaseAdapter(ABC):
     def _flag_listing_anomaly(self, code: str) -> None:
         if code not in self.listing_anomalies:
             self.listing_anomalies.append(code)
+
+    def _note_listing_page_failed(self, page_url: str) -> None:
+        """Trang listing SAU trang đầu tải thất bại (hết retry): adapter dừng
+        phân trang như cũ nhưng báo cờ để lượt này không trông như đã crawl đủ.
+        Không raise: 1 trang lỗi lẻ có thể chỉ là tạm thời; nếu bị chặn thật thì
+        ngắt mạch (_note_fetch_failure) đã tính các lần thất bại liên tiếp."""
+        logger.warning(
+            "Trang listing %s tải thất bại sau khi hết retry -> dừng phân trang, "
+            "lượt crawl này chỉ lấy được một phần job.", page_url,
+        )
+        self._flag_listing_anomaly(ANOMALY_LISTING_PAGE_FAILED)
+
+    def _note_job_dropped(self, url: str, reason: str) -> None:
+        """Ghi nhận 1 job bị bỏ trong adapter vì trang chi tiết không tải/giải mã
+        được (xem skipped_detail_unavailable_count)."""
+        self.skipped_detail_unavailable_count += 1
+        logger.warning("Bỏ qua job (%s): %s", reason, url)
 
     @staticmethod
     def _detail_is_blank(detail: Optional[dict]) -> bool:

@@ -259,6 +259,7 @@ class VietnamWorksAdapter(BaseAdapter):
                         f"không phải hết job."
                     )
                 logger.warning("Không lấy được response trang %d, dừng lại.", page)
+                self._note_listing_page_failed(f"{VNW_SEARCH_URL} (page={page})")
                 break
 
             jobs = self._extract_job_list(data)
@@ -292,8 +293,10 @@ class VietnamWorksAdapter(BaseAdapter):
                 if self._is_known_url(record.source_url):
                     known_count += 1
                     continue
+                source_url = record.source_url
                 record = self._enrich_from_detail_page(record, job)
                 if record is None:
+                    self._note_job_dropped(source_url, "không tải được trang chi tiết")
                     continue
                 new_count += 1
                 yield record
@@ -496,7 +499,6 @@ class VietnamWorksAdapter(BaseAdapter):
         url = record.source_url
         html = self._fetch_html(url)
         if html is None:
-            logger.warning("Bỏ qua job (không tải được trang chi tiết): %s @ %s", record.job_title, url)
             return None
 
         detail_job = parse_detail_page(html)

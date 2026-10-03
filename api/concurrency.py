@@ -22,10 +22,16 @@ dùng db.get_connection() (không qua pool, xem docstring db/connection.py
 và mục CONNECTION POOL ở đầu api/maintenance_runner.py +
 api/crawl_runner.py). Vậy tối đa 2 job * 2 connection = 4 connection
 cho job nền tại 1 thời điểm, cộng với pool API (DB_POOL_MIN/DB_POOL_MAX,
-xem config.py — đã hạ default xuống 8 cùng đợt sửa lỗi này) vẫn nằm
-trong giới hạn 15 connection của gói Supabase hiện tại. Tăng số này lên
-sẽ cần hạ DB_POOL_MAX tương ứng để tổng không vượt 15 (hoặc chuyển hẳn
-sang Transaction Pooler port 6543 — xem .env.example).
+xem config.py — default hiện là 20, KHÔNG phải 8).
+
+Đối chiếu với Supabase (đo 10/2026, PGPORT=6543 = Transaction Pooler,
+max_connections của Postgres = 60): lúc 3 nguồn crawl song song chỉ có 14
+connection đang mở (9 idle, 3 idle in transaction, 1 active, 1 hệ thống),
+rất xa giới hạn. Với Transaction Pooler thì tổng 2 job * 2 connection + pool
+API 20 vẫn an toàn vì pooler multiplex nhiều client xuống ít connection thật.
+Chỉ khi quay lại Session Pooler / Direct (PGPORT=5432, giới hạn cứng ~15
+connection) mới cần hạ DB_POOL_MAX xuống khoảng 8 để tổng không vượt 15 (xem
+.env.example). Tăng GLOBAL_JOB_LIMIT thì nhớ kiểm lại con số này.
 
 CHỈ dùng threading.Semaphore (in-memory, KHÔNG phân tán giữa nhiều
 process) vì Render hiện deploy 1 instance/1 process (xem

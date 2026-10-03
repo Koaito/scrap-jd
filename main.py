@@ -336,6 +336,7 @@ def _print_crawl_result(conn, args, stats):
     print(f"Bỏ qua (đã tồn tại)  : {stats.get('skipped_duplicate', 0)}")
     print(f"Đã vá job cũ (work_type/deadline): {stats.get('updated_existing', 0)}")
     print(f"Bỏ qua (fetch chi tiết thất bại)  : {stats.get('skipped_fetch_failed', 0)}")
+    print(f"Bỏ qua (adapter không lấy được chi tiết): {stats.get('skipped_detail_unavailable', 0)}")
     print(f"Bỏ qua (nhà tuyển dụng ẩn danh)   : {stats.get('skipped_anonymous_employer', 0)}")
     print(f"Bỏ qua (URL đã có, không fetch lại): {stats.get('skipped_known_url', 0)}")
     print(f"Lỗi                  : {stats.get('errors', 0)}")

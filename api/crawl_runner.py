@@ -461,7 +461,13 @@ def _execute_one(run_id: str) -> Optional[str]:
                     db_module.mark_crawl_run_error(conn, run_id, str(exc), stats=partial)
                 except Exception as exc:  # noqa: BLE001 - ghi lại lỗi vào run, không làm chết background task
                     logger.error("Crawl run %s lỗi: %s", run_id, exc)
-                    db_module.mark_crawl_run_error(conn, run_id, str(exc))
+                    # run_pipeline() gắn stats tạm (số job đã lưu...) vào lỗi bất ngờ
+                    # phát ra từ adapter; lỗi không đi qua pipeline thì không có.
+                    partial = getattr(exc, "stats", None)
+                    if isinstance(partial, dict) and partial:
+                        db_module.mark_crawl_run_error(conn, run_id, str(exc), stats=partial)
+                    else:
+                        db_module.mark_crawl_run_error(conn, run_id, str(exc))
                 finally:
                     # Lưu snapshot TRƯỚC khi gỡ handler để dòng log "Đã lưu N
                     # snapshot" còn hiện ở log live; chạy cả khi lượt lỗi/bị

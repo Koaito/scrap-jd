@@ -10,7 +10,7 @@ from adapters.base import BaseAdapter, CrawlBlockedError
 import db
 import normalize
 from config import DEGRADED_EMPTY_RATE
-from field_stats import EmptyFieldCounter, degraded_reasons
+from field_stats import WARN_MIN_SAMPLES, EmptyFieldCounter, degraded_reasons
 from pipeline_stats import PipelineStats
 
 logger = logging.getLogger(__name__)
@@ -517,6 +517,19 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
         _finalize_stats(adapter, stats, field_counter)
         exc.stats = stats.to_dict()
         raise
+    except Exception as exc:
+        # Lỗi bất ngờ phát ra từ chính adapter.fetch_jobs() (generator, nằm NGOÀI
+        # try của từng job): lỗi từng job đã được bắt ở _process_jobs() rồi, đây
+        # là lỗi làm chết cả lượt (parser nổ, bug adapter...). Giữ số liệu đã có
+        # (đã lưu bao nhiêu job) thay vì ghi status='error' với stats trống. Lỗi
+        # khi dựng stats không được che mất lỗi gốc.
+        try:
+            conn.rollback()
+            _finalize_stats(adapter, stats, field_counter)
+            exc.stats = stats.to_dict()
+        except Exception:  # noqa: BLE001
+            logger.exception("Không dựng được stats tạm khi lượt crawl lỗi, bỏ qua")
+        raise
 
     _finalize_stats(adapter, stats, field_counter)
     return stats.to_dict()
@@ -527,6 +540,8 @@ def _finalize_stats(adapter: BaseAdapter, stats: PipelineStats, field_counter: E
     cờ "degraded" (đợt 3). Dùng chung cho nhánh chạy xong và nhánh bị chặn."""
     skipped_known = getattr(adapter, "skipped_known_count", 0)
     stats.skipped_known_url = skipped_known if isinstance(skipped_known, int) else 0
+    dropped = getattr(adapter, "skipped_detail_unavailable_count", 0)
+    stats.skipped_detail_unavailable = dropped if isinstance(dropped, int) else 0
 
     field_empty = field_counter.summary()
     if field_empty:
@@ -541,6 +556,18 @@ def _finalize_stats(adapter: BaseAdapter, stats: PipelineStats, field_counter: E
     anomalies = getattr(adapter, "listing_anomalies", None)
     if isinstance(anomalies, list):
         reasons.extend({"type": code} for code in anomalies)
+    # Adapter bỏ quá nhiều job vì không lấy được trang chi tiết: 1-2 job lẻ là
+    # bình thường (tin đã gỡ...), nhưng gần hết thì gần như chắc chắn trang
+    # chi tiết đã đổi cấu trúc, và circuit breaker KHÔNG bắt được trường hợp
+    # này (tải được trang, chỉ là parse ra không có gì).
+    attempted = stats.fetched + stats.skipped_detail_unavailable
+    if (stats.skipped_detail_unavailable >= WARN_MIN_SAMPLES
+            and stats.skipped_detail_unavailable / attempted >= DEGRADED_EMPTY_RATE):
+        reasons.append({
+            "type": "jobs_dropped", "dropped": stats.skipped_detail_unavailable,
+            "total": attempted,
+            "rate": round(stats.skipped_detail_unavailable / attempted, 3),
+        })
     if reasons:
         stats.degraded = {"reasons": reasons}
         logger.warning(

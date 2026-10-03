@@ -15,6 +15,9 @@ chỉ xảy ra ở 1 chỗ là PipelineStats.to_dict().
 
 from dataclasses import dataclass, fields
 
+# Khoá chỉ xuất hiện trong to_dict() khi có giá trị (khác rỗng/0/False).
+_OPTIONAL_KEYS = frozenset({"skipped_detail_unavailable", "field_empty", "degraded", "blocked"})
+
 
 @dataclass(slots=True)
 class PipelineStats:
@@ -41,7 +44,14 @@ class PipelineStats:
     # tiết. Điền cuối lượt từ adapter.skipped_known_count (xem finalize).
     skipped_known_url: int = 0
 
-    # 3 mục dưới CHỈ xuất hiện trong to_dict() khi có giá trị (giống hành vi cũ:
+    # Job adapter tự bỏ TRONG fetch_jobs() vì không tải/giải mã được trang chi
+    # tiết (CareerViet, VietnamWorks). Không tới pipeline nên không nằm trong
+    # fetched/skipped_fetch_failed. Điền cuối lượt từ
+    # adapter.skipped_detail_unavailable_count. Giống 3 mục dưới: CHỈ xuất hiện
+    # trong to_dict() khi > 0 (giữ nguyên tập khoá cũ của các lượt bình thường).
+    skipped_detail_unavailable: int = 0
+
+    # Mục dưới CHỈ xuất hiện trong to_dict() khi có giá trị (giống hành vi cũ:
     # dict không có khoá này nếu không có gì để báo), để frontend phân biệt
     # "không có" với "có nhưng rỗng".
     field_empty: dict | None = None  # tỷ lệ trường rỗng, xem field_stats.py
@@ -58,7 +68,7 @@ class PipelineStats:
         data = {}
         for f in fields(self):
             value = getattr(self, f.name)
-            if f.name in ("field_empty", "degraded", "blocked") and not value:
+            if f.name in _OPTIONAL_KEYS and not value:
                 continue
             data[f.name] = value
         return data

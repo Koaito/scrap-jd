@@ -143,6 +143,7 @@ class TopCVAdapter(BaseAdapter):
                         f"kết nối liên tục), không phải hết job."
                     )
                 logger.warning("Không lấy được HTML trang %d, dừng lại.", page)
+                self._note_listing_page_failed(page_url)
                 break
 
             records = list(self._parse_listing_page(html, matching_industry))

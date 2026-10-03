@@ -270,6 +270,7 @@ class CareerVietAdapter(BaseAdapter):
                         f"không phải hết job."
                     )
                 logger.warning("Không lấy được HTML trang %d, dừng lại.", page)
+                self._note_listing_page_failed(page_url)
                 break
 
             job_urls = self._extract_job_detail_urls(html)
@@ -309,9 +310,14 @@ class CareerVietAdapter(BaseAdapter):
                     known_count += 1
                     continue
                 record = self._build_record_from_detail(job_url, matching_industry)
-                if record is not None:
-                    new_count += 1
-                    yield record
+                if record is None:
+                    # Không tải hoặc không parse được trang chi tiết: bỏ job này
+                    # nhưng PHẢI đếm, nếu không stats không phản ánh được (parse
+                    # hỏng cả loạt vẫn ra 'done' với 0 job).
+                    self._note_job_dropped(job_url, "không tải/parse được trang chi tiết")
+                    continue
+                new_count += 1
+                yield record
             logger.info(
                 "Trang %d: %d job mới, %d job đã có (bỏ qua, không fetch chi tiết)",
                 page, new_count, known_count,
