@@ -83,14 +83,19 @@ import re
 import time
 from datetime import datetime
 from typing import Iterator, Optional
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 
 import normalize
 from adapters.base import BaseAdapter, CrawlBlockedError
-from adapters.vietnamworks_detail import is_gone_page, parse_detail_page
+from adapters.vietnamworks_detail import (
+    is_gone_page,
+    job_id_from_url,
+    parse_detail_page,
+    redirect_target,
+)
 from models import RawJobRecord
 from config import (
     VIETNAMWORKS_CATEGORIES,
@@ -605,8 +610,9 @@ class VietnamWorksAdapter(BaseAdapter):
           - REFRESH_OK: dữ liệu = {"detail": {job_description, requirements,
             perks, required_skills}, "experience_text", "level_hint"}.
           - REFRESH_UNAVAILABLE: không tải được (404/410/lỗi mạng) -> dữ liệu None.
-          - REFRESH_GONE: tải được (HTTP 200) nhưng là trang "tin đã bị gỡ"
-            (chuyển hướng sang /410, xem is_gone_page) -> dữ liệu None.
+          - REFRESH_GONE: tải được (HTTP 200) nhưng trang chuyển hướng sang /410
+            (xem is_gone_page). Chỉ là tín hiệu "có vẻ đã gỡ", chưa chắc chắn.
+          Nếu trang chuyển hướng sang slug mới của CÙNG mã job thì đi theo 1 bước.
           - REFRESH_UNPARSABLE: tải được nhưng không giải mã được, hoặc trang trả
             job KHÁC với jobId trong URL (dạng ...-<jobId>-jv) -> dữ liệu None.
         CrawlBlockedError (ngắt mạch của BaseAdapter) vẫn được để lan lên."""
@@ -617,10 +623,30 @@ class VietnamWorksAdapter(BaseAdapter):
         detail_job = parse_detail_page(html)
         if detail_job is None:
             if is_gone_page(html):
-                logger.info("Tin đã bị gỡ (VietnamWorks chuyển hướng /410): %s", source_url)
+                logger.info("Chuyển hướng /410 (có vẻ đã bị gỡ): %s", source_url)
                 return self.REFRESH_GONE, None
-            logger.warning("Không giải mã được trang chi tiết %s", source_url)
-            return self.REFRESH_UNPARSABLE, None
+            # Slug cũ: VietnamWorks chuyển CÙNG job sang slug mới (nhà tuyển dụng sửa
+            # tiêu đề). Đi theo đúng 1 bước, và chỉ khi đích nằm trên vietnamworks.com
+            # với CÙNG mã job, để không bao giờ lấy nhầm JD của job khác.
+            target = redirect_target(html)
+            expected_id = job_id_from_url(source_url)
+            if (target and target != source_url
+                    and urlparse(target).hostname in ("www.vietnamworks.com", "vietnamworks.com")
+                    and expected_id and job_id_from_url(target) == expected_id):
+                logger.info("Slug đã đổi, đi theo chuyển hướng: %s -> %s", source_url, target)
+                html = self._fetch_html(target)
+                if html is None:
+                    return self.REFRESH_UNAVAILABLE, None
+                detail_job = parse_detail_page(html)
+                if detail_job is None:
+                    if is_gone_page(html):
+                        return self.REFRESH_GONE, None
+                    logger.warning("Không giải mã được trang sau chuyển hướng %s", target)
+                    return self.REFRESH_UNPARSABLE, None
+            else:
+                logger.warning("Không giải mã được trang chi tiết %s (chuyển hướng: %s)",
+                               source_url, target)
+                return self.REFRESH_UNPARSABLE, None
 
         m = re.search(r"-(\d+)-jv", source_url)
         if m and str(detail_job.get("jobId")) != m.group(1):

@@ -88,6 +88,83 @@ def test_refresh_gone_page_is_reported_as_gone():
         == (adapter.REFRESH_GONE, None)
 
 
+def _redirect_stub(target: str) -> str:
+    """Trang rỗng kiểu VietnamWorks: không có dữ liệu job, chỉ có lệnh chuyển hướng
+    phía client (đúng định dạng đọc từ file thật)."""
+    return ('<html><body><script>self.__next_f.push([1,"b:E{\\"digest\\":\\"NEXT_REDIRECT;replace;'
+            + target + ';307;\\"}\\n"])</script></body></html>')
+
+
+OLD_SLUG = "https://www.vietnamworks.com/school-sales-managersupervisor-2104572-jv"
+NEW_SLUG = "https://www.vietnamworks.com/school-sales-supervisor-2104572-jv"
+
+
+def _adapter_with_pages(pages: dict):
+    adapter = VietnamWorksAdapter()
+    adapter.fetched = []
+
+    def fake_fetch(url, max_retries=3):
+        adapter.fetched.append(url)
+        return pages.get(url)
+
+    adapter._fetch_html = fake_fetch
+    return adapter
+
+
+def test_refresh_follows_slug_change_to_same_job():
+    """Nhà tuyển dụng sửa tiêu đề -> slug đổi, URL cũ chuyển hướng sang slug mới
+    của CÙNG job. Phải đi theo và vá bình thường (dữ liệu thật: job 2104572)."""
+    adapter = _adapter_with_pages({
+        OLD_SLUG: _redirect_stub(NEW_SLUG),
+        NEW_SLUG: build_detail_html(_page_job(jobId=2104572)),
+    })
+    status, data = adapter.fetch_refreshed_job(OLD_SLUG)
+
+    assert status == adapter.REFRESH_OK
+    assert data["experience_text"] == "3 năm"
+    assert adapter.fetched == [OLD_SLUG, NEW_SLUG]
+
+
+def test_refresh_does_not_follow_redirect_to_a_different_job():
+    other = "https://www.vietnamworks.com/another-job-999-jv"
+    adapter = _adapter_with_pages({OLD_SLUG: _redirect_stub(other),
+                                   other: build_detail_html(_page_job(jobId=999))})
+    assert adapter.fetch_refreshed_job(OLD_SLUG)[0] == adapter.REFRESH_UNPARSABLE
+    assert adapter.fetched == [OLD_SLUG]
+
+
+def test_refresh_does_not_follow_redirect_to_another_host():
+    evil = "https://evil.example.com/school-sales-supervisor-2104572-jv"
+    adapter = _adapter_with_pages({OLD_SLUG: _redirect_stub(evil)})
+    assert adapter.fetch_refreshed_job(OLD_SLUG)[0] == adapter.REFRESH_UNPARSABLE
+    assert adapter.fetched == [OLD_SLUG]
+
+
+def test_refresh_follows_only_one_hop():
+    hop2 = "https://www.vietnamworks.com/school-sales-supervisor-v3-2104572-jv"
+    adapter = _adapter_with_pages({OLD_SLUG: _redirect_stub(NEW_SLUG),
+                                   NEW_SLUG: _redirect_stub(hop2)})
+    assert adapter.fetch_refreshed_job(OLD_SLUG)[0] == adapter.REFRESH_UNPARSABLE
+    assert adapter.fetched == [OLD_SLUG, NEW_SLUG]
+
+
+def test_refresh_redirect_chain_ending_in_410_is_gone():
+    adapter = _adapter_with_pages({OLD_SLUG: _redirect_stub(NEW_SLUG),
+                                   NEW_SLUG: _redirect_stub("https://www.vietnamworks.com/410")})
+    assert adapter.fetch_refreshed_job(OLD_SLUG)[0] == adapter.REFRESH_GONE
+
+
+def test_refresh_new_slug_unreachable_is_unavailable():
+    adapter = _adapter_with_pages({OLD_SLUG: _redirect_stub(NEW_SLUG)})   # NEW_SLUG -> None
+    assert adapter.fetch_refreshed_job(OLD_SLUG)[0] == adapter.REFRESH_UNAVAILABLE
+
+
+def test_refresh_redirect_to_itself_is_not_followed():
+    adapter = _adapter_with_pages({OLD_SLUG: _redirect_stub(OLD_SLUG)})
+    assert adapter.fetch_refreshed_job(OLD_SLUG)[0] == adapter.REFRESH_UNPARSABLE
+    assert adapter.fetched == [OLD_SLUG]
+
+
 def test_refresh_garbage_page_is_unparsable():
     adapter = _adapter_with_page("<html>không phải trang job</html>")
     assert adapter.fetch_refreshed_job(URL) == (adapter.REFRESH_UNPARSABLE, None)

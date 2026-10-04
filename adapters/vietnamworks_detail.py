@@ -107,18 +107,38 @@ def _resolve(value: Any, rows: dict, depth: int = 0) -> Any:
     return value
 
 
-# Job đã bị gỡ: VietnamWorks KHÔNG trả HTTP 404/410 mà trả 200 kèm một trang
-# Next.js không có dữ liệu job, trong luồng có lệnh chuyển hướng
-# `NEXT_REDIRECT;replace;https://www.vietnamworks.com/410;307;` (xác nhận 10/2026
-# trên job 2089555 bằng file thật, tests/fixture_vietnamworks_gone.html). Đây là
-# tín hiệu rõ ràng site tự báo "Gone", khác với trang đổi cấu trúc.
-_GONE_REDIRECT = re.compile(r"NEXT_REDIRECT;\w+;https?://[^;\"\\\s]*/410;")
+# VietnamWorks KHÔNG dùng HTTP 3xx/404/410 mà trả HTTP 200 kèm một trang Next.js
+# không có dữ liệu job, trong luồng có lệnh chuyển hướng phía client dạng
+# `NEXT_REDIRECT;replace;<url>;307;`. Hai trường hợp thật đã gặp (10/2026):
+#   - chuyển sang https://www.vietnamworks.com/410: trang báo "có thể đã bị xóa
+#     hoặc tạm thời không hỗ trợ" (job 2089555, 2102990; file thật
+#     tests/fixture_vietnamworks_gone.html);
+#   - chuyển sang CÙNG job nhưng slug mới: nhà tuyển dụng sửa tiêu đề nên slug
+#     đổi, URL cũ vẫn lưu trong DB (job 2104572, 2104545, 2102744). Trình duyệt
+#     tự đi theo nên trang vẫn mở bình thường, còn HTTP client thì không.
+_REDIRECT = re.compile(r"NEXT_REDIRECT;\w+;(https?://[^;\"\\\s]*);")
+_JOB_ID_IN_URL = re.compile(r"-(\d+)-jv(?:[/?#]|$)")
+
+
+def redirect_target(html: str) -> Optional[str]:
+    """Địa chỉ mà trang yêu cầu chuyển hướng tới, hoặc None. Chỉ nên tin khi
+    parse_detail_page() đã trả None: trang job thật không chứa lệnh này."""
+    m = _REDIRECT.search(html or "")
+    return m.group(1) if m else None
+
+
+def job_id_from_url(url: str) -> Optional[str]:
+    """Mã số job ở cuối URL VietnamWorks (...-<jobId>-jv), hoặc None."""
+    m = _JOB_ID_IN_URL.search(url or "")
+    return m.group(1) if m else None
 
 
 def is_gone_page(html: str) -> bool:
-    """True nếu trang chi tiết là trang "tin đã bị gỡ" (chuyển hướng sang /410).
-    Chỉ gọi khi parse_detail_page() đã trả None: trang job thật không chứa lệnh này."""
-    return bool(_GONE_REDIRECT.search(html or ""))
+    """True nếu trang chuyển hướng sang /410. LƯU Ý: đây là tín hiệu "có vẻ đã gỡ",
+    chưa phải bằng chứng chắc chắn job đã đóng (chính trang đó ghi "có thể đã bị
+    xóa hoặc tạm thời không hỗ trợ"), nên không dùng để tự đóng job."""
+    target = redirect_target(html)
+    return bool(target) and target.rstrip("/").endswith("/410")
 
 
 def parse_detail_page(html: str) -> Optional[dict]:

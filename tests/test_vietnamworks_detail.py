@@ -26,7 +26,7 @@ from adapters.vietnamworks import (
     VietnamWorksAdapter,
     _level_hint_from_job_level,
 )
-from adapters.vietnamworks_detail import is_gone_page, parse_detail_page
+from adapters.vietnamworks_detail import is_gone_page, job_id_from_url, parse_detail_page, redirect_target
 from snapshots import SnapshotRecorder
 from vnw_page_builder import build_detail_html
 
@@ -373,3 +373,19 @@ def test_is_gone_page_ignores_other_redirects_and_empty():
     assert is_gone_page("") is False
     assert is_gone_page(None) is False
     assert is_gone_page('b:E{"digest":"NEXT_REDIRECT;replace;https://www.vietnamworks.com/login;307;"}') is False
+
+
+def test_redirect_target_and_job_id_helpers():
+    html = _read("fixture_vietnamworks_gone.html")
+    assert redirect_target(html) == "https://www.vietnamworks.com/410"
+    assert redirect_target(_read("fixture_vietnamworks_detail.html")) is None
+    assert redirect_target("") is None
+    assert job_id_from_url("https://www.vietnamworks.com/school-sales-supervisor-2104572-jv") == "2104572"
+    assert job_id_from_url("https://www.vietnamworks.com/410") is None
+    assert job_id_from_url(None) is None
+
+
+def test_slug_change_redirect_is_not_gone():
+    """Chuyển hướng sang slug mới của job KHÔNG phải trang đã gỡ."""
+    html = 'x NEXT_REDIRECT;replace;https://www.vietnamworks.com/school-sales-supervisor-2104572-jv;307; y'
+    assert is_gone_page(html) is False

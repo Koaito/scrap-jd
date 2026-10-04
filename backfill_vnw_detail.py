@@ -37,9 +37,11 @@ KHÔNG chạy cùng lúc với một lượt crawl VietnamWorks (hai tiến trì
 request tới một site, dễ bị chặn).
 
 KHÔNG đụng job đã có updated_by: người trong team đã sửa tay, không ghi đè.
-Job không tải được (404/lỗi mạng), tin đã bị gỡ (VietnamWorks trả HTTP 200 nhưng
-chuyển hướng /410) hoặc trang không giải mã được thì giữ nguyên và đếm riêng.
-Script KHÔNG tự đóng job đã bị gỡ. Ngắt mạch (bị chặn liên tiếp) dừng cả script; chạy lại sau.
+Job không tải được (404/lỗi mạng), trang chuyển hướng /410 (VietnamWorks trả HTTP
+200; chính trang đó ghi "có thể đã bị xóa hoặc tạm thời không hỗ trợ", nên chỉ là
+tín hiệu chưa chắc chắn) hoặc trang không giải mã được thì giữ nguyên và đếm riêng.
+Script KHÔNG tự đóng job. Nếu trang chuyển hướng sang slug mới của CÙNG mã job
+(nhà tuyển dụng sửa tiêu đề) thì script đi theo 1 bước rồi vá bình thường. Ngắt mạch (bị chặn liên tiếp) dừng cả script; chạy lại sau.
 
 TIẾN ĐỘ: với --apply, job đã xử lý xong được ghi vào file trạng thái
 (mặc định .backfill_vnw_detail.done) để lần chạy sau bỏ qua; dùng --reset-state
@@ -274,7 +276,7 @@ def print_report(summary: Summary, *, apply: bool, dup_before: int, dup_after: O
     print(f"  - đổi JD:               {summary.jd_changed}")
     print(f"  - không có gì đổi:      {summary.unchanged}")
     print(f"Không tải được (giữ):     {summary.unavailable}")
-    print(f"Tin đã bị gỡ (giữ, vẫn OPEN trong DB): {summary.gone}")
+    print(f"Chuyển hướng /410, có vẻ đã gỡ (giữ nguyên, chưa xác nhận): {summary.gone}")
     print(f"Không giải mã được (giữ): {summary.unparsable}")
     print(f"Lỗi khi xử lý:            {summary.errors}")
     if summary.blocked:
