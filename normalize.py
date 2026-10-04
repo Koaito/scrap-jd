@@ -206,6 +206,27 @@ def _parse_number(raw: str) -> Optional[float]:
 LEVEL_ORDER = ["Intern", "Fresher", "Junior", "Middle", "Senior", "Lead", "Manager"]
 
 
+# ----------------------------------------------------------------------
+# Từ khoá cấp bậc trong TIÊU ĐỀ
+# ----------------------------------------------------------------------
+# Khớp theo TỪ nguyên vẹn, không khớp chuỗi con. Lỗi cũ (`"lead" in title`):
+# "Leadership Development Program" và "ROX Global Leaders" ra Lead; cùng kiểu,
+# "intern" khớp nhầm "International"/"Internal Audit" (rất phổ biến trong tiêu
+# đề tuyển dụng). Dữ liệu thật đã gặp: "Digital Leadership", "Techlead .NET"
+# (phải GIỮ là Lead: viết liền, nên có nhánh riêng cho team/tech + lead).
+_INTERN_TITLE = re.compile(r"\bintern(?:s|ship|ships)?\b|thực tập|thuc tap")
+_FRESHER_TITLE = re.compile(r"\bfreshers?\b")
+# "lead generation"/"lead gen" là việc tìm khách hàng tiềm năng, không phải cấp bậc.
+_LEAD_TITLE = re.compile(r"\b(?:(?:team|tech)\s?lead|lead(?:er)?)\b(?!\s*gen)|trưởng nhóm")
+_MANAGER_TITLE = re.compile(r"\bmanager\b|trưởng phòng|giám đốc")
+_SENIOR_TITLE = re.compile(r"\bsenior\b")
+# "Trợ lý giám đốc", "Thư ký trưởng phòng": người hỗ trợ chứ không phải người
+# giữ chức vụ đó. Cắt cụm này đi trước khi tìm từ khoá Lead/Manager.
+_ASSISTANT_TO_BOSS = re.compile(
+    r"(?:trợ lý|thư ký)\s+(?:(?:tổng|phó)\s+)*(?:giám đốc|trưởng phòng|trưởng nhóm)"
+)
+
+
 def infer_level(experience_text: str, job_title: str = "", level_hint: str = "") -> str:
     """Suy luận level. Thứ tự ưu tiên: từ khoá trong tiêu đề > số năm kinh
     nghiệm trong experience_text > level_hint (nhãn cấp bậc nguồn tự gán, vd
@@ -218,15 +239,17 @@ def infer_level(experience_text: str, job_title: str = "", level_hint: str = "")
     text = (experience_text or "").lower()
     title = (job_title or "").lower()
 
-    if "intern" in title or "thực tập" in title or "thuc tap" in title:
+    title = _ASSISTANT_TO_BOSS.sub(" ", title)
+
+    if _INTERN_TITLE.search(title):
         return "Intern"
-    if "fresher" in title:
+    if _FRESHER_TITLE.search(title):
         return "Fresher"
-    if any(k in title for k in ["lead", "trưởng nhóm", "team lead"]):
+    if _LEAD_TITLE.search(title):
         return "Lead"
-    if any(k in title for k in ["manager", "trưởng phòng", "giám đốc"]):
+    if _MANAGER_TITLE.search(title):
         return "Manager"
-    if "senior" in title:
+    if _SENIOR_TITLE.search(title):
         return "Senior"
 
     if "không yêu cầu" in text or "khong yeu cau" in text:

@@ -112,3 +112,73 @@ def test_infer_level_tren_5_nam_title_van_uu_tien():
     assert normalize.infer_level("Trên 5 năm", "Senior Data Engineer") == "Senior"
     assert normalize.infer_level("Trên 5 năm", "Giám đốc kinh doanh") == "Manager"
     assert normalize.infer_level("Trên 5 năm", "Intern") == "Intern"
+
+
+# ----------------------------------------------------------------------
+# Từ khoá cấp bậc trong tiêu đề khớp theo TỪ, không khớp chuỗi con.
+# Các tiêu đề dưới đây lấy từ dữ liệu thật (TopCV/VietnamWorks/CareerViet).
+# ----------------------------------------------------------------------
+@pytest.mark.parametrize("title", [
+    "Digital Leadership - ID10550",
+    "Digital Leadership Opportunities At VPBank - ID10550",
+    "Leadership Development Program (LDP) 2026 – Milwaukee Power Tool Vietnam",
+    "Lead Generation Specialist",
+])
+def test_title_leadership_is_not_lead(title):
+    assert normalize.infer_level("3 năm", title) == "Middle"      # rơi về số năm
+
+
+@pytest.mark.parametrize("title", [
+    "ROX Global Leaders - Giám Đốc Công Ty Năng Lượng Tái Tạo Tại Quốc Gia (Tuyển Dụng Nước Ngoài)",
+])
+def test_title_global_leaders_brand_falls_through_to_manager(title):
+    assert normalize.infer_level("", title) == "Manager"
+
+
+@pytest.mark.parametrize("title", [
+    "Java Techlead",
+    "Techlead .NET (Government Domain)",
+    "Fullstack Developer -  Techlead Track",
+    "Angular Team Lead",
+    "Business Analyst (2-3 Năm Kinh Nghiệm) - Teamlead",
+    "Android Developer (Leader)",
+    "BA Lead (Dự Án GOV)",
+    "Data Engineer (Senior/Leader)",
+    "Workforce Planning Lead",
+    "Trưởng nhóm phát triển",
+])
+def test_title_real_lead_titles_stay_lead(title):
+    assert normalize.infer_level("", title) == "Lead"
+
+
+@pytest.mark.parametrize("title", [
+    "International Sales Executive",
+    "Internal Audit Specialist",
+    "Internet Marketing Executive",
+])
+def test_title_international_internal_internet_are_not_intern(title):
+    assert normalize.infer_level("3 năm", title) == "Middle"
+
+
+@pytest.mark.parametrize("title", [
+    "Backend Intern", "Marketing Interns", "Internship Program 2026", "Thực tập sinh Data",
+])
+def test_title_real_intern_titles_stay_intern(title):
+    assert normalize.infer_level("3 năm", title) == "Intern"
+
+
+def test_title_assistant_to_director_is_not_manager():
+    assert normalize.infer_level("3 năm", "Trợ Lý Giám Đốc Kinh Doanh") == "Middle"
+    assert normalize.infer_level("", "Thư ký Phó Giám đốc") == "Junior"
+    # giữ nguyên: người giữ chức vụ thật vẫn là Manager
+    assert normalize.infer_level("", "Giám Đốc Kinh Doanh") == "Manager"
+    assert normalize.infer_level("", "Phó Giám Đốc Trung Tâm") == "Manager"
+    assert normalize.infer_level("", "Trưởng Phòng Pháp Chế") == "Manager"
+
+
+def test_title_manager_and_senior_match_whole_words():
+    assert normalize.infer_level("", "Sales Manager - Hyundai Electric") == "Manager"
+    assert normalize.infer_level("", "Senior Data Engineer") == "Senior"
+    assert normalize.infer_level("", "Fresher Data Analyst") == "Fresher"
+    # "Refresher" không phải Fresher
+    assert normalize.infer_level("3 năm", "Refresher Course Coordinator") == "Middle"
