@@ -607,8 +607,8 @@ class VietnamWorksAdapter(BaseAdapter):
         trên chính trang chi tiết. Không đọc/ghi _detail_cache.
 
         Trạng thái:
-          - REFRESH_OK: dữ liệu = {"detail": {job_description, requirements,
-            perks, required_skills}, "experience_text", "level_hint"}.
+          - REFRESH_OK: dữ liệu = {"page_title", "detail": {job_description,
+            requirements, perks, required_skills}, "experience_text", "level_hint"}.
           - REFRESH_UNAVAILABLE: không tải được (404/410/lỗi mạng) -> dữ liệu None.
           - REFRESH_GONE: tải được (HTTP 200) nhưng trang chuyển hướng sang /410
             (xem is_gone_page). Chỉ là tín hiệu "có vẻ đã gỡ", chưa chắc chắn.
@@ -659,6 +659,7 @@ class VietnamWorksAdapter(BaseAdapter):
         experience_text, level_hint = self._experience_fields(detail_job)
         detail = self._detail_dict_from_job(detail_job, "", "")
         return self.REFRESH_OK, {
+            "page_title": str(detail_job.get("jobTitle") or ""),
             "detail": {
                 "job_description": detail["job_description"],
                 "requirements": detail["requirements"],

@@ -40,7 +40,10 @@ KHÔNG đụng job đã có updated_by: người trong team đã sửa tay, khô
 Job không tải được (404/lỗi mạng), trang chuyển hướng /410 (VietnamWorks trả HTTP
 200; chính trang đó ghi "có thể đã bị xóa hoặc tạm thời không hỗ trợ", nên chỉ là
 tín hiệu chưa chắc chắn) hoặc trang không giải mã được thì giữ nguyên và đếm riêng.
-Script KHÔNG tự đóng job. Nếu trang chuyển hướng sang slug mới của CÙNG mã job
+Script KHÔNG tự đóng job. Nếu tiêu đề trên trang khác hẳn tiêu đề đã lưu (nhà
+tuyển dụng đổi tin sang vị trí khác nhưng giữ mã job) thì cũng giữ nguyên và đếm
+riêng, để không ghi JD của vị trí này vào dòng mang tiêu đề vị trí kia. Nếu trang
+chuyển hướng sang slug mới của CÙNG mã job
 (nhà tuyển dụng sửa tiêu đề) thì script đi theo 1 bước rồi vá bình thường. Ngắt mạch (bị chặn liên tiếp) dừng cả script; chạy lại sau.
 
 TIẾN ĐỘ: với --apply, job đã xử lý xong được ghi vào file trạng thái
@@ -56,6 +59,8 @@ trong view v_duplicate_job_candidates trước và sau để bạn so sánh.
 import argparse
 import logging
 import os
+import re
+import unicodedata
 from collections import Counter
 from typing import Optional
 
@@ -134,6 +139,34 @@ def _update_raw_jd(conn, job_id, source_url: str, raw_jd: str) -> None:
 
 
 # ----------------------------------------------------------------------
+# Chốt chặn "trang này có còn là job đó không"
+# ----------------------------------------------------------------------
+# Nhà tuyển dụng VietnamWorks có thể sửa một tin đăng thành vị trí KHÁC HẲN mà
+# vẫn giữ mã job (dữ liệu thật: mã 2110157 từng là "Account Manager", nay là "Sales
+# Assistant"; mã 2109152 từng là "BACK-END DEVELOPER", nay là "Kỹ Sư An Toàn Thông
+# Tin"). URL cũ chuyển hướng sang trang mới cùng mã nên mã job khớp, nhưng ghi JD
+# mới vào dòng mang tiêu đề cũ sẽ làm dòng đó sai. Vì vậy chỉ vá khi tiêu đề trên
+# trang còn "gần giống" tiêu đề đã lưu.
+_MIN_TITLE_OVERLAP = 0.5
+
+
+def _title_tokens(title: str) -> set:
+    text = unicodedata.normalize("NFKD", (title or "").lower().replace("đ", "d"))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return {t for t in re.findall(r"\w+", text) if len(t) > 1}
+
+
+def titles_similar(stored: str, page: str) -> bool:
+    """True nếu hai tiêu đề đủ giống để coi là cùng một vị trí (hệ số trùng từ
+    >= 0.5 trên số từ của tiêu đề ngắn hơn, bỏ dấu, không phân biệt hoa thường).
+    Thiếu một trong hai tiêu đề thì không đủ cơ sở để từ chối nên trả True."""
+    a, b = _title_tokens(stored), _title_tokens(page)
+    if not a or not b:
+        return True
+    return len(a & b) / min(len(a), len(b)) >= _MIN_TITLE_OVERLAP
+
+
+# ----------------------------------------------------------------------
 # Logic thuần (không DB, không mạng) — có test
 # ----------------------------------------------------------------------
 def plan_job(row: dict, refreshed: dict) -> dict:
@@ -168,6 +201,7 @@ class Summary:
         self.ok = 0
         self.unavailable = 0
         self.gone = 0
+        self.title_mismatch = 0
         self.unparsable = 0
         self.errors = 0
         self.level_changed = 0
@@ -193,6 +227,14 @@ def process_job(conn, adapter, row: dict, *, apply: bool, level_ids: dict,
         return False
     if status == adapter.REFRESH_UNPARSABLE:
         summary.unparsable += 1
+        return False
+
+    page_title = refreshed.get("page_title", "")
+    if not titles_similar(row["job_title"], page_title):
+        summary.title_mismatch += 1
+        logger.warning("Tiêu đề khác hẳn, KHÔNG vá (tin có thể đã bị đổi thành vị trí khác): "
+                       "đã lưu %r, trên trang %r | %s", row["job_title"], page_title,
+                       row["source_url"])
         return False
 
     summary.ok += 1
@@ -277,6 +319,7 @@ def print_report(summary: Summary, *, apply: bool, dup_before: int, dup_after: O
     print(f"  - không có gì đổi:      {summary.unchanged}")
     print(f"Không tải được (giữ):     {summary.unavailable}")
     print(f"Chuyển hướng /410, có vẻ đã gỡ (giữ nguyên, chưa xác nhận): {summary.gone}")
+    print(f"Tiêu đề trang khác hẳn tiêu đề đã lưu (giữ, cần xem tay): {summary.title_mismatch}")
     print(f"Không giải mã được (giữ): {summary.unparsable}")
     print(f"Lỗi khi xử lý:            {summary.errors}")
     if summary.blocked:
