@@ -307,9 +307,26 @@ def test_select_jobs_passes_filters_and_closes_read_transaction():
     rows = bf.select_jobs(conn, all_jobs=False, include_closed=False, limit=20)
 
     params = cur.execute.call_args[0][1]
-    assert params == {"source": "VietnamWorks", "all_jobs": False, "include_closed": False, "limit": 20}
+    assert params == {"source": "VietnamWorks", "all_jobs": False, "include_closed": False,
+                      "limit": 20, "before": None}
     assert rows[0]["job_id"] == "job-1" and rows[0]["source_url"] == URL
     conn.rollback.assert_called_once()
+
+
+def test_select_jobs_passes_created_before():
+    conn = MagicMock()
+    cur = conn.cursor.return_value.__enter__.return_value
+    cur.fetchall.return_value = []
+
+    bf.select_jobs(conn, all_jobs=False, include_closed=False, limit=None, before="2026-10-01")
+
+    assert cur.execute.call_args[0][1]["before"] == "2026-10-01"
+
+
+def test_select_sql_orders_oldest_first_and_filters_by_date():
+    """Job cũ mới cần vá: --limit nhỏ phải rơi vào nhóm cũ, không phải job vừa crawl."""
+    assert "ORDER BY picked.created_at ASC" in bf._SELECT_SQL
+    assert "jp.created_at < %(before)s::date" in bf._SELECT_SQL
 
 
 def test_select_sql_never_touches_manually_edited_jobs():

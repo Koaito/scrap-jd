@@ -29,6 +29,12 @@ Chọn job nào (mặc định): job VietnamWorks chưa đóng, chưa ai sửa t
   --all             bỏ điều kiện "JD cắt/Junior", xử lý mọi job VietnamWorks
                     (dùng khi muốn rà cả Manager/Lead cũ).
   --include-closed  gồm cả job đã CLOSED (thường 404, tốn request vô ích).
+  --created-before YYYY-MM-DD
+                    chỉ lấy job tạo TRƯỚC ngày đó. Đặt bằng ngày bản sửa VietnamWorks
+                    bắt đầu crawl, để không tải lại job mới vốn đã đúng.
+Thứ tự: job CŨ NHẤT trước, nên --limit 20 thử trên đúng nhóm cần vá.
+KHÔNG chạy cùng lúc với một lượt crawl VietnamWorks (hai tiến trình cùng gửi
+request tới một site, dễ bị chặn).
 
 KHÔNG đụng job đã có updated_by: người trong team đã sửa tay, không ghi đè.
 Job không tải được (404/lỗi mạng) hoặc trang không giải mã được thì giữ nguyên
@@ -80,9 +86,10 @@ SELECT * FROM (
            OR right(rtrim(jp.parsed_content->>'requirements'), 3) = '...'
            OR right(rtrim(jp.parsed_content->>'job_description'), 3) = '...')
       AND (%(include_closed)s OR jp.job_status <> 'CLOSED')
+      AND (%(before)s::date IS NULL OR jp.created_at < %(before)s::date)
     ORDER BY jp.job_id, jsl.collected_date, jsl.log_id
 ) picked
-ORDER BY picked.created_at DESC, picked.job_id
+ORDER BY picked.created_at ASC, picked.job_id
 LIMIT %(limit)s
 """
 
@@ -90,13 +97,16 @@ LIMIT %(limit)s
 # ----------------------------------------------------------------------
 # DB
 # ----------------------------------------------------------------------
-def select_jobs(conn, *, all_jobs: bool, include_closed: bool, limit: Optional[int]) -> list:
-    """Danh sách job cần vá. Mỗi job một dòng (URL VietnamWorks đầu tiên của job
-    đó, tức nguồn chính). Đóng transaction đọc trước khi trả về."""
+def select_jobs(conn, *, all_jobs: bool, include_closed: bool, limit: Optional[int],
+                before: Optional[str] = None) -> list:
+    """Danh sách job cần vá, CŨ NHẤT TRƯỚC (job cũ mới là thứ cần vá; job crawl sau
+    bản sửa đã đúng, xử lý chúng chỉ tốn request). `before` (YYYY-MM-DD) chỉ lấy
+    job tạo trước ngày đó. Mỗi job một dòng (URL VietnamWorks đầu tiên của job đó,
+    tức nguồn chính). Đóng transaction đọc trước khi trả về."""
     with conn.cursor() as cur:
         cur.execute(_SELECT_SQL, {
             "source": SOURCE_NAME, "all_jobs": all_jobs,
-            "include_closed": include_closed, "limit": limit,
+            "include_closed": include_closed, "limit": limit, "before": before,
         })
         cols = ("job_id", "job_title", "level_code", "parsed_content", "created_at", "source_url")
         rows = [dict(zip(cols, r)) for r in cur.fetchall()]
@@ -286,6 +296,8 @@ def main():
     parser.add_argument("--all", action="store_true", dest="all_jobs",
                         help="xử lý mọi job VietnamWorks, không chỉ JD cắt/Junior")
     parser.add_argument("--include-closed", action="store_true", help="gồm cả job đã CLOSED")
+    parser.add_argument("--created-before", default=None, metavar="YYYY-MM-DD",
+                        help="chỉ lấy job tạo trước ngày này")
     parser.add_argument("--state-file", default=DEFAULT_STATE_FILE, help="file ghi job đã xong")
     parser.add_argument("--reset-state", action="store_true", help="xoá file tiến độ rồi chạy")
     args = parser.parse_args()
@@ -297,7 +309,7 @@ def main():
     conn = db.get_connection()
     try:
         rows = select_jobs(conn, all_jobs=args.all_jobs, include_closed=args.include_closed,
-                           limit=args.limit)
+                           limit=args.limit, before=args.created_before)
         done = load_done(args.state_file)
         if done:
             before = len(rows)
