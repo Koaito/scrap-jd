@@ -107,6 +107,20 @@ def _resolve(value: Any, rows: dict, depth: int = 0) -> Any:
     return value
 
 
+# Job đã bị gỡ: VietnamWorks KHÔNG trả HTTP 404/410 mà trả 200 kèm một trang
+# Next.js không có dữ liệu job, trong luồng có lệnh chuyển hướng
+# `NEXT_REDIRECT;replace;https://www.vietnamworks.com/410;307;` (xác nhận 10/2026
+# trên job 2089555 bằng file thật, tests/fixture_vietnamworks_gone.html). Đây là
+# tín hiệu rõ ràng site tự báo "Gone", khác với trang đổi cấu trúc.
+_GONE_REDIRECT = re.compile(r"NEXT_REDIRECT;\w+;https?://[^;\"\\\s]*/410;")
+
+
+def is_gone_page(html: str) -> bool:
+    """True nếu trang chi tiết là trang "tin đã bị gỡ" (chuyển hướng sang /410).
+    Chỉ gọi khi parse_detail_page() đã trả None: trang job thật không chứa lệnh này."""
+    return bool(_GONE_REDIRECT.search(html or ""))
+
+
 def parse_detail_page(html: str) -> Optional[dict]:
     """HTML trang chi tiết -> dict job đầy đủ (tên khoá như API search), hoặc
     None nếu không tìm thấy object job (trang đổi cấu trúc / không phải trang job).

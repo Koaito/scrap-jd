@@ -90,7 +90,7 @@ from bs4 import BeautifulSoup
 
 import normalize
 from adapters.base import BaseAdapter, CrawlBlockedError
-from adapters.vietnamworks_detail import parse_detail_page
+from adapters.vietnamworks_detail import is_gone_page, parse_detail_page
 from models import RawJobRecord
 from config import (
     VIETNAMWORKS_CATEGORIES,
@@ -591,6 +591,7 @@ class VietnamWorksAdapter(BaseAdapter):
     # ------------------------------------------------------------------
     REFRESH_OK = "ok"
     REFRESH_UNAVAILABLE = "unavailable"
+    REFRESH_GONE = "gone"
     REFRESH_UNPARSABLE = "unparsable"
 
     def fetch_refreshed_job(self, source_url: str) -> tuple:
@@ -604,6 +605,8 @@ class VietnamWorksAdapter(BaseAdapter):
           - REFRESH_OK: dữ liệu = {"detail": {job_description, requirements,
             perks, required_skills}, "experience_text", "level_hint"}.
           - REFRESH_UNAVAILABLE: không tải được (404/410/lỗi mạng) -> dữ liệu None.
+          - REFRESH_GONE: tải được (HTTP 200) nhưng là trang "tin đã bị gỡ"
+            (chuyển hướng sang /410, xem is_gone_page) -> dữ liệu None.
           - REFRESH_UNPARSABLE: tải được nhưng không giải mã được, hoặc trang trả
             job KHÁC với jobId trong URL (dạng ...-<jobId>-jv) -> dữ liệu None.
         CrawlBlockedError (ngắt mạch của BaseAdapter) vẫn được để lan lên."""
@@ -613,6 +616,9 @@ class VietnamWorksAdapter(BaseAdapter):
 
         detail_job = parse_detail_page(html)
         if detail_job is None:
+            if is_gone_page(html):
+                logger.info("Tin đã bị gỡ (VietnamWorks chuyển hướng /410): %s", source_url)
+                return self.REFRESH_GONE, None
             logger.warning("Không giải mã được trang chi tiết %s", source_url)
             return self.REFRESH_UNPARSABLE, None
 

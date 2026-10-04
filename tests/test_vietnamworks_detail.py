@@ -26,7 +26,7 @@ from adapters.vietnamworks import (
     VietnamWorksAdapter,
     _level_hint_from_job_level,
 )
-from adapters.vietnamworks_detail import parse_detail_page
+from adapters.vietnamworks_detail import is_gone_page, parse_detail_page
 from snapshots import SnapshotRecorder
 from vnw_page_builder import build_detail_html
 
@@ -350,3 +350,26 @@ def test_search_payload_is_not_mutated():
     list(_adapter({URL: build_detail_html(_detail_job())}, [listing]).fetch_jobs(CATEGORY, max_pages=1))
     assert listing == before
     json.dumps(listing)  # vẫn serialize được (snapshot dùng JSON)
+
+
+# ----------------------------------------------------------------------
+# Trang "tin đã bị gỡ"
+# ----------------------------------------------------------------------
+def test_gone_page_real_file_is_detected_and_not_parsed():
+    """File thật job 2089555: HTTP 200, không có dữ liệu job, chỉ có lệnh
+    chuyển hướng NEXT_REDIRECT tới /410."""
+    html = _read("fixture_vietnamworks_gone.html")
+    assert parse_detail_page(html) is None
+    assert is_gone_page(html) is True
+
+
+def test_real_job_page_is_not_mistaken_for_gone():
+    html = _read("fixture_vietnamworks_detail.html")
+    assert parse_detail_page(html) is not None
+    assert is_gone_page(html) is False
+
+
+def test_is_gone_page_ignores_other_redirects_and_empty():
+    assert is_gone_page("") is False
+    assert is_gone_page(None) is False
+    assert is_gone_page('b:E{"digest":"NEXT_REDIRECT;replace;https://www.vietnamworks.com/login;307;"}') is False

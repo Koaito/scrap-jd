@@ -169,6 +169,8 @@ def test_title_real_intern_titles_stay_intern(title):
 
 def test_title_assistant_to_director_is_not_manager():
     assert normalize.infer_level("3 năm", "Trợ Lý Giám Đốc Kinh Doanh") == "Middle"
+    assert normalize.infer_level("3 năm", "Trợ Lý Ban Tổng Giám Đốc") == "Middle"     # dữ liệu thật VietnamWorks
+    assert normalize.infer_level("3 năm", "Trợ Lý Giám Đốc Sản Xuất") == "Middle"
     assert normalize.infer_level("", "Thư ký Phó Giám đốc") == "Junior"
     # giữ nguyên: người giữ chức vụ thật vẫn là Manager
     assert normalize.infer_level("", "Giám Đốc Kinh Doanh") == "Manager"

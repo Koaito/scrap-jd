@@ -37,8 +37,9 @@ KHÔNG chạy cùng lúc với một lượt crawl VietnamWorks (hai tiến trì
 request tới một site, dễ bị chặn).
 
 KHÔNG đụng job đã có updated_by: người trong team đã sửa tay, không ghi đè.
-Job không tải được (404/lỗi mạng) hoặc trang không giải mã được thì giữ nguyên
-và đếm riêng. Ngắt mạch (bị chặn liên tiếp) dừng cả script; chạy lại sau.
+Job không tải được (404/lỗi mạng), tin đã bị gỡ (VietnamWorks trả HTTP 200 nhưng
+chuyển hướng /410) hoặc trang không giải mã được thì giữ nguyên và đếm riêng.
+Script KHÔNG tự đóng job đã bị gỡ. Ngắt mạch (bị chặn liên tiếp) dừng cả script; chạy lại sau.
 
 TIẾN ĐỘ: với --apply, job đã xử lý xong được ghi vào file trạng thái
 (mặc định .backfill_vnw_detail.done) để lần chạy sau bỏ qua; dùng --reset-state
@@ -164,6 +165,7 @@ class Summary:
         self.selected = 0
         self.ok = 0
         self.unavailable = 0
+        self.gone = 0
         self.unparsable = 0
         self.errors = 0
         self.level_changed = 0
@@ -183,6 +185,9 @@ def process_job(conn, adapter, row: dict, *, apply: bool, level_ids: dict,
     if status == adapter.REFRESH_UNAVAILABLE:
         summary.unavailable += 1
         logger.info("Không tải được (giữ nguyên): %s", row["source_url"])
+        return False
+    if status == adapter.REFRESH_GONE:
+        summary.gone += 1
         return False
     if status == adapter.REFRESH_UNPARSABLE:
         summary.unparsable += 1
@@ -269,6 +274,7 @@ def print_report(summary: Summary, *, apply: bool, dup_before: int, dup_after: O
     print(f"  - đổi JD:               {summary.jd_changed}")
     print(f"  - không có gì đổi:      {summary.unchanged}")
     print(f"Không tải được (giữ):     {summary.unavailable}")
+    print(f"Tin đã bị gỡ (giữ, vẫn OPEN trong DB): {summary.gone}")
     print(f"Không giải mã được (giữ): {summary.unparsable}")
     print(f"Lỗi khi xử lý:            {summary.errors}")
     if summary.blocked:

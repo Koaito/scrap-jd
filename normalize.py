@@ -223,7 +223,7 @@ _SENIOR_TITLE = re.compile(r"\bsenior\b")
 # "Trợ lý giám đốc", "Thư ký trưởng phòng": người hỗ trợ chứ không phải người
 # giữ chức vụ đó. Cắt cụm này đi trước khi tìm từ khoá Lead/Manager.
 _ASSISTANT_TO_BOSS = re.compile(
-    r"(?:trợ lý|thư ký)\s+(?:(?:tổng|phó)\s+)*(?:giám đốc|trưởng phòng|trưởng nhóm)"
+    r"(?:trợ lý|thư ký)\s+(?:(?:ban|tổng|phó)\s+)*(?:giám đốc|trưởng phòng|trưởng nhóm)"
 )
 
 

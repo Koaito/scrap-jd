@@ -78,6 +78,16 @@ def test_refresh_page_not_fetched_is_unavailable():
     assert adapter.fetch_refreshed_job(URL) == (adapter.REFRESH_UNAVAILABLE, None)
 
 
+def test_refresh_gone_page_is_reported_as_gone():
+    """Job đã gỡ: VietnamWorks trả HTTP 200 + chuyển hướng /410 (file thật job 2089555),
+    không phải trang đổi cấu trúc."""
+    with open(os.path.join(os.path.dirname(__file__), "fixture_vietnamworks_gone.html"),
+              encoding="utf-8") as f:
+        adapter = _adapter_with_page(f.read())
+    assert adapter.fetch_refreshed_job("https://www.vietnamworks.com/brand-manager-upto-45-trieu-2089555-jv") \
+        == (adapter.REFRESH_GONE, None)
+
+
 def test_refresh_garbage_page_is_unparsable():
     adapter = _adapter_with_page("<html>không phải trang job</html>")
     assert adapter.fetch_refreshed_job(URL) == (adapter.REFRESH_UNPARSABLE, None)
@@ -160,6 +170,7 @@ LEVEL_IDS = {"Intern": 1, "Fresher": 2, "Junior": 3, "Middle": 4, "Senior": 5, "
 class FakeAdapter:
     REFRESH_OK = VietnamWorksAdapter.REFRESH_OK
     REFRESH_UNAVAILABLE = VietnamWorksAdapter.REFRESH_UNAVAILABLE
+    REFRESH_GONE = VietnamWorksAdapter.REFRESH_GONE
     REFRESH_UNPARSABLE = VietnamWorksAdapter.REFRESH_UNPARSABLE
 
     def __init__(self, results):
@@ -246,6 +257,19 @@ def test_unavailable_and_unparsable_keep_job_untouched(writes):
     assert writes == [] and done == []
     conn.commit.assert_not_called()
     assert summary.unavailable == 1 and summary.unparsable == 1 and summary.errors == 0
+
+
+def test_gone_job_is_counted_separately_and_never_written(writes):
+    conn = MagicMock()
+    row = _row()
+    adapter = FakeAdapter({row["source_url"]: (FakeAdapter.REFRESH_GONE, None)})
+    done = []
+
+    summary = bf.run(conn, adapter, [row], apply=True, level_ids=LEVEL_IDS, on_done=done.append)
+
+    assert summary.gone == 1 and summary.unparsable == 0 and summary.errors == 0
+    assert writes == [] and done == []          # không đóng job, không ghi tiến độ
+    conn.commit.assert_not_called()
 
 
 def test_error_in_one_job_rolls_back_and_continues(writes, monkeypatch):
