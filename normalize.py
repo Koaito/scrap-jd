@@ -211,21 +211,25 @@ LEVEL_ORDER = ["Intern", "Fresher", "Junior", "Middle", "Senior", "Lead", "Manag
 # so với trước. Job lưu kèm phiên bản đã dùng nên lệnh tính lại level chỉ cần
 # chọn job có phiên bản cũ hơn, không phải đoán theo giá trị level.
 #   1 = bộ quy tắc đầu tiên có đánh phiên bản (thêm "Sr.", "Head of",
-#       "Phó phòng"/"Deputy Head", "Junior" trong tiêu đề — 10/2026).
+#       "Phó phòng"/"Deputy Head", "Junior" trong tiêu đề; tiêu đề liệt kê
+#       nhiều cấp như "Junior, Senior" không còn tự chốt level mà để số năm
+#       quyết định — 10/2026). Chưa job nào được đóng dấu phiên bản trước khi
+#       quy tắc này chốt nên chưa cần tăng số.
 LEVEL_RULE_VERSION = 1
 
 # Level được suy từ đâu (cột job_postings.level_source). derive_level() chỉ trả
-# 5 giá trị đầu; "manual" do tầng ứng dụng đặt khi người dùng sửa tay (và
+# 6 giá trị đầu; "manual" do tầng ứng dụng đặt khi người dùng sửa tay (và
 # không bao giờ bị tính lại đè lên).
 LEVEL_SOURCE_TITLE = "title"      # từ khoá trong tiêu đề
 LEVEL_SOURCE_LABEL = "label"      # nhãn cố định của nguồn: "Không yêu cầu", "Dưới 1 năm", "Trên 5 năm"
 LEVEL_SOURCE_YEARS = "years"      # số năm kinh nghiệm đọc được
+LEVEL_SOURCE_TITLE_RANGE = "title_range"  # tiêu đề liệt kê khoảng cấp mà không có số năm: lấy cấp THẤP nhất trong khoảng
 LEVEL_SOURCE_HINT = "hint"        # nhãn cấp bậc nguồn tự gán (level_hint)
 LEVEL_SOURCE_DEFAULT = "default"  # không có căn cứ nào -> Junior
 LEVEL_SOURCE_MANUAL = "manual"    # người dùng sửa tay
 LEVEL_SOURCES = (
     LEVEL_SOURCE_TITLE, LEVEL_SOURCE_LABEL, LEVEL_SOURCE_YEARS,
-    LEVEL_SOURCE_HINT, LEVEL_SOURCE_DEFAULT, LEVEL_SOURCE_MANUAL,
+    LEVEL_SOURCE_TITLE_RANGE, LEVEL_SOURCE_HINT, LEVEL_SOURCE_DEFAULT, LEVEL_SOURCE_MANUAL,
 )
 
 
@@ -252,8 +256,8 @@ _MANAGER_TITLE = re.compile(r"\bmanager\b|trưởng phòng|giám đốc|\bhead\s
 # để mã kiểu "SR-001", "SR 2026" không bị nhận nhầm.
 _SENIOR_TITLE = re.compile(r"\bsenior\b|\bsr\b(?:\.\s*|\s+)(?=[^\W\d_])")
 # "Junior" trong tiêu đề. KHÔNG tính "Junior+" (từ Junior trở lên) và tiêu đề
-# ghi nhiều cấp ("Junior/Middle", "Junior - Mid"): các trường hợp đó để số năm
-# quyết định. "Junior, Senior" đã ra Senior từ nhánh Senior ở trước.
+# ghi nhiều cấp ("Junior/Middle", "Junior - Mid", "Junior, Senior"): các trường
+# hợp đó để số năm quyết định (xem level_from_title).
 _JUNIOR_TITLE = re.compile(r"\bjunior\b(?!\s*\+)")
 _MIDDLE_TITLE = re.compile(r"\bmid(?:dle)?\b")
 # "Trợ lý giám đốc", "Thư ký trưởng phòng", "Assistant to Head of Sales": người
@@ -265,30 +269,84 @@ _ASSISTANT_TO_BOSS = re.compile(
 )
 
 
+# Dấu/từ nối nằm GIỮA hai từ cấp bậc liền kề -> tiêu đề đang LIỆT KÊ một khoảng
+# cấp ("Junior, Senior", "Middle/Senior", "Fresher- Junior", "Junior to Middle"),
+# khác với chức danh ghép chỉ là MỘT cấp ("Senior Team Lead", "Junior Team Lead").
+_LEVEL_RANGE_SEPARATOR = re.compile(r"^\s*(?:[/,&|+\-\u2013\u2014]|\b(?:or|and|to)\b|hoặc|và)\s*$")
+
+# Thứ tự ưu tiên khi chức danh ghép nhiều cấp (cấp CAO hơn thắng, giữ hành vi
+# cũ): "Senior Product Manager" -> Manager, "Junior Team Lead" -> Lead.
+_TITLE_LEVEL_PRIORITY = ("Intern", "Fresher", "Lead", "Manager", "Senior", "Junior")
+
+
+def _title_level_matches(title: str) -> list:
+    """Mọi từ khoá cấp bậc trong tiêu đề (đã lower, đã cắt cụm "trợ lý ...")
+    dạng [(start, end, level)], sắp theo vị trí. Có cả "Middle" (chỉ để nhận ra
+    tiêu đề liệt kê khoảng cấp; tiêu đề chỉ có "Middle" thì KHÔNG quyết định
+    level, số năm quyết định)."""
+    spans = []
+    for level, rx in (
+        ("Intern", _INTERN_TITLE), ("Fresher", _FRESHER_TITLE), ("Lead", _LEAD_TITLE),
+        ("Lead", _DEPUTY_TITLE), ("Manager", _MANAGER_TITLE),
+        ("Senior", _SENIOR_TITLE), ("Junior", _JUNIOR_TITLE), ("Middle", _MIDDLE_TITLE),
+    ):
+        spans.extend((m.start(), m.end(), level) for m in rx.finditer(title))
+    # "Deputy Head of X"/"Phó trưởng phòng" chứa sẵn "head of"/"trưởng phòng":
+    # từ khoá Manager nằm trong vùng của Phó phòng không được tính.
+    deputy = [(a, b) for a, b, lv in spans if lv == "Lead" and _DEPUTY_TITLE.fullmatch(title[a:b])]
+    spans = [
+        (a, b, lv) for a, b, lv in spans
+        if not (lv == "Manager" and any(da < b and a < db for da, db in deputy))
+    ]
+    return sorted(spans)
+
+
+def _analyze_title(job_title: str) -> tuple:
+    """Phân tích từ khoá cấp bậc trong tiêu đề -> (level, khoảng).
+
+    - level: cấp do tiêu đề quyết định, hoặc None.
+    - khoảng: frozenset các cấp mà tiêu đề LIỆT KÊ (chỉ khác rỗng khi tiêu đề
+      ghi một khoảng cấp, khi đó level luôn là None).
+    """
+    title = _ASSISTANT_TO_BOSS.sub(" ", (job_title or "").lower())
+    matches = _title_level_matches(title)
+    levels = frozenset(lv for _, _, lv in matches)
+    if not (levels - {"Middle"}):
+        return None, frozenset()  # không từ khoá nào, hoặc chỉ "Middle": để số năm quyết định
+
+    is_range = "Junior" in levels and "Middle" in levels
+    if not is_range:
+        for (_, end_a, lv_a), (start_b, _, lv_b) in zip(matches, matches[1:]):
+            if lv_a != lv_b and _LEVEL_RANGE_SEPARATOR.match(title[end_a:start_b]):
+                is_range = True
+                break
+    if is_range:
+        return None, levels
+
+    for level in _TITLE_LEVEL_PRIORITY:
+        if level in levels:
+            return level, frozenset()
+    return None, frozenset()
+
+
 def level_from_title(job_title: str) -> Optional[str]:
     """Level do TỪ KHOÁ trong tiêu đề quyết định (Intern/Fresher/Lead/Manager/
-    Senior/Junior), hoặc None khi tiêu đề không có từ khoá nào. Là bước đầu và
-    ưu tiên cao nhất của derive_level(): tiêu đề có từ khoá thì số năm kinh
-    nghiệm không đổi được kết quả. Tách riêng để script vá dữ liệu biết job nào
-    level đã do tiêu đề chốt (không cần tải lại trang).
+    Senior/Junior), hoặc None khi tiêu đề không có từ khoá nào HOẶC không xác
+    định được một cấp duy nhất. Là bước đầu và ưu tiên cao nhất của
+    derive_level(): tiêu đề nêu đúng một cấp thì số năm kinh nghiệm không đổi
+    được kết quả. Tách riêng để script vá dữ liệu biết job nào level đã do
+    tiêu đề chốt (không cần tải lại trang).
 
-    Thứ tự: Intern > Fresher > Lead > Phó phòng (Lead) > Manager > Senior >
-    Junior. Tiêu đề ghi nhiều cấp thì cấp CAO hơn thắng ("Junior, Senior" ->
-    Senior), riêng "Junior" đi kèm "Middle"/"Junior+" thì bỏ qua (None)."""
-    title = _ASSISTANT_TO_BOSS.sub(" ", (job_title or "").lower())
-    if _INTERN_TITLE.search(title):
-        return "Intern"
-    if _FRESHER_TITLE.search(title):
-        return "Fresher"
-    if _LEAD_TITLE.search(title) or _DEPUTY_TITLE.search(title):
-        return "Lead"
-    if _MANAGER_TITLE.search(title):
-        return "Manager"
-    if _SENIOR_TITLE.search(title):
-        return "Senior"
-    if _JUNIOR_TITLE.search(title) and not _MIDDLE_TITLE.search(title):
-        return "Junior"
-    return None
+    Nguyên tắc: tiêu đề chỉ quyết định khi nó nói về MỘT cấp. Tiêu đề liệt kê
+    nhiều cấp ("Junior, Senior", "Middle/Senior", "Fresher - Junior", "Junior
+    to Middle") không nói rõ cấp nào, nên trả None để số năm (rồi nhãn nguồn)
+    quyết định. "Junior" đi cùng "Middle" cũng là khoảng cấp, còn "Junior+" (từ
+    Junior trở lên) bị bỏ qua. Chức danh ghép chỉ là một cấp ("Senior Team
+    Lead", "Senior Product Manager") vẫn do tiêu đề quyết định, cấp CAO hơn thắng
+    theo thứ tự Intern > Fresher > Lead (kể cả Phó phòng) > Manager > Senior >
+    Junior.
+    """
+    return _analyze_title(job_title)[0]
 
 
 @dataclass(frozen=True)
@@ -301,9 +359,10 @@ class LevelDecision:
 
 def derive_level(experience_text: str, job_title: str = "", level_hint: str = "") -> LevelDecision:
     """Suy luận level KÈM căn cứ. Thứ tự ưu tiên: từ khoá trong tiêu đề > nhãn
-    cố định của nguồn > số năm kinh nghiệm trong experience_text > level_hint
-    (nhãn cấp bậc nguồn tự gán, vd jobLevel của VietnamWorks, adapter đã đổi
-    sang 1 giá trị trong LEVEL_ORDER) > mặc định Junior.
+    cố định của nguồn > số năm kinh nghiệm trong experience_text > cận dưới của
+    khoảng cấp tiêu đề liệt kê > level_hint (nhãn cấp bậc nguồn tự gán, vd
+    jobLevel của VietnamWorks, adapter đã đổi sang 1 giá trị trong LEVEL_ORDER)
+    > mặc định Junior.
 
     level_hint CHỈ là phương án dự phòng khi không đọc được số năm: nhãn cấp
     bậc do nhà tuyển dụng tự chọn nên nhiễu (vd vị trí "Data Modeler" gắn
@@ -340,6 +399,15 @@ def derive_level(experience_text: str, job_title: str = "", level_hint: str = ""
         else:
             level = "Lead"
         return LevelDecision(level, LEVEL_SOURCE_YEARS)
+
+    # Tiêu đề liệt kê khoảng cấp mà không có số năm/nhãn: lấy cấp THẤP nhất trong
+    # khoảng (ngang với số năm = yêu cầu tối thiểu). Vẫn nằm trong những cấp chính
+    # tiêu đề nêu ra, tốt hơn rơi xuống hint nhiễu hoặc mặc định Junior
+    # ("Senior/Leader" không thể là Junior).
+    title_range = _analyze_title(job_title)[1]
+    if title_range:
+        floor = min(title_range, key=LEVEL_ORDER.index)
+        return LevelDecision(floor, LEVEL_SOURCE_TITLE_RANGE)
 
     if level_hint in LEVEL_ORDER:
         return LevelDecision(level_hint, LEVEL_SOURCE_HINT)

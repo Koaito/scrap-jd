@@ -143,12 +143,20 @@ def test_title_global_leaders_brand_falls_through_to_manager(title):
     "Business Analyst (2-3 Năm Kinh Nghiệm) - Teamlead",
     "Android Developer (Leader)",
     "BA Lead (Dự Án GOV)",
-    "Data Engineer (Senior/Leader)",
     "Workforce Planning Lead",
     "Trưởng nhóm phát triển",
 ])
 def test_title_real_lead_titles_stay_lead(title):
     assert normalize.infer_level("", title) == "Lead"
+
+
+def test_title_senior_slash_leader_is_a_range():
+    """"Senior/Leader" liệt kê hai cấp: không còn tự ra Lead; số năm quyết định,
+    không có số năm thì lấy cấp thấp nhất trong khoảng (Senior, không phải Junior)."""
+    title = "Data Engineer (Senior/Leader)"
+    assert normalize.infer_level("", title) == "Senior"
+    assert normalize.infer_level("8 năm", title) == "Lead"
+    assert normalize.infer_level("3 năm", title) == "Middle"
 
 
 @pytest.mark.parametrize("title", [

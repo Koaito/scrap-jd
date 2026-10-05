@@ -70,7 +70,7 @@ def test_level_constants():
     assert "manual" in normalize.LEVEL_SOURCES
     assert len(set(normalize.LEVEL_SOURCES)) == len(normalize.LEVEL_SOURCES)
     # mọi nguồn derive_level có thể trả đều nằm trong danh sách (cột DB sẽ CHECK theo danh sách này)
-    for src in ("title", "label", "years", "hint", "default"):
+    for src in ("title", "label", "years", "title_range", "hint", "default"):
         assert src in normalize.LEVEL_SOURCES
 
 
@@ -160,14 +160,68 @@ def test_junior_plus_falls_back_to_years():
 
 
 @pytest.mark.parametrize("title,expected", [
-    ("Business Analyst (Junior - Senior)", "Senior"),
-    ("FullStack Developer (Junior, Senior) - Khối Công nghệ thông tin (2025TD922)", "Senior"),
-    ("Business Analyst (Fresher- Junior) Lương 8-12 Triệu", "Fresher"),
+    # chức danh GHÉP chỉ là một cấp: tiêu đề vẫn quyết định, cấp cao hơn thắng
     ("Junior Team Lead", "Lead"),
+    ("Senior Team Lead", "Lead"),
+    ("Senior Product Manager", "Manager"),
+    ("Senior Developer (Lead group)", "Lead"),
+    ("Head of Data Team Lead", "Lead"),
 ])
-def test_multi_level_titles_keep_higher_level(title, expected):
-    """Tiêu đề ghi nhiều cấp: cấp CAO hơn thắng như trước ("Junior" chỉ là nhánh cuối)."""
+def test_compound_titles_are_one_level(title, expected):
     assert normalize.level_from_title(title) == expected
+
+
+@pytest.mark.parametrize("title", [
+    "Business Analyst (Junior - Senior)",
+    "FullStack Developer (Junior, Senior) - Khối Công nghệ thông tin (2025TD922)",
+    "Business Analyst (Fresher- Junior) Lương 8-12 Triệu",
+    "Middle/Senior Backend Developer",
+    "Lead/Senior/Middle Engineer",
+    "Intern/Fresher Marketing",
+    "Developer (Junior & Senior)",
+    "Developer (Junior | Senior)",
+    "Developer (Junior or Senior)",
+    "Developer (Junior and Middle)",
+    "Developer (Junior hoặc Senior)",
+    "Senior - Team Lead",
+])
+def test_range_titles_do_not_decide(title):
+    """Tiêu đề liệt kê nhiều cấp không xác định được cấp nào -> None, số năm quyết định."""
+    assert normalize.level_from_title(title) is None
+
+
+def test_range_title_falls_back_to_years():
+    title = "FullStack Developer (Junior, Senior) - Khối Công nghệ thông tin (2025TD922)"
+    assert normalize.derive_level("2 năm", title) == normalize.LevelDecision("Middle", "years")
+    assert normalize.derive_level("6 năm", title) == normalize.LevelDecision("Lead", "years")
+    # không có số năm: cấp THẤP nhất trong khoảng tiêu đề nêu, đứng trước hint
+    assert normalize.derive_level("", title) == normalize.LevelDecision("Junior", "title_range")
+    assert normalize.derive_level("", title, "Lead") == normalize.LevelDecision("Junior", "title_range")
+
+
+@pytest.mark.parametrize("title,floor", [
+    ("Data Engineer (Senior/Leader)", "Senior"),       # không thể rơi về Junior mặc định
+    ("Middle/Senior Backend Developer", "Middle"),
+    ("Lead/Senior/Middle Engineer", "Middle"),
+    ("Business Analyst (Fresher- Junior) Lương 8-12 Triệu", "Fresher"),
+    ("Developer (Junior to Middle)", "Junior"),
+])
+def test_range_title_without_years_uses_lowest_level(title, floor):
+    assert normalize.derive_level("", title) == normalize.LevelDecision(floor, "title_range")
+
+
+def test_range_title_label_beats_range_floor():
+    """Nhãn cố định của nguồn ("Trên 5 năm") đứng trước cận dưới của khoảng."""
+    assert normalize.derive_level("Trên 5 năm", "Developer (Junior, Senior)") == normalize.LevelDecision("Lead", "label")
+
+
+def test_single_level_title_still_beats_years():
+    """Tiêu đề nêu đúng một cấp thì thắng số năm (nhà tuyển dụng đã nói rõ cấp)."""
+    assert normalize.derive_level("2 năm", "Senior Dev") == normalize.LevelDecision("Senior", "title")
+
+
+def test_middle_alone_does_not_decide():
+    assert normalize.level_from_title("Middle Backend Developer") is None
 
 
 def test_junior_title_beats_years():
