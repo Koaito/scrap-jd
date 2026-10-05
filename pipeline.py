@@ -342,8 +342,8 @@ def _find_job_by_job_code(adapter: BaseAdapter, conn, raw, stats: PipelineStats)
     return None
 
 
-def _update_job_by_job_code(conn, raw, match, *, level_code: str, salary, work_type,
-                             deadline, parsed_content, raw_jd_content,
+def _update_job_by_job_code(conn, raw, match, *, level_code: str, level_source: str,
+                             salary, work_type, deadline, parsed_content, raw_jd_content,
                              stats: PipelineStats) -> None:
     """Nhánh "cùng mã job, tiêu đề còn gần giống" (xem _find_job_by_job_code): cập
     nhật job cũ và ghi URL mới làm nguồn phụ, KHÔNG tạo job mới. Commit đúng 1 lần
@@ -382,10 +382,15 @@ def _update_job_by_job_code(conn, raw, match, *, level_code: str, salary, work_t
                 "JD lấy được bị cắt ngắn, giữ nguyên JD và level cũ của job %s: %s",
                 job_id, raw.source_url,
             )
+        recrawl_level_id = db.get_level_id(conn, level_code) if content_reliable else None
         updated = db.update_job_from_recrawl(
             conn, job_id,
             job_title=raw.job_title,
-            level_id=db.get_level_id(conn, level_code) if content_reliable else None,
+            level_id=recrawl_level_id,
+            level_source=level_source if recrawl_level_id is not None else None,
+            level_rule_version=(
+                normalize.LEVEL_RULE_VERSION if recrawl_level_id is not None else None
+            ),
             work_type=work_type,
             parsed_content=parsed_content if content_reliable else None,
             salary=asdict(salary) if (raw.salary_text or "").strip() else None,
@@ -411,7 +416,7 @@ def _update_job_by_job_code(conn, raw, match, *, level_code: str, salary, work_t
 
 def _insert_new_job(conn, raw, *, company_id, level_id, province_id, work_type, salary,
                      deadline, parsed_content, raw_jd_content, level_code: str,
-                     company_name: str, stats: PipelineStats) -> None:
+                     level_source: str, company_name: str, stats: PipelineStats) -> None:
     """Bước 4: insert job mới (content_hash tự tính bởi trigger Postgres) rồi
     commit. Tách ra từ _process_jobs() (đợt B2), KHÔNG đổi hành vi."""
     db.insert_job(
@@ -434,6 +439,8 @@ def _insert_new_job(conn, raw, *, company_id, level_id, province_id, work_type, 
         parsed_content=parsed_content,
         raw_jd_content=raw_jd_content,
         detail_fetched=True,
+        level_source=level_source if level_id is not None else None,
+        level_rule_version=normalize.LEVEL_RULE_VERSION if level_id is not None else None,
     )
     conn.commit()
     stats.inserted += 1
@@ -449,7 +456,10 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     lặp cũ. Ngoại lệ KHÔNG bắt ở đây: _process_jobs() rollback + đếm lỗi."""
     # 2) Chuẩn hóa (phần DÙNG CHUNG, không quan tâm nguồn)
     salary = normalize.normalize_salary(raw.salary_text)
-    level_code = normalize.infer_level(raw.experience_text, raw.job_title, raw.level_hint)
+    # derive_level trả level KÈM căn cứ; căn cứ + LEVEL_RULE_VERSION được lưu cùng
+    # level để lệnh tính lại sau này biết job nào tính theo quy tắc nào.
+    level_decision = normalize.derive_level(raw.experience_text, raw.job_title, raw.level_hint)
+    level_code = level_decision.level
     company_name = normalize.clean_company_name(raw.company_name)
 
     # 2a) Nhà tuyển dụng ẨN DANH (site tự điền placeholder thay tên công ty
@@ -500,7 +510,8 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     existing_job = _find_job_by_job_code(adapter, conn, raw, stats)
     if existing_job is not None:
         _update_job_by_job_code(
-            conn, raw, existing_job, level_code=level_code, salary=salary,
+            conn, raw, existing_job, level_code=level_code,
+            level_source=level_decision.source, salary=salary,
             work_type=work_type, deadline=deadline, parsed_content=parsed_content,
             raw_jd_content=raw_jd_content, stats=stats,
         )
@@ -539,7 +550,8 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
         conn, raw, company_id=company_id, level_id=level_id, province_id=province_id,
         work_type=work_type, salary=salary, deadline=deadline,
         parsed_content=parsed_content, raw_jd_content=raw_jd_content,
-        level_code=level_code, company_name=company_name, stats=stats,
+        level_code=level_code, level_source=level_decision.source,
+        company_name=company_name, stats=stats,
     )
 
 

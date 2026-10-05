@@ -113,6 +113,9 @@ def test_similar_title_updates_the_old_job_instead_of_inserting(fake_db):
     kw = update.kwargs
     assert kw["job_title"] == "Data Engineer (Senior)"
     assert kw["level_id"] == 5
+    # level kèm căn cứ + phiên bản quy tắc (tiêu đề có "Senior" -> căn cứ "title")
+    assert kw["level_source"] == "title"
+    assert kw["level_rule_version"] == normalize.LEVEL_RULE_VERSION
     fake_db.get_level_id.assert_called_once_with(
         conn, normalize.infer_level("3 năm", "Data Engineer (Senior)", ""))
     assert kw["work_type"] == normalize.normalize_work_type("Toàn thời gian")

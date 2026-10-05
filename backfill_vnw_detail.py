@@ -151,7 +151,7 @@ def _update_raw_jd(conn, job_id, source_url: str, raw_jd: str) -> None:
 def plan_job(row: dict, refreshed: dict) -> dict:
     """Từ dòng DB + dữ liệu vừa tải về, tính thứ cần ghi.
 
-    Trả dict: new_level, level_changed, parsed_content (None nếu không có gì để
+    Trả dict: new_level, new_level_source, level_changed, parsed_content (None nếu không có gì để
     ghi), raw_jd, jd_changed. Field JD trang trả về rỗng thì giữ giá trị cũ."""
     old = row.get("parsed_content") or {}
     empty = {k: ([] if k == "required_skills" else "") for k in _JD_KEYS}
@@ -162,11 +162,13 @@ def plan_job(row: dict, refreshed: dict) -> dict:
             merged[key] = value
 
     parsed_content, raw_jd = _build_parsed_content_and_raw(merged)
-    new_level = normalize.infer_level(
+    decision = normalize.derive_level(
         refreshed.get("experience_text", ""), row["job_title"], refreshed.get("level_hint", ""),
     )
+    new_level = decision.level
     return {
         "new_level": new_level,
+        "new_level_source": decision.source,
         "level_changed": new_level != row.get("level_code"),
         "parsed_content": parsed_content,
         "raw_jd": raw_jd,
@@ -238,7 +240,11 @@ def process_job(conn, adapter, row: dict, *, apply: bool, level_ids: dict,
         raise RuntimeError(f"Không tìm thấy level_id cho '{plan['new_level']}' trong bảng levels")
     try:
         if plan["level_changed"]:
-            db.update_job(conn, row["job_id"], level_id=new_level_id)
+            # Ghi level TỰ ĐỘNG: đóng dấu căn cứ + phiên bản quy tắc; dòng đã
+            # 'manual' (người sửa level) được giữ nguyên (xem db.job_levels).
+            db.update_job(conn, row["job_id"], level_id=new_level_id,
+                          level_source=plan["new_level_source"],
+                          level_rule_version=normalize.LEVEL_RULE_VERSION)
         if plan["jd_changed"]:
             db.update_job_fields(conn, row["job_id"], parsed_content=plan["parsed_content"])
             _update_raw_jd(conn, row["job_id"], row["source_url"], plan["raw_jd"])

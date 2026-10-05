@@ -66,15 +66,17 @@ from db.jobs import (
     mark_source_detail_checked,
     update_job_fields,
     insert_job,
-    link_repost_source,
-    extend_job_deadline,
-    find_jobs_by_source_url_regex,
-    update_job_from_recrawl,
     count_jobs,
     find_manual_job_duplicate,
     create_manual_job,
     update_job,
     job_exists_by_id,
+)
+from db.job_recrawl import (
+    link_repost_source,
+    extend_job_deadline,
+    find_jobs_by_source_url_regex,
+    update_job_from_recrawl,
 )
 from db.job_queries import (
     list_jobs,

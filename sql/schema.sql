@@ -235,6 +235,11 @@ CREATE TABLE IF NOT EXISTS job_postings (
     job_title         VARCHAR(255) NOT NULL,
     matching_industry VARCHAR(100),
     level_id          INT REFERENCES levels(level_id),
+    -- Level được suy từ đâu / theo bộ quy tắc phiên bản nào (xem
+    -- sql/migration_add_job_level_source.sql). NULL = chưa biết, cần tính lại;
+    -- 'manual' = có người sửa, ghi tự động không bao giờ đè.
+    level_source       VARCHAR(20),
+    level_rule_version SMALLINT,
     province_id       INT REFERENCES provinces(province_id),
     work_type         work_type_enum,
     parsed_content    JSONB,
@@ -258,6 +263,19 @@ CREATE TABLE IF NOT EXISTS job_postings (
 
     CONSTRAINT chk_salary_range CHECK (
         salary_min IS NULL OR salary_max IS NULL OR salary_min <= salary_max
+    ),
+    CONSTRAINT chk_job_postings_level_source CHECK (
+        level_source IS NULL OR level_source IN (
+            'title', 'label', 'years', 'title_range', 'hint', 'default', 'manual'
+        )
+    ),
+    -- CASE (không phải AND/OR): CHECK coi NULL là "đạt", xem migration.
+    CONSTRAINT chk_job_postings_level_stamp CHECK (
+        CASE
+            WHEN level_source IS NULL THEN level_rule_version IS NULL
+            WHEN level_source = 'manual' THEN level_rule_version IS NULL
+            ELSE level_rule_version IS NOT NULL AND level_id IS NOT NULL
+        END
     )
 );
 

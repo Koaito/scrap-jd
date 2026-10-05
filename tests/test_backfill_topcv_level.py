@@ -184,8 +184,21 @@ class TestProcessJob:
         done = bf.process_job(conn, _adapter("ok", "Trên 5 năm"), _row(), apply=True,
                               level_ids=LEVEL_IDS, summary=s)
         assert done is True
-        update_job.assert_called_once_with(conn, "job-1", level_id=LEVEL_IDS["Lead"])
+        update_job.assert_called_once_with(
+            conn, "job-1", level_id=LEVEL_IDS["Lead"], level_source="label",
+            level_rule_version=bf.normalize.LEVEL_RULE_VERSION)
         conn.commit.assert_called_once()
+
+    def test_apply_text_basis_stamps_unknown_source(self, update_job):
+        """Suy từ chữ (không có nhãn trang) không phải một nhánh của derive_level:
+        ghi level nhưng để căn cứ None ("chưa biết"), lệnh tính lại xử lý sau."""
+        conn = MagicMock()
+        done = bf.process_job(conn, _adapter("no_label"), _row(), apply=True,
+                              level_ids=LEVEL_IDS, summary=bf.Summary())
+        assert done is True
+        update_job.assert_called_once_with(
+            conn, "job-1", level_id=LEVEL_IDS["Lead"], level_source=None,
+            level_rule_version=None)
 
     def test_apply_rolls_back_on_db_error(self, update_job):
         update_job.side_effect = RuntimeError("db")

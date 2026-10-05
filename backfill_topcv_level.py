@@ -124,14 +124,17 @@ def plan_level(row: dict, label: Optional[str]) -> dict:
     confirmed (True khi nhãn trang đã xác nhận kết quả, tức không cần xét lại)."""
     current = row.get("level_code")
     if label:
-        new_level = normalize.infer_level(label, row["job_title"], "")
-        return {"new_level": new_level, "basis": BASIS_LABEL,
-                "level_changed": new_level != current, "confirmed": True}
+        decision = normalize.derive_level(label, row["job_title"], "")
+        return {"new_level": decision.level, "new_level_source": decision.source,
+                "basis": BASIS_LABEL,
+                "level_changed": decision.level != current, "confirmed": True}
 
     requirements = (row.get("parsed_content") or {}).get("requirements") or ""
     guessed = normalize.infer_level_from_requirements(requirements)
     new_level = guessed or current
-    return {"new_level": new_level, "basis": BASIS_TEXT,
+    # Suy từ chữ trong phần yêu cầu là cách gần đúng, không phải một nhánh của
+    # derive_level: để căn cứ None ("chưa biết") để lệnh tính lại xử lý sau.
+    return {"new_level": new_level, "new_level_source": None, "basis": BASIS_TEXT,
             "level_changed": new_level != current, "confirmed": False}
 
 
@@ -199,7 +202,11 @@ def process_job(conn, adapter, row: dict, *, apply: bool, level_ids: dict,
     if new_level_id is None:
         raise RuntimeError(f"Không tìm thấy level_id cho '{plan['new_level']}' trong bảng levels")
     try:
-        db.update_job(conn, row["job_id"], level_id=new_level_id)
+        # Ghi level TỰ ĐỘNG: đóng dấu căn cứ (None = chưa biết, khi suy từ chữ);
+        # dòng đã 'manual' (người sửa level) được giữ nguyên (xem db.job_levels).
+        source = plan["new_level_source"]
+        db.update_job(conn, row["job_id"], level_id=new_level_id, level_source=source,
+                      level_rule_version=normalize.LEVEL_RULE_VERSION if source else None)
         conn.commit()
     except Exception:
         conn.rollback()
