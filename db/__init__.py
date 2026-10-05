@@ -78,6 +78,14 @@ from db.job_recrawl import (
     find_jobs_by_source_url_regex,
     update_job_from_recrawl,
 )
+from db.job_level_recompute import (
+    skip_updated_at_supported,
+    list_level_recompute_candidates,
+    compute_content_hashes_for_levels,
+    get_jobs_by_content_hashes,
+    count_duplicate_job_groups,
+    write_recomputed_levels,
+)
 from db.job_queries import (
     list_jobs,
     get_job_by_id,
@@ -301,6 +309,12 @@ __all__ = [
     "extend_job_deadline",
     "find_jobs_by_source_url_regex",
     "update_job_from_recrawl",
+    "skip_updated_at_supported",
+    "list_level_recompute_candidates",
+    "compute_content_hashes_for_levels",
+    "get_jobs_by_content_hashes",
+    "count_duplicate_job_groups",
+    "write_recomputed_levels",
     "count_jobs",
     "find_manual_job_duplicate",
     "create_manual_job",

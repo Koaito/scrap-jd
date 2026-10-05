@@ -112,6 +112,22 @@ python main.py migrate
 
 Chi tiết và lý do xem `sql/README_MIGRATIONS.md`.
 
+**Tính lại level job** sau khi đổi quy tắc suy level (`normalize.LEVEL_RULE_VERSION`
+tăng) hoặc để xử lý job chưa đóng dấu `level_source`. Chạy hoàn toàn trong DB, không
+tải trang. Cần đã `migrate` (có `level_source`, `level_signals` và cờ
+`app.skip_updated_at`):
+
+```bash
+python main.py recompute-levels            # chạy thử: chỉ in báo cáo, không ghi
+python main.py recompute-levels --apply    # ghi thật; updated_at giữ nguyên
+```
+
+Chỉ chọn job chưa đóng dấu hoặc dấu cũ hơn phiên bản hiện tại; không bao giờ đụng dòng
+`manual`; bỏ qua job từng có người sửa (`updated_by`) mà level chưa đóng dấu; job cũ
+không có `level_signals` chỉ đổi level khi tiêu đề nêu rõ cấp. Báo cáo liệt kê job rời/nhập
+nhóm job nghi trùng do `content_hash` đổi (lệnh không tự gộp). Chi tiết xem docstring
+`recompute_levels.py`.
+
 ### 4. Chạy test
 
 ```bash
@@ -197,7 +213,8 @@ pipeline_stats.py          <- PipelineStats: bộ đếm của một lượt cra
                               ngay); run_pipeline() vẫn trả dict qua to_dict()
 field_stats.py             <- đếm tỷ lệ field rỗng, quyết định lượt crawl có "degraded" không
 snapshots.py               <- SnapshotRecorder: giữ mẫu HTML/JSON gốc của mỗi lượt crawl
-main.py                    <- CLI: init-db, migrate, crawl, stats, snapshots, snapshot-export, create-admin
+main.py                    <- CLI: init-db, migrate, crawl, stats, snapshots, snapshot-export, create-admin, recompute-levels
+recompute_levels.py        <- logic lệnh `recompute-levels`: tính lại level từ tiêu đề + level_signals (chạy thử / --apply)
 
 db/                        <- mọi thao tác PostgreSQL, tách theo domain
   connection.py            <- connection, connection pool, apply_schema, migration tracking
@@ -208,6 +225,7 @@ db/                        <- mọi thao tác PostgreSQL, tách theo domain
   contacts.py, auth.py, audit_logs.py, applications.py, messages.py,
   email_templates.py, dashboard.py, stats.py, lookups.py   <- theo domain
   crawl_runs.py, crawl_batches.py, crawl_snapshots.py, maintenance_runs.py
+  job_levels.py, job_recrawl.py, job_level_recompute.py   <- luật đóng dấu level, tái crawl theo mã job, SQL của `recompute-levels`
   __init__.py              <- re-export toàn bộ tên, dùng qua `import db`
 
 backfill_company_profiles.py             <- vá profile công ty qua source_profile_url đã lưu

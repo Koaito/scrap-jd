@@ -10,6 +10,8 @@ Ví dụ:
     python main.py crawl --category data-engineer --pages 5
     python main.py crawl --category data-analyst --max-jobs 20
     python main.py crawl --category data-analyst --max-jobs 5 --no-track   # chạy thử, không ghi lịch sử
+    python main.py recompute-levels            # chạy thử: chỉ in, không ghi
+    python main.py recompute-levels --apply    # ghi thật (updated_at giữ nguyên)
     python main.py stats
     python main.py snapshots --source careerviet
     python main.py snapshot-export 12 --out tests/fixture_careerviet_listing.html
@@ -24,6 +26,7 @@ import sys
 import db
 from adapters.base import CrawlBlockedError
 from pipeline import run_pipeline
+import recompute_levels
 from config import (
     TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
 )
@@ -173,6 +176,12 @@ def cmd_migrate(args):
                 print(f"   - {filename}")
     finally:
         conn.close()
+
+
+def cmd_recompute_levels(args):
+    """Tính lại level cho job chưa đóng dấu / dấu cũ hơn LEVEL_RULE_VERSION, hoàn toàn
+    trong DB. Mặc định chạy thử; --apply mới ghi. Xem docstring recompute_levels.py."""
+    sys.exit(recompute_levels.run_cli(args))
 
 
 def cmd_create_admin(args):
@@ -439,6 +448,24 @@ def main():
         help="Kèm --baseline: bỏ qua bước hỏi xác nhận",
     )
 
+    p_recompute = sub.add_parser(
+        "recompute-levels",
+        help="Tính lại level job theo quy tắc hiện tại, từ tiêu đề + tín hiệu đã lưu (mặc định chạy thử)",
+    )
+    p_recompute.add_argument(
+        "--apply", action="store_true",
+        help="Ghi vào DB (mặc định chỉ chạy thử, in báo cáo). Cần đã chạy `migrate`",
+    )
+    p_recompute.add_argument("--limit", type=int, default=None, help="Chỉ xét N job đầu (cũ nhất trước)")
+    p_recompute.add_argument(
+        "--batch-size", type=int, default=recompute_levels.DEFAULT_BATCH_SIZE, dest="batch_size",
+        help="Số job mỗi lần commit khi --apply (mặc định %(default)s)",
+    )
+    p_recompute.add_argument(
+        "--show", type=int, default=recompute_levels.DEFAULT_SHOW,
+        help="Số dòng ví dụ in cho mỗi nhóm trong báo cáo (mặc định %(default)s)",
+    )
+
     p_crawl = sub.add_parser("crawl", help="Crawl job từ TopCV/VietnamWorks và lưu vào DB")
     p_crawl.add_argument("--source", default=DEFAULT_SOURCE,
                           help=f"Nguồn cần crawl. Mặc định: {DEFAULT_SOURCE}. "
@@ -493,6 +520,8 @@ def main():
         cmd_init_db(args)
     elif args.command == "migrate":
         cmd_migrate(args)
+    elif args.command == "recompute-levels":
+        cmd_recompute_levels(args)
     elif args.command == "crawl":
         cmd_crawl(args)
     elif args.command == "stats":

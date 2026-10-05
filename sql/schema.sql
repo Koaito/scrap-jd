@@ -473,8 +473,14 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_pending_note ON audit_logs(is_manual_l
 -- 4. TRIGGERS — updated_at tự động
 -- ============================================================
 
+-- Cờ phiên app.skip_updated_at = 'on' (đặt bằng set_config(..., true), chỉ trong
+-- transaction hiện tại) giữ nguyên updated_at cho các lần ghi hàng loạt do máy
+-- (xem sql/migration_add_skip_updated_at_flag.sql). Không có cờ thì như cũ.
 CREATE OR REPLACE FUNCTION trg_set_updated_at() RETURNS TRIGGER AS $$
 BEGIN
+    IF current_setting('app.skip_updated_at', true) = 'on' THEN
+        RETURN NEW;
+    END IF;
     NEW.updated_at = now();
     RETURN NEW;
 END;
