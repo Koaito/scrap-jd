@@ -7,6 +7,7 @@ Module CHUẨN HÓA — phần "dùng chung" của pipeline, không quan tâm d�
 import re
 import hashlib
 import logging
+import unicodedata
 from dataclasses import dataclass
 from datetime import date
 from typing import Optional
@@ -492,3 +493,43 @@ def normalize_company_size(company_size_text: Optional[str]) -> str:
     if not text:
         return ""
     return _COMPANY_SIZE_SUFFIX_RE.sub("", text).strip()
+
+
+# ----------------------------------------------------------------------
+# So khớp tiêu đề: "hai tiêu đề này có còn là cùng một vị trí không"
+# ----------------------------------------------------------------------
+# Nhà tuyển dụng VietnamWorks có thể sửa một tin đăng thành vị trí KHÁC HẲN mà
+# vẫn giữ mã job (dữ liệu thật: mã 2110157 từng là "Account Manager", nay là
+# "Sales Assistant"; mã 2109152 từng là "BACK-END DEVELOPER", nay là "Kỹ Sư An
+# Toàn Thông Tin"). Gộp hai tin như vậy vào một dòng sẽ làm dòng đó sai, nên cả
+# backfill_vnw_detail.py lẫn pipeline crawl chỉ coi là cùng một job khi tiêu đề
+# còn "gần giống". Đặt ở đây (không phải trong script) vì pipeline.py không được
+# import từ script.
+MIN_TITLE_OVERLAP = 0.5
+
+
+def _title_tokens(title: str) -> set:
+    text = unicodedata.normalize("NFKD", (title or "").lower().replace("đ", "d"))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return {t for t in re.findall(r"\w+", text) if len(t) > 1}
+
+
+def title_overlap(a: str, b: str) -> float:
+    """Hệ số trùng từ giữa hai tiêu đề, 0.0 đến 1.0: số từ chung chia cho số từ
+    của tiêu đề NGẮN hơn (bỏ dấu, không phân biệt hoa thường, bỏ từ 1 ký tự).
+    Chia theo tiêu đề ngắn để việc thêm đuôi như "/ Tuyển Gấp" hay "(Hà Nội)"
+    không kéo điểm xuống.
+
+    Thiếu một trong hai tiêu đề (hoặc không còn từ nào sau khi tách) thì không
+    đủ cơ sở để kết luận khác nhau nên trả 1.0, đúng như cách titles_similar()
+    luôn coi trường hợp đó là "giống"."""
+    ta, tb = _title_tokens(a), _title_tokens(b)
+    if not ta or not tb:
+        return 1.0
+    return len(ta & tb) / min(len(ta), len(tb))
+
+
+def titles_similar(a: str, b: str) -> bool:
+    """True nếu hai tiêu đề đủ giống để coi là cùng một vị trí (title_overlap
+    >= MIN_TITLE_OVERLAP)."""
+    return title_overlap(a, b) >= MIN_TITLE_OVERLAP

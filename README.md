@@ -297,6 +297,24 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   đăng lại sẽ sống lại. Nội dung (mô tả, `work_type`) không vá từ bản đăng
   lại. Số lượng nằm ở `skipped_duplicate_repost` và `repost_deadline_extended`
   trong thống kê lượt chạy (xem [Giới hạn đã biết](#giới-hạn-đã-biết)).
+- **VietnamWorks: nhận ra tin bị sửa tiêu đề theo mã job.** Nhà tuyển dụng sửa
+  tiêu đề thì URL đổi (phần chữ) còn mã số cuối URL (`...-<mã>-jv`) giữ
+  nguyên. Gặp URL chưa có trong DB, pipeline tìm job VietnamWorks còn `OPEN`
+  cùng mã (dùng JD đã tải, không thêm request):
+  - tiêu đề còn gần giống (trùng từ ≥ 0,5, `normalize.titles_similar`): **cập
+    nhật job cũ**, không tạo job mới. Ghi tiêu đề, level, mô tả/yêu cầu, lương,
+    hình thức làm việc, dời hạn nộp ra sau (không bao giờ rút ngắn), và ghi
+    URL mới làm nguồn phụ. Không đụng công ty, tỉnh, ngành. Lương chỉ ghi khi
+    nguồn có chuỗi lương; JD bị cắt ("...") thì giữ JD và level cũ;
+  - job cũ đã có người sửa tay (`updated_by` khác rỗng): chỉ ghi URL mới làm
+    nguồn phụ;
+  - tiêu đề khác hẳn (nhà tuyển dụng đổi sang vị trí khác) hoặc job cũ đã
+    `CLOSED`: không đụng job cũ, tạo job mới như trước. Trường hợp tiêu đề khác
+    hẳn có log WARNING kèm cả hai tiêu đề để xem tay.
+
+  Số lượng nằm ở `updated_by_job_code`, `linked_by_job_code_only` và
+  `job_code_title_mismatch` trong thống kê lượt chạy (chỉ xuất hiện khi > 0).
+  Cặp trùng mã đã có sẵn trong DB không được tự gộp.
 - Chuẩn hoá chu kỳ trả lương (tháng/năm) từ text gốc.
 
 ### Lịch sử lượt chạy
@@ -565,7 +583,9 @@ Việc đăng ký nguồn nằm trong **một module duy nhất**: `sources_regi
 2. Viết `adapters/itviec.py`, kế thừa `BaseAdapter` (`adapters/base.py`).
    Session `curl_cffi`, `_throttle()`, `_fetch_html()` (retry/backoff),
    ngắt mạch và ghi snapshot đã có sẵn ở lớp cha; chỉ cần implement
-   `fetch_jobs()` với logic parse riêng.
+   `fetch_jobs()` với logic parse riêng. Nếu nguồn có mã job ổn định trong URL
+   (URL đổi theo tiêu đề nhưng mã giữ nguyên, như VietnamWorks) thì override
+   thêm `job_code_url_regex()` để pipeline cập nhật job cũ thay vì tạo job trùng.
 3. Thêm đúng một entry vào `SOURCES` trong `sources_registry.py`:
 
    ```python
@@ -634,6 +654,12 @@ Chi tiết danh sách biến môi trường và endpoint xem `API_README.md`.
   lại. Theo dõi `skipped_duplicate_repost` trên trang `/crawl` trước khi
   quyết định siết khoá. Bước kiểm tra này nằm sau bước fetch chi tiết và hồ
   sơ công ty, nên một tin đăng lại tốn 1-2 request ở lần đầu gặp.
+- **Nhận diện tin VietnamWorks bị sửa tiêu đề dựa trên so khớp từ.** Hai tiêu đề
+  được coi là cùng vị trí khi trùng từ ≥ 0,5 (tính theo tiêu đề ngắn hơn, bỏ
+  dấu), nên một tin sửa tiêu đề nhẹ nhưng đổi nghĩa vẫn có thể bị cập nhật nhầm,
+  và một tin viết lại tiêu đề quá nhiều sẽ thành job mới (không mất tin, chỉ
+  có thể để lại job cũ). Theo dõi `job_code_title_mismatch`. Các cặp job trùng
+  mã đã có sẵn trong DB cần script gộp riêng.
 - **URL fetch chi tiết thất bại bị thử lại ở mọi lượt** (ví dụ job đã gỡ
   khỏi nguồn, trả 404), vì lỗi tạm thời cần thử lại ngay nên không ghi dấu.
 - **Một nguồn một lượt tại một thời điểm.** Ràng buộc này chỉ áp dụng cho

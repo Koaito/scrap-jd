@@ -59,8 +59,6 @@ trong view v_duplicate_job_candidates trước và sau để bạn so sánh.
 import argparse
 import logging
 import os
-import re
-import unicodedata
 from collections import Counter
 from typing import Optional
 
@@ -142,28 +140,9 @@ def _update_raw_jd(conn, job_id, source_url: str, raw_jd: str) -> None:
 # Chốt chặn "trang này có còn là job đó không"
 # ----------------------------------------------------------------------
 # Nhà tuyển dụng VietnamWorks có thể sửa một tin đăng thành vị trí KHÁC HẲN mà
-# vẫn giữ mã job (dữ liệu thật: mã 2110157 từng là "Account Manager", nay là "Sales
-# Assistant"; mã 2109152 từng là "BACK-END DEVELOPER", nay là "Kỹ Sư An Toàn Thông
-# Tin"). URL cũ chuyển hướng sang trang mới cùng mã nên mã job khớp, nhưng ghi JD
-# mới vào dòng mang tiêu đề cũ sẽ làm dòng đó sai. Vì vậy chỉ vá khi tiêu đề trên
-# trang còn "gần giống" tiêu đề đã lưu.
-_MIN_TITLE_OVERLAP = 0.5
-
-
-def _title_tokens(title: str) -> set:
-    text = unicodedata.normalize("NFKD", (title or "").lower().replace("đ", "d"))
-    text = "".join(ch for ch in text if not unicodedata.combining(ch))
-    return {t for t in re.findall(r"\w+", text) if len(t) > 1}
-
-
-def titles_similar(stored: str, page: str) -> bool:
-    """True nếu hai tiêu đề đủ giống để coi là cùng một vị trí (hệ số trùng từ
-    >= 0.5 trên số từ của tiêu đề ngắn hơn, bỏ dấu, không phân biệt hoa thường).
-    Thiếu một trong hai tiêu đề thì không đủ cơ sở để từ chối nên trả True."""
-    a, b = _title_tokens(stored), _title_tokens(page)
-    if not a or not b:
-        return True
-    return len(a & b) / min(len(a), len(b)) >= _MIN_TITLE_OVERLAP
+# vẫn giữ mã job, nên chỉ vá khi tiêu đề trên trang còn "gần giống" tiêu đề đã
+# lưu. Hàm so khớp nằm ở normalize.titles_similar (pipeline crawl cũng dùng);
+# lý do và dữ liệu thật xem chú thích ở đó.
 
 
 # ----------------------------------------------------------------------
@@ -230,7 +209,7 @@ def process_job(conn, adapter, row: dict, *, apply: bool, level_ids: dict,
         return False
 
     page_title = refreshed.get("page_title", "")
-    if not titles_similar(row["job_title"], page_title):
+    if not normalize.titles_similar(row["job_title"], page_title):
         summary.title_mismatch += 1
         logger.warning("Tiêu đề khác hẳn, KHÔNG vá (tin có thể đã bị đổi thành vị trí khác): "
                        "đã lưu %r, trên trang %r | %s", row["job_title"], page_title,

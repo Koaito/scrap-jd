@@ -31,12 +31,13 @@ from pipeline_stats import PipelineStats
 READ_FUNCS = {
     "get_job_probe_by_source_url", "job_needs_detail_enrichment",
     "find_company_probe", "probe_needs_enrichment", "get_level_id",
-    "find_manual_job_duplicate",
+    "find_manual_job_duplicate", "find_jobs_by_source_url_regex",
 }
 WRITE_FUNCS = {
     "update_job_fields", "mark_source_detail_checked", "get_or_create_province",
     "get_or_create_company_by_profile", "update_company_profile",
     "link_repost_source", "extend_job_deadline", "insert_job",
+    "update_job_from_recrawl",
 }
 
 FULL_DETAIL = {
@@ -79,10 +80,11 @@ class FakeDB:
     """Thay module db: hàm GHI làm conn bẩn; hàm ĐỌC trả giá trị cấu hình."""
 
     def __init__(self, probe=None, duplicate=None, needs_company_profile=False,
-                 fail_on=None):
+                 fail_on=None, code_rows=None, update_returns=True):
         self._probe, self._duplicate = probe, duplicate
         self._needs_company_profile = needs_company_profile
         self._fail_on = fail_on
+        self._code_rows, self._update_returns = code_rows or [], update_returns
 
     def _write(self, name, conn, ret=None):
         conn.pending += 1  # ghi trước, lỗi sau: mô phỏng ghi dở rồi mới hỏng
@@ -109,6 +111,9 @@ class FakeDB:
     def find_manual_job_duplicate(self, conn, **kw):
         return self._duplicate
 
+    def find_jobs_by_source_url_regex(self, conn, **kw):
+        return list(self._code_rows)
+
     # --- ghi
     def update_job_fields(self, conn, *a, **k):
         return self._write("update_job_fields", conn)
@@ -133,6 +138,9 @@ class FakeDB:
 
     def insert_job(self, conn, **k):
         return self._write("insert_job", conn)
+
+    def update_job_from_recrawl(self, conn, *a, **k):
+        return self._write("update_job_from_recrawl", conn, self._update_returns)
 
 
 class OneJobAdapter(BaseAdapter):
@@ -161,6 +169,19 @@ def _raw(**kw):
                 experience_text="2 năm")
     base.update(kw)
     return RawJobRecord(**base)
+
+
+class CodeAdapter(OneJobAdapter):
+    """Giống VietnamWorks: có mã job ổn định trong URL (hook job_code_url_regex)."""
+
+    def job_code_url_regex(self, source_url):
+        return "-1-jv([/?#]|$)"
+
+
+# (job_id, job_title, job_status, updated_by, created_at) — đúng thứ tự cột
+# db.find_jobs_by_source_url_regex trả về.
+def _code_row(title="Data Analyst", status="OPEN", updated_by=None, job_id="old-job"):
+    return (job_id, title, status, updated_by, "2026-01-01")
 
 
 def _run(monkeypatch, adapter, fake_db):
@@ -196,6 +217,22 @@ def _scenarios():
         ("nhà tuyển dụng ẩn danh", OneJobAdapter(_raw(company_name="Vietnamworks' Client")),
          FakeDB(), 0, 1),
         ("job mới, fetch chi tiết lỗi", OneJobAdapter(_raw(), detail=None), FakeDB(), 0, 1),
+        # --- cùng mã job (adapter có hook job_code_url_regex). Nhánh cập nhật/chỉ ghi
+        # URL dùng chung 1 transaction với câu tra cứu nên chỉ có 1 rollback (probe);
+        # nhánh rơi xuống tạo job mới có thêm 1 rollback đóng transaction đọc của
+        # câu tra cứu mã job (trước khi có thể chờ mạng ở bước công ty).
+        ("cùng mã job, tiêu đề gần giống -> cập nhật", CodeAdapter(_raw()),
+         FakeDB(code_rows=[_code_row()]), 1, 1),
+        ("cùng mã job, job đã có người sửa tay -> chỉ ghi URL", CodeAdapter(_raw()),
+         FakeDB(code_rows=[_code_row(updated_by="user-1")]), 1, 1),
+        ("cùng mã job, job vừa bị sửa/đóng lúc xử lý -> chỉ ghi URL", CodeAdapter(_raw()),
+         FakeDB(code_rows=[_code_row()], update_returns=False), 1, 1),
+        ("cùng mã job, tiêu đề khác hẳn -> tạo job mới", CodeAdapter(_raw()),
+         FakeDB(code_rows=[_code_row(title="Account Manager")]), 1, 2),
+        ("cùng mã job nhưng job cũ đã CLOSED -> tạo job mới", CodeAdapter(_raw()),
+         FakeDB(code_rows=[_code_row(status="CLOSED")]), 1, 2),
+        ("adapter có mã job nhưng chưa có job nào cùng mã -> tạo job mới", CodeAdapter(_raw()),
+         FakeDB(code_rows=[]), 1, 2),
     ]
 
 
@@ -228,6 +265,20 @@ def test_error_in_any_write_rolls_back_everything_uncommitted(monkeypatch, fail_
     assert conn.rollbacks == 2, "1 lần đóng transaction đọc + 1 lần huỷ phần ghi dở"
     assert conn.commits == 0, "lỗi giữa chừng thì không được commit phần dở"
     assert pending == 0
+
+
+@pytest.mark.parametrize("fail_on", ["link_repost_source", "update_job_from_recrawl",
+                                     "extend_job_deadline"])
+def test_error_in_job_code_update_rolls_back_everything_uncommitted(monkeypatch, fail_on):
+    conn, stats, pending = _run(
+        monkeypatch, CodeAdapter(_raw()),
+        FakeDB(code_rows=[_code_row()], fail_on=fail_on),
+    )
+    assert stats.errors == 1
+    assert conn.rollbacks == 2, "1 lần đóng transaction đọc + 1 lần huỷ phần ghi dở"
+    assert conn.commits == 0, "lỗi giữa chừng thì không được commit phần dở"
+    assert pending == 0
+    assert stats.updated_by_job_code == 0, "chưa commit xong thì không được đếm là đã cập nhật"
 
 
 def test_blocked_mid_job_rolls_back_partial_work_and_does_not_count_as_error(monkeypatch):
@@ -331,3 +382,29 @@ def test_known_url_checker_closes_read_transaction_after_probe(monkeypatch):
 
     assert conn.open is False
     assert conn.rollbacks == 1
+
+
+def test_job_code_lookup_does_not_leave_a_read_transaction_open_when_nothing_matches(monkeypatch):
+    """Tra cứu mã job là câu SELECT nên mở transaction. Không có job nào khớp thì
+    pipeline đi tiếp sang bước tỉnh/công ty (có thể chờ mạng): transaction đọc
+    phải đã đóng, và việc đóng không được huỷ ghi chưa commit."""
+    seen = {}
+
+    class DB(TxnTrackingDB):
+        def find_jobs_by_source_url_regex(self, conn, **kw):
+            conn.open = True
+            return super().find_jobs_by_source_url_regex(conn, **kw)
+
+        def get_or_create_province(self, conn, *a, **k):
+            seen["open_before_first_write"] = conn.open  # ghi đầu tiên sau tra cứu
+            return super().get_or_create_province(conn, *a, **k)
+
+    conn, stats = TxnTrackingConn(), PipelineStats()
+    monkeypatch.setattr(pipeline, "db", DB(code_rows=[_code_row(title="Account Manager")]))
+
+    pipeline._process_jobs(CodeAdapter(_raw()), conn, "da", 1, None, stats, EmptyFieldCounter(),
+                           lambda: None)
+
+    assert seen["open_before_first_write"] is False
+    assert conn.lost_writes == 0
+    assert stats.inserted == 1 and stats.job_code_title_mismatch == 1

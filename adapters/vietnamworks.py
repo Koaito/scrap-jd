@@ -563,6 +563,13 @@ class VietnamWorksAdapter(BaseAdapter):
             "required_skills": cls._extract_skills(job.get("skills")),
         }
 
+    def job_code_url_regex(self, source_url: str) -> Optional[str]:
+        """URL VietnamWorks có dạng ...-<mã job>-jv; nhà tuyển dụng sửa tiêu đề thì
+        phần chữ đổi (URL mới) còn mã giữ nguyên. Regex neo cả hai đầu mã, giống
+        adapters.vietnamworks_detail.job_id_from_url."""
+        code = job_id_from_url(source_url)
+        return f"-{code}-jv([/?#]|$)" if code else None
+
     # ------------------------------------------------------------------
     # fetch_job_full_detail — override để dùng cache thay vì fetch thêm
     # ------------------------------------------------------------------

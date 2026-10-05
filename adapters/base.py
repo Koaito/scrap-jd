@@ -241,6 +241,17 @@ class BaseAdapter(ABC):
             self.skipped_known_count += 1
         return known
 
+    def job_code_url_regex(self, source_url: str) -> Optional[str]:
+        """Optional: regex POSIX (cho Postgres `~`) khớp MỌI source_url của CÙNG
+        MỘT job với source_url này, hoặc None nếu nguồn không có mã job ổn định
+        trong URL (mặc định, đúng với TopCV/CareerViet).
+
+        Dùng cho nguồn mà URL đổi theo tiêu đề tin nhưng mã số của job giữ nguyên
+        (VietnamWorks): pipeline tìm job đã lưu cùng mã để cập nhật thay vì tạo
+        job trùng. Regex phải đủ chặt để không khớp job khác (neo cả hai đầu mã)
+        và chỉ dựng từ chữ số của mã, không chèn nguyên văn đoạn nào của URL."""
+        return None
+
     @abstractmethod
     def fetch_jobs(self, category_key: str, max_pages: int) -> Iterator[RawJobRecord]:
         """Trả về (yield) từng RawJobRecord tìm được cho category_key."""

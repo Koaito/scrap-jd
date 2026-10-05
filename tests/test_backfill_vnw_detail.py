@@ -321,32 +321,6 @@ def test_apply_skips_level_write_when_level_same(writes):
     assert any(c[0] == "update_job_fields" for c in writes)
 
 
-@pytest.mark.parametrize("stored,page", [
-    ("Kỹ Sư Dữ Liệu - Data Engineer", "Kỹ Sư Dữ Liệu (DE)"),
-    ("Senior Tester (QA)", "Senior Tester (QA) (Open for Middle and Junior)"),
-    ("School Sales Manager/Supervisor", "School Sales Supervisor"),
-    ("AI & IT Specialist", "IT Business Analyst & AI Specialist"),
-    ("Product Development Project Coordinator",
-     "Product Development Project Coordinator (Background Automotive Engineer)"),
-    ("Chuyên Gia Quản Trị Rủi Ro", "Chuyên Gia Quản Trị Rủi Ro / Tuyển Gấp"),
-    ("Data Engineer", ""),                      # thiếu tiêu đề trang: không đủ cơ sở để từ chối
-])
-def test_titles_similar_accepts_light_edits(stored, page):
-    assert bf.titles_similar(stored, page) is True
-
-
-@pytest.mark.parametrize("stored,page", [
-    ("Account Manager", "Sales Assistant"),
-    ("BACK-END DEVELOPER (NodeJS/Java/PHP)", "Kỹ Sư An Toàn Thông Tin"),
-    ("Demand Planner & Analyst (Supply Chain Operation)", "Inventory Planning Analyst"),
-    ("Chuyên Viên Bán Hàng Qua Điện Thoại (Tiếng Trung Giao Tiếp)",
-     "Pre-Sales Officer (Tiếng Trung Hsk5/6)"),
-])
-def test_titles_similar_rejects_different_positions(stored, page):
-    """Các cặp lấy từ dữ liệu thật: cùng mã job VietnamWorks nhưng đã đổi thành vị trí khác."""
-    assert bf.titles_similar(stored, page) is False
-
-
 def test_job_turned_into_another_position_is_skipped_not_written(writes):
     conn = MagicMock()
     row = _row(job_title="Account Manager")

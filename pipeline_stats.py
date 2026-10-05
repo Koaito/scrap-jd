@@ -16,7 +16,10 @@ chỉ xảy ra ở 1 chỗ là PipelineStats.to_dict().
 from dataclasses import dataclass, fields
 
 # Khoá chỉ xuất hiện trong to_dict() khi có giá trị (khác rỗng/0/False).
-_OPTIONAL_KEYS = frozenset({"skipped_detail_unavailable", "field_empty", "degraded", "blocked"})
+_OPTIONAL_KEYS = frozenset({
+    "skipped_detail_unavailable", "field_empty", "degraded", "blocked",
+    "updated_by_job_code", "linked_by_job_code_only", "job_code_title_mismatch",
+})
 
 
 @dataclass(slots=True)
@@ -47,9 +50,25 @@ class PipelineStats:
     # Job adapter tự bỏ TRONG fetch_jobs() vì không tải/giải mã được trang chi
     # tiết (CareerViet, VietnamWorks). Không tới pipeline nên không nằm trong
     # fetched/skipped_fetch_failed. Điền cuối lượt từ
-    # adapter.skipped_detail_unavailable_count. Giống 3 mục dưới: CHỈ xuất hiện
-    # trong to_dict() khi > 0 (giữ nguyên tập khoá cũ của các lượt bình thường).
+    # adapter.skipped_detail_unavailable_count. Như các khoá tuỳ chọn khác (xem
+    # _OPTIONAL_KEYS): CHỈ xuất hiện trong to_dict() khi > 0 (giữ nguyên tập khoá cũ
+    # của các lượt bình thường).
     skipped_detail_unavailable: int = 0
+
+    # Nguồn có mã job ổn định trong URL (VietnamWorks): nhà tuyển dụng sửa tiêu đề
+    # thì URL đổi nhưng mã giữ nguyên. 3 bộ đếm dưới (CHỈ xuất hiện trong
+    # to_dict() khi > 0, xem _OPTIONAL_KEYS) cho biết pipeline đã xử
+    # lý các tin đó ra sao thay vì tạo job trùng:
+    # Job cũ cùng mã, tiêu đề còn gần giống: đã cập nhật tiêu đề/level/JD/lương/
+    # hình thức làm việc (và dời hạn nộp ra sau), ghi URL mới làm nguồn phụ.
+    updated_by_job_code: int = 0
+    # Job cũ cùng mã nhưng đã có người sửa tay (hoặc vừa bị sửa/đóng lúc đang xử
+    # lý): chỉ ghi URL mới làm nguồn phụ, không đổi nội dung.
+    linked_by_job_code_only: int = 0
+    # Job cũ cùng mã nhưng tiêu đề khác hẳn (nhà tuyển dụng đổi sang vị trí khác):
+    # không đụng job cũ, tạo job mới như trước. Cần xem tay, log WARNING có cả
+    # hai tiêu đề.
+    job_code_title_mismatch: int = 0
 
     # Mục dưới CHỈ xuất hiện trong to_dict() khi có giá trị (giống hành vi cũ:
     # dict không có khoá này nếu không có gì để báo), để frontend phân biệt

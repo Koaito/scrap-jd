@@ -49,6 +49,18 @@ def test_optional_keys_only_present_when_set():
     assert data["degraded"] == {"reasons": [{"type": "x"}]}
 
 
+def test_job_code_counters_only_present_when_nonzero():
+    """3 bộ đếm theo mã job là khoá tuỳ chọn: lượt crawl bình thường giữ nguyên tập
+    khoá cũ (frontend đọc theo các khoá đó)."""
+    keys = {"updated_by_job_code", "linked_by_job_code_only", "job_code_title_mismatch"}
+    assert not keys & set(PipelineStats().to_dict())
+
+    data = PipelineStats(updated_by_job_code=2, job_code_title_mismatch=1).to_dict()
+    assert data["updated_by_job_code"] == 2
+    assert data["job_code_title_mismatch"] == 1
+    assert "linked_by_job_code_only" not in data
+
+
 def test_empty_optional_values_are_omitted_like_the_old_dict():
     stats = PipelineStats(field_empty={}, degraded=None, blocked=False)
     assert set(stats.to_dict()) == COUNTER_KEYS

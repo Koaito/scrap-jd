@@ -318,3 +318,41 @@ def test_work_type_text_from_id(type_id, expected):
 )
 def test_format_deadline(value, expected):
     assert VietnamWorksAdapter._format_deadline(value) == expected
+
+
+# ----------------------------------------------------------------------
+# Mã job trong URL (pipeline dùng để tìm job cũ khi nhà tuyển dụng sửa tiêu đề)
+# ----------------------------------------------------------------------
+@pytest.mark.parametrize("url", [
+    "https://www.vietnamworks.com/data-engineer-1234567-jv",
+    "https://www.vietnamworks.com/ky-su-du-lieu-hn-1234567-jv?source=searchResults",
+    "https://www.vietnamworks.com/data-engineer-1234567-jv#apply",
+    "https://www.vietnamworks.com/data-engineer-1234567-jv/",
+])
+def test_job_code_url_regex_matches_every_slug_of_the_same_job(url):
+    import re
+
+    regex = VietnamWorksAdapter().job_code_url_regex(url)
+    assert regex is not None
+    # Slug khác (tiêu đề đã sửa), cùng mã -> khớp.
+    assert re.search(regex, "https://www.vietnamworks.com/ten-moi-hoan-toan-1234567-jv")
+    assert re.search(regex, url)
+
+
+@pytest.mark.parametrize("other", [
+    "https://www.vietnamworks.com/data-engineer-91234567-jv",   # mã dài hơn, chứa mã này
+    "https://www.vietnamworks.com/data-engineer-1234568-jv",    # mã khác
+    "https://www.vietnamworks.com/data-engineer-1234567-jvx",   # không đúng đuôi -jv
+    "https://www.vietnamworks.com/data-engineer-1234567",       # thiếu -jv
+])
+def test_job_code_url_regex_does_not_match_other_jobs(other):
+    import re
+
+    regex = VietnamWorksAdapter().job_code_url_regex(
+        "https://www.vietnamworks.com/data-engineer-1234567-jv")
+    assert not re.search(regex, other)
+
+
+@pytest.mark.parametrize("url", ["", "https://www.vietnamworks.com/viec-lam", "https://x/y-jv"])
+def test_job_code_url_regex_is_none_without_a_job_code(url):
+    assert VietnamWorksAdapter().job_code_url_regex(url) is None

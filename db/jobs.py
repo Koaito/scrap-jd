@@ -337,6 +337,86 @@ def extend_job_deadline(conn, job_id: str, new_deadline) -> bool:
         return cur.rowcount > 0
 
 
+def find_jobs_by_source_url_regex(conn, *, source_name: str, url_regex: str) -> list:
+    """Các job đã có ÍT NHẤT MỘT nguồn (job_sources_log) của source_name với
+    source_url khớp url_regex (regex POSIX của Postgres). Dùng để tìm job cùng
+    mã số ở nguồn mà URL đổi theo tiêu đề (VietnamWorks: ...-<mã>-jv, nhà tuyển
+    dụng sửa tiêu đề thì phần chữ của URL đổi còn mã giữ nguyên).
+
+    Chỉ ĐỌC, không tự commit. Trả list[(job_id, job_title, job_status,
+    updated_by, created_at)], cũ nhất trước (created_at, rồi job_id) để hai dòng
+    cùng điểm thì pipeline chọn được dòng tạo sớm nhất. updated_by khác NULL nghĩa
+    là đã có người trong team sửa tay. url_regex do adapter dựng từ mã số (chỉ
+    chữ số), không bao giờ lấy từ người dùng."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT jp.job_id, jp.job_title, jp.job_status, jp.updated_by, jp.created_at
+            FROM job_postings jp
+            WHERE EXISTS (
+                SELECT 1 FROM job_sources_log jsl
+                WHERE jsl.job_id = jp.job_id
+                  AND jsl.source_name = %s
+                  AND jsl.source_url ~ %s
+            )
+            ORDER BY jp.created_at, jp.job_id
+            """,
+            (source_name, url_regex),
+        )
+        return cur.fetchall()
+
+
+def update_job_from_recrawl(conn, job_id: str, *, job_title: str,
+                             level_id: Optional[int] = None,
+                             work_type: Optional[str] = None,
+                             parsed_content: Optional[dict] = None,
+                             salary: Optional[dict] = None) -> bool:
+    """Cập nhật 1 job ĐÃ CÓ bằng dữ liệu vừa crawl lại (tin đã đổi tiêu đề nên URL
+    mới, xem pipeline._update_job_by_job_code). Ghi:
+      - job_title: luôn ghi;
+      - level_id / work_type / parsed_content: chỉ ghi khi có giá trị (None/rỗng
+        = giữ nguyên, để lần crawl không lấy được field đó không xoá dữ liệu cũ);
+      - salary: dict {currency, salary_min, salary_max, salary_type,
+        salary_period}, ghi NGUYÊN BỘ khi truyền (salary_min/max None là NULL
+        thật); None = giữ nguyên lương cũ.
+    KHÔNG đụng công ty, tỉnh, ngành, deadline (deadline có extend_job_deadline
+    riêng, không bao giờ rút ngắn).
+
+    Chốt chặn nằm ngay trong câu UPDATE: chỉ ghi khi job còn OPEN và chưa có ai
+    sửa tay (updated_by IS NULL), nên nếu trong lúc pipeline xử lý có người vừa
+    sửa/đóng job thì không bị ghi đè (không có race giữa đọc rồi ghi). Không tự
+    commit. Trả True nếu có dòng được cập nhật."""
+    updates = ["job_title = %s"]
+    values = [job_title]
+    if level_id is not None:
+        updates.append("level_id = %s")
+        values.append(level_id)
+    if work_type:
+        updates.append("work_type = %s")
+        values.append(work_type)
+    if parsed_content:
+        updates.append("parsed_content = %s")
+        values.append(json.dumps(parsed_content, ensure_ascii=False))
+    if salary is not None:
+        updates.extend([
+            "currency = %s", "salary_min = %s", "salary_max = %s",
+            "salary_type = %s", "salary_period = %s",
+        ])
+        values.extend([
+            salary["currency"], salary["salary_min"], salary["salary_max"],
+            salary["salary_type"], salary["salary_period"],
+        ])
+
+    values.append(job_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE job_postings SET {', '.join(updates)} "
+            "WHERE job_id = %s AND job_status = 'OPEN' AND updated_by IS NULL",
+            values,
+        )
+        return cur.rowcount > 0
+
+
 def count_jobs(conn) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM job_postings")

@@ -5,6 +5,7 @@ ITviec là gì (đúng kiến trúc "1 khung chung + N adapter riêng" đã bàn
 """
 
 import logging
+from dataclasses import asdict
 
 from adapters.base import BaseAdapter, CrawlBlockedError
 import db
@@ -266,6 +267,137 @@ def _import_repost(conn, raw, duplicate_job_id, deadline, raw_jd_content,
     )
 
 
+def _jd_looks_truncated(parsed_content) -> bool:
+    """True nếu mô tả/yêu cầu kết thúc bằng "..." — dấu hiệu bản JD bị API search
+    của VietnamWorks cắt ngắn (đúng tiêu chí backfill_vnw_detail.py dùng để tìm
+    JD cắt). Xảy ra khi trang chi tiết không giải mã được và adapter phải dùng
+    dữ liệu search. Bản như vậy không được đè lên JD đầy đủ đã lưu."""
+    if not parsed_content:
+        return False
+    return any(
+        (parsed_content.get(key) or "").rstrip().endswith("...")
+        for key in ("job_description", "requirements")
+    )
+
+
+def _find_job_by_job_code(adapter: BaseAdapter, conn, raw, stats: PipelineStats):
+    """Tìm job đã lưu CÙNG MÃ JOB với URL mới này, để cập nhật thay vì tạo job trùng.
+
+    Bối cảnh (VietnamWorks): nhà tuyển dụng sửa tiêu đề tin thì URL đổi (phần chữ
+    của slug) nhưng mã số cuối URL giữ nguyên. Với pipeline đó là URL chưa từng
+    thấy, và vì tiêu đề đã đổi nên bước chống trùng "đăng lại" (company + title +
+    level + province) cũng không bắt được -> trước đây luôn tạo job mới, để lại
+    job cũ mang tiêu đề cũ.
+
+    Chỉ nguồn nào adapter khai báo job_code_url_regex() mới đi vào đây; nguồn
+    khác (TopCV, CareerViet) trả None ngay và không tốn câu SQL nào.
+
+    Quy tắc chọn (đã chốt):
+      - chỉ xét job còn OPEN (job đã CLOSED là do người dùng chủ động đóng, tin
+        đăng lại thì tạo job mới, giống cách xử lý tin đăng lại);
+      - phải có tiêu đề còn gần giống (normalize.titles_similar, ngưỡng 0,5). Nếu
+        có job cùng mã nhưng tiêu đề khác hẳn thì nhà tuyển dụng đã đổi sang vị trí
+        khác: KHÔNG đụng job cũ, đếm job_code_title_mismatch + log WARNING để xem
+        tay, rồi chạy tiếp như thường (tạo job mới, không bao giờ tệ hơn trước);
+      - nhiều dòng cùng mã (dữ liệu cũ có sẵn các cặp trùng): chọn dòng giống
+        tiêu đề nhất; hoà điểm thì lấy dòng tạo sớm nhất (db trả cũ nhất trước,
+        max() giữ phần tử đầu khi hoà).
+
+    Trả (job_id, job_title, job_status, updated_by, created_at) của job khớp, hoặc
+    None. Khi trả None thì đóng transaction đọc của câu tra cứu: chưa có ghi nào
+    trong job này, mà ngay sau đó pipeline có thể fetch trang công ty (chờ mạng)."""
+    # getattr: adapter không kế thừa BaseAdapter (không có hook tuỳ chọn này) vẫn
+    # phải chạy được, giống set_known_url_checker ở run_pipeline().
+    get_url_regex = getattr(adapter, "job_code_url_regex", None)
+    url_regex = get_url_regex(raw.source_url) if get_url_regex is not None else None
+    if not url_regex:
+        return None
+    rows = db.find_jobs_by_source_url_regex(
+        conn, source_name=raw.source_name, url_regex=url_regex,
+    )
+    open_rows = [row for row in rows if row[2] == "OPEN"]
+    similar = [row for row in open_rows if normalize.titles_similar(row[1], raw.job_title)]
+    if similar:
+        return max(similar, key=lambda row: normalize.title_overlap(row[1], raw.job_title))
+    if open_rows:
+        stats.job_code_title_mismatch += 1
+        logger.warning(
+            "Cùng mã job nhưng tiêu đề khác hẳn, KHÔNG cập nhật job cũ, tạo job mới "
+            "(nhà tuyển dụng có thể đã đổi sang vị trí khác; cần xem tay): "
+            "đã lưu %s, trên trang %r | %s",
+            [row[1] for row in open_rows], raw.job_title, raw.source_url,
+        )
+    _release_read_transaction(conn)
+    return None
+
+
+def _update_job_by_job_code(conn, raw, match, *, level_code: str, salary, work_type,
+                             deadline, parsed_content, raw_jd_content,
+                             stats: PipelineStats) -> None:
+    """Nhánh "cùng mã job, tiêu đề còn gần giống" (xem _find_job_by_job_code): cập
+    nhật job cũ và ghi URL mới làm nguồn phụ, KHÔNG tạo job mới. Commit đúng 1 lần
+    ở cuối (quy tắc 1 job = 1 transaction).
+
+    Luôn ghi URL mới vào job_sources_log trước, kể cả khi không sửa gì: nhờ đó lượt
+    crawl sau URL này đi nhánh "job đã có" và không bị fetch lại (cùng lý do với
+    _import_repost). job_postings.source_url (nguồn gốc của job) KHÔNG đổi.
+
+    Job đã có người sửa tay (updated_by khác rỗng) thì chỉ dừng ở bước ghi URL.
+    Còn lại cập nhật: tiêu đề; level; mô tả/yêu cầu (parsed_content); lương; hình
+    thức làm việc; và dời hạn nộp ra sau (extend_job_deadline, không bao giờ rút
+    ngắn). KHÔNG đụng công ty, tỉnh, ngành.
+
+    Hai chỗ chủ động làm ít hơn để không làm dữ liệu tệ đi:
+      - lương chỉ ghi khi nguồn thật sự có chuỗi lương (chuỗi rỗng nghĩa là ẩn
+        lương hoặc không lấy được, không phân biệt được nên giữ lương cũ);
+      - JD bị cắt ngắn ("...", xem _jd_looks_truncated) thì không ghi JD và level
+        (level suy từ số năm trong JD, JD cắt thì level cũng kém tin cậy); tiêu đề,
+        lương, hình thức làm việc, hạn nộp vẫn cập nhật vì lấy từ danh sách tìm kiếm.
+
+    update_job_from_recrawl chỉ ghi khi job còn OPEN và chưa ai sửa tay, nên nếu
+    trong lúc xử lý có người vừa sửa/đóng job thì không ghi đè, và tính vào
+    linked_by_job_code_only."""
+    job_id, old_title, _status, updated_by, _created_at = match
+    db.link_repost_source(
+        conn, job_id,
+        source_name=raw.source_name, source_url=raw.source_url,
+        raw_jd_content=raw_jd_content, salary_raw_text=raw.salary_text,
+    )
+    updated = False
+    if not updated_by:
+        content_reliable = not _jd_looks_truncated(parsed_content)
+        if not content_reliable:
+            logger.warning(
+                "JD lấy được bị cắt ngắn, giữ nguyên JD và level cũ của job %s: %s",
+                job_id, raw.source_url,
+            )
+        updated = db.update_job_from_recrawl(
+            conn, job_id,
+            job_title=raw.job_title,
+            level_id=db.get_level_id(conn, level_code) if content_reliable else None,
+            work_type=work_type,
+            parsed_content=parsed_content if content_reliable else None,
+            salary=asdict(salary) if (raw.salary_text or "").strip() else None,
+        )
+        if updated:
+            db.extend_job_deadline(conn, job_id, deadline)
+    conn.commit()
+    if updated:
+        stats.updated_by_job_code += 1
+        logger.info(
+            "Cùng mã job với job_id=%s, đã cập nhật tiêu đề/nội dung và ghi URL làm "
+            "nguồn phụ, không tạo job mới: %r -> %r @ %s",
+            job_id, old_title, raw.job_title, raw.source_url,
+        )
+    else:
+        stats.linked_by_job_code_only += 1
+        logger.info(
+            "Cùng mã job với job_id=%s nhưng không sửa nội dung (đã có người sửa tay "
+            "hoặc vừa bị sửa/đóng), chỉ ghi URL làm nguồn phụ: %r -> %r @ %s",
+            job_id, old_title, raw.job_title, raw.source_url,
+        )
+
+
 def _insert_new_job(conn, raw, *, company_id, level_id, province_id, work_type, salary,
                      deadline, parsed_content, raw_jd_content, level_code: str,
                      company_name: str, stats: PipelineStats) -> None:
@@ -350,6 +482,19 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     deadline = normalize.normalize_deadline(job_detail.get("deadline_text", ""))
     parsed_content, raw_jd_content = _build_parsed_content_and_raw(job_detail)
 
+    # 2c) Cùng MÃ JOB với một job đã lưu (nhà tuyển dụng sửa tiêu đề nên URL đổi)
+    # -> cập nhật job đó thay vì tạo job trùng. Đặt TRƯỚC bước tỉnh/công ty vì nhánh
+    # này không cần tới chúng và không được tạo công ty/tỉnh thừa. Xem
+    # _find_job_by_job_code / _update_job_by_job_code.
+    existing_job = _find_job_by_job_code(adapter, conn, raw, stats)
+    if existing_job is not None:
+        _update_job_by_job_code(
+            conn, raw, existing_job, level_code=level_code, salary=salary,
+            work_type=work_type, deadline=deadline, parsed_content=parsed_content,
+            raw_jd_content=raw_jd_content, stats=stats,
+        )
+        return
+
     # 3) Map sang khóa ngoại thật trong DB
     province_id = db.get_or_create_province(conn, raw.province_text)
     level_id = db.get_level_id(conn, level_code)
@@ -421,16 +566,17 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
       - Các hàm db.* KHÔNG tự commit/rollback, người gọi (pipeline) quyết định.
       - Mỗi nhánh CÓ ghi DB tự commit đúng 1 lần ở CUỐI nhánh thành công:
         _handle_existing_job (sau khi vá job cũ), _import_repost,
-        _insert_new_job. Commit chốt luôn các ghi phụ trước đó của cùng job
-        (tỉnh, công ty).
+        _update_job_by_job_code, _insert_new_job. Commit chốt luôn các ghi phụ
+        trước đó của cùng job (tỉnh, công ty).
       - Nhánh KHÔNG ghi gì (job trùng đã đủ field, ẩn danh, fetch chi tiết
         thất bại) không commit.
       - Mọi lỗi (kể cả CrawlBlockedError) -> rollback ở vòng lặp dưới, huỷ
         toàn bộ phần CHƯA commit của job đó. Job đã commit không bị ảnh hưởng.
       - Rollback "đóng transaction đọc" (_release_read_transaction): ngay sau
-        câu probe ở đầu job và sau câu probe của _make_known_url_checker(), để
-        kết nối không đứng "idle in transaction" lúc chờ fetch mạng. Chỉ làm
-        lúc chưa có ghi nào.
+        câu probe ở đầu job, sau câu probe của _make_known_url_checker() và
+        sau câu tra cứu mã job khi không có job nào khớp
+        (_find_job_by_job_code), để kết nối không đứng "idle in transaction"
+        lúc chờ fetch mạng. Chỉ làm lúc chưa có ghi nào.
       - Chỗ rollback khác: _make_known_url_checker() khi tra cứu URL lỗi.
     Thêm nhánh mới có ghi DB thì phải tự commit ở cuối nhánh đó. Quên thì
     tests/test_pipeline_transactions.py báo đỏ (và buộc phân loại mọi hàm db.*
