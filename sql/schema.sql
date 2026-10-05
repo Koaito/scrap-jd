@@ -240,6 +240,10 @@ CREATE TABLE IF NOT EXISTS job_postings (
     -- 'manual' = có người sửa, ghi tự động không bao giờ đè.
     level_source       VARCHAR(20),
     level_rule_version SMALLINT,
+    -- Tín hiệu thô derive_level() đã đọc ({"experience_text", "level_hint"}), để tính
+    -- lại level mà không tải lại trang (xem sql/migration_add_job_level_signals.sql).
+    -- NULL = chưa từng lưu.
+    level_signals      JSONB,
     province_id       INT REFERENCES provinces(province_id),
     work_type         work_type_enum,
     parsed_content    JSONB,
@@ -276,6 +280,9 @@ CREATE TABLE IF NOT EXISTS job_postings (
             WHEN level_source = 'manual' THEN level_rule_version IS NULL
             ELSE level_rule_version IS NOT NULL AND level_id IS NOT NULL
         END
+    ),
+    CONSTRAINT chk_job_postings_level_signals CHECK (
+        level_signals IS NULL OR jsonb_typeof(level_signals) = 'object'
     )
 );
 

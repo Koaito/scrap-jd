@@ -306,7 +306,9 @@ def test_apply_writes_each_job_in_its_own_transaction(writes):
     assert done == ["job-0", "job-1"]
     # level tự động được đóng dấu căn cứ + phiên bản quy tắc (3 năm -> Middle theo "years")
     assert ("update_job", "job-0", {"level_id": 4, "level_source": "years",
-                                    "level_rule_version": bf.normalize.LEVEL_RULE_VERSION}) in writes
+                                    "level_rule_version": bf.normalize.LEVEL_RULE_VERSION,
+                                    "level_signals": {"experience_text": "3 năm",
+                                                      "level_hint": ""}}) in writes
     assert any(c[0] == "update_job_fields" and c[1] == "job-0" for c in writes)
     assert ("raw_jd", "job-0", "https://x/0-jv") in writes
     assert ("mark_checked", "https://x/0-jv") in writes

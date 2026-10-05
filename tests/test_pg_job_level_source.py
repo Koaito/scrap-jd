@@ -335,7 +335,7 @@ def _constraint_defs(conn):
     with conn.cursor() as cur:
         cur.execute(
             "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint "
-            "WHERE conrelid = 'job_postings'::regclass AND conname LIKE 'chk_job_postings_level%' "
+            "WHERE conrelid = 'job_postings'::regclass AND conname IN ('chk_job_postings_level_source', 'chk_job_postings_level_stamp') "
             "ORDER BY conname")
         return cur.fetchall()
 

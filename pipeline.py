@@ -343,7 +343,7 @@ def _find_job_by_job_code(adapter: BaseAdapter, conn, raw, stats: PipelineStats)
 
 
 def _update_job_by_job_code(conn, raw, match, *, level_code: str, level_source: str,
-                             salary, work_type, deadline, parsed_content, raw_jd_content,
+                             level_signals: dict, salary, work_type, deadline, parsed_content, raw_jd_content,
                              stats: PipelineStats) -> None:
     """Nhánh "cùng mã job, tiêu đề còn gần giống" (xem _find_job_by_job_code): cập
     nhật job cũ và ghi URL mới làm nguồn phụ, KHÔNG tạo job mới. Commit đúng 1 lần
@@ -391,6 +391,7 @@ def _update_job_by_job_code(conn, raw, match, *, level_code: str, level_source: 
             level_rule_version=(
                 normalize.LEVEL_RULE_VERSION if recrawl_level_id is not None else None
             ),
+            level_signals=level_signals if recrawl_level_id is not None else None,
             work_type=work_type,
             parsed_content=parsed_content if content_reliable else None,
             salary=asdict(salary) if (raw.salary_text or "").strip() else None,
@@ -416,7 +417,8 @@ def _update_job_by_job_code(conn, raw, match, *, level_code: str, level_source: 
 
 def _insert_new_job(conn, raw, *, company_id, level_id, province_id, work_type, salary,
                      deadline, parsed_content, raw_jd_content, level_code: str,
-                     level_source: str, company_name: str, stats: PipelineStats) -> None:
+                     level_source: str, level_signals: dict, company_name: str,
+                     stats: PipelineStats) -> None:
     """Bước 4: insert job mới (content_hash tự tính bởi trigger Postgres) rồi
     commit. Tách ra từ _process_jobs() (đợt B2), KHÔNG đổi hành vi."""
     db.insert_job(
@@ -441,6 +443,7 @@ def _insert_new_job(conn, raw, *, company_id, level_id, province_id, work_type, 
         detail_fetched=True,
         level_source=level_source if level_id is not None else None,
         level_rule_version=normalize.LEVEL_RULE_VERSION if level_id is not None else None,
+        level_signals=level_signals if level_id is not None else None,
     )
     conn.commit()
     stats.inserted += 1
@@ -460,6 +463,9 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     # level để lệnh tính lại sau này biết job nào tính theo quy tắc nào.
     level_decision = normalize.derive_level(raw.experience_text, raw.job_title, raw.level_hint)
     level_code = level_decision.level
+    # Lưu luôn tín hiệu thô derive_level vừa đọc (cột level_signals) để tính lại level
+    # sau này (khi quy tắc đổi) không phải tải lại trang.
+    level_signals = normalize.build_level_signals(raw.experience_text, raw.level_hint)
     company_name = normalize.clean_company_name(raw.company_name)
 
     # 2a) Nhà tuyển dụng ẨN DANH (site tự điền placeholder thay tên công ty
@@ -511,7 +517,7 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     if existing_job is not None:
         _update_job_by_job_code(
             conn, raw, existing_job, level_code=level_code,
-            level_source=level_decision.source, salary=salary,
+            level_source=level_decision.source, level_signals=level_signals, salary=salary,
             work_type=work_type, deadline=deadline, parsed_content=parsed_content,
             raw_jd_content=raw_jd_content, stats=stats,
         )
@@ -551,7 +557,7 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
         work_type=work_type, salary=salary, deadline=deadline,
         parsed_content=parsed_content, raw_jd_content=raw_jd_content,
         level_code=level_code, level_source=level_decision.source,
-        company_name=company_name, stats=stats,
+        level_signals=level_signals, company_name=company_name, stats=stats,
     )
 
 

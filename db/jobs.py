@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from config import DETAIL_RECHECK_DAYS
-from db.job_levels import _check_level_stamp, _derived_level_assignments
+from db.job_levels import _check_level_signals, _check_level_stamp, _derived_level_assignments
 from normalize import LEVEL_SOURCE_MANUAL
 
 logger = logging.getLogger(__name__)
@@ -236,7 +236,8 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
                 created_by: Optional[str] = None,
                 detail_fetched: bool = False,
                 level_source: Optional[str] = None,
-                level_rule_version: Optional[int] = None) -> str:
+                level_rule_version: Optional[int] = None,
+                level_signals: Optional[dict] = None) -> str:
     """Insert 1 job_postings + 1 job_sources_log tương ứng. content_hash được
     trigger Postgres tự tính (xem sql/schema.sql mục 5).
 
@@ -255,8 +256,13 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
     Pipeline crawl truyền căn cứ của normalize.derive_level() cùng
     normalize.LEVEL_RULE_VERSION; job nhập tay truyền 'manual' (không version).
     Để None = "chưa biết" (NULL), lệnh tính lại level sẽ xử lý sau — an toàn hơn
-    đoán bừa. Xem _check_level_stamp() cho các tổ hợp hợp lệ."""
+    đoán bừa. Xem _check_level_stamp() cho các tổ hợp hợp lệ.
+
+    level_signals (10/2026): tín hiệu thô derive_level() đã đọc (normalize.
+    build_level_signals), lưu vào job_postings.level_signals để tính lại level sau
+    này không phải tải lại trang. Chỉ đi kèm level do máy suy; None = không lưu."""
     level_source, level_rule_version = _check_level_stamp(level_id, level_source, level_rule_version)
+    level_signals = _check_level_signals(level_source, level_signals)
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -264,15 +270,16 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
                 company_id, job_title, matching_industry, level_id, province_id,
                 work_type, currency, salary_min, salary_max, salary_type,
                 salary_period, job_status, source_url, deadline, parsed_content,
-                created_by, level_source, level_rule_version
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s)
+                created_by, level_source, level_rule_version, level_signals
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, 'OPEN', %s, %s, %s, %s, %s, %s, %s)
             RETURNING job_id
             """,
             (company_id, job_title, matching_industry, level_id, province_id,
              work_type, currency, salary_min, salary_max, salary_type, salary_period,
              source_url, deadline,
              json.dumps(parsed_content, ensure_ascii=False) if parsed_content else None,
-             created_by, level_source, level_rule_version),
+             created_by, level_source, level_rule_version,
+             json.dumps(level_signals, ensure_ascii=False) if level_signals is not None else None),
         )
         job_id = cur.fetchone()[0]
 
@@ -440,7 +447,8 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
                updated_by: Optional[str] = None,
                clear_fields: Optional[Iterable[str]] = None,
                level_source=_UNSET,
-               level_rule_version: Optional[int] = None) -> bool:
+               level_rule_version: Optional[int] = None,
+               level_signals: Optional[dict] = None) -> bool:
     """Sửa TỰ DO các field của 1 job đã tồn tại — dùng cho PATCH /jobs/{id}
     phía frontend. KHÔNG phân biệt job crawl hay job nhập tay (team không
     cần phân quyền, mọi người dùng nội bộ ngang quyền — xem quyết định
@@ -504,6 +512,10 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     (_derived_level_assignments). Quên truyền thì rơi về hướng AN TOÀN (manual,
     không bị tính lại đè), không phải hướng làm mất dữ liệu người sửa.
 
+    level_signals (10/2026): tín hiệu thô đi kèm level do máy suy (chỉ ghi được khi
+    truyền level_source). Đường sửa tay (không truyền level_source) KHÔNG đụng tới
+    level_signals: đó là dữ kiện về nguồn crawl, không phụ thuộc ai đặt level.
+
     Trả False nếu job_id không tồn tại (không có gì để update), True nếu
     đã update thành công — route dùng giá trị này để trả 404 đúng lúc."""
     updates = []
@@ -532,6 +544,8 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
         values.append(matching_industry)
     if level_source is not _UNSET and level_id is None:
         raise ValueError("level_source chỉ có nghĩa khi truyền level_id")
+    if level_signals is not None and level_source is _UNSET:
+        raise ValueError("level_signals chỉ ghi được cùng level_source (đường ghi level tự động)")
     if level_id is not None:
         if level_source is _UNSET:
             # Đường sửa tay: chỉ coi là 'manual' khi level thật sự đổi (so với giá trị cũ).
@@ -544,7 +558,9 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
             ])
             values.extend([level_id, level_id, level_id])
         else:
-            level_sets, level_values = _derived_level_assignments(level_id, level_source, level_rule_version)
+            level_sets, level_values = _derived_level_assignments(
+                level_id, level_source, level_rule_version, level_signals,
+            )
             updates.extend(level_sets)
             values.extend(level_values)
     if province_id is not None:

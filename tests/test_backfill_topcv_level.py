@@ -186,7 +186,8 @@ class TestProcessJob:
         assert done is True
         update_job.assert_called_once_with(
             conn, "job-1", level_id=LEVEL_IDS["Lead"], level_source="label",
-            level_rule_version=bf.normalize.LEVEL_RULE_VERSION)
+            level_rule_version=bf.normalize.LEVEL_RULE_VERSION,
+            level_signals={"experience_text": "Trên 5 năm", "level_hint": ""})
         conn.commit.assert_called_once()
 
     def test_apply_text_basis_stamps_unknown_source(self, update_job):
@@ -198,7 +199,7 @@ class TestProcessJob:
         assert done is True
         update_job.assert_called_once_with(
             conn, "job-1", level_id=LEVEL_IDS["Lead"], level_source=None,
-            level_rule_version=None)
+            level_rule_version=None, level_signals=None)
 
     def test_apply_rolls_back_on_db_error(self, update_job):
         update_job.side_effect = RuntimeError("db")

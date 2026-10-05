@@ -106,7 +106,8 @@ def update_job_from_recrawl(conn, job_id: str, *, job_title: str,
                              parsed_content: Optional[dict] = None,
                              salary: Optional[dict] = None,
                              level_source: Optional[str] = None,
-                             level_rule_version: Optional[int] = None) -> bool:
+                             level_rule_version: Optional[int] = None,
+                             level_signals: Optional[dict] = None) -> bool:
     """Cập nhật 1 job ĐÃ CÓ bằng dữ liệu vừa crawl lại (tin đã đổi tiêu đề nên URL
     mới, xem pipeline._update_job_by_job_code). Ghi:
       - job_title: luôn ghi;
@@ -114,6 +115,8 @@ def update_job_from_recrawl(conn, job_id: str, *, job_title: str,
         = giữ nguyên, để lần crawl không lấy được field đó không xoá dữ liệu cũ).
         level_id đi kèm level_source/level_rule_version (căn cứ suy level, xem
         _check_level_stamp) và không bao giờ đè dòng level_source='manual';
+        level_signals (tín hiệu thô đã đọc, normalize.build_level_signals) được ghi
+        cùng level để tính lại sau này không cần tải lại trang;
       - salary: dict {currency, salary_min, salary_max, salary_type,
         salary_period}, ghi NGUYÊN BỘ khi truyền (salary_min/max None là NULL
         thật); None = giữ nguyên lương cũ.
@@ -127,11 +130,13 @@ def update_job_from_recrawl(conn, job_id: str, *, job_title: str,
     updates = ["job_title = %s"]
     values = [job_title]
     if level_id is not None:
-        level_sets, level_values = _derived_level_assignments(level_id, level_source, level_rule_version)
+        level_sets, level_values = _derived_level_assignments(
+            level_id, level_source, level_rule_version, level_signals,
+        )
         updates.extend(level_sets)
         values.extend(level_values)
-    elif level_source is not None:
-        raise ValueError("level_source chỉ có nghĩa khi truyền level_id")
+    elif level_source is not None or level_signals is not None:
+        raise ValueError("level_source / level_signals chỉ có nghĩa khi truyền level_id")
     if work_type:
         updates.append("work_type = %s")
         values.append(work_type)

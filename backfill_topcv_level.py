@@ -120,12 +120,14 @@ def plan_level(row: dict, label: Optional[str]) -> dict:
     """Tính level mới cho một job từ dòng DB và nhãn kinh nghiệm đọc được trên
     trang (None nếu không có).
 
-    Trả dict: new_level, basis (BASIS_LABEL | BASIS_TEXT), level_changed,
+    Trả dict: new_level, new_level_source, new_level_signals, basis (BASIS_LABEL | BASIS_TEXT), level_changed,
     confirmed (True khi nhãn trang đã xác nhận kết quả, tức không cần xét lại)."""
     current = row.get("level_code")
     if label:
         decision = normalize.derive_level(label, row["job_title"], "")
         return {"new_level": decision.level, "new_level_source": decision.source,
+                # Tín hiệu thô đã đưa cho derive_level (TopCV không có level_hint).
+                "new_level_signals": normalize.build_level_signals(label, ""),
                 "basis": BASIS_LABEL,
                 "level_changed": decision.level != current, "confirmed": True}
 
@@ -134,7 +136,8 @@ def plan_level(row: dict, label: Optional[str]) -> dict:
     new_level = guessed or current
     # Suy từ chữ trong phần yêu cầu là cách gần đúng, không phải một nhánh của
     # derive_level: để căn cứ None ("chưa biết") để lệnh tính lại xử lý sau.
-    return {"new_level": new_level, "new_level_source": None, "basis": BASIS_TEXT,
+    return {"new_level": new_level, "new_level_source": None, "new_level_signals": None,
+            "basis": BASIS_TEXT,
             "level_changed": new_level != current, "confirmed": False}
 
 
@@ -206,7 +209,8 @@ def process_job(conn, adapter, row: dict, *, apply: bool, level_ids: dict,
         # dòng đã 'manual' (người sửa level) được giữ nguyên (xem db.job_levels).
         source = plan["new_level_source"]
         db.update_job(conn, row["job_id"], level_id=new_level_id, level_source=source,
-                      level_rule_version=normalize.LEVEL_RULE_VERSION if source else None)
+                      level_rule_version=normalize.LEVEL_RULE_VERSION if source else None,
+                      level_signals=plan["new_level_signals"])
         conn.commit()
     except Exception:
         conn.rollback()

@@ -232,6 +232,11 @@ LEVEL_SOURCES = (
     LEVEL_SOURCE_TITLE_RANGE, LEVEL_SOURCE_HINT, LEVEL_SOURCE_DEFAULT, LEVEL_SOURCE_MANUAL,
 )
 
+# Tín hiệu THÔ mà derive_level() đọc ngoài tiêu đề (cột job_postings.level_signals,
+# JSONB). Lưu đúng chuỗi adapter trả về lúc crawl để tính lại level sau này không
+# phải tải lại trang. Tiêu đề không nằm trong đây vì đã có cột job_title.
+LEVEL_SIGNAL_KEYS = ("experience_text", "level_hint")
+
 
 # ----------------------------------------------------------------------
 # Từ khoá cấp bậc trong TIÊU ĐỀ
@@ -419,6 +424,30 @@ def infer_level(experience_text: str, job_title: str = "", level_hint: str = "")
     """Như derive_level() nhưng chỉ trả tên level (giữ nguyên chữ ký cũ cho
     pipeline, adapter và các script backfill đang gọi)."""
     return derive_level(experience_text, job_title, level_hint).level
+
+
+def build_level_signals(experience_text: str = "", level_hint: str = "") -> dict:
+    """Dựng dict tín hiệu thô để lưu vào job_postings.level_signals: đúng hai chuỗi
+    mà derive_level() nhận, KHÔNG sửa gì (để tính lại ra đúng kết quả lúc crawl, kể cả
+    khi chuỗi có khoảng trắng thừa). Luôn đủ cả hai khoá, rỗng nghĩa là nguồn không có tín hiệu đó. Phân biệt
+    với NULL ở cột: NULL = chưa từng lưu (job cũ), {...rỗng} = đã lưu và nguồn không
+    có gì."""
+    return {
+        "experience_text": experience_text or "",
+        "level_hint": level_hint or "",
+    }
+
+
+def derive_level_from_signals(job_title: str, signals: Optional[dict]) -> LevelDecision:
+    """Tính lại level từ tiêu đề hiện tại + tín hiệu đã lưu (build_level_signals).
+    Cùng kết quả với derive_level() lúc crawl nếu tiêu đề không đổi và cùng
+    LEVEL_RULE_VERSION. signals None (job chưa lưu tín hiệu) vẫn gọi được nhưng
+    kết quả khi tiêu đề không có từ khoá sẽ là mặc định 'default', nên nơi gọi phải
+    tự xử lý trường hợp đó (lệnh tính lại chỉ tin kết quả 'title' khi signals là None)."""
+    signals = signals or {}
+    return derive_level(
+        signals.get("experience_text", ""), job_title, signals.get("level_hint", ""),
+    )
 
 
 # ----------------------------------------------------------------------

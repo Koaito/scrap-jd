@@ -116,6 +116,8 @@ def test_similar_title_updates_the_old_job_instead_of_inserting(fake_db):
     # level kèm căn cứ + phiên bản quy tắc (tiêu đề có "Senior" -> căn cứ "title")
     assert kw["level_source"] == "title"
     assert kw["level_rule_version"] == normalize.LEVEL_RULE_VERSION
+    # tín hiệu thô derive_level đã đọc được lưu cùng level
+    assert kw["level_signals"] == normalize.build_level_signals("3 năm", "")
     fake_db.get_level_id.assert_called_once_with(
         conn, normalize.infer_level("3 năm", "Data Engineer (Senior)", ""))
     assert kw["work_type"] == normalize.normalize_work_type("Toàn thời gian")
@@ -151,6 +153,8 @@ def test_truncated_jd_does_not_overwrite_jd_or_level(fake_db):
 
     kw = fake_db.update_job_from_recrawl.call_args.kwargs
     assert kw["parsed_content"] is None and kw["level_id"] is None
+    # Không ghi level thì không ghi tín hiệu (hai thứ đi cùng nhau).
+    assert kw["level_source"] is None and kw["level_signals"] is None
     fake_db.get_level_id.assert_not_called()
     assert kw["job_title"] == "Data Engineer (Senior)"
     assert kw["salary"] is not None and kw["work_type"] is not None
