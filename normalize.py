@@ -206,6 +206,28 @@ def _parse_number(raw: str) -> Optional[float]:
 # ----------------------------------------------------------------------
 LEVEL_ORDER = ["Intern", "Fresher", "Junior", "Middle", "Senior", "Lead", "Manager"]
 
+# Phiên bản BỘ QUY TẮC suy level (derive_level / level_from_title / các regex
+# tiêu đề bên dưới). Tăng số này mỗi khi cùng một đầu vào có thể ra level KHÁC
+# so với trước. Job lưu kèm phiên bản đã dùng nên lệnh tính lại level chỉ cần
+# chọn job có phiên bản cũ hơn, không phải đoán theo giá trị level.
+#   1 = bộ quy tắc đầu tiên có đánh phiên bản (thêm "Sr.", "Head of",
+#       "Phó phòng"/"Deputy Head", "Junior" trong tiêu đề — 10/2026).
+LEVEL_RULE_VERSION = 1
+
+# Level được suy từ đâu (cột job_postings.level_source). derive_level() chỉ trả
+# 5 giá trị đầu; "manual" do tầng ứng dụng đặt khi người dùng sửa tay (và
+# không bao giờ bị tính lại đè lên).
+LEVEL_SOURCE_TITLE = "title"      # từ khoá trong tiêu đề
+LEVEL_SOURCE_LABEL = "label"      # nhãn cố định của nguồn: "Không yêu cầu", "Dưới 1 năm", "Trên 5 năm"
+LEVEL_SOURCE_YEARS = "years"      # số năm kinh nghiệm đọc được
+LEVEL_SOURCE_HINT = "hint"        # nhãn cấp bậc nguồn tự gán (level_hint)
+LEVEL_SOURCE_DEFAULT = "default"  # không có căn cứ nào -> Junior
+LEVEL_SOURCE_MANUAL = "manual"    # người dùng sửa tay
+LEVEL_SOURCES = (
+    LEVEL_SOURCE_TITLE, LEVEL_SOURCE_LABEL, LEVEL_SOURCE_YEARS,
+    LEVEL_SOURCE_HINT, LEVEL_SOURCE_DEFAULT, LEVEL_SOURCE_MANUAL,
+)
+
 
 # ----------------------------------------------------------------------
 # Từ khoá cấp bậc trong TIÊU ĐỀ
@@ -219,76 +241,116 @@ _INTERN_TITLE = re.compile(r"\bintern(?:s|ship|ships)?\b|thực tập|thuc tap")
 _FRESHER_TITLE = re.compile(r"\bfreshers?\b")
 # "lead generation"/"lead gen" là việc tìm khách hàng tiềm năng, không phải cấp bậc.
 _LEAD_TITLE = re.compile(r"\b(?:(?:team|tech)\s?lead|lead(?:er)?)\b(?!\s*gen)|trưởng nhóm")
-_MANAGER_TITLE = re.compile(r"\bmanager\b|trưởng phòng|giám đốc")
-_SENIOR_TITLE = re.compile(r"\bsenior\b")
-# "Trợ lý giám đốc", "Thư ký trưởng phòng": người hỗ trợ chứ không phải người
-# giữ chức vụ đó. Cắt cụm này đi trước khi tìm từ khoá Lead/Manager.
+# Phó phòng / Deputy Head: cấp Lead (dưới Trưởng phòng). Phải xét TRƯỚC
+# _MANAGER_TITLE vì "Deputy Head of ..." và "Phó trưởng phòng" chứa sẵn
+# "head of"/"trưởng phòng".
+_DEPUTY_TITLE = re.compile(r"\bdeputy\s+head\b|phó\s+(?:trưởng\s+)?phòng")
+# "Head of X" = người đứng đầu bộ phận X (tương đương Trưởng phòng). \bof\b để
+# "Head Office" (trụ sở chính) không khớp.
+_MANAGER_TITLE = re.compile(r"\bmanager\b|trưởng phòng|giám đốc|\bhead\s+of\b")
+# "Sr." = Senior. Chỉ khớp khi theo sau là một CHỮ (Sr. Specialist, Sr Developer)
+# để mã kiểu "SR-001", "SR 2026" không bị nhận nhầm.
+_SENIOR_TITLE = re.compile(r"\bsenior\b|\bsr\b(?:\.\s*|\s+)(?=[^\W\d_])")
+# "Junior" trong tiêu đề. KHÔNG tính "Junior+" (từ Junior trở lên) và tiêu đề
+# ghi nhiều cấp ("Junior/Middle", "Junior - Mid"): các trường hợp đó để số năm
+# quyết định. "Junior, Senior" đã ra Senior từ nhánh Senior ở trước.
+_JUNIOR_TITLE = re.compile(r"\bjunior\b(?!\s*\+)")
+_MIDDLE_TITLE = re.compile(r"\bmid(?:dle)?\b")
+# "Trợ lý giám đốc", "Thư ký trưởng phòng", "Assistant to Head of Sales": người
+# hỗ trợ chứ không phải người giữ chức vụ đó. Cắt cụm này đi trước khi tìm từ
+# khoá Lead/Manager.
 _ASSISTANT_TO_BOSS = re.compile(
-    r"(?:trợ lý|thư ký)\s+(?:(?:ban|tổng|phó)\s+)*(?:giám đốc|trưởng phòng|trưởng nhóm)"
+    r"(?:trợ lý|thư ký)\s+(?:(?:ban|tổng|phó)\s+)*(?:giám đốc|trưởng phòng|trưởng nhóm|phó phòng)"
+    r"|\b(?:assistant|secretary|pa)\s+to\s+(?:the\s+)?(?:deputy\s+head|head\s+of)\b"
 )
 
 
 def level_from_title(job_title: str) -> Optional[str]:
     """Level do TỪ KHOÁ trong tiêu đề quyết định (Intern/Fresher/Lead/Manager/
-    Senior), hoặc None khi tiêu đề không có từ khoá nào. Là bước đầu và ưu tiên
-    cao nhất của infer_level(): tiêu đề có từ khoá thì số năm kinh nghiệm không
-    đổi được kết quả. Tách riêng để script vá dữ liệu biết job nào level đã do
-    tiêu đề chốt (không cần tải lại trang)."""
+    Senior/Junior), hoặc None khi tiêu đề không có từ khoá nào. Là bước đầu và
+    ưu tiên cao nhất của derive_level(): tiêu đề có từ khoá thì số năm kinh
+    nghiệm không đổi được kết quả. Tách riêng để script vá dữ liệu biết job nào
+    level đã do tiêu đề chốt (không cần tải lại trang).
+
+    Thứ tự: Intern > Fresher > Lead > Phó phòng (Lead) > Manager > Senior >
+    Junior. Tiêu đề ghi nhiều cấp thì cấp CAO hơn thắng ("Junior, Senior" ->
+    Senior), riêng "Junior" đi kèm "Middle"/"Junior+" thì bỏ qua (None)."""
     title = _ASSISTANT_TO_BOSS.sub(" ", (job_title or "").lower())
     if _INTERN_TITLE.search(title):
         return "Intern"
     if _FRESHER_TITLE.search(title):
         return "Fresher"
-    if _LEAD_TITLE.search(title):
+    if _LEAD_TITLE.search(title) or _DEPUTY_TITLE.search(title):
         return "Lead"
     if _MANAGER_TITLE.search(title):
         return "Manager"
     if _SENIOR_TITLE.search(title):
         return "Senior"
+    if _JUNIOR_TITLE.search(title) and not _MIDDLE_TITLE.search(title):
+        return "Junior"
     return None
 
 
-def infer_level(experience_text: str, job_title: str = "", level_hint: str = "") -> str:
-    """Suy luận level. Thứ tự ưu tiên: từ khoá trong tiêu đề > số năm kinh
-    nghiệm trong experience_text > level_hint (nhãn cấp bậc nguồn tự gán, vd
-    jobLevel của VietnamWorks, adapter đã đổi sang 1 giá trị trong
-    LEVEL_ORDER) > mặc định Junior.
+@dataclass(frozen=True)
+class LevelDecision:
+    """Kết quả suy level: giá trị + căn cứ đã dùng (một trong LEVEL_SOURCES,
+    không bao giờ là "manual")."""
+    level: str
+    source: str
+
+
+def derive_level(experience_text: str, job_title: str = "", level_hint: str = "") -> LevelDecision:
+    """Suy luận level KÈM căn cứ. Thứ tự ưu tiên: từ khoá trong tiêu đề > nhãn
+    cố định của nguồn > số năm kinh nghiệm trong experience_text > level_hint
+    (nhãn cấp bậc nguồn tự gán, vd jobLevel của VietnamWorks, adapter đã đổi
+    sang 1 giá trị trong LEVEL_ORDER) > mặc định Junior.
 
     level_hint CHỈ là phương án dự phòng khi không đọc được số năm: nhãn cấp
     bậc do nhà tuyển dụng tự chọn nên nhiễu (vd vị trí "Data Modeler" gắn
-    "Trưởng phòng"), không để nó ghi đè số năm đã đọc được."""
+    "Trưởng phòng"), không để nó ghi đè số năm đã đọc được.
+
+    Hàm thuần (không DB, không mạng): cùng đầu vào + cùng LEVEL_RULE_VERSION
+    luôn ra cùng kết quả, nên tính lại hàng loạt được mà không cần tải trang."""
     text = (experience_text or "").lower()
 
     from_title = level_from_title(job_title)
     if from_title:
-        return from_title
+        return LevelDecision(from_title, LEVEL_SOURCE_TITLE)
 
     if "không yêu cầu" in text or "khong yeu cau" in text:
-        return "Fresher"
+        return LevelDecision("Fresher", LEVEL_SOURCE_LABEL)
     if "dưới 1 năm" in text or "duoi 1 nam" in text:
-        return "Fresher"
+        return LevelDecision("Fresher", LEVEL_SOURCE_LABEL)
 
     # "Trên 5 năm" (nhãn của TopCV) PHẢI xét TRƯỚC regex "(\d+) năm" bên dưới:
     # regex đó bắt được "5 năm" trong chính cụm này nên nếu để sau thì job
     # "Trên 5 năm" ra Senior (5 năm) và nhánh Lead không bao giờ chạy tới.
     if "trên 5 năm" in text or "tren 5 nam" in text:
-        return "Lead"
+        return LevelDecision("Lead", LEVEL_SOURCE_LABEL)
 
     m = re.search(r"(\d+)\s*năm", text)
     if m:
         years = int(m.group(1))
         if years <= 1:
-            return "Junior"
-        if years <= 3:
-            return "Middle"
-        if years <= 5:
-            return "Senior"
-        return "Lead"
+            level = "Junior"
+        elif years <= 3:
+            level = "Middle"
+        elif years <= 5:
+            level = "Senior"
+        else:
+            level = "Lead"
+        return LevelDecision(level, LEVEL_SOURCE_YEARS)
 
     if level_hint in LEVEL_ORDER:
-        return level_hint
+        return LevelDecision(level_hint, LEVEL_SOURCE_HINT)
 
-    return "Junior"  # mặc định an toàn khi không rõ
+    return LevelDecision("Junior", LEVEL_SOURCE_DEFAULT)  # mặc định an toàn khi không rõ
+
+
+def infer_level(experience_text: str, job_title: str = "", level_hint: str = "") -> str:
+    """Như derive_level() nhưng chỉ trả tên level (giữ nguyên chữ ký cũ cho
+    pipeline, adapter và các script backfill đang gọi)."""
+    return derive_level(experience_text, job_title, level_hint).level
 
 
 # ----------------------------------------------------------------------
