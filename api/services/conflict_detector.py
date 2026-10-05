@@ -60,7 +60,8 @@ def detect_company_conflict(conn, company_name: str, tax_id: Optional[str]) -> d
             matched_by_tax = cur.fetchone()
 
         cur.execute(
-            "SELECT * FROM companies WHERE lower(company_name) = lower(%s)",
+            "SELECT * FROM companies WHERE lower(company_name) = lower(%s) "
+            "ORDER BY is_active DESC, created_at ASC, company_id ASC LIMIT 1",
             (company_name,),
         )
         matched_by_name = cur.fetchone()

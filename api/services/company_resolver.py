@@ -68,7 +68,8 @@ def resolve_company(conn, company_name: str, tax_id: Optional[str] = None) -> Co
                 )
 
         cur.execute(
-            "SELECT company_id, is_active FROM companies WHERE lower(company_name) = lower(%s)",
+            "SELECT company_id, is_active FROM companies WHERE lower(company_name) = lower(%s) "
+            "ORDER BY is_active DESC, created_at ASC, company_id ASC LIMIT 1",
             (company_name,),
         )
         row = cur.fetchone()

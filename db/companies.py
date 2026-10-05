@@ -14,6 +14,14 @@ from normalize import normalize_company_size
 logger = logging.getLogger(__name__)
 
 
+# company_name KHÔNG có ràng buộc UNIQUE nên khớp theo tên có thể ra nhiều dòng.
+# Thứ tự cố định để cùng một tên luôn ra cùng một công ty: ưu tiên công ty còn
+# hoạt động, rồi công ty tạo sớm nhất, rồi company_id cho chắc chắn không hoà.
+# Không loại công ty đã xoá mềm khỏi kết quả (đổi như vậy sẽ tạo thêm bản sao
+# cùng tên mỗi lượt crawl) — chỉ xếp chúng sau cùng.
+_NAME_MATCH_ORDER = "ORDER BY is_active DESC, created_at ASC, company_id ASC LIMIT 1"
+
+
 def find_company_probe(conn, company_name: str):
     """Tra cứu nhanh theo TÊN (chỉ để quyết định có cần fetch_company_profile
     hay không, không phải nguồn match chính thức). Trả về
@@ -32,7 +40,8 @@ def find_company_probe(conn, company_name: str):
     with conn.cursor() as cur:
         cur.execute(
             "SELECT company_id, website, industry, company_size, address "
-            "FROM companies WHERE lower(company_name) = lower(%s)",
+            "FROM companies WHERE lower(company_name) = lower(%s) "
+            + _NAME_MATCH_ORDER,
             (company_name,),
         )
         row = cur.fetchone()
@@ -62,7 +71,8 @@ def get_or_create_company_by_profile(conn, company_name: str,
                 return str(row[0])
 
         cur.execute(
-            "SELECT company_id, tax_id FROM companies WHERE lower(company_name) = lower(%s)",
+            "SELECT company_id, tax_id FROM companies WHERE lower(company_name) = lower(%s) "
+            + _NAME_MATCH_ORDER,
             (company_name,),
         )
         row = cur.fetchone()
@@ -286,8 +296,8 @@ def merge_companies(conn, source_company_id: str, target_company_id: str) -> Non
     vì tax_id là định danh pháp lý ổn định) — source là company vừa tra
     ra tax_id trùng, sẽ được gộp vào target rồi xoá.
 
-    Chuyển toàn bộ job_postings + company_contacts đang trỏ vào source
-    sang target. KHÔNG dedupe job trùng nội dung ở bước này (job giống
+    Chuyển toàn bộ job_postings + company_contacts + audit_logs đang trỏ vào
+    source sang target. KHÔNG dedupe job trùng nội dung ở bước này (job giống
     hệt title/level/province giữa 2 company cũ rất có thể xảy ra sau khi
     gộp, nhưng dedupe tự động rủi ro xoá nhầm job còn hạn/job có
     ss_team_notes riêng) — để lại cho view v_duplicate_job_candidates
@@ -310,6 +320,14 @@ def merge_companies(conn, source_company_id: str, target_company_id: str) -> Non
         )
         cur.execute(
             "UPDATE company_contacts SET company_id = %s WHERE company_id = %s",
+            (target_company_id, source_company_id),
+        )
+        # audit_logs.company_id có khoá ngoại tới companies: bỏ bước này thì
+        # DELETE bên dưới vỡ ForeignKeyViolation với mọi công ty từng có dòng
+        # audit (staff từng sửa). Chỉ đổi company_id (để lịch sử hiện ở công ty
+        # đích); entity_id/entity_label giữ nguyên, vẫn ghi đúng đối tượng lúc đó.
+        cur.execute(
+            "UPDATE audit_logs SET company_id = %s WHERE company_id = %s",
             (target_company_id, source_company_id),
         )
         cur.execute(
