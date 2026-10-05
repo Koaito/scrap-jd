@@ -128,6 +128,21 @@ không có `level_signals` chỉ đổi level khi tiêu đề nêu rõ cấp. B�
 nhóm job nghi trùng do `content_hash` đổi (lệnh không tự gộp). Chi tiết xem docstring
 `recompute_levels.py`.
 
+**Báo cáo job nghi trùng** (Phần 3a, chỉ đọc: không ghi DB, không cần migration mới):
+
+```bash
+python main.py report-duplicates                  # in tổng hợp + vài nhóm mẫu cho mỗi mức độ chắc
+python main.py report-duplicates --show 20        # in 20 nhóm chi tiết cho mỗi mức độ chắc
+python main.py report-duplicates --csv trung.csv  # xuất toàn bộ nhóm (mỗi job một dòng) để duyệt tay
+```
+
+Gom các job cùng công ty và cùng tiêu đề chuẩn hoá (cùng công thức `content_hash`), nên thấy cả
+cặp trùng bị tách nhóm chỉ vì level hoặc tỉnh khác nhau mà `v_duplicate_job_candidates` không
+thấy. Mỗi nhóm được phân tầng (cùng tỉnh+level / khác level / khác tỉnh), chấm độ chắc là trùng
+thật (cao / cần xem / thấp), liệt kê dữ liệu cần bảo vệ khi gộp (người sửa, ghi chú, đơn ứng
+tuyển, lượt lưu, liên hệ) và **đề xuất** job giữ theo luật v0 (chưa phải luật đã chốt). Lệnh
+không gộp, không xoá gì. Chi tiết xem docstring `duplicate_report.py`.
+
 ### 4. Chạy test
 
 ```bash
@@ -213,8 +228,9 @@ pipeline_stats.py          <- PipelineStats: bộ đếm của một lượt cra
                               ngay); run_pipeline() vẫn trả dict qua to_dict()
 field_stats.py             <- đếm tỷ lệ field rỗng, quyết định lượt crawl có "degraded" không
 snapshots.py               <- SnapshotRecorder: giữ mẫu HTML/JSON gốc của mỗi lượt crawl
-main.py                    <- CLI: init-db, migrate, crawl, stats, snapshots, snapshot-export, create-admin, recompute-levels
+main.py                    <- CLI: init-db, migrate, crawl, stats, snapshots, snapshot-export, create-admin, recompute-levels, report-duplicates
 recompute_levels.py        <- logic lệnh `recompute-levels`: tính lại level từ tiêu đề + level_signals (chạy thử / --apply)
+duplicate_report.py        <- logic lệnh `report-duplicates`: phân loại nhóm job nghi trùng + đề xuất job giữ (chỉ đọc)
 
 db/                        <- mọi thao tác PostgreSQL, tách theo domain
   connection.py            <- connection, connection pool, apply_schema, migration tracking
@@ -226,6 +242,7 @@ db/                        <- mọi thao tác PostgreSQL, tách theo domain
   email_templates.py, dashboard.py, stats.py, lookups.py   <- theo domain
   crawl_runs.py, crawl_batches.py, crawl_snapshots.py, maintenance_runs.py
   job_levels.py, job_recrawl.py, job_level_recompute.py   <- luật đóng dấu level, tái crawl theo mã job, SQL của `recompute-levels`
+  job_duplicates.py        <- SQL (chỉ đọc) của `report-duplicates`: job nằm trong nhóm nghi trùng + dữ liệu con
   __init__.py              <- re-export toàn bộ tên, dùng qua `import db`
 
 backfill_company_profiles.py             <- vá profile công ty qua source_profile_url đã lưu

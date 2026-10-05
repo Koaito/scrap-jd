@@ -12,6 +12,8 @@ Ví dụ:
     python main.py crawl --category data-analyst --max-jobs 5 --no-track   # chạy thử, không ghi lịch sử
     python main.py recompute-levels            # chạy thử: chỉ in, không ghi
     python main.py recompute-levels --apply    # ghi thật (updated_at giữ nguyên)
+    python main.py report-duplicates           # báo cáo job nghi trùng (chỉ đọc)
+    python main.py report-duplicates --csv trung.csv   # xuất toàn bộ nhóm ra file duyệt tay
     python main.py stats
     python main.py snapshots --source careerviet
     python main.py snapshot-export 12 --out tests/fixture_careerviet_listing.html
@@ -26,6 +28,7 @@ import sys
 import db
 from adapters.base import CrawlBlockedError
 from pipeline import run_pipeline
+import duplicate_report
 import recompute_levels
 from config import (
     TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
@@ -182,6 +185,11 @@ def cmd_recompute_levels(args):
     """Tính lại level cho job chưa đóng dấu / dấu cũ hơn LEVEL_RULE_VERSION, hoàn toàn
     trong DB. Mặc định chạy thử; --apply mới ghi. Xem docstring recompute_levels.py."""
     sys.exit(recompute_levels.run_cli(args))
+
+
+def cmd_report_duplicates(args):
+    """Báo cáo job nghi trùng (Phần 3a), CHỈ ĐỌC. Xem docstring duplicate_report.py."""
+    sys.exit(duplicate_report.run_cli(args))
 
 
 def cmd_create_admin(args):
@@ -466,6 +474,19 @@ def main():
         help="Số dòng ví dụ in cho mỗi nhóm trong báo cáo (mặc định %(default)s)",
     )
 
+    p_dups = sub.add_parser(
+        "report-duplicates",
+        help="Báo cáo job nghi trùng (cùng công ty + tiêu đề), phân loại và đề xuất job giữ. CHỈ ĐỌC, không ghi DB",
+    )
+    p_dups.add_argument(
+        "--show", type=int, default=duplicate_report.DEFAULT_SHOW,
+        help="Số nhóm in chi tiết cho MỖI mức độ chắc (cao/cần xem/thấp) (mặc định %(default)s)",
+    )
+    p_dups.add_argument(
+        "--csv", default=None, metavar="FILE",
+        help="Xuất toàn bộ nhóm (mỗi job một dòng) ra file CSV để duyệt tay",
+    )
+
     p_crawl = sub.add_parser("crawl", help="Crawl job từ TopCV/VietnamWorks và lưu vào DB")
     p_crawl.add_argument("--source", default=DEFAULT_SOURCE,
                           help=f"Nguồn cần crawl. Mặc định: {DEFAULT_SOURCE}. "
@@ -522,6 +543,8 @@ def main():
         cmd_migrate(args)
     elif args.command == "recompute-levels":
         cmd_recompute_levels(args)
+    elif args.command == "report-duplicates":
+        cmd_report_duplicates(args)
     elif args.command == "crawl":
         cmd_crawl(args)
     elif args.command == "stats":
