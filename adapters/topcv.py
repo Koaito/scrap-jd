@@ -712,6 +712,54 @@ class TopCVAdapter(BaseAdapter):
 
         return result
 
+    # ------------------------------------------------------------------
+    # Đọc lại nhãn "Kinh nghiệm" của job ĐÃ LƯU (dùng bởi backfill_topcv_level.py)
+    # ------------------------------------------------------------------
+    REFRESH_OK = "ok"
+    REFRESH_UNAVAILABLE = "unavailable"  # 404/410/lỗi mạng: không có trang để đọc
+    REFRESH_NO_LABEL = "no_label"        # tải được nhưng không thấy nhãn kinh nghiệm
+
+    @staticmethod
+    def parse_experience_label(html: str) -> Optional[str]:
+        """Nhãn kinh nghiệm TopCV ghi ở đầu trang chi tiết ("Không yêu cầu",
+        "Dưới 1 năm", "3 năm", "Trên 5 năm"...), hoặc None nếu không thấy.
+
+        Tìm phần tử có chữ đúng "Kinh nghiệm" rồi lấy giá trị đứng ngay sau nó
+        (cả mẫu trang thường lẫn Brand Pro đều là cặp nhãn/giá trị liền nhau),
+        và CHỈ nhận giá trị khớp EXPERIENCE_PATTERN nguyên chuỗi — nên chữ
+        "kinh nghiệm" nằm trong phần mô tả/yêu cầu không bị bắt nhầm. Lấy kết
+        quả đầu tiên trong tài liệu (khối thông tin đầu trang nằm trước JD)."""
+        if not html:
+            return None
+        soup = BeautifulSoup(html, "html.parser")
+        for node in soup.find_all(string=lambda t: t and t.strip() == "Kinh nghiệm"):
+            seen = 0
+            for text in node.find_all_next(string=True):
+                value = " ".join(text.split())
+                if not value or value == "Kinh nghiệm":
+                    continue
+                if EXPERIENCE_PATTERN.fullmatch(value):
+                    return value
+                seen += 1
+                if seen >= 2:  # giá trị phải nằm ngay sau nhãn, không dò xa hơn
+                    break
+        return None
+
+    def fetch_experience_label(self, source_url: str) -> tuple:
+        """Tải trang chi tiết job TopCV đã lưu và trả (trạng thái, nhãn).
+        Trạng thái: REFRESH_OK (nhãn = chuỗi), REFRESH_UNAVAILABLE hoặc
+        REFRESH_NO_LABEL (nhãn = None). CrawlBlockedError của BaseAdapter
+        (ngắt mạch) vẫn lan lên để script dừng."""
+        if not source_url:
+            return self.REFRESH_UNAVAILABLE, None
+        html = self._fetch_html(source_url)
+        if html is None:
+            return self.REFRESH_UNAVAILABLE, None
+        label = self.parse_experience_label(html)
+        if label is None:
+            return self.REFRESH_NO_LABEL, None
+        return self.REFRESH_OK, label
+
     # Text của các nút toggle UI (không phải dữ liệu thật) — TopCV chèn
     # 2 nút này ngay sau nhiều giá trị nhiều dòng như "Lĩnh vực hoạt
     # động" (để thu gọn/mở rộng danh sách ngành hiển thị). Nếu không lọc,

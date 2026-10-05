@@ -100,6 +100,7 @@ class FakeDB:
         return real_db.job_needs_detail_enrichment(probe)
 
     def find_company_probe(self, conn, name):
+        self.last_conn = conn  # để test biết trạng thái conn lúc adapter chờ mạng
         return None
 
     def probe_needs_enrichment(self, probe):
@@ -201,14 +202,15 @@ def _run(monkeypatch, adapter, fake_db):
 
 
 # (tên kịch bản, adapter, FakeDB, số commit mong đợi, số rollback mong đợi)
-# Mọi kịch bản có đúng 1 rollback: lần đóng transaction đọc sau câu probe ở đầu job
-# (pipeline._release_read_transaction), không phải rollback do lỗi.
+# Mỗi kịch bản có ít nhất 1 rollback: lần đóng transaction đọc sau câu probe ở đầu job
+# (pipeline._release_read_transaction), không phải rollback do lỗi. Kịch bản có tải trang
+# công ty (chờ mạng) có thêm 1 rollback ngay trước khi tải.
 def _scenarios():
     return [
         ("job mới -> insert", OneJobAdapter(_raw()), FakeDB(), 1, 1),
         ("job mới + enrich công ty", OneJobAdapter(_raw(company_url="https://x/c"),
          company_profile={"tax_id": "123", "description": "d"}),
-         FakeDB(needs_company_profile=True), 1, 1),
+         FakeDB(needs_company_profile=True), 1, 2),
         ("tin đăng lại", OneJobAdapter(_raw()), FakeDB(duplicate="old-job"), 1, 1),
         ("job cũ cần vá, fetch OK", OneJobAdapter(_raw()), FakeDB(probe=NEEDS_PATCH_PROBE), 1, 1),
         ("job cũ đã đủ field", OneJobAdapter(_raw()), FakeDB(probe=COMPLETE_PROBE), 0, 1),
@@ -229,6 +231,9 @@ def _scenarios():
          FakeDB(code_rows=[_code_row()], update_returns=False), 1, 1),
         ("cùng mã job, tiêu đề khác hẳn -> tạo job mới", CodeAdapter(_raw()),
          FakeDB(code_rows=[_code_row(title="Account Manager")]), 1, 2),
+        ("cùng mã job, tiêu đề khác hẳn -> tạo job mới + enrich công ty",
+         CodeAdapter(_raw(company_url="https://x/c"), company_profile={"tax_id": "123"}),
+         FakeDB(code_rows=[_code_row(title="Account Manager")], needs_company_profile=True), 1, 3),
         ("cùng mã job nhưng job cũ đã CLOSED -> tạo job mới", CodeAdapter(_raw()),
          FakeDB(code_rows=[_code_row(status="CLOSED")]), 1, 2),
         ("adapter có mã job nhưng chưa có job nào cùng mã -> tạo job mới", CodeAdapter(_raw()),
@@ -245,6 +250,33 @@ def test_each_branch_commits_exactly_as_the_rule_says(monkeypatch, name, adapter
     assert conn.commits == commits, f"[{name}] số lần commit"
     assert conn.rollbacks == rollbacks, f"[{name}] số lần rollback"
     assert stats.errors == 0
+
+
+def test_company_page_is_fetched_with_read_transaction_already_closed(monkeypatch):
+    """Tải trang công ty là chờ mạng: conn phải đã rollback (đóng transaction đọc)
+    NGAY TRƯỚC khi adapter được gọi, không để \"idle in transaction\" suốt lúc chờ."""
+    fake_db = FakeDB(needs_company_profile=True)
+    seen = {}
+
+    class ProbeAdapter(OneJobAdapter):
+        def fetch_company_profile(self, url):
+            seen["rollbacks"] = fake_db.last_conn.rollbacks
+            seen["commits"] = fake_db.last_conn.commits
+            return {"tax_id": "123"}
+
+    conn, stats, pending = _run(monkeypatch, ProbeAdapter(_raw(company_url="https://x/c")), fake_db)
+    # 1 rollback đầu job (sau probe) + 1 rollback ngay trước khi tải trang công ty.
+    assert seen["rollbacks"] == 2
+    assert seen["commits"] == 0
+    # Sau đó job vẫn được ghi đủ và commit đúng 1 lần.
+    assert conn.commits == 1 and pending == 0 and stats.inserted == 1
+
+
+def test_company_page_not_fetched_no_extra_rollback(monkeypatch):
+    """Công ty đã đủ thông tin (không cần tải trang) thì không có rollback thừa."""
+    conn, stats, pending = _run(
+        monkeypatch, OneJobAdapter(_raw(company_url="https://x/c")), FakeDB(needs_company_profile=False))
+    assert conn.rollbacks == 1 and conn.commits == 1 and stats.inserted == 1
 
 
 @pytest.mark.parametrize("fail_on,probe,duplicate", [

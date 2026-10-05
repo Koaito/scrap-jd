@@ -228,20 +228,13 @@ _ASSISTANT_TO_BOSS = re.compile(
 )
 
 
-def infer_level(experience_text: str, job_title: str = "", level_hint: str = "") -> str:
-    """Suy luận level. Thứ tự ưu tiên: từ khoá trong tiêu đề > số năm kinh
-    nghiệm trong experience_text > level_hint (nhãn cấp bậc nguồn tự gán, vd
-    jobLevel của VietnamWorks, adapter đã đổi sang 1 giá trị trong
-    LEVEL_ORDER) > mặc định Junior.
-
-    level_hint CHỈ là phương án dự phòng khi không đọc được số năm: nhãn cấp
-    bậc do nhà tuyển dụng tự chọn nên nhiễu (vd vị trí "Data Modeler" gắn
-    "Trưởng phòng"), không để nó ghi đè số năm đã đọc được."""
-    text = (experience_text or "").lower()
-    title = (job_title or "").lower()
-
-    title = _ASSISTANT_TO_BOSS.sub(" ", title)
-
+def level_from_title(job_title: str) -> Optional[str]:
+    """Level do TỪ KHOÁ trong tiêu đề quyết định (Intern/Fresher/Lead/Manager/
+    Senior), hoặc None khi tiêu đề không có từ khoá nào. Là bước đầu và ưu tiên
+    cao nhất của infer_level(): tiêu đề có từ khoá thì số năm kinh nghiệm không
+    đổi được kết quả. Tách riêng để script vá dữ liệu biết job nào level đã do
+    tiêu đề chốt (không cần tải lại trang)."""
+    title = _ASSISTANT_TO_BOSS.sub(" ", (job_title or "").lower())
     if _INTERN_TITLE.search(title):
         return "Intern"
     if _FRESHER_TITLE.search(title):
@@ -252,6 +245,23 @@ def infer_level(experience_text: str, job_title: str = "", level_hint: str = "")
         return "Manager"
     if _SENIOR_TITLE.search(title):
         return "Senior"
+    return None
+
+
+def infer_level(experience_text: str, job_title: str = "", level_hint: str = "") -> str:
+    """Suy luận level. Thứ tự ưu tiên: từ khoá trong tiêu đề > số năm kinh
+    nghiệm trong experience_text > level_hint (nhãn cấp bậc nguồn tự gán, vd
+    jobLevel của VietnamWorks, adapter đã đổi sang 1 giá trị trong
+    LEVEL_ORDER) > mặc định Junior.
+
+    level_hint CHỈ là phương án dự phòng khi không đọc được số năm: nhãn cấp
+    bậc do nhà tuyển dụng tự chọn nên nhiễu (vd vị trí "Data Modeler" gắn
+    "Trưởng phòng"), không để nó ghi đè số năm đã đọc được."""
+    text = (experience_text or "").lower()
+
+    from_title = level_from_title(job_title)
+    if from_title:
+        return from_title
 
     if "không yêu cầu" in text or "khong yeu cau" in text:
         return "Fresher"
@@ -320,11 +330,9 @@ def _near_experience_word(text: str, start: int, end: int) -> bool:
     return _EXPERIENCE_WORD_RE.search(window) is not None
 
 
-def extract_min_years(text: str) -> Optional[int]:
-    """Số năm kinh nghiệm TỐI THIỂU ghi trong `text` (0 = không yêu cầu/dưới 1
-    năm), hoặc None nếu không đọc được. Xem ghi chú quy tắc ở trên."""
-    if not text:
-        return None
+def _year_candidates(text: str) -> list:
+    """Các mức số năm kinh nghiệm đọc được trong `text`: list (vị trí, số năm),
+    chưa sắp xếp. Chỉ tính con số đứng gần chữ \"kinh nghiệm\"/\"experience\"."""
     candidates = []  # (vị trí, số năm)
 
     for regex in (_VI_YEARS_RE, _EN_YEARS_RE):
@@ -348,9 +356,58 @@ def extract_min_years(text: str) -> Optional[int]:
     for m in _NO_EXPERIENCE_RE.finditer(text):
         candidates.append((m.start(), 0))
 
+    return candidates
+
+
+def extract_min_years(text: str) -> Optional[int]:
+    """Số năm kinh nghiệm TỐI THIỂU ghi trong `text` (0 = không yêu cầu/dưới 1
+    năm), hoặc None nếu không đọc được. Xem ghi chú quy tắc ở trên."""
+    if not text:
+        return None
+    candidates = _year_candidates(text)
     if not candidates:
         return None
     return min(candidates)[1]
+
+
+# ----------------------------------------------------------------------
+# Ước lượng "Trên 5 năm" (nhãn TopCV) từ phần yêu cầu — CHỈ để vá dữ liệu cũ
+# ----------------------------------------------------------------------
+# Trước khi infer_level() xét "Trên 5 năm" riêng, job TopCV mang nhãn đó bị lưu
+# là Senior, và DB không lưu nhãn gốc. Đây là phương án dự phòng khi không tải
+# lại được trang: đọc chữ trong phần yêu cầu. Chỉ đáng tin theo MỘT chiều
+# (Senior -> Lead), vì Senior cũ chỉ có thể đến từ tiêu đề, nhãn "4/5 năm"
+# (đúng, giữ nguyên) hoặc nhãn "Trên 5 năm" (sai, cần vá).
+_OVER_YEARS_RE = re.compile(
+    r"(?:trên|hơn|over|more\s+than)\s*(\d{1,2})\s*\+?\s*(?:năm|years?|yrs?)\b",
+    re.IGNORECASE,
+)
+
+
+def infer_level_from_requirements(text: str) -> Optional[str]:
+    """\"Lead\" khi phần yêu cầu đòi HƠN 5 năm kinh nghiệm, ngược lại None
+    (không đủ căn cứ để đổi level). Hai tín hiệu, tính theo đoạn nêu số năm
+    đầu tiên như extract_min_years():
+      - cụm \"trên/hơn/over/more than N năm\" với N >= 5 (nghĩa là > 5 năm);
+      - số năm tối thiểu >= 6.
+    \"Từ 5 năm\", \"tối thiểu 5 năm\", \"5+ năm\" là đúng 5 năm (Senior), KHÔNG
+    đổi."""
+    if not text:
+        return None
+    candidates = _year_candidates(text)
+    if not candidates:
+        return None
+    first_pos, first_years = min(candidates)
+    if first_years >= 6:
+        return "Lead"
+    for m in _OVER_YEARS_RE.finditer(text):
+        # Cụm "trên N năm" bắt đầu TRƯỚC chữ số nên vị trí <= vị trí của chính
+        # đoạn đó trong candidates; đoạn nêu số năm sau đó thì không tính.
+        if m.start() <= first_pos and int(m.group(1)) >= 5 and _near_experience_word(
+            text, m.start(), m.end()
+        ):
+            return "Lead"
+    return None
 
 
 # ----------------------------------------------------------------------

@@ -129,7 +129,8 @@ def _resolve_company(adapter: BaseAdapter, conn, raw, company_name: str, provinc
     """Tìm hoặc tạo company ứng với job đang xử lý, kèm enrich profile
     nếu cần — tách ra từ run_pipeline() (08/2026, xem docstring
     _handle_existing_job() ở trên để biết lý do tách chung), nguyên bản
-    là bước (3b) trong vòng lặp chính. KHÔNG đổi hành vi.
+    là bước (3b) trong vòng lặp chính. Hành vi không đổi, chỉ thêm việc đóng
+    transaction đọc trước khi chờ mạng tải trang công ty (xem chú thích ở dưới).
 
     "probe" chỉ tra cứu THEO TÊN để BIẾT trước công ty này đã đủ
     thông tin (tax_id + website) chưa — không dùng để match chính
@@ -141,6 +142,16 @@ def _resolve_company(adapter: BaseAdapter, conn, raw, company_name: str, provinc
     probe = db.find_company_probe(conn, company_name)
     profile = {}
     if raw.company_url and db.probe_needs_enrichment(probe):
+        # Tải trang công ty là chờ mạng (vài giây tới hàng chục giây) nên đóng
+        # transaction đọc trước, nếu không kết nối đứng "idle in transaction"
+        # suốt thời gian chờ (cùng lý do với _process_job()). AN TOÀN vì tới đây
+        # transaction của job này mới chỉ có SELECT: tra mã job, tỉnh
+        # (get_or_create_province chỉ là bí danh của get_province_id, không
+        # INSERT từ 08/2026), cấp bậc và find_company_probe ở trên. Các ghi
+        # (get_or_create_company_by_profile...) đều nằm SAU điểm này. Nếu sau
+        # này thêm một lệnh GHI trước _resolve_company() thì phải commit nó
+        # trước, nếu không rollback ở đây sẽ huỷ mất.
+        _release_read_transaction(conn)
         profile = adapter.fetch_company_profile(raw.company_url) or {}
 
     company_id = db.get_or_create_company_by_profile(
