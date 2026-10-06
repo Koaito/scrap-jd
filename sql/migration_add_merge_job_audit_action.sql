@@ -1,0 +1,24 @@
+-- Thêm action MERGE_JOB vào audit_action_enum — lệnh gộp job trùng
+-- `python main.py merge-duplicates --apply` (Phần 3b) ghi log bằng action này (10/2026).
+--
+-- TẠI SAO KHÔNG DÙNG LẠI DELETE_JOB: ở hệ thống hiện tại DELETE_JOB nghĩa là "đóng JD"
+-- (xoá mềm, job vẫn còn trong DB và link tới được; xem api/routers/jobs.py). Gộp job trùng
+-- thì job phụ bị XOÁ THẬT khỏi job_postings sau khi snapshot nguyên dòng vào audit_logs.changes,
+-- hai việc khác nhau nên không dùng chung một action (nếu dùng chung, frontend sẽ gắn nhãn
+-- "đã đóng" và link tới một job không còn tồn tại).
+--
+-- audit_logs.entity_id KHÔNG có khoá ngoại tới job_postings (chỉ là UUID chụp lại tại thời điểm
+-- log), nên xoá job phụ không làm vỡ log. audit_logs.company_id có khoá ngoại tới companies;
+-- lệnh gộp chỉ ghi company_id của chính job (công ty không bị xoá khi gộp job).
+--
+-- Quy tắc phân loại (db/audit_logs.py::ACTION_LOG_RULES): is_manual_log=false,
+-- note_required=false — cùng nhóm log tự động với CREATE_JOB / APPLY_JOB. Lệnh chạy bằng CLI
+-- nên actor_id = NULL, không có người điền note; dòng log vẫn hiện ở tab "tất cả thao tác".
+--
+-- An toàn để chạy lại nhiều lần (ADD VALUE IF NOT EXISTS, PostgreSQL 12+).
+--
+-- LƯU Ý: ALTER TYPE ... ADD VALUE không dùng được giá trị mới ngay trong cùng transaction với
+-- câu ADD VALUE, nên file này chỉ có đúng câu lệnh bên dưới (không INSERT/UPDATE nào dùng
+-- 'MERGE_JOB'). Không gộp thêm thay đổi khác vào file này.
+
+ALTER TYPE audit_action_enum ADD VALUE IF NOT EXISTS 'MERGE_JOB';

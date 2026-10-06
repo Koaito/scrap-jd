@@ -1,13 +1,12 @@
 """
 Gộp job trùng — `python main.py merge-duplicates` (Phần 3b, phương án A).
 
-TRẠNG THÁI: NỬA 1/2 — phần LOGIC + CHẠY THỬ. Lệnh này hiện CHỈ ĐỌC: chọn nhóm, chọn job giữ,
-lập kế hoạch hợp nhất trường + chuyển dữ liệu con, in báo cáo. KHÔNG ghi DB, KHÔNG xoá job,
-chưa có --apply. Nửa sau (migration action MERGE_JOB cho audit_logs, hàm gộp một nhóm trong
-transaction, snapshot vào audit_logs, --apply, test Postgres cho phần ghi) sẽ làm tiếp.
+TRẠNG THÁI: ĐỦ HAI NỬA. Không có --apply thì CHỈ ĐỌC (chọn nhóm, chọn job giữ, lập kế hoạch hợp
+nhất trường + chuyển dữ liệu con, in báo cáo; KHÔNG ghi DB, KHÔNG xoá job). Có --apply thì gộp
+thật, từng nhóm một transaction riêng (xem "GỘP THẬT" bên dưới).
 
 PHƯƠNG ÁN A (đã chốt): job phụ sẽ bị XOÁ THẬT sau khi snapshot nguyên dòng vào audit_logs;
-dữ liệu con được chuyển sang job giữ. Kế hoạch ở đây là thứ nửa sau sẽ thực thi nguyên xi.
+dữ liệu con được chuyển sang job giữ. Kế hoạch lập ở đây chính là thứ --apply thực thi.
 
 CHỌN NHÓM
   - Mặc định: chỉ nhóm độ chắc "cao" (do báo cáo 3a chấm), không khác tỉnh, và không có >= 2
@@ -46,17 +45,38 @@ CHUYỂN DỮ LIỆU CON (job_sources_log, saved_jobs, job_applications, job_con
   Chuyển log URL nguồn là để lần crawl sau vẫn nhận ra URL cũ (tra qua job_sources_log) và
   không sinh lại bản trùng.
 
+GỘP THẬT (--apply, nửa 2/2)
+  Cần đã chạy `python main.py migrate` (migration_add_skip_updated_at_flag.sql và
+  migration_add_merge_job_audit_action.sql); thiếu thì từ chối. Các tuỳ chọn:
+    --apply        gộp thật (mặc định chỉ chạy thử).
+    --limit N      chỉ gộp N nhóm đầu của kế hoạch (để thử từng ít một).
+    --yes          bỏ qua bước hỏi xác nhận (chạy tự động); mặc định in tóm tắt rồi hỏi gõ 'yes'.
+    --force        bỏ qua việc từ chối khi có crawl/bảo trì đang chạy. KHÔNG dừng crawl nào cả, chỉ in
+                   cảnh báo: repo không có cơ chế huỷ crawl, và sửa dòng crawl_runs không dừng được
+                   tiến trình thật.
+  - Nhóm được chọn lại từ DB lúc chạy (không dùng kết quả của lần chạy thử trước).
+  - Từ chối nếu có crawl_runs/maintenance_runs 'queued'/'running' (kiểm tra lại trước mỗi nhóm).
+  - Mỗi nhóm: transaction riêng, khoá dòng job, đọc lại và so với kế hoạch (đổi giữa chừng thì
+    bỏ qua nhóm đó, báo "stale"), snapshot vào audit_logs (MERGE_JOB) rồi mới xoá job phụ. updated_at
+    của job giữ KHÔNG nhảy (cờ app.skip_updated_at). Xem db/job_merge.py::merge_job_group.
+  - Nhóm stale hoặc lỗi: bỏ qua, chạy tiếp các nhóm sau, cuối báo cáo liệt kê. Exit code: 0 xong
+    hết; 1 từ chối/chưa sẵn sàng/huỷ; 2 có nhóm stale/lỗi (các nhóm khác vẫn đã gộp); 130 bị ngắt.
+  - Không xoá file CV trong storage của đơn ứng tuyển trùng bị bỏ; đường dẫn nằm trong audit.
+  - Chưa có lệnh khôi phục (unmerge): cách khôi phục thủ công từ snapshot ghi trong README.
+
 Logic quyết định là hàm THUẦN (không DB), có test ở tests/test_merge_duplicates.py. Phần SQL
-đọc nằm ở db/job_merge.py.
+nằm ở db/job_merge.py; hàm run() ở dưới điều phối (đọc -> lập kế hoạch -> hỏi xác nhận -> gộp
+từng nhóm -> báo cáo).
 """
 
 import csv
+import dataclasses
 import io
 import logging
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 import db
 import duplicate_report as dr
@@ -236,6 +256,9 @@ class MergePlan:
     warnings: list
     child: ChildPlan
     apps_with_cv_dropped: int = 0        # đơn bị bỏ có đính CV (cần nhắc: file CV trong storage)
+    # Chi tiết các job của nhóm LÚC lập kế hoạch ({job_id: dict}, từ db.list_merge_job_details).
+    # --apply so lại với dữ liệu đọc dưới khoá; khác thì nhóm bị bỏ qua (stale).
+    expected: dict = field(default_factory=dict)
 
     @property
     def revives(self) -> bool:
@@ -427,6 +450,7 @@ def plan_merge(selection: Selection, details: dict) -> MergePlan:
         group=g, keeper_id=keeper["job_id"], keeper_source=selection.keeper_source,
         donor_ids=[d["job_id"] for d in donors], changes=ch.data, notes=notes, conflicts=conflicts,
         warnings=warnings, child=child, apps_with_cv_dropped=cv_dropped,
+        expected={m["job_id"]: details[m["job_id"]] for m in g.members},
     )
 
 
@@ -496,10 +520,14 @@ def _print_plan(no: int, p: MergePlan) -> None:
         print(f"      ! {w}")
 
 
-def print_report(summary: Summary, plans: list, skipped: list, *, show: int = DEFAULT_SHOW) -> None:
+def print_report(summary: Summary, plans: list, skipped: list, *, show: int = DEFAULT_SHOW,
+                 apply: bool = False) -> None:
     s = summary
     scope = "theo file --only (đã duyệt tay)" if s.only else "mặc định (chỉ nhóm độ chắc 'cao')"
-    print("\n===== GỘP JOB TRÙNG — CHẠY THỬ (nửa 1/2 của 3b: chưa có --apply, KHÔNG ghi DB) =====")
+    if apply:
+        print("\n===== GỘP JOB TRÙNG — KẾ HOẠCH (sắp gộp thật vì có --apply) =====")
+    else:
+        print("\n===== GỘP JOB TRÙNG — CHẠY THỬ (không có --apply: KHÔNG ghi DB) =====")
     print(f"Phạm vi: {scope}")
     print(f"Nhóm nghi trùng trong DB: {s.total_groups}")
     if s.only:
@@ -547,9 +575,10 @@ def print_report(summary: Summary, plans: list, skipped: list, *, show: int = DE
                 for no, p in enumerate(subset[:show], 1):
                     _print_plan(no, p)
 
-    print("\nĐây là CHẠY THỬ: chưa ghi gì, chưa xoá job nào. Nửa sau của 3b sẽ thêm --apply "
-          "(migration MERGE_JOB, gộp từng nhóm trong transaction, snapshot vào audit_logs).")
-    print("Dùng --csv FILE để xuất kế hoạch từng nhóm ra file duyệt.")
+    if not apply:
+        print("\nĐây là CHẠY THỬ: chưa ghi gì, chưa xoá job nào. Thêm --apply để gộp thật "
+              "(nên backup DB trước, và thử --limit 1 trước).")
+        print("Dùng --csv FILE để xuất kế hoạch từng nhóm ra file duyệt.")
 
 
 _CSV_HEADER = (
@@ -584,6 +613,22 @@ def export_csv(plans: list, path: str) -> int:
 # ----------------------------------------------------------------------
 # Chạy
 # ----------------------------------------------------------------------
+# Migration phải có trước khi chạy: (cả chạy thử lẫn --apply) / (riêng --apply).
+_REQUIRED_MIGRATIONS = (
+    "migration_add_job_level_source.sql",
+    "migration_add_job_level_signals.sql",
+)
+_REQUIRED_MIGRATIONS_FOR_APPLY = _REQUIRED_MIGRATIONS + (
+    "migration_add_skip_updated_at_flag.sql",
+    "migration_add_merge_job_audit_action.sql",
+)
+
+EXIT_OK = 0
+EXIT_REFUSED = 1        # chưa sẵn sàng / bị từ chối / người dùng huỷ
+EXIT_PARTIAL = 2        # đã chạy nhưng có nhóm stale hoặc lỗi (các nhóm khác vẫn đã gộp)
+EXIT_INTERRUPTED = 130  # Ctrl+C (nhóm đã gộp xong vẫn được giữ)
+
+
 def build_plans(conn, selections: list) -> tuple:
     """(plans, skipped_thêm): đọc chi tiết các job của nhóm được chọn rồi lập kế hoạch. Nhóm có
     job biến mất giữa hai lần đọc thì bỏ qua với lý do SKIP_VANISHED."""
@@ -598,9 +643,158 @@ def build_plans(conn, selections: list) -> tuple:
     return plans, skipped
 
 
+def _check_ready(conn, *, apply: bool) -> Optional[str]:
+    """Thông báo lỗi (tiếng Việt) nếu DB chưa sẵn sàng, None nếu ổn."""
+    pending = set(db.list_pending_migrations(conn))
+    conn.commit()
+    required = _REQUIRED_MIGRATIONS_FOR_APPLY if apply else _REQUIRED_MIGRATIONS
+    missing = [m for m in required if m in pending]
+    if missing:
+        return ("DB chưa áp dụng migration cần thiết: " + ", ".join(missing)
+                + ". Chạy `python main.py migrate` trước.")
+    if apply and not db.skip_updated_at_supported(conn):
+        return ("Hàm trigger trg_set_updated_at() trong DB chưa biết cờ app.skip_updated_at, gộp bây giờ sẽ "
+                "làm updated_at của các job nhảy. Áp dụng sql/migration_add_skip_updated_at_flag.sql "
+                "(vd chạy `python main.py migrate`) rồi thử lại.")
+    if apply and not db.merge_job_enum_supported(conn):
+        return ("audit_action_enum chưa có giá trị MERGE_JOB nên không ghi được lịch sử gộp. Áp dụng "
+                "sql/migration_add_merge_job_audit_action.sql (vd chạy `python main.py migrate`) rồi thử lại.")
+    return None
+
+
+def _describe_runs(runs: list) -> str:
+    return "; ".join(f"{r['kind']} {r['label']} ({r['status']}, {r['age_minutes']} phút, {r['run_id'][:8]})"
+                     for r in runs)
+
+
+def _print_apply_intro(plans: list) -> None:
+    jobs = sum(len(p.donor_ids) for p in plans)
+    print(f"\n⚠️  SẮP GỘP THẬT {len(plans)} nhóm, XOÁ THẬT {jobs} job phụ khỏi job_postings.")
+    print("   Mỗi job phụ được chụp nguyên dòng vào audit_logs (MERGE_JOB) trước khi xoá, nhưng "
+          "CHƯA có lệnh khôi phục tự động (xem README).")
+    print("   Hãy chắc đã backup DB (pg_dump hoặc snapshot) và KHÔNG crawl trong lúc gộp.")
+
+
+def _ask_confirm(confirm: Callable[[str], str]) -> bool:
+    try:
+        return confirm("Gõ 'yes' để xác nhận gộp thật: ").strip().lower() == "yes"
+    except EOFError:      # chạy không có người gõ (cron, pipe) mà quên --yes
+        return False
+
+
+@dataclass
+class ApplyResult:
+    merged: list = field(default_factory=list)      # [(MergePlan, kết quả của db.merge_job_group)]
+    stale: list = field(default_factory=list)       # [(MergePlan, lý do)]
+    failed: list = field(default_factory=list)      # [(MergePlan, lỗi)]
+    aborted: Optional[str] = None                   # lý do dừng sớm (crawl bắt đầu, mất kết nối)
+    not_run: int = 0                                # số nhóm chưa chạy do dừng sớm
+
+
+def _apply_plans(conn, plans: list, *, force: bool, actor_id: Optional[str] = None) -> ApplyResult:
+    """Gộp lần lượt từng nhóm, mỗi nhóm một transaction. Nhóm stale/lỗi bị bỏ qua, chạy tiếp."""
+    result = ApplyResult()
+    total = len(plans)
+    for no, p in enumerate(plans, 1):
+        if not force:
+            runs = db.list_active_runs(conn)
+            if runs:
+                result.aborted = "có crawl/bảo trì bắt đầu chạy giữa lúc gộp: " + _describe_runs(runs)
+                result.not_run = total - no + 1
+                break
+        label = f"[{no}/{total}] {p.group.company_name[:40]} | {p.group.title[:50]}"
+        try:
+            res = db.merge_job_group(
+                conn, keeper_id=p.keeper_id, donor_ids=p.donor_ids, expected=p.expected,
+                changes=p.changes, child=dataclasses.asdict(p.child), conflicts=p.conflicts,
+                notes=p.notes, actor_id=actor_id)
+            conn.commit()
+        except db.MergeStaleError as exc:
+            conn.rollback()
+            result.stale.append((p, str(exc)))
+            print(f"  {label}: BỎ QUA (stale) — {exc}")
+        except Exception as exc:  # noqa: BLE001 - mọi lỗi của một nhóm không được chặn các nhóm sau
+            try:
+                conn.rollback()
+            except Exception:  # noqa: BLE001 - kết nối đã hỏng
+                pass
+            result.failed.append((p, f"{type(exc).__name__}: {exc}"))
+            logger.error("Lỗi khi gộp nhóm %s (đã rollback nhóm này): %s", _short(p.keeper_id), exc)
+            print(f"  {label}: LỖI — {type(exc).__name__}: {exc}")
+            if getattr(conn, "closed", 0):
+                result.aborted = "mất kết nối tới DB"
+                result.not_run = total - no
+                break
+        else:
+            result.merged.append((p, res))
+            print(f"  {label}: đã gộp, giữ {_short(p.keeper_id)}, xoá {len(p.donor_ids)} job phụ")
+    return result
+
+
+def print_apply_result(result: ApplyResult, *, planned: int, jobs_before: int, jobs_after: int,
+                       groups_before: int, groups_after: int, show: int = DEFAULT_SHOW) -> None:
+    r = result
+    print("\n===== KẾT QUẢ GỘP THẬT =====")
+    print(f"Nhóm trong kế hoạch: {planned}")
+    print(f"  đã gộp:                  {len(r.merged)}  (xoá {sum(x['donors_deleted'] for _, x in r.merged)} job phụ)")
+    print(f"  bỏ qua vì dữ liệu đã đổi (stale): {len(r.stale)}")
+    print(f"  lỗi (đã rollback nhóm đó):        {len(r.failed)}")
+    if r.aborted:
+        print(f"  CHƯA CHẠY do dừng sớm:    {r.not_run}  ({r.aborted})")
+    for title, rows in (("stale (chạy lại lệnh để lập kế hoạch mới)", r.stale), ("lỗi", r.failed)):
+        if rows:
+            print(f"\nNhóm {title}:")
+            for p, reason in rows[:show if show > 0 else None]:
+                print(f"  giữ {_short(p.keeper_id)} | {p.group.company_name[:40]} | {p.group.title[:50]}: {reason}")
+            if show > 0 and len(rows) > show:
+                print(f"  ... và {len(rows) - show} nhóm nữa")
+    if r.merged:
+        totals: Counter = Counter()
+        for _, x in r.merged:
+            for table, (moved, dropped) in x["children"].items():
+                totals[f"{table}.chuyển"] += moved
+                totals[f"{table}.bỏ/dồn"] += dropped
+        print("\nDữ liệu con (đã chuyển sang job giữ / đã bỏ vì trùng khoá, với liên hệ: số liên kết dồn):")
+        for table in ("job_sources_log", "saved_jobs", "job_applications", "job_contact_links"):
+            print(f"  {table:<20} chuyển {totals[table + '.chuyển']:<5} bỏ/dồn {totals[table + '.bỏ/dồn']}")
+        print(f"  lượt trao đổi liên hệ đã dồn: {sum(x['interactions_moved'] for _, x in r.merged)}")
+        n_mismatch = sum(x["link_status_conflicts"] for _, x in r.merged)
+        if n_mismatch:
+            print(f"  liên kết liên hệ có interaction_status lệch (giữ của job giữ, bản lệch ghi trong audit): {n_mismatch}")
+        cv = sum(x["cv_dropped"] for _, x in r.merged)
+        if cv:
+            print(f"  LƯU Ý: {cv} đơn ứng tuyển trùng bị bỏ có đính CV. File CV trong storage KHÔNG bị xoá; "
+                  "đường dẫn nằm trong audit_logs (changes.snapshot.job_applications.dropped[].cv_url).")
+        print(f"Dòng audit_logs MERGE_JOB đã ghi: {sum(len(x['log_ids']) for _, x in r.merged)}")
+    print(f"\nSố job trong DB:                       trước = {jobs_before}, sau = {jobs_after}")
+    print(f"Nhóm nghi trùng (báo cáo 3a):          trước = {groups_before}, sau = {groups_after}")
+    print("updated_at của các job giữ không đổi (cờ app.skip_updated_at).")
+    if r.stale or r.failed or r.aborted:
+        print("\nCó nhóm chưa gộp. Chạy lại cùng lệnh để xử lý tiếp (nhóm đã gộp sẽ không còn trong kế hoạch).")
+
+
 def run(conn, *, only: Optional[OnlySpec] = None, show: int = DEFAULT_SHOW,
-        csv_path: Optional[str] = None) -> int:
-    """Chạy thử trên một kết nối. Chỉ SELECT. Trả exit code (0 = xong)."""
+        csv_path: Optional[str] = None, apply: bool = False, limit: Optional[int] = None,
+        yes: bool = False, force: bool = False, confirm: Callable[[str], str] = input,
+        actor_id: Optional[str] = None) -> int:
+    """Chạy lệnh trên một kết nối. Không `apply` thì chỉ SELECT. Trả exit code (xem EXIT_*)."""
+    error = _check_ready(conn, apply=apply)
+    if error:
+        print(f"❌ {error}")
+        return EXIT_REFUSED
+    if apply:
+        runs = db.list_active_runs(conn)
+        if runs and not force:
+            print("❌ Đang có crawl/bảo trì chạy, từ chối gộp để tránh sinh thêm job trùng giữa chừng:")
+            for r in runs:
+                print(f"   - {r['kind']} {r['label']} ({r['status']}, {r['age_minutes']} phút, run {r['run_id'][:8]})")
+            print("   Đợi chúng xong rồi chạy lại. Dòng 'running' đã treo từ lâu có thể là lượt bị chết dở "
+                  "(API tự dọn sau ~30 phút). Dùng --force để bỏ qua kiểm tra này (KHÔNG dừng crawl nào).")
+            return EXIT_REFUSED
+        if runs:
+            print(f"⚠️  --force: bỏ qua kiểm tra crawl/bảo trì đang chạy ({_describe_runs(runs)}). "
+                  "Lệnh này KHÔNG dừng chúng.")
+
     rows = db.list_duplicate_job_rows(conn)
     groups = dr.build_groups(rows)
     selections, skipped, unknown, not_in_file = select_groups(groups, only)
@@ -609,18 +803,62 @@ def run(conn, *, only: Optional[OnlySpec] = None, show: int = DEFAULT_SHOW,
     summary = Summary(plans, skipped, total_groups=len(groups), only=only is not None,
                       unknown_ids=unknown, not_in_file=not_in_file,
                       invalid_lines=only.invalid_lines if only else [])
-    print_report(summary, plans, skipped, show=show)
+    print_report(summary, plans, skipped, show=show, apply=apply)
     if csv_path:
         n = export_csv(plans, csv_path)
         print(f"\nĐã xuất kế hoạch {n} nhóm ra {csv_path}")
-    return 0
+    if not apply:
+        return EXIT_OK
+
+    if limit is not None:
+        if len(plans) > limit:
+            print(f"\n--limit {limit}: chỉ gộp {limit} nhóm đầu của kế hoạch ({len(plans) - limit} nhóm để lần sau).")
+        plans = plans[:limit]
+    if not plans:
+        print("\nKhông có nhóm nào để gộp.")
+        return EXIT_OK
+    _print_apply_intro(plans)
+    if yes:
+        print("--yes: bỏ qua bước hỏi xác nhận.")
+    elif not _ask_confirm(confirm):
+        print("Đã huỷ, không thay đổi gì.")
+        return EXIT_REFUSED
+
+    jobs_before = db.count_jobs(conn)
+    conn.rollback()
+    print("\nĐang gộp:")
+    try:
+        result = _apply_plans(conn, plans, force=force, actor_id=actor_id)
+    except KeyboardInterrupt:
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
+        print("\n⛔ Bị ngắt. Nhóm đang gộp dở đã rollback; các nhóm đã gộp xong trước đó vẫn được giữ. "
+              "Chạy lại lệnh để tiếp tục.")
+        return EXIT_INTERRUPTED
+    jobs_after = db.count_jobs(conn)
+    conn.rollback()
+    groups_after = len(dr.build_groups(db.list_duplicate_job_rows(conn)))
+    print_apply_result(result, planned=len(plans), jobs_before=jobs_before, jobs_after=jobs_after,
+                       groups_before=len(groups), groups_after=groups_after, show=show)
+    return EXIT_PARTIAL if (result.stale or result.failed or result.aborted) else EXIT_OK
 
 
 def run_cli(args) -> int:
     """Điểm vào cho `python main.py merge-duplicates` (args từ argparse trong main.py)."""
     if args.show < 0:
         print("❌ --show phải >= 0.")
-        return 1
+        return EXIT_REFUSED
+    apply = bool(getattr(args, "apply", False))
+    limit = getattr(args, "limit", None)
+    if limit is not None and limit < 1:
+        print("❌ --limit phải >= 1.")
+        return EXIT_REFUSED
+    for flag in ("limit", "yes", "force"):
+        if getattr(args, flag, None) not in (None, False) and not apply:
+            print(f"❌ --{flag} chỉ dùng được cùng --apply (không có --apply lệnh chỉ chạy thử).")
+            return EXIT_REFUSED
     only = None
     if args.only:
         try:
@@ -628,13 +866,14 @@ def run_cli(args) -> int:
                 only = parse_only(fh.read())
         except OSError as exc:
             print(f"❌ Không đọc được file --only {args.only}: {exc}")
-            return 1
+            return EXIT_REFUSED
         if not only.job_ids:
             print(f"❌ File --only {args.only} không có job_id hợp lệ nào, dừng để tránh hiểu nhầm "
                   "thành 'gộp tất cả'.")
-            return 1
+            return EXIT_REFUSED
     conn = db.get_connection()
     try:
-        return run(conn, only=only, show=args.show, csv_path=args.csv)
+        return run(conn, only=only, show=args.show, csv_path=args.csv, apply=apply, limit=limit,
+                   yes=bool(getattr(args, "yes", False)), force=bool(getattr(args, "force", False)))
     finally:
         conn.close()

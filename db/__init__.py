@@ -91,6 +91,11 @@ from db.job_duplicates import (
 )
 from db.job_merge import (
     list_merge_job_details,
+    merge_job_group,
+    merge_job_enum_supported,
+    list_active_runs,
+    MergeStaleError,
+    MergeIntegrityError,
 )
 from db.job_queries import (
     list_jobs,
@@ -323,6 +328,11 @@ __all__ = [
     "write_recomputed_levels",
     "list_duplicate_job_rows",
     "list_merge_job_details",
+    "merge_job_group",
+    "merge_job_enum_supported",
+    "list_active_runs",
+    "MergeStaleError",
+    "MergeIntegrityError",
     "count_jobs",
     "find_manual_job_duplicate",
     "create_manual_job",

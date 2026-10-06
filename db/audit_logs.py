@@ -30,6 +30,11 @@ ACTION_LOG_RULES: dict[str, dict] = {
     # CREATE_JOB/CREATE_COMPANY: log tự động, không bắt buộc note.
     "APPLY_JOB":                {"is_manual_log": False, "note_required": False},
     "WITHDRAW_JOB_APPLICATION": {"is_manual_log": False, "note_required": False},
+    # Gộp job trùng bằng CLI (`main.py merge-duplicates --apply`, Phần 3b, xem
+    # sql/migration_add_merge_job_audit_action.sql). KHÔNG dùng lại DELETE_JOB: DELETE_JOB là
+    # "đóng JD" (job còn trong DB), còn gộp thì job phụ bị xoá thật. Log tự động: chạy bằng CLI
+    # nên actor_id NULL, không có người điền note -> không thuộc tab "log thủ công".
+    "MERGE_JOB": {"is_manual_log": False, "note_required": False},
     # BUG FIX (08/2026): import_confirm() (api/routers/import_export.py)
     # gọi log_action(action_type="BULK_IMPORT_JOB"/"BULK_IMPORT_COMPANY"/
     # "BULK_IMPORT_CONTACT") nhưng 3 action_type này CHƯA TỪNG được đăng

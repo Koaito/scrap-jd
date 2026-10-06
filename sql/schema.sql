@@ -1186,6 +1186,9 @@ ALTER TABLE app_users ADD COLUMN IF NOT EXISTS active_session_id UUID;
 ALTER TYPE audit_action_enum ADD VALUE IF NOT EXISTS 'APPLY_JOB';
 ALTER TYPE audit_action_enum ADD VALUE IF NOT EXISTS 'WITHDRAW_JOB_APPLICATION';
 
+-- Gộp job trùng (python main.py merge-duplicates --apply), xem sql/migration_add_merge_job_audit_action.sql.
+ALTER TYPE audit_action_enum ADD VALUE IF NOT EXISTS 'MERGE_JOB';
+
 -- Hình thức làm việc linh hoạt.
 ALTER TYPE work_type_enum ADD VALUE IF NOT EXISTS 'FLEXIBLE';
 

@@ -14,8 +14,10 @@ Ví dụ:
     python main.py recompute-levels --apply    # ghi thật (updated_at giữ nguyên)
     python main.py report-duplicates           # báo cáo job nghi trùng (chỉ đọc)
     python main.py report-duplicates --csv trung.csv   # xuất toàn bộ nhóm ra file duyệt tay
-    python main.py merge-duplicates            # gộp job trùng: CHẠY THỬ, chỉ in kế hoạch (3b nửa 1/2, chưa ghi)
+    python main.py merge-duplicates            # gộp job trùng: CHẠY THỬ, chỉ in kế hoạch (không ghi)
     python main.py merge-duplicates --only duyet.csv --csv ke_hoach.csv   # chỉ nhóm đã duyệt tay
+    python main.py merge-duplicates --apply --limit 1   # gộp thật 1 nhóm đầu (hỏi xác nhận; backup DB trước)
+    python main.py merge-duplicates --apply --yes       # gộp thật, bỏ qua hỏi xác nhận (chạy tự động)
     python main.py stats
     python main.py snapshots --source careerviet
     python main.py snapshot-export 12 --out tests/fixture_careerviet_listing.html
@@ -196,7 +198,7 @@ def cmd_report_duplicates(args):
 
 
 def cmd_merge_duplicates(args):
-    """Gộp job trùng (Phần 3b). Hiện CHỈ chạy thử, chưa ghi DB. Xem docstring merge_duplicates.py."""
+    """Gộp job trùng (Phần 3b). Mặc định chạy thử; --apply mới gộp thật. Xem docstring merge_duplicates.py."""
     sys.exit(merge_duplicates.run_cli(args))
 
 
@@ -497,8 +499,8 @@ def main():
 
     p_merge = sub.add_parser(
         "merge-duplicates",
-        help="Gộp job trùng (Phần 3b): chọn job giữ, hợp nhất trường, chuyển dữ liệu con. "
-             "HIỆN CHỈ CHẠY THỬ (in kế hoạch), chưa ghi DB",
+        help="Gộp job trùng (Phần 3b): chọn job giữ, hợp nhất trường, chuyển dữ liệu con, xoá job phụ "
+             "(snapshot vào audit_logs). Mặc định chạy thử (in kế hoạch); --apply mới gộp thật",
     )
     p_merge.add_argument(
         "--only", default=None, metavar="FILE",
@@ -512,6 +514,23 @@ def main():
     p_merge.add_argument(
         "--csv", default=None, metavar="FILE",
         help="Xuất kế hoạch từng nhóm sẽ gộp ra file CSV để duyệt",
+    )
+    p_merge.add_argument(
+        "--apply", action="store_true",
+        help="Gộp thật (XOÁ job phụ). Cần đã chạy `migrate`; từ chối nếu có crawl/bảo trì đang chạy; "
+             "hỏi xác nhận trước khi ghi. Nên backup DB trước",
+    )
+    p_merge.add_argument(
+        "--limit", type=int, default=None, metavar="N",
+        help="Kèm --apply: chỉ gộp N nhóm đầu của kế hoạch",
+    )
+    p_merge.add_argument(
+        "--yes", action="store_true",
+        help="Kèm --apply: bỏ qua bước hỏi xác nhận (dùng khi chạy tự động)",
+    )
+    p_merge.add_argument(
+        "--force", action="store_true",
+        help="Kèm --apply: vẫn gộp dù có crawl/bảo trì đang chạy. KHÔNG dừng crawl nào, chỉ bỏ qua kiểm tra",
     )
 
     p_crawl = sub.add_parser("crawl", help="Crawl job từ TopCV/VietnamWorks và lưu vào DB")

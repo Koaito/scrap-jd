@@ -143,15 +143,18 @@ thật (cao / cần xem / thấp), liệt kê dữ liệu cần bảo vệ khi g
 tuyển, lượt lưu, liên hệ) và **đề xuất** job giữ theo luật v0 (chưa phải luật đã chốt). Lệnh
 không gộp, không xoá gì. Chi tiết xem docstring `duplicate_report.py`.
 
-**Gộp job trùng** (Phần 3b, phương án A). **Mới làm nửa 1/2: chỉ chạy thử, chưa ghi DB và chưa
-có `--apply`** (nửa sau sẽ thêm migration action `MERGE_JOB`, gộp từng nhóm trong transaction,
-snapshot job phụ vào `audit_logs` rồi xoá thật):
+**Gộp job trùng** (Phần 3b, phương án A): job phụ bị **xoá thật** sau khi chụp nguyên dòng vào
+`audit_logs`; dữ liệu con chuyển sang job giữ. Mặc định chỉ **chạy thử** (in kế hoạch, không ghi gì),
+`--apply` mới gộp thật:
 
 ```bash
 python main.py merge-duplicates                          # kế hoạch cho nhóm độ chắc "cao" (không ghi gì)
 python main.py merge-duplicates --csv ke_hoach.csv       # xuất kế hoạch từng nhóm ra file duyệt
 python main.py merge-duplicates --only duyet.csv         # chỉ nhóm đã duyệt tay (CSV từ report-duplicates)
 python main.py merge-duplicates --only danh_sach_id.txt  # hoặc file mỗi dòng một job_id
+python main.py merge-duplicates --apply --limit 1        # gộp thật 1 nhóm đầu để thử (hỏi xác nhận)
+python main.py merge-duplicates --apply                  # gộp thật toàn bộ kế hoạch (hỏi xác nhận)
+python main.py merge-duplicates --apply --yes            # như trên, bỏ qua hỏi (chạy tự động)
 ```
 
 Mặc định chỉ xét nhóm độ chắc "cao", không khác tỉnh, và không có từ 2 job trở lên cùng chứa dữ
@@ -161,7 +164,58 @@ qua `--only` (CSV từ `report-duplicates --csv`: xoá dòng của nhóm không 
 hợp nhất lương / hạn nộp / trạng thái (kể cả "hồi sinh" job giữ đang CLOSED) / level / ghi chú lên job giữ
 mà không ghi đè trường job giữ đã có (bản lệch được ghi nhận là xung đột), và chuyển
 `job_sources_log`, `saved_jobs`, `job_applications`, `job_contact_links` sang job giữ (vướng UNIQUE thì giữ
-bản của job giữ). Chi tiết xem docstring `merge_duplicates.py`.
+bản của job giữ; hai liên kết cùng một liên hệ thì dồn lịch sử trao đổi vào liên kết của job giữ).
+Chi tiết xem docstring `merge_duplicates.py`.
+
+**Trước khi chạy `--apply`:**
+
+1. **Backup DB** (`pg_dump` hoặc snapshot). Chưa có lệnh khôi phục tự động.
+2. `python main.py migrate` (cần `migration_add_merge_job_audit_action.sql` và
+   `migration_add_skip_updated_at_flag.sql`; thiếu thì `--apply` từ chối). Cần PostgreSQL >= 12.
+3. Không crawl và không chạy bảo trì trong lúc gộp. Có crawl/bảo trì `queued`/`running` thì
+   `--apply` từ chối. `--force` chỉ bỏ qua kiểm tra này, **không dừng** crawl nào (repo không có cơ chế
+   huỷ crawl). Dòng `running` mà tiến trình đã chết vẫn chặn tới khi API dọn (~30 phút).
+4. Chạy thử trước, rồi `--apply --limit 1`, kiểm tra kết quả, rồi mới gộp phần còn lại.
+
+**Cách gộp:** mỗi nhóm một transaction riêng; khoá dòng job, đọc lại và so với kế hoạch (dữ liệu
+đã đổi từ lúc lập kế hoạch thì bỏ qua nhóm đó, báo "stale"); chụp snapshot; cập nhật job giữ;
+chuyển/bỏ dữ liệu con (kiểm số dòng); kiểm tra không còn dòng nào trỏ vào job phụ rồi mới xoá; ghi
+`audit_logs`. Lỗi ở bất kỳ bước nào thì rollback cả nhóm. Nhóm stale/lỗi được bỏ qua, các nhóm sau vẫn
+chạy, cuối lệnh liệt kê; chạy lại cùng lệnh sẽ lập kế hoạch mới cho các nhóm đó. Exit code: `0` xong
+hết, `1` từ chối/chưa sẵn sàng/huỷ, `2` có nhóm stale hoặc lỗi, `130` bị ngắt (nhóm đã gộp xong vẫn giữ).
+`updated_at` của job giữ không nhảy (cờ `app.skip_updated_at`). URL nguồn của job phụ được chuyển sang
+job giữ nên lần crawl sau vẫn nhận ra, không sinh lại bản trùng.
+
+**Audit:** action `MERGE_JOB` (log tự động, `actor_id` NULL, không bắt buộc note). Mỗi job phụ một dòng
+với `entity_id` = job đã xoá, `changes = {merged_into, snapshot}`; job giữ thêm một dòng nếu có trường
+đổi hoặc xung đột, `changes = {<cột>: {old, new}, merged_from, conflicts, link_status_conflicts, notes}`.
+`snapshot` gồm `job` (nguyên dòng `job_postings` của job phụ), và với mỗi bảng con `moved` (id đã chuyển)
+cùng `dropped` (nguyên dòng đã bỏ vì trùng khoá; riêng `job_sources_log` bỏ cột `raw_jd_content`, chỉ giữ
+`raw_jd_content_chars`). Đơn ứng tuyển trùng bị bỏ **không** xoá file CV trong storage; đường dẫn nằm ở
+`snapshot.job_applications.dropped[].cv_url`. `interaction_status` của hai liên kết liên hệ bị dồn: giữ
+của job giữ, trống thì lấy của bên kia, bản lệch ghi ở `link_status_conflicts`.
+
+**Khôi phục thủ công** một job phụ từ snapshot (chưa có lệnh `unmerge`; ghi chú để làm sau). Ví dụ với
+`<ID>` là id job phụ, chạy trong một transaction, bật cờ để `updated_at` không nhảy:
+
+```sql
+BEGIN;
+SELECT set_config('app.skip_updated_at', 'on', true);
+CREATE TEMP TABLE snap ON COMMIT DROP AS
+  SELECT changes->'snapshot' AS s FROM audit_logs WHERE action_type = 'MERGE_JOB' AND entity_id = '<ID>';
+INSERT INTO job_postings SELECT (jsonb_populate_record(NULL::job_postings, s->'job')).* FROM snap;
+-- trả dòng con đã chuyển về job phụ (làm tương tự với job_sources_log, job_applications, job_contact_links)
+UPDATE saved_jobs SET job_id = '<ID>' WHERE saved_job_id IN
+  (SELECT jsonb_array_elements_text(s->'saved_jobs'->'moved')::uuid FROM snap);
+-- chèn lại dòng đã bỏ vì trùng khoá (saved_jobs, job_applications; job_sources_log thì chọn từng cột
+-- vì snapshot không có raw_jd_content; liên kết liên hệ: s->'job_contact_links'->'merged'->'link')
+INSERT INTO saved_jobs SELECT (jsonb_populate_record(NULL::saved_jobs, e)).*
+  FROM snap, jsonb_array_elements(s->'saved_jobs'->'dropped') e;
+COMMIT;
+```
+
+Muốn trả cả trường đã đổi ở job giữ thì lấy giá trị `old` trong dòng `MERGE_JOB` của job giữ. Nhớ: khôi phục
+xong nếu không muốn job bị gộp lại lần sau thì xử lý nguyên nhân trùng (level/tỉnh) trước.
 
 ### 4. Chạy test
 
@@ -251,7 +305,7 @@ snapshots.py               <- SnapshotRecorder: giữ mẫu HTML/JSON gốc củ
 main.py                    <- CLI: init-db, migrate, crawl, stats, snapshots, snapshot-export, create-admin, recompute-levels, report-duplicates, merge-duplicates
 recompute_levels.py        <- logic lệnh `recompute-levels`: tính lại level từ tiêu đề + level_signals (chạy thử / --apply)
 duplicate_report.py        <- logic lệnh `report-duplicates`: phân loại nhóm job nghi trùng + đề xuất job giữ (chỉ đọc)
-merge_duplicates.py        <- logic lệnh `merge-duplicates` (3b, mới nửa chạy thử): chọn nhóm, job giữ, hợp nhất trường, kế hoạch chuyển dữ liệu con
+merge_duplicates.py        <- lệnh `merge-duplicates` (3b): chọn nhóm, job giữ, hợp nhất trường, kế hoạch chuyển dữ liệu con (thuần) + điều phối --apply (xác nhận, kiểm tra crawl, gộp từng nhóm, báo cáo)
 
 db/                        <- mọi thao tác PostgreSQL, tách theo domain
   connection.py            <- connection, connection pool, apply_schema, migration tracking
@@ -264,7 +318,7 @@ db/                        <- mọi thao tác PostgreSQL, tách theo domain
   crawl_runs.py, crawl_batches.py, crawl_snapshots.py, maintenance_runs.py
   job_levels.py, job_recrawl.py, job_level_recompute.py   <- luật đóng dấu level, tái crawl theo mã job, SQL của `recompute-levels`
   job_duplicates.py        <- SQL (chỉ đọc) của `report-duplicates`: job nằm trong nhóm nghi trùng + dữ liệu con
-  job_merge.py             <- SQL của `merge-duplicates`: hiện chỉ có phần đọc chi tiết job + dữ liệu con (phần ghi ở nửa sau)
+  job_merge.py             <- SQL của `merge-duplicates`: đọc chi tiết job + dữ liệu con, gộp một nhóm trong transaction (merge_job_group), kiểm tra enum MERGE_JOB / crawl đang chạy
   __init__.py              <- re-export toàn bộ tên, dùng qua `import db`
 
 backfill_company_profiles.py             <- vá profile công ty qua source_profile_url đã lưu

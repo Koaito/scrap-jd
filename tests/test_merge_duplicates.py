@@ -1,17 +1,24 @@
 """
-Logic THUẦN của lệnh gộp job trùng (merge_duplicates.py, Phần 3b nửa 1/2) — không cần DB.
-Phần SQL đọc nằm ở tests/test_pg_merge_duplicates.py.
+Logic THUẦN của lệnh gộp job trùng (merge_duplicates.py, Phần 3b) — không cần DB.
+Phần SQL đọc nằm ở tests/test_pg_merge_duplicates.py, phần ghi (--apply) ở
+tests/test_pg_merge_apply.py.
 
 Kiểm tra: đọc file --only, chọn nhóm (mặc định / --only), luật hợp nhất trường (lương, hạn,
-hồi sinh, level, ghi chú), kế hoạch chuyển dữ liệu con (xung đột UNIQUE), báo cáo, CSV, và mã
-nguồn không có câu ghi/commit (nửa này CHỈ ĐỌC).
+hồi sinh, level, ghi chú), kế hoạch chuyển dữ liệu con (xung đột UNIQUE), báo cáo, CSV; vòng gộp
+từng nhóm (_apply_plans: stale/lỗi không chặn nhóm sau, dừng khi có crawl, mất kết nối); kiểm tra
+tham số dòng lệnh; ranh giới lớp (SQL ghi chỉ nằm ở db/job_merge.py, commit chỉ ở nơi điều phối).
 """
 import csv
+import dataclasses
 import io
 import re
+from types import SimpleNamespace
 from datetime import date, datetime
 from pathlib import Path
 
+import pytest
+
+import db
 import duplicate_report as dr
 import merge_duplicates as md
 
@@ -333,7 +340,7 @@ def _sample_plans():
     return [p1, p2]
 
 
-def test_report_summarises_plans_and_states_it_is_read_only(capsys):
+def test_report_summarises_plans_and_dry_run_states_it_is_read_only(capsys):
     plans = _sample_plans()
     skipped = [(plans[0].group, md.SKIP_REVIEW)]
     summary = md.Summary(plans, skipped, total_groups=3, only=False, unknown_ids=[], not_in_file=0,
@@ -368,12 +375,200 @@ def test_csv_has_one_row_per_plan_with_bom():
     assert rows[1]["luu_bo"] == "1"
 
 
-# ------------------------------------------------------------------ nửa này chỉ đọc
-def test_source_has_no_write_statements():
-    for name in ("merge_duplicates.py", "db/job_merge.py"):
-        code = (ROOT / name).read_text(encoding="utf-8")
-        # bỏ chuỗi docstring/comment để chỉ xét câu SQL/lệnh thật
-        stripped = re.sub(r'""".*?"""', "", code, flags=re.S)
-        stripped = "\n".join(line.split("#", 1)[0] for line in stripped.splitlines())
-        for forbidden in ("INSERT INTO", "UPDATE ", "DELETE FROM", ".commit(", "TRUNCATE", "ALTER "):
-            assert forbidden not in stripped, f"{name} chứa '{forbidden}' (nửa 1/2 phải chỉ đọc)"
+# ------------------------------------------------------------------ kế hoạch mang theo dữ liệu lúc lập
+def test_plan_carries_expected_details_of_every_member():
+    p = _plan([_detail(A), _detail(B, created=datetime(2026, 9, 9))])
+    assert set(p.expected) == {A, B}
+    assert p.expected[A]["job_id"] == A
+
+
+def test_every_column_a_plan_can_change_is_writable_by_merge_job_group():
+    # Danh sách trắng ở db/job_merge.py phải phủ mọi cột mà luật hợp nhất có thể đổi, nếu không
+    # --apply sẽ từ chối nhóm vì "cột không được phép".
+    planned = set(md.SALARY_COLUMNS) | set(md.LEVEL_COLUMNS) | {"deadline", "job_status", "source_url", "ss_team_notes"}
+    from db.job_merge import _WRITABLE_JOB_COLUMNS
+    assert planned == set(_WRITABLE_JOB_COLUMNS)
+
+
+# ------------------------------------------------------------------ vòng gộp từng nhóm (_apply_plans)
+class _FakeConn:
+    def __init__(self):
+        self.commits = 0
+        self.rollbacks = 0
+        self.closed = 0
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+
+def _three_plans():
+    return [
+        _plan([_detail(f"{x}0000000-0000-4000-8000-00000000000{n}", company=f"c{n}"),
+               _detail(f"{x}1111111-0000-4000-8000-00000000000{n}", company=f"c{n}",
+                       created=datetime(2026, 9, 9))])
+        for n, x in enumerate("abc", 1)
+    ]
+
+
+def _merged(**extra):
+    base = {"status": "merged", "donors_deleted": 1, "log_ids": ["l1"], "children": {
+        "job_sources_log": (1, 0), "saved_jobs": (0, 0), "job_applications": (0, 0),
+        "job_contact_links": (0, 0)}, "interactions_moved": 0, "link_status_conflicts": 0, "cv_dropped": 0}
+    return {**base, **extra}
+
+
+def test_apply_plans_continues_after_stale_and_failed_groups(monkeypatch):
+    plans = _three_plans()
+    calls = []
+
+    def fake_merge(conn, **kw):
+        calls.append(kw["keeper_id"])
+        if len(calls) == 1:
+            raise db.MergeStaleError("dữ liệu đã đổi")
+        if len(calls) == 2:
+            raise RuntimeError("boom")
+        return _merged()
+
+    monkeypatch.setattr(md.db, "merge_job_group", fake_merge)
+    monkeypatch.setattr(md.db, "list_active_runs", lambda conn: [])
+    conn = _FakeConn()
+    res = md._apply_plans(conn, plans, force=False)
+    assert len(calls) == 3                                   # chạy hết cả ba nhóm
+    assert len(res.stale) == 1 and len(res.failed) == 1 and len(res.merged) == 1
+    assert "RuntimeError: boom" in res.failed[0][1]
+    assert conn.commits == 1 and conn.rollbacks == 2         # nhóm lỗi/stale đều rollback, nhóm xong thì commit
+    assert res.aborted is None
+
+
+def test_apply_plans_passes_plan_data_to_db(monkeypatch):
+    p = _plan([_detail(A, status="CLOSED", deadline=date(2026, 9, 1)),
+               _detail(B, deadline=date(2026, 11, 1), created=datetime(2026, 9, 9))])
+    seen = {}
+    monkeypatch.setattr(md.db, "merge_job_group", lambda conn, **kw: seen.update(kw) or _merged())
+    monkeypatch.setattr(md.db, "list_active_runs", lambda conn: [])
+    md._apply_plans(_FakeConn(), [p], force=False, actor_id=None)
+    assert seen["keeper_id"] == p.keeper_id and seen["donor_ids"] == p.donor_ids
+    assert seen["expected"] is p.expected and seen["changes"] is p.changes
+    assert seen["child"] == dataclasses.asdict(p.child) and seen["actor_id"] is None
+
+
+def test_apply_plans_stops_when_a_crawl_starts_midway(monkeypatch):
+    plans = _three_plans()
+    merged = []
+    monkeypatch.setattr(md.db, "merge_job_group", lambda conn, **kw: merged.append(1) or _merged())
+    runs = iter([[], [{"kind": "crawl", "label": "topcv / data", "status": "running",
+                       "age_minutes": 0, "run_id": "r" * 36}], []])
+    monkeypatch.setattr(md.db, "list_active_runs", lambda conn: next(runs))
+    res = md._apply_plans(_FakeConn(), plans, force=False)
+    assert len(merged) == 1 and len(res.merged) == 1         # nhóm 1 xong, dừng trước nhóm 2
+    assert res.not_run == 2 and "crawl" in res.aborted
+
+
+def test_apply_plans_force_does_not_check_runs(monkeypatch):
+    monkeypatch.setattr(md.db, "merge_job_group", lambda conn, **kw: _merged())
+
+    def must_not_be_called(conn):
+        raise AssertionError("--force không được kiểm tra crawl")
+
+    monkeypatch.setattr(md.db, "list_active_runs", must_not_be_called)
+    res = md._apply_plans(_FakeConn(), _three_plans(), force=True)
+    assert len(res.merged) == 3
+
+
+def test_apply_plans_aborts_when_connection_is_lost(monkeypatch):
+    plans = _three_plans()
+    conn = _FakeConn()
+
+    def fake_merge(c, **kw):
+        c.closed = 2
+        raise RuntimeError("connection already closed")
+
+    monkeypatch.setattr(md.db, "merge_job_group", fake_merge)
+    monkeypatch.setattr(md.db, "list_active_runs", lambda c: [])
+    res = md._apply_plans(conn, plans, force=False)
+    assert len(res.failed) == 1 and res.not_run == 2 and "kết nối" in res.aborted
+
+
+def test_print_apply_result_lists_problems_and_totals(capsys):
+    plans = _three_plans()
+    res = md.ApplyResult(merged=[(plans[0], _merged(cv_dropped=2, link_status_conflicts=1,
+                                                    interactions_moved=3))],
+                         stale=[(plans[1], "dữ liệu đã đổi")], failed=[(plans[2], "ValueError: x")],
+                         aborted="mất kết nối tới DB", not_run=4)
+    md.print_apply_result(res, planned=7, jobs_before=100, jobs_after=99, groups_before=9, groups_after=8)
+    out = capsys.readouterr().out
+    assert "đã gộp:" in out and "stale" in out and "ValueError: x" in out
+    assert "CHƯA CHẠY do dừng sớm:    4" in out
+    assert "2 đơn ứng tuyển trùng bị bỏ có đính CV" in out and "KHÔNG bị xoá" in out
+    assert "trước = 100, sau = 99" in out and "trước = 9, sau = 8" in out
+    assert "Chạy lại cùng lệnh" in out
+
+
+# ------------------------------------------------------------------ tham số dòng lệnh
+def _args(**kw):
+    base = dict(show=5, only=None, csv=None, apply=False, limit=None, yes=False, force=False)
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+@pytest.mark.parametrize("kw", [{"limit": 3}, {"yes": True}, {"force": True}])
+def test_cli_rejects_apply_only_flags_without_apply(kw, capsys, monkeypatch):
+    monkeypatch.setattr(md.db, "get_connection", lambda: pytest.fail("không được mở kết nối"))
+    assert md.run_cli(_args(**kw)) == md.EXIT_REFUSED
+    assert "chỉ dùng được cùng --apply" in capsys.readouterr().out
+
+
+def test_cli_rejects_non_positive_limit(capsys, monkeypatch):
+    monkeypatch.setattr(md.db, "get_connection", lambda: pytest.fail("không được mở kết nối"))
+    assert md.run_cli(_args(apply=True, limit=0)) == md.EXIT_REFUSED
+    assert "--limit phải >= 1" in capsys.readouterr().out
+
+
+def test_cli_passes_flags_to_run_and_closes_connection(monkeypatch):
+    got = {}
+    conn = SimpleNamespace(close=lambda: got.setdefault("closed", True))
+    monkeypatch.setattr(md.db, "get_connection", lambda: conn)
+    monkeypatch.setattr(md, "run", lambda c, **kw: got.update(kw) or md.EXIT_OK)
+    assert md.run_cli(_args(apply=True, limit=2, yes=True, force=True)) == md.EXIT_OK
+    assert got["apply"] is True and got["limit"] == 2 and got["yes"] is True and got["force"] is True
+    assert got["closed"] is True
+
+
+def test_ask_confirm_requires_yes_and_treats_eof_as_no():
+    assert md._ask_confirm(lambda prompt: " YES ") is True
+    assert md._ask_confirm(lambda prompt: "y") is False
+    assert md._ask_confirm(lambda prompt: "") is False
+
+    def eof(prompt):
+        raise EOFError
+
+    assert md._ask_confirm(eof) is False
+
+
+# ------------------------------------------------------------------ ranh giới lớp
+def _code_only(name):
+    code = (ROOT / name).read_text(encoding="utf-8")
+    # bỏ chuỗi docstring/comment để chỉ xét câu SQL/lệnh thật
+    stripped = re.sub(r'''"""(.*?)"""''', "", code, flags=re.S)
+    return "\n".join(line.split("#", 1)[0] for line in stripped.splitlines())
+
+
+def test_merge_duplicates_has_no_raw_sql():
+    # Logic + điều phối không chứa SQL: mọi câu SQL (đọc lẫn ghi) nằm ở db/job_merge.py.
+    code = _code_only("merge_duplicates.py")
+    for forbidden in ("INSERT INTO", "UPDATE ", "DELETE FROM", "TRUNCATE", "ALTER ", ".cursor(", ".execute("):
+        assert forbidden not in code, f"merge_duplicates.py chứa '{forbidden}'"
+
+
+def test_job_merge_never_commits_or_rolls_back_inside_merge_job_group():
+    # merge_job_group chạy trong transaction của nơi gọi (nơi gọi commit/rollback); nếu hàm tự
+    # commit thì lỗi ở bước sau sẽ để lại nhóm gộp dở. Hai hàm đọc được phép rollback sau SELECT.
+    code = (ROOT / "db" / "job_merge.py").read_text(encoding="utf-8")
+    body = code[code.index("def merge_job_group("):]
+    body = re.sub(r'''"""(.*?)"""''', "", body, flags=re.S)
+    body = "\n".join(line.split("#", 1)[0] for line in body.splitlines())
+    assert ".commit(" not in body and ".rollback(" not in body
+    assert "TRUNCATE" not in code and "DROP " not in code

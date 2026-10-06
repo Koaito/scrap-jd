@@ -84,3 +84,11 @@ python main.py migrate
 `migration_drop_products_services.sql` đã ngưng hiệu lực (chỉ chứa `SELECT 1;`).
 Cột `companies.products_services` đang được pipeline crawl và script enrich
 ghi vào, không được xoá.
+
+### Thêm giá trị vào enum (`ALTER TYPE ... ADD VALUE`)
+
+Dùng `ADD VALUE IF NOT EXISTS` (PostgreSQL >= 12 mới chạy được trong transaction; mỗi migration
+chạy trong một transaction). Giá trị mới **không dùng được ngay trong cùng transaction** với câu thêm
+nó, nên file migration chỉ chứa câu `ADD VALUE`, không kèm câu `INSERT/UPDATE` dùng giá trị đó. Ví dụ
+gần nhất: `migration_add_merge_job_audit_action.sql` (action `MERGE_JOB` của audit_logs, dùng bởi
+`python main.py merge-duplicates --apply`); `schema.sql` có dòng `ADD VALUE` tương ứng ở cuối file.
