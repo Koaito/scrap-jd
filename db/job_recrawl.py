@@ -1,12 +1,13 @@
 """
 db.job_recrawl — ghi job do pipeline crawl lại (tách từ db/jobs.py, 10/2026):
-ghi nhận nguồn phụ cho tin đăng lại, dời hạn nộp, tìm job theo mã job trong
-URL, và cập nhật job đã có bằng dữ liệu vừa crawl. Tên hàm giữ nguyên và vẫn gọi
+ghi nhận nguồn phụ cho tin đăng lại, tìm job để coi là tin đăng lại và mở lại job
+đã đóng (3c), dời hạn nộp, tìm job theo mã job trong URL, và cập nhật job đã có bằng dữ liệu vừa crawl. Tên hàm giữ nguyên và vẫn gọi
 được qua `db.update_job_from_recrawl`, `db.link_repost_source`...
 """
 
 import json
 import logging
+from datetime import date
 from typing import Optional
 
 from db.job_levels import _derived_level_assignments
@@ -67,6 +68,94 @@ def extend_job_deadline(conn, job_id: str, new_deadline) -> bool:
                AND (deadline IS NULL OR deadline < %s)
             """,
             (new_deadline, job_id, new_deadline),
+        )
+        return cur.rowcount > 0
+
+
+def find_repost_candidate(conn, *, company_id: str, job_title: str, province_id: Optional[int],
+                          level_id: Optional[int] = None) -> Optional[dict]:
+    """Tìm job đã có để coi tin vừa crawl là ĐĂNG LẠI của nó (Phần 3c). Khác
+    find_manual_job_duplicate() (vẫn giữ nguyên cho POST /jobs nhập tay) ở ba điểm,
+    đều rút ra từ dữ liệu job trùng thật (xem README, mục merge-duplicates):
+
+      1. Xét CẢ job đã CLOSED. Trước đây điều kiện job_status != 'CLOSED' làm tin đăng
+         lại của job đã hết hạn/đã đóng sinh ra job mới (khoảng 88% job trùng).
+      2. KHÔNG dùng level trong khoá. Level suy từ số năm kinh nghiệm ở từng trang nên
+         hai lần đăng của cùng một tin hay ra level khác nhau (khoảng 34% job trùng). Cái
+         giá: hai vị trí cùng tên, cùng công ty, cùng tỉnh nhưng khác cấp sẽ bị coi là một.
+      3. Tiêu đề chuẩn hoá giống generate_job_hash(): lower + gộp mọi khoảng trắng liên
+         tiếp (find_manual_job_duplicate chỉ trim hai đầu nên lệch khi tiêu đề có hai dấu
+         cách bên trong).
+
+    Tỉnh vẫn nằm trong khoá (IS NOT DISTINCT FROM): tin khác tỉnh có thể là chi nhánh khác.
+
+    Nếu có nhiều job khớp thì chọn: job OPEN trước, rồi job cùng level với tin mới, rồi job
+    tạo gần nhất (kết quả xác định, không ngẫu nhiên). `level_id` chỉ dùng để xếp hạng.
+
+    Trả dict {job_id, job_status, level_id, deadline, closed_by_staff} hoặc None.
+    `closed_by_staff` = True nếu sự kiện gần nhất trong audit_logs của job là nhân viên đóng
+    JD (DELETE_JOB) mà sau đó chưa ai mở lại (UPDATE_JOB đổi job_status sang OPEN). Job bị
+    check_expired_source_jobs đóng tự động không ghi audit nên không bị tính. Job đóng tay
+    từ trước khi có audit_logs cũng không nhận ra được. Chỉ đọc, không đóng transaction."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT j.job_id, j.job_status::text, j.level_id, j.deadline,
+                   COALESCE((
+                       SELECT a.action_type = 'DELETE_JOB'
+                         FROM audit_logs a
+                        WHERE a.entity_type = 'JOB' AND a.entity_id = j.job_id
+                          AND (a.action_type = 'DELETE_JOB'
+                               OR (a.action_type = 'UPDATE_JOB'
+                                   AND a.changes -> 'job_status' ->> 'new' = 'OPEN'))
+                        ORDER BY a.created_at DESC
+                        LIMIT 1
+                   ), false) AS closed_by_staff
+              FROM job_postings j
+             WHERE j.company_id = %s
+               AND lower(regexp_replace(trim(j.job_title), '\\s+', ' ', 'g'))
+                   = lower(regexp_replace(trim(%s), '\\s+', ' ', 'g'))
+               AND j.province_id IS NOT DISTINCT FROM %s
+             ORDER BY (j.job_status <> 'OPEN'),
+                      (j.level_id IS NOT DISTINCT FROM %s) DESC,
+                      j.created_at DESC, j.job_id
+             LIMIT 1
+            """,
+            (company_id, job_title, province_id, level_id),
+        )
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {"job_id": str(row[0]), "job_status": row[1], "level_id": row[2],
+            "deadline": row[3], "closed_by_staff": bool(row[4])}
+
+
+def reopen_job_for_repost(conn, job_id: str, *, source_url: str, deadline,
+                          today: Optional[date] = None) -> bool:
+    """Mở lại job CLOSED khi nhận ra tin vừa crawl là đăng lại của nó (Phần 3c, cách A):
+    job_status -> OPEN, deadline -> hạn của tin mới, job_postings.source_url -> URL của
+    tin mới. Phải đổi cả source_url vì check_expired_source_jobs kiểm tra theo
+    job_postings.source_url: để URL cũ (đã chết) thì lượt kiểm tra sau sẽ đóng lại ngay.
+    URL cũ vẫn còn trong job_sources_log. deadline NULL (tin mới không có hạn) thì ghi NULL,
+    vì hạn cũ đã qua và sẽ làm job bị đóng lại theo deadline.
+
+    KHÔNG mở lại khi hạn của tin mới đã qua (deadline < today, today mặc định date.today()
+    như check_expired_source_jobs), vì job sẽ bị đóng lại ngay lượt kiểm tra sau.
+
+    Một câu UPDATE có điều kiện job_status = 'CLOSED' nên an toàn khi crawl chạy song song
+    (chỉ một bên mở được, bên kia nhận False) và không đụng job đang OPEN. Việc loại job do
+    nhân viên chủ động đóng (closed_by_staff của find_repost_candidate) là việc của nơi gọi.
+    Không tự commit. Trả True nếu có dòng được mở lại."""
+    if deadline is not None and deadline < (today or date.today()):
+        return False
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE job_postings
+               SET job_status = 'OPEN', deadline = %s, source_url = %s
+             WHERE job_id = %s AND job_status = 'CLOSED'
+            """,
+            (deadline, source_url, job_id),
         )
         return cur.rowcount > 0
 

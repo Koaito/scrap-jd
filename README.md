@@ -217,6 +217,22 @@ COMMIT;
 Muốn trả cả trường đã đổi ở job giữ thì lấy giá trị `old` trong dòng `MERGE_JOB` của job giữ. Nhớ: khôi phục
 xong nếu không muốn job bị gộp lại lần sau thì xử lý nguyên nhân trùng (level/tỉnh) trước.
 
+**Chặn nguồn sinh job trùng (Phần 3c, đang làm dở).** Gộp xong mà crawler vẫn sinh trùng thì trùng sẽ mọc
+lại. Nguyên nhân (đo trên 230 job trùng thật): bước 3c của `pipeline.py` tra tin đăng lại bằng
+`find_manual_job_duplicate`, hàm này bỏ qua job đã CLOSED (khoảng 88% job trùng) và dùng cả level làm khoá
+(khoảng 34%). Nửa 1/2 (đã xong, **chưa nối vào pipeline nên hành vi crawl chưa đổi**) thêm hai hàm tầng DB
+trong `db/job_recrawl.py`:
+
+- `find_repost_candidate`: khoá là công ty + tiêu đề (chuẩn hoá giống `generate_job_hash`: không phân biệt
+  hoa/thường, gộp khoảng trắng) + tỉnh; **không xét level**; **xét cả job CLOSED**. Nhiều job khớp thì chọn OPEN,
+  rồi cùng level, rồi tạo gần nhất. Kèm cờ `closed_by_staff`: sự kiện gần nhất trong `audit_logs` là nhân viên
+  đóng JD (`DELETE_JOB`) mà chưa ai mở lại. Job bị đóng tự động không ghi audit nên không tính.
+- `reopen_job_for_repost` (cách A): mở lại job CLOSED, đặt `job_status` OPEN, hạn nộp và `source_url` của tin mới
+  (phải đổi cả `source_url`, nếu không `check_expired_source_jobs` kiểm tra URL cũ đã chết và đóng lại ngay).
+  Không mở lại nếu hạn của tin mới đã qua.
+
+`find_manual_job_duplicate` (dùng cho `POST /jobs` nhập tay) giữ nguyên. Nửa 2/2 sẽ nối vào `pipeline.py`.
+
 ### 4. Chạy test
 
 ```bash

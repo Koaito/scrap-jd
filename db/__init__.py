@@ -75,6 +75,8 @@ from db.jobs import (
 from db.job_recrawl import (
     link_repost_source,
     extend_job_deadline,
+    find_repost_candidate,
+    reopen_job_for_repost,
     find_jobs_by_source_url_regex,
     update_job_from_recrawl,
 )
@@ -318,6 +320,8 @@ __all__ = [
     "insert_job",
     "link_repost_source",
     "extend_job_deadline",
+    "find_repost_candidate",
+    "reopen_job_for_repost",
     "find_jobs_by_source_url_regex",
     "update_job_from_recrawl",
     "skip_updated_at_supported",
