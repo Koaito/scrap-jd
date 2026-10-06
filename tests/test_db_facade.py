@@ -46,6 +46,7 @@ def test_split_modules_are_wired_through_facade():
         "get_partnership_signals": "db.company_analytics",
         "get_company_data_health": "db.company_analytics",
         "list_duplicate_job_rows": "db.job_duplicates",
+        "list_merge_job_details": "db.job_merge",
     }
     wrong = {
         name: inspect.getmodule(getattr(db, name)).__name__

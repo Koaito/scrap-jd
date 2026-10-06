@@ -171,6 +171,12 @@ def propose_keeper(members: list) -> tuple:
     return first["job_id"], "giống nhau mọi tiêu chí (kể cả thời điểm tạo), lấy theo job_id cho ổn định"
 
 
+def rank_members(members: list) -> list:
+    """Các job của một nhóm theo luật chọn giữ v0, tốt nhất (nên giữ) trước. Dùng chung với
+    merge_duplicates.py (Phần 3b) để thứ tự job giữ / job bị gộp luôn khớp báo cáo."""
+    return sorted(members, key=_keeper_key)
+
+
 @dataclass
 class Group:
     company_id: str

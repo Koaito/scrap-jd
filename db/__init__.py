@@ -89,6 +89,9 @@ from db.job_level_recompute import (
 from db.job_duplicates import (
     list_duplicate_job_rows,
 )
+from db.job_merge import (
+    list_merge_job_details,
+)
 from db.job_queries import (
     list_jobs,
     get_job_by_id,
@@ -319,6 +322,7 @@ __all__ = [
     "count_duplicate_job_groups",
     "write_recomputed_levels",
     "list_duplicate_job_rows",
+    "list_merge_job_details",
     "count_jobs",
     "find_manual_job_duplicate",
     "create_manual_job",

@@ -14,6 +14,8 @@ Ví dụ:
     python main.py recompute-levels --apply    # ghi thật (updated_at giữ nguyên)
     python main.py report-duplicates           # báo cáo job nghi trùng (chỉ đọc)
     python main.py report-duplicates --csv trung.csv   # xuất toàn bộ nhóm ra file duyệt tay
+    python main.py merge-duplicates            # gộp job trùng: CHẠY THỬ, chỉ in kế hoạch (3b nửa 1/2, chưa ghi)
+    python main.py merge-duplicates --only duyet.csv --csv ke_hoach.csv   # chỉ nhóm đã duyệt tay
     python main.py stats
     python main.py snapshots --source careerviet
     python main.py snapshot-export 12 --out tests/fixture_careerviet_listing.html
@@ -29,6 +31,7 @@ import db
 from adapters.base import CrawlBlockedError
 from pipeline import run_pipeline
 import duplicate_report
+import merge_duplicates
 import recompute_levels
 from config import (
     TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
@@ -190,6 +193,11 @@ def cmd_recompute_levels(args):
 def cmd_report_duplicates(args):
     """Báo cáo job nghi trùng (Phần 3a), CHỈ ĐỌC. Xem docstring duplicate_report.py."""
     sys.exit(duplicate_report.run_cli(args))
+
+
+def cmd_merge_duplicates(args):
+    """Gộp job trùng (Phần 3b). Hiện CHỈ chạy thử, chưa ghi DB. Xem docstring merge_duplicates.py."""
+    sys.exit(merge_duplicates.run_cli(args))
 
 
 def cmd_create_admin(args):
@@ -487,6 +495,25 @@ def main():
         help="Xuất toàn bộ nhóm (mỗi job một dòng) ra file CSV để duyệt tay",
     )
 
+    p_merge = sub.add_parser(
+        "merge-duplicates",
+        help="Gộp job trùng (Phần 3b): chọn job giữ, hợp nhất trường, chuyển dữ liệu con. "
+             "HIỆN CHỈ CHẠY THỬ (in kế hoạch), chưa ghi DB",
+    )
+    p_merge.add_argument(
+        "--only", default=None, metavar="FILE",
+        help="Chỉ gộp các nhóm đã duyệt tay: file danh sách job_id, hoặc CSV từ report-duplicates "
+             "(cột de_xuat_giu = 'x' là job giữ). Không có thì chỉ xét nhóm độ chắc 'cao'",
+    )
+    p_merge.add_argument(
+        "--show", type=int, default=merge_duplicates.DEFAULT_SHOW,
+        help="Số nhóm in chi tiết cho mỗi loại (cần chú ý / còn lại) (mặc định %(default)s)",
+    )
+    p_merge.add_argument(
+        "--csv", default=None, metavar="FILE",
+        help="Xuất kế hoạch từng nhóm sẽ gộp ra file CSV để duyệt",
+    )
+
     p_crawl = sub.add_parser("crawl", help="Crawl job từ TopCV/VietnamWorks và lưu vào DB")
     p_crawl.add_argument("--source", default=DEFAULT_SOURCE,
                           help=f"Nguồn cần crawl. Mặc định: {DEFAULT_SOURCE}. "
@@ -545,6 +572,8 @@ def main():
         cmd_recompute_levels(args)
     elif args.command == "report-duplicates":
         cmd_report_duplicates(args)
+    elif args.command == "merge-duplicates":
+        cmd_merge_duplicates(args)
     elif args.command == "crawl":
         cmd_crawl(args)
     elif args.command == "stats":

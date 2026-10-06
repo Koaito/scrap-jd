@@ -143,6 +143,26 @@ thật (cao / cần xem / thấp), liệt kê dữ liệu cần bảo vệ khi g
 tuyển, lượt lưu, liên hệ) và **đề xuất** job giữ theo luật v0 (chưa phải luật đã chốt). Lệnh
 không gộp, không xoá gì. Chi tiết xem docstring `duplicate_report.py`.
 
+**Gộp job trùng** (Phần 3b, phương án A). **Mới làm nửa 1/2: chỉ chạy thử, chưa ghi DB và chưa
+có `--apply`** (nửa sau sẽ thêm migration action `MERGE_JOB`, gộp từng nhóm trong transaction,
+snapshot job phụ vào `audit_logs` rồi xoá thật):
+
+```bash
+python main.py merge-duplicates                          # kế hoạch cho nhóm độ chắc "cao" (không ghi gì)
+python main.py merge-duplicates --csv ke_hoach.csv       # xuất kế hoạch từng nhóm ra file duyệt
+python main.py merge-duplicates --only duyet.csv         # chỉ nhóm đã duyệt tay (CSV từ report-duplicates)
+python main.py merge-duplicates --only danh_sach_id.txt  # hoặc file mỗi dòng một job_id
+```
+
+Mặc định chỉ xét nhóm độ chắc "cao", không khác tỉnh, và không có từ 2 job trở lên cùng chứa dữ
+liệu cần bảo vệ. Nhóm "cần xem", "thấp", khác tỉnh hoặc cần chọn tay chỉ được gộp khi bạn duyệt
+qua `--only` (CSV từ `report-duplicates --csv`: xoá dòng của nhóm không duyệt, cột `de_xuat_giu`
+= `x` là job giữ; nhóm khác tỉnh bắt buộc tự đánh dấu `x`). Kế hoạch cho mỗi nhóm: job giữ theo luật v0,
+hợp nhất lương / hạn nộp / trạng thái (kể cả "hồi sinh" job giữ đang CLOSED) / level / ghi chú lên job giữ
+mà không ghi đè trường job giữ đã có (bản lệch được ghi nhận là xung đột), và chuyển
+`job_sources_log`, `saved_jobs`, `job_applications`, `job_contact_links` sang job giữ (vướng UNIQUE thì giữ
+bản của job giữ). Chi tiết xem docstring `merge_duplicates.py`.
+
 ### 4. Chạy test
 
 ```bash
@@ -228,9 +248,10 @@ pipeline_stats.py          <- PipelineStats: bộ đếm của một lượt cra
                               ngay); run_pipeline() vẫn trả dict qua to_dict()
 field_stats.py             <- đếm tỷ lệ field rỗng, quyết định lượt crawl có "degraded" không
 snapshots.py               <- SnapshotRecorder: giữ mẫu HTML/JSON gốc của mỗi lượt crawl
-main.py                    <- CLI: init-db, migrate, crawl, stats, snapshots, snapshot-export, create-admin, recompute-levels, report-duplicates
+main.py                    <- CLI: init-db, migrate, crawl, stats, snapshots, snapshot-export, create-admin, recompute-levels, report-duplicates, merge-duplicates
 recompute_levels.py        <- logic lệnh `recompute-levels`: tính lại level từ tiêu đề + level_signals (chạy thử / --apply)
 duplicate_report.py        <- logic lệnh `report-duplicates`: phân loại nhóm job nghi trùng + đề xuất job giữ (chỉ đọc)
+merge_duplicates.py        <- logic lệnh `merge-duplicates` (3b, mới nửa chạy thử): chọn nhóm, job giữ, hợp nhất trường, kế hoạch chuyển dữ liệu con
 
 db/                        <- mọi thao tác PostgreSQL, tách theo domain
   connection.py            <- connection, connection pool, apply_schema, migration tracking
@@ -243,6 +264,7 @@ db/                        <- mọi thao tác PostgreSQL, tách theo domain
   crawl_runs.py, crawl_batches.py, crawl_snapshots.py, maintenance_runs.py
   job_levels.py, job_recrawl.py, job_level_recompute.py   <- luật đóng dấu level, tái crawl theo mã job, SQL của `recompute-levels`
   job_duplicates.py        <- SQL (chỉ đọc) của `report-duplicates`: job nằm trong nhóm nghi trùng + dữ liệu con
+  job_merge.py             <- SQL của `merge-duplicates`: hiện chỉ có phần đọc chi tiết job + dữ liệu con (phần ghi ở nửa sau)
   __init__.py              <- re-export toàn bộ tên, dùng qua `import db`
 
 backfill_company_profiles.py             <- vá profile công ty qua source_profile_url đã lưu
