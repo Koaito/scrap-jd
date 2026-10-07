@@ -23,25 +23,15 @@ import pipeline
 from adapters.base import BaseAdapter, CrawlBlockedError
 from field_stats import EmptyFieldCounter
 from models import RawJobRecord
+from pipeline_db import PIPELINE_DB_READS, PIPELINE_DB_WRITES
 from pipeline_stats import PipelineStats
 
 # Phân loại MỌI hàm db.* mà pipeline.py gọi. Thêm lời gọi db.* mới vào
 # pipeline.py thì phải thêm vào 1 trong 2 tập này (test_every_db_call_is_classified
 # sẽ báo đỏ nếu quên) — đó là lúc phải nghĩ "hàm này có ghi không, ai commit?".
-READ_FUNCS = {
-    "get_job_probe_by_source_url", "job_needs_detail_enrichment",
-    "find_company_probe", "probe_needs_enrichment", "get_level_id",
-    "find_repost_candidate", "find_jobs_by_source_url_regex",
-}
-WRITE_FUNCS = {
-    "update_job_fields", "mark_source_detail_checked", "get_or_create_province",
-    "get_or_create_company_by_profile", "update_company_profile",
-    "link_repost_source", "extend_job_deadline", "reopen_job_for_repost", "insert_job",
-    "update_job_from_recrawl",
-    # Giành khoá advisory cấp transaction (A4): không ghi dữ liệu nhưng giữ transaction mở tới
-    # commit/rollback của nhánh, nên coi như ghi: nhánh nào gọi nó phải tự commit ở cuối.
-    "lock_job_dedup_key",
-}
+# Nguồn duy nhất của phân loại này là pipeline_db.py (B2); giữ tên cũ cho phần test bên dưới.
+READ_FUNCS = set(PIPELINE_DB_READS)
+WRITE_FUNCS = set(PIPELINE_DB_WRITES)
 
 FULL_DETAIL = {
     "work_type": "Toàn thời gian", "deadline_text": "05/09/2026",

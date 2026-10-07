@@ -1,7 +1,7 @@
 """
 Cơ chế "danh sách resolver chống trùng theo thứ tự" (B1): adapter khai báo, pipeline chạy đúng
 theo khai báo, khai báo sai thì lỗi ngay. Thứ tự các bước và hành vi từng nhánh nằm ở
-tests/test_pipeline_dedup_order.py (đặc tả viết trước refactor). Mock module db.
+tests/test_pipeline_dedup_order.py (đặc tả viết trước refactor). Dùng fixture pipeline_db.
 """
 import os
 import sys
@@ -19,7 +19,7 @@ from adapters.vietnamworks import VietnamWorksAdapter
 from field_stats import EmptyFieldCounter
 from pipeline_stats import PipelineStats
 
-from test_pipeline_dedup_order import DETAIL, CodeAdapter, _order, _raw, fake_db  # noqa: F401
+from test_pipeline_dedup_order import CodeAdapter, _order, _raw
 
 VNW_URL = "https://www.vietnamworks.com/data-engineer-1234567-jv"
 
@@ -100,37 +100,37 @@ def test_list_declaration_is_accepted():
 
 # ------------------------------------------------------------ pipeline chạy đúng khai báo
 
-def test_adapter_that_declares_only_repost_never_queries_by_job_code(fake_db):  # noqa: F811
+def test_adapter_that_declares_only_repost_never_queries_by_job_code(pipeline_db):
     """Dù adapter có job_code_url_regex, không khai báo "job_code" thì không tra mã job."""
-    fake_db.find_jobs_by_source_url_regex.return_value = [("old-1", "Data Engineer", "OPEN", None, "x")]
+    pipeline_db.find_jobs_by_source_url_regex.return_value = [("old-1", "Data Engineer", "OPEN", None, "x")]
 
     _, stats = _run(_adapter(("repost",)))
 
-    fake_db.find_jobs_by_source_url_regex.assert_not_called()
+    pipeline_db.find_jobs_by_source_url_regex.assert_not_called()
     assert stats.updated_by_job_code == 0
     assert stats.inserted == 1
 
 
-def test_adapter_that_declares_only_job_code_skips_the_repost_lock(fake_db):  # noqa: F811
+def test_adapter_that_declares_only_job_code_skips_the_repost_lock(pipeline_db):
     _, stats = _run(_adapter(("job_code",)))
 
-    fake_db.lock_job_dedup_key.assert_not_called()
-    fake_db.find_repost_candidate.assert_not_called()
+    pipeline_db.lock_job_dedup_key.assert_not_called()
+    pipeline_db.find_repost_candidate.assert_not_called()
     assert stats.inserted == 1
 
 
-def test_stage_decides_order_not_the_declared_order(fake_db):  # noqa: F811
+def test_stage_decides_order_not_the_declared_order(pipeline_db):
     """Khai báo ("repost", "job_code") vẫn tra mã job TRƯỚC khi tạo tỉnh/công ty."""
     _run(_adapter(("repost", "job_code")))
 
-    assert _order(fake_db) == [
+    assert _order(pipeline_db) == [
         "find_jobs_by_source_url_regex", "get_or_create_province", "get_level_id",
         "get_or_create_company_by_profile", "lock_job_dedup_key", "find_repost_candidate",
         "insert_job",
     ]
 
 
-def test_new_resolver_plugs_in_without_touching_import_new_job(fake_db, monkeypatch):  # noqa: F811
+def test_new_resolver_plugs_in_without_touching_import_new_job(pipeline_db, monkeypatch):
     seen = []
 
     def matching(ctx):
@@ -144,8 +144,8 @@ def test_new_resolver_plugs_in_without_touching_import_new_job(fake_db, monkeypa
 
     # Resolver sau stage-after chạy theo thứ tự khai báo: "custom" khớp trước "repost".
     assert seen == [("company-1", 7, 5)]
-    fake_db.lock_job_dedup_key.assert_not_called()
-    fake_db.insert_job.assert_not_called()
+    pipeline_db.lock_job_dedup_key.assert_not_called()
+    pipeline_db.insert_job.assert_not_called()
     assert stats.inserted == 0
 
 
@@ -162,7 +162,7 @@ def test_first_matching_resolver_in_a_stage_short_circuits_the_rest(monkeypatch)
 
 # ------------------------------------------------------------ run_pipeline fail-fast
 
-def test_run_pipeline_rejects_a_bad_declaration_before_fetching_anything(fake_db):  # noqa: F811
+def test_run_pipeline_rejects_a_bad_declaration_before_fetching_anything(pipeline_db):
     adapter = _adapter(("nope",))
     adapter.fetch_jobs = MagicMock(return_value=iter(()))
 
