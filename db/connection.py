@@ -4,6 +4,7 @@ db.connection — tách từ db.py (God module) theo domain.
 
 import logging
 import os
+import re
 import time
 import uuid as uuid_module
 from typing import Optional
@@ -164,9 +165,17 @@ def apply_schema(conn, schema_path: str = "sql/schema.sql"):
 # - sql/schema.sql là schema ĐẦY ĐỦ, mới nhất. `init-db` chạy file này để dựng
 #   DB mới, rồi ghi nhận mọi migration_*.sql hiện có vào schema_migrations
 #   (baseline_migrations) vì schema.sql đã chứa sẵn kết quả của chúng.
-# - migration_*.sql + bảng schema_migrations dùng để nâng cấp DB đã có dữ liệu.
+# - migration + bảng schema_migrations dùng để nâng cấp DB đã có dữ liệu.
 #   apply_migrations() chạy các file chưa có trong schema_migrations, mỗi file
 #   một transaction.
+#
+# Hai kiểu tên file migration (sql/):
+#   - `migration_<mô_tả>.sql`: 36 file CŨ, coi như baseline và đã ĐÓNG BĂNG (không thêm
+#     file mới kiểu này; tests/test_migrations.py chặn). Chạy theo thứ tự tên file.
+#   - `NNNN_<mô_tả>.sql` (NNNN = 4 chữ số, bắt đầu từ 0037): file MỚI, chạy theo thứ tự
+#     SỐ, sau toàn bộ file cũ. Số có thứ tự nên biết ngay file nào đến trước; hai file
+#     cùng số là lỗi (xem _list_migration_files). Cách thêm một thay đổi schema mới:
+#     sql/README_MIGRATIONS.md.
 #
 # DB đã dựng từ trước khi có bảng schema_migrations (chưa biết file nào đã
 # chạy) thì dùng baseline_migrations() một lần để ghi nhận trạng thái hiện tại,
@@ -192,22 +201,41 @@ def _ensure_schema_migrations_table(conn) -> None:
     conn.commit()
 
 
+# Tên file migration MỚI: 4 chữ số, gạch dưới, mô tả chữ thường/số/gạch dưới. Ví dụ
+# 0037_add_closed_reason.sql. File .sql khác tên (schema.sql, helper...) không phải migration.
+_NUMBERED_MIGRATION_RE = re.compile(r"^(\d{4})_[a-z0-9]+(?:_[a-z0-9]+)*\.sql$")
+
+
 def _list_migration_files(migrations_dir: str = _MIGRATIONS_DIR) -> list:
-    """Tên file migration_*.sql trong `migrations_dir`, SẮP XẾP THEO TÊN
-    (không phải theo thời gian tạo file) — quy ước đặt tên hiện tại
-    (migration_add_xxx.sql, migration_rename_xxx.sql...) không tự mang
-    thứ tự thời gian, nhưng mọi migration đều độc lập/idempotent (xem
-    docstring apply_migrations()) nên thứ tự chạy KHÔNG ảnh hưởng kết
-    quả cuối — sort theo tên chỉ để có 1 thứ tự CỐ ĐỊNH, lặp lại được
-    giữa các lần chạy, không phải để đảm bảo tính đúng đắn."""
-    return sorted(
-        f for f in os.listdir(migrations_dir)
-        if f.startswith("migration_") and f.endswith(".sql")
-    )
+    """Tên các file migration trong `migrations_dir`, theo thứ tự CHẠY:
+
+      1. `migration_*.sql` (file cũ, baseline) — sắp theo TÊN. Tên kiểu cũ
+         (migration_add_xxx.sql...) không mang thứ tự thời gian, nhưng các file cũ độc lập
+         và idempotent nên thứ tự không ảnh hưởng kết quả; sort theo tên chỉ để có một thứ
+         tự CỐ ĐỊNH, lặp lại được.
+      2. `NNNN_<mô_tả>.sql` (file mới) — sắp theo SỐ NNNN, luôn SAU toàn bộ file cũ (nếu chỉ
+         sort theo tên thì "0037_..." sẽ đứng trước "migration_..." vì '0' < 'm').
+
+    Hai file mới cùng số NNNN -> ValueError (thường do hai nhánh cùng lấy số kế tiếp rồi
+    merge; phải đổi số một file, thay vì để thứ tự chạy phụ thuộc tên). File .sql không
+    khớp hai kiểu trên bị bỏ qua (không phải migration)."""
+    names = os.listdir(migrations_dir)
+    legacy = sorted(f for f in names if f.startswith("migration_") and f.endswith(".sql"))
+    numbered: list = []
+    for f in names:
+        m = _NUMBERED_MIGRATION_RE.match(f)
+        if m:
+            numbered.append((int(m.group(1)), f))
+    numbered.sort()
+    for (n1, f1), (n2, f2) in zip(numbered, numbered[1:]):
+        if n1 == n2:
+            raise ValueError(f"Hai migration cùng số {n1:04d}: {f1} và {f2}. Đổi số một trong hai file.")
+    return legacy + [f for _, f in numbered]
 
 
 def list_pending_migrations(conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
-    """Tên các file migration_*.sql CHƯA có trong schema_migrations của
+    """Tên các file migration (cũ `migration_*.sql` và mới `NNNN_*.sql`, theo thứ tự chạy,
+    xem _list_migration_files) CHƯA có trong schema_migrations của
     DB đang kết nối — dùng để kiểm tra TRƯỚC khi deploy (vd hiện cảnh
     báo/chặn nếu còn migration chưa chạy) mà không cần thật sự chạy gì."""
     _ensure_schema_migrations_table(conn)
@@ -218,7 +246,7 @@ def list_pending_migrations(conn, migrations_dir: str = _MIGRATIONS_DIR) -> list
 
 
 def apply_migrations(conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
-    """Chạy MỌI migration_*.sql chưa được ghi log áp dụng cho DB đang kết
+    """Chạy MỌI migration (cũ và mới) chưa được ghi log áp dụng cho DB đang kết
     nối, mỗi file trong 1 transaction riêng (lỗi ở file nào dừng lại ở
     đó — KHÔNG rollback các file trước đã chạy + ghi log thành công,
     KHÔNG chạy tiếp các file sau) rồi ghi vào bảng schema_migrations.

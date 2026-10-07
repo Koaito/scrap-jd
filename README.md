@@ -365,7 +365,9 @@ api/                       <- lớp API FastAPI (chi tiết xem API_README.md)
                               conflict_detector, company_resolver (luồng import CSV/XLSX), watchdog
 
 sql/schema.sql             <- schema PostgreSQL đầy đủ, mới nhất (dựng DB mới)
-sql/migration_*.sql        <- nâng cấp DB đã có (xem sql/README_MIGRATIONS.md)
+sql/migration_*.sql        <- 36 migration cũ, đã đóng băng (baseline)
+sql/NNNN_*.sql             <- migration MỚI, đánh số từ 0037 (xem sql/README_MIGRATIONS.md)
+sql/baseline/0036_schema.sql <- schema.sql tại baseline, đóng băng; test dùng để so schema.sql với migration
 tests/                     <- test parser, logic, CLI; một số test chạy trên Postgres thật
 ```
 
@@ -382,6 +384,9 @@ Các quy ước dưới đây được test canh giữ; vi phạm thì `pytest` 
   (`tests/test_http_library.py`).
 - **Migration tạo bảng mới thì `schema.sql` cũng phải có bảng đó**
   (`tests/test_migrations.py`).
+- **Thay đổi schema mới = file `sql/NNNN_<mô_tả>.sql` (số tiếp theo, từ 0037) kèm sửa `sql/schema.sql`.**
+  Không thêm file `migration_*.sql` nữa. `tests/test_pg_migrations.py` dựng DB từ `schema.sql` và
+  DB từ baseline cộng migration, rồi so hai schema trên Postgres thật; lệch thì đỏ.
 
 ---
 

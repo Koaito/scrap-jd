@@ -5,9 +5,23 @@ Schema được quản lý bằng hai thứ đi cùng nhau:
 | Thành phần | Dùng để | Lệnh |
 | --- | --- | --- |
 | `sql/schema.sql` | Dựng DB **mới** từ đầu. Luôn phản ánh schema mới nhất. | `python main.py init-db` |
-| `sql/migration_*.sql` + bảng `schema_migrations` | Nâng cấp DB **đã có dữ liệu** khi schema thay đổi. | `python main.py migrate` |
+| `sql/migration_*.sql` (cũ) và `sql/NNNN_*.sql` (mới) + bảng `schema_migrations` | Nâng cấp DB **đã có dữ liệu** khi schema thay đổi. | `python main.py migrate` |
+| `sql/baseline/0036_schema.sql` | Bản sao đóng băng của `schema.sql` tại baseline. Chỉ test dùng, không chạy khi vận hành. | không có |
 
 Bảng `schema_migrations` ghi tên từng file migration đã áp dụng cho DB đó.
+
+## Hai kiểu tên file migration
+
+| Kiểu | Số lượng | Thứ tự chạy |
+| --- | --- | --- |
+| `migration_<mô_tả>.sql` | 36 file **cũ**, coi là baseline, **đóng băng** (không thêm, không đổi tên, không xoá) | theo tên file, luôn chạy **trước** |
+| `NNNN_<mô_tả>.sql` | file **mới**, NNNN gồm 4 chữ số, bắt đầu từ `0037`, liên tục và không trùng | theo **số**, luôn chạy **sau** file cũ |
+
+Phần mô tả dùng chữ thường, chữ số và dấu gạch dưới, ví dụ `0037_add_closed_reason.sql`. File sai tên
+(`37_x.sql`, `0037-x.sql`, `0037_X.sql`...) sẽ không bao giờ được chạy, nên `tests/test_migrations.py`
+báo đỏ nếu thư mục `sql/` có file `.sql` không thuộc `schema.sql`, kiểu cũ hay kiểu mới. Hai file cùng
+số làm `migrate` dừng ngay với lỗi nêu tên hai file (thường do hai nhánh cùng lấy số kế tiếp; đổi số
+một file trước khi merge).
 
 ## Dựng DB mới
 
@@ -72,12 +86,31 @@ python main.py migrate
 
 ## Thêm một thay đổi schema mới
 
-1. Tạo `sql/migration_<mô_tả_ngắn>.sql`, viết **idempotent** (`IF NOT EXISTS`,
-   `ON CONFLICT DO NOTHING`...) và chỉ phụ thuộc trạng thái schema hiện tại.
-2. Cập nhật `sql/schema.sql` cho khớp, để DB mới dựng bằng `init-db` có
-   đúng schema mới nhất. Test `tests/test_migrations.py` kiểm tra mọi bảng
-   mà migration tạo ra đều có trong `schema.sql`.
-3. Chạy `python main.py migrate` trên từng môi trường (dev, staging, prod).
+1. Tạo `sql/NNNN_<mô_tả_ngắn>.sql` với NNNN là số kế tiếp (xem file lớn nhất trong `sql/`), viết
+   **idempotent** (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`...) và chỉ phụ thuộc trạng thái schema
+   hiện tại. **Không** tạo `migration_*.sql` mới.
+2. Cập nhật `sql/schema.sql` cho khớp, để DB mới dựng bằng `init-db` có đúng schema mới nhất.
+   **Không** sửa `sql/baseline/0036_schema.sql`.
+3. Chạy test trên Postgres thật (xem mục dưới). `tests/test_pg_migrations.py` dựng hai DB tạm, một từ
+   `schema.sql`, một từ baseline cộng mọi migration đánh số, rồi so schema (cột, ràng buộc, index, enum,
+   hàm, trigger, view, sequence, extension, comment). Quên một trong hai nơi thì test đỏ và in ra đối
+   tượng nào chỉ có ở bên nào.
+4. Chạy `python main.py migrate --check` rồi `python main.py migrate` trên từng môi trường (dev, staging,
+   prod). Render tự deploy khi push `main`, nên migration chỉ thêm (cột, bảng, index) phải chạy **trước**
+   khi push code dùng nó.
+
+### Chạy test so schema
+
+```bash
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost:5432/scrapjd_test pytest tests/test_pg_migrations.py
+```
+
+Database trong URL phải có chữ `test` trong tên. Test tự tạo và xoá các database tạm `<tên>_mig_<mã>`
+(cần quyền `CREATEDB`, PostgreSQL 13 trở lên); CI đã có sẵn Postgres 16 (`.github/workflows/test.yml`).
+Không đặt `TEST_DATABASE_URL` thì test bị bỏ qua.
+
+Giới hạn: phép so chỉ xét **cấu trúc** schema, không so **dữ liệu** (bảng tham chiếu như `levels`,
+`provinces`). Migration chỉ sửa dữ liệu thì test này không bắt được lệch với `schema.sql`.
 
 ## Lưu ý
 

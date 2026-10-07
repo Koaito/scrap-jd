@@ -11,7 +11,9 @@ khác") + file migration THẬT trong thư mục tạm (tmp_path) để test đ�
 hành vi đọc file, không mock open()/os.listdir() (dễ test sai logic
 thật).
 """
+import hashlib
 import os
+import pathlib
 import re
 from unittest.mock import MagicMock
 
@@ -237,3 +239,140 @@ class TestSchemaCoversMigrations:
         )
         assert "DROP" not in statements.upper()
         assert "products_services TEXT" in self._read("schema.sql")
+
+
+# ======================================================================
+# Migration đánh số (NNNN_*.sql) — D1
+# ======================================================================
+_SQL_DIR = pathlib.Path(__file__).resolve().parent.parent / "sql"
+
+# 36 migration_*.sql cũ = baseline, ĐÓNG BĂNG. Thay đổi schema mới đi theo kiểu NNNN_*.sql.
+_LEGACY_MIGRATIONS = frozenset({
+    "migration_add_application_audit_log.sql",
+    "migration_add_applications_saved_jobs.sql",
+    "migration_add_audit_columns.sql",
+    "migration_add_audit_logs.sql",
+    "migration_add_auth.sql",
+    "migration_add_chat_messages.sql",
+    "migration_add_company_soft_delete.sql",
+    "migration_add_crawl_batches.sql",
+    "migration_add_crawl_progress_logs.sql",
+    "migration_add_crawl_runs.sql",
+    "migration_add_crawl_snapshots.sql",
+    "migration_add_cv_url.sql",
+    "migration_add_email_templates.sql",
+    "migration_add_email_verification.sql",
+    "migration_add_import_export.sql",
+    "migration_add_job_level_signals.sql",
+    "migration_add_job_level_source.sql",
+    "migration_add_maintenance_runs.sql",
+    "migration_add_merge_job_audit_action.sql",
+    "migration_add_partnership_potential.sql",
+    "migration_add_password_reset.sql",
+    "migration_add_phone_track.sql",
+    "migration_add_role_hierarchy.sql",
+    "migration_add_salary_period.sql",
+    "migration_add_single_session.sql",
+    "migration_add_skip_updated_at_flag.sql",
+    "migration_add_source_detail_checked_at.sql",
+    "migration_add_source_profile_url.sql",
+    "migration_add_tax_id.sql",
+    "migration_add_work_type_deadline.sql",
+    "migration_add_work_type_flexible.sql",
+    "migration_drop_products_services.sql",
+    "migration_remove_expired_job_status.sql",
+    "migration_rename_needs_manual_check_stat_key.sql",
+    "migration_rename_ss_team_members.sql",
+    "migration_update_provinces_2025.sql",
+})
+
+# sha256 của sql/baseline/0036_schema.sql = bản sao NGUYÊN VĂN của sql/schema.sql ở thời điểm
+# baseline (36 migration cũ). Test PG so schema.sql với (file này + các migration đánh số), nên
+# file này mà bị sửa thì phép so mất ý nghĩa.
+_BASELINE_SHA256 = "22d6aa475f68812d1c5ea2ef7a32305df109826cbea6a27d28ebd1d38ff1c97b"
+
+
+class TestNumberedMigrationListing:
+    def test_numbered_files_listed_by_number_after_all_legacy(self, tmp_path):
+        for name in (
+            "0038_second.sql", "0037_first.sql", "migration_zzz_legacy.sql",
+            "migration_aaa_legacy.sql", "schema.sql", "README.md",
+        ):
+            (tmp_path / name).write_text("SELECT 1;")
+        files = db.connection._list_migration_files(str(tmp_path))
+        # Sort theo tên thuần sẽ cho 0037 và 0038 đứng TRƯỚC migration_* ('0' < 'm').
+        assert files == [
+            "migration_aaa_legacy.sql", "migration_zzz_legacy.sql",
+            "0037_first.sql", "0038_second.sql",
+        ]
+
+    def test_numbers_compared_as_integers(self, tmp_path):
+        for name in ("0100_c.sql", "0037_a.sql", "0099_b.sql"):
+            (tmp_path / name).write_text("SELECT 1;")
+        assert db.connection._list_migration_files(str(tmp_path)) == [
+            "0037_a.sql", "0099_b.sql", "0100_c.sql",
+        ]
+
+    def test_duplicate_number_raises(self, tmp_path):
+        (tmp_path / "0037_add_a.sql").write_text("SELECT 1;")
+        (tmp_path / "0037_add_b.sql").write_text("SELECT 1;")
+        with pytest.raises(ValueError, match="0037"):
+            db.connection._list_migration_files(str(tmp_path))
+
+    @pytest.mark.parametrize("bad", [
+        "37_short.sql", "0037-dash.sql", "0037_Upper.sql", "0037_.sql", "00370_five.sql",
+        "0037_trailing_.sql", "0037_x.SQL", "0037_x.sql.bak",
+    ])
+    def test_misnamed_files_are_not_migrations(self, tmp_path, bad):
+        (tmp_path / bad).write_text("SELECT 1;")
+        assert db.connection._list_migration_files(str(tmp_path)) == []
+
+    def test_pending_includes_numbered_and_skips_applied_ones(self, tmp_path):
+        (tmp_path / "migration_old.sql").write_text("SELECT 1;")
+        (tmp_path / "0037_new.sql").write_text("SELECT 1;")
+        (tmp_path / "0038_newer.sql").write_text("SELECT 1;")
+        conn = _FakeConn(applied_filenames=["migration_old.sql", "0037_new.sql"])
+        assert db.list_pending_migrations(conn, str(tmp_path)) == ["0038_newer.sql"]
+
+
+class TestRepoMigrationFiles:
+    """Kiểm tra thư mục sql/ THẬT của repo (không cần DB)."""
+
+    def test_legacy_migrations_are_frozen(self):
+        found = {p.name for p in _SQL_DIR.glob("migration_*.sql")}
+        assert found == _LEGACY_MIGRATIONS, (
+            "Không thêm/sửa tên/xoá file migration_*.sql: 36 file cũ là baseline đã đóng băng. "
+            "Thay đổi schema mới phải là file NNNN_<mô_tả>.sql (bắt đầu từ 0037), xem "
+            "sql/README_MIGRATIONS.md. Lệch: "
+            f"thừa {sorted(found - _LEGACY_MIGRATIONS)}, thiếu {sorted(_LEGACY_MIGRATIONS - found)}"
+        )
+
+    def test_every_sql_file_has_a_known_role(self):
+        strange = [
+            p.name for p in _SQL_DIR.glob("*.sql")
+            if p.name != "schema.sql"
+            and p.name not in _LEGACY_MIGRATIONS
+            and not db.connection._NUMBERED_MIGRATION_RE.match(p.name)
+        ]
+        assert strange == [], (
+            f"File .sql trong sql/ không phải schema.sql, migration cũ, hay NNNN_<mô_tả>.sql "
+            f"(chữ thường/số/gạch dưới): {strange}. File sai tên sẽ KHÔNG bao giờ được chạy."
+        )
+
+    def test_numbered_migrations_unique_and_contiguous_from_0037(self):
+        numbers = sorted(
+            int(db.connection._NUMBERED_MIGRATION_RE.match(p.name).group(1))
+            for p in _SQL_DIR.glob("*.sql")
+            if db.connection._NUMBERED_MIGRATION_RE.match(p.name)
+        )
+        assert numbers == list(range(37, 37 + len(numbers))), (
+            f"Số migration phải liên tục từ 0037, không trùng, không hở. Hiện có: {numbers}"
+        )
+
+    def test_baseline_schema_is_untouched(self):
+        data = (_SQL_DIR / "baseline" / "0036_schema.sql").read_bytes()
+        assert hashlib.sha256(data).hexdigest() == _BASELINE_SHA256, (
+            "sql/baseline/0036_schema.sql đã bị sửa. File này là schema.sql NGUYÊN VĂN tại baseline "
+            "(sau 36 migration cũ) và không được đổi; muốn đổi schema hãy thêm migration NNNN_*.sql "
+            "và cập nhật sql/schema.sql."
+        )

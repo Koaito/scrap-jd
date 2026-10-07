@@ -55,8 +55,8 @@ logger = logging.getLogger(__name__)
 
 
 def cmd_init_db(args):
-    """Dựng/cập nhật schema từ sql/schema.sql, rồi ghi nhận mọi migration_*.sql
-    hiện có là đã áp dụng (schema.sql đã chứa kết quả của chúng), để `migrate`
+    """Dựng/cập nhật schema từ sql/schema.sql, rồi ghi nhận mọi migration (cũ migration_*.sql
+    và mới NNNN_*.sql) hiện có là đã áp dụng (schema.sql đã chứa kết quả của chúng), để `migrate`
     về sau chỉ chạy các migration mới."""
     conn = db.get_connection()
     try:
@@ -139,8 +139,8 @@ def _cmd_migrate_baseline(conn, args):
 
 
 def cmd_migrate(args):
-    """Chạy MỌI migration_*.sql (sql/) chưa được áp dụng cho DB đang
-    kết nối — xem docstring db.apply_migrations()/db.connection để biết
+    """Chạy MỌI migration (sql/: cũ migration_*.sql rồi mới NNNN_*.sql theo số) chưa được áp
+    dụng cho DB đang kết nối — xem docstring db.apply_migrations()/db.connection để biết
     cơ chế tracking (bảng schema_migrations) và lý do an toàn chạy lại
     trên DB đã tồn tại từ trước (mọi migration đều idempotent).
 
@@ -444,7 +444,8 @@ def main():
 
     p_migrate = sub.add_parser(
         "migrate",
-        help="Áp dụng các migration_*.sql (sql/) CHƯA chạy cho DB này (xem sql/README_MIGRATIONS.md)",
+        help="Áp dụng các migration (sql/: migration_*.sql cũ và NNNN_*.sql mới) CHƯA chạy cho DB này "
+             "(xem sql/README_MIGRATIONS.md)",
     )
     p_migrate.add_argument(
         "--check", action="store_true",
