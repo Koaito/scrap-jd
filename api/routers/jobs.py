@@ -260,8 +260,13 @@ def create_job(
     route tự map sang level_id/province_id qua các hàm db.* đã có.
 
     IDEMPOTENT: gọi lại nhiều lần với data y hệt (company_id + job_title
-    + level_code + province_name giống nhau) sẽ KHÔNG tạo job trùng —
-    trả về đúng job đã có (xem db.create_manual_job()).
+    + province_name + level_code giống nhau) sẽ KHÔNG tạo job trùng —
+    trả về đúng job đã có (xem db.create_manual_job()), để nhân viên vào
+    sửa job đó thay vì tạo thêm.
+
+    Cùng công ty + tên job + tỉnh nhưng KHÁC level: vẫn tạo job mới (level
+    do nhân viên chọn nên đáng tin hơn level máy suy ra bên crawl), kèm
+    `similar_jobs` liệt kê các job đang mở giống đó để client cảnh báo.
 
     Response kèm `was_existing` (cùng dạng POST /companies): true = job trả
     về là job CŨ, mọi dữ liệu vừa gửi (lương, deadline, mô tả...) bị bỏ,
@@ -344,9 +349,15 @@ def create_job(
     conn.commit()
 
     row = db_module.get_job_by_id(conn, job_id)
+    # Job đang mở khác cùng khoá (khác level) để client cảnh báo. Đọc sau khi đã
+    # commit, bỏ chính job trả về (job mới tạo, hoặc job cũ khi was_duplicate).
+    similar_jobs = db_module.find_similar_open_jobs(
+        conn, company_id=payload.company_id, job_title=payload.job_title,
+        province_id=province_id, exclude_job_id=job_id,
+    )
     # was_duplicate (đã tính sẵn ở trên) -> was_existing trong response.
     # DB không có cột này nên dựng dict tường minh, giống create_company().
-    return {**row, "was_existing": was_duplicate}
+    return {**row, "was_existing": was_duplicate, "similar_jobs": similar_jobs}
 
 
 @router.patch("/{job_id}", response_model=JobDetailOut)

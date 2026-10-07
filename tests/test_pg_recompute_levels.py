@@ -271,8 +271,9 @@ def test_duplicate_effects_name_the_job_joining_an_existing_group(pg_conn):
 def test_apply_writes_expected_rows_keeps_updated_at_and_changes_hash(pg_conn, capsys):
     ids = _scenario(pg_conn)
     before = _snapshot(pg_conn, ids)
+    # View theo dedup_key (không level): old_title và twin đã cùng khoá từ trước khi đổi level.
     dup_before = db.count_duplicate_job_groups(pg_conn)
-    assert dup_before == 0
+    assert dup_before == 1
 
     assert rl.run(pg_conn, apply=True) == 0
     after = _snapshot(pg_conn, ids)
@@ -300,9 +301,10 @@ def test_apply_writes_expected_rows_keeps_updated_at_and_changes_hash(pg_conn, c
     assert upd.startswith("2020-01-01")
     # Mọi updated_at đều không nhảy.
     assert all(s[4].startswith("2020-01-01") for s in after.values())
-    # old_title nhập nhóm trùng với twin (cùng hash), và báo cáo có nêu.
+    # old_title nhập nhóm cùng content_hash với twin (khoá cũ), và báo cáo có nêu. Nhóm trùng theo
+    # dedup_key thì KHÔNG đổi vì đổi level không đổi khoá.
     assert after["old_title"][5] == after["twin"][5]
-    assert db.count_duplicate_job_groups(pg_conn) == 1
+    assert db.count_duplicate_job_groups(pg_conn) == dup_before == 1
     assert "Job NHẬP vào nhóm trùng mới: 1" in out
 
     # Chạy lại: không còn gì để ghi (job giữ nguyên/bỏ qua vẫn được xét nhưng không ghi).

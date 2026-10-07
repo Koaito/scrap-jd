@@ -83,13 +83,30 @@ class JobDetailOut(JobOut):
 # không có cách nào biết job vừa "tạo" thật sự là job mới hay là job cũ bị
 # trả lại (khi đó toàn bộ lương/deadline/mô tả vừa nhập đều bị bỏ, không ghi
 # đè lên job cũ).
+class SimilarJobOut(BaseModel):
+    """Một job đang mở có cùng khoá chống trùng (công ty + tên job + tỉnh) với job vừa nhập,
+    nhưng KHÁC level (cùng level thì POST /jobs đã trả lại chính job đó, xem was_existing)."""
+    job_id: str
+    job_title: str
+    level_code: Optional[str] = None
+    job_status: str
+    deadline: Optional[date] = None
+
+
 class JobCreateResult(JobDetailOut):
     was_existing: bool = Field(
         description="true = job trả về đã tồn tại từ trước (trùng công ty + "
-                    "tên job + level + tỉnh), request này KHÔNG tạo bản ghi "
+                    "tên job + tỉnh + level), request này KHÔNG tạo bản ghi "
                     "mới và MỌI dữ liệu vừa gửi (lương, deadline, mô tả...) "
                     "đều bị bỏ qua, không ghi đè lên job cũ. false = job vừa "
                     "được tạo mới thật sự.",
+    )
+    similar_jobs: list[SimilarJobOut] = Field(
+        default_factory=list,
+        description="Cảnh báo (A3): các job đang mở KHÁC của cùng công ty, cùng tên job và tỉnh "
+                    "nhưng khác level. POST /jobs vẫn tạo job (level do nhân viên chọn nên cho "
+                    "phép), client nên báo để nhân viên kiểm tra có phải nhập trùng không. "
+                    "Rỗng = không có job giống. Không gồm chính job trả về.",
     )
 
 

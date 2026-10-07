@@ -125,7 +125,8 @@ python main.py recompute-levels --apply    # ghi thật; updated_at giữ nguyê
 Chỉ chọn job chưa đóng dấu hoặc dấu cũ hơn phiên bản hiện tại; không bao giờ đụng dòng
 `manual`; bỏ qua job từng có người sửa (`updated_by`) mà level chưa đóng dấu; job cũ
 không có `level_signals` chỉ đổi level khi tiêu đề nêu rõ cấp. Báo cáo liệt kê job rời/nhập
-nhóm job nghi trùng do `content_hash` đổi (lệnh không tự gộp). Chi tiết xem docstring
+nhóm cùng `content_hash` (khoá cũ, còn gồm level; nhóm trùng theo `dedup_key` không đổi khi đổi
+level; lệnh không tự gộp). Chi tiết xem docstring
 `recompute_levels.py`.
 
 **Báo cáo job nghi trùng** (Phần 3a, chỉ đọc: không ghi DB, không cần migration mới):
@@ -136,9 +137,10 @@ python main.py report-duplicates --show 20        # in 20 nhóm chi tiết cho m
 python main.py report-duplicates --csv trung.csv  # xuất toàn bộ nhóm (mỗi job một dòng) để duyệt tay
 ```
 
-Gom các job cùng công ty và cùng tiêu đề chuẩn hoá (cùng công thức `content_hash`), nên thấy cả
-cặp trùng bị tách nhóm chỉ vì level hoặc tỉnh khác nhau mà `v_duplicate_job_candidates` không
-thấy. Mỗi nhóm được phân tầng (cùng tỉnh+level / khác level / khác tỉnh), chấm độ chắc là trùng
+Gom các job cùng công ty và cùng tiêu đề chuẩn hoá (cùng công thức `dedup_key`). Khoá chống
+trùng `dedup_key` (công ty + tiêu đề + tỉnh, không level) là khoá mà crawler, `POST /jobs` và view
+`v_duplicate_job_candidates` cùng dùng; báo cáo này gom rộng hơn một bậc nên thấy thêm cả cặp
+khác tỉnh (tầng "khác tỉnh") mà view không thấy. Mỗi nhóm được phân tầng (cùng tỉnh+level / khác level / khác tỉnh), chấm độ chắc là trùng
 thật (cao / cần xem / thấp), liệt kê dữ liệu cần bảo vệ khi gộp (người sửa, ghi chú, đơn ứng
 tuyển, lượt lưu, liên hệ) và **đề xuất** job giữ theo luật v0 (chưa phải luật đã chốt). Lệnh
 không gộp, không xoá gì. Chi tiết xem docstring `duplicate_report.py`.

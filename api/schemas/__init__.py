@@ -32,6 +32,7 @@ from api.schemas.jobs import (
     JobOut,
     JobDetailOut,
     JobCreateResult,
+    SimilarJobOut,
     PaginatedJobs,
     ParsedContent,
     JobCreate,
@@ -179,7 +180,7 @@ from api.schemas.messages import (
 
 __all__ = [
     # jobs
-    "JobOut", "JobDetailOut", "JobCreateResult", "PaginatedJobs", "ParsedContent", "JobCreate", "JobUpdate",
+    "JobOut", "JobDetailOut", "JobCreateResult", "SimilarJobOut", "PaginatedJobs", "ParsedContent", "JobCreate", "JobUpdate",
     "JobHealthRow", "JobHealthListItem", "JobHealthBySource", "DuplicateJobGroup", "JobDataHealth",
     # companies
     "CompanyOut", "CompanyDetailOut", "CompanyCreateResult", "PaginatedCompanies", "PartnershipSignals", "CompanyCreate",

@@ -87,20 +87,20 @@ def extend_job_deadline(conn, job_id: str, new_deadline) -> bool:
 
 def find_repost_candidate(conn, *, company_id: str, job_title: str, province_id: Optional[int],
                           level_id: Optional[int] = None) -> Optional[dict]:
-    """Tìm job đã có để coi tin vừa crawl là ĐĂNG LẠI của nó (Phần 3c). Khác
-    find_manual_job_duplicate() (vẫn giữ nguyên cho POST /jobs nhập tay) ở ba điểm,
-    đều rút ra từ dữ liệu job trùng thật (xem README, mục merge-duplicates):
+    """Tìm job đã có để coi tin vừa crawl là ĐĂNG LẠI của nó (Phần 3c). Tra theo khoá chống trùng
+    job_postings.dedup_key (công ty + tiêu đề chuẩn hoá + tỉnh, A3, xem sql/0039_add_job_dedup_key.sql),
+    cùng khoá mà find_manual_job_duplicate() và báo cáo job trùng dùng. Khác find_manual_job_duplicate()
+    (POST /jobs nhập tay) ở hai điểm, đều rút ra từ dữ liệu job trùng thật (xem README, mục
+    merge-duplicates):
 
       1. Xét CẢ job đã CLOSED. Trước đây điều kiện job_status != 'CLOSED' làm tin đăng
          lại của job đã hết hạn/đã đóng sinh ra job mới (khoảng 88% job trùng).
-      2. KHÔNG dùng level trong khoá. Level suy từ số năm kinh nghiệm ở từng trang nên
-         hai lần đăng của cùng một tin hay ra level khác nhau (khoảng 34% job trùng). Cái
-         giá: hai vị trí cùng tên, cùng công ty, cùng tỉnh nhưng khác cấp sẽ bị coi là một.
-      3. Tiêu đề chuẩn hoá giống generate_job_hash(): lower + gộp mọi khoảng trắng liên
-         tiếp (find_manual_job_duplicate chỉ trim hai đầu nên lệch khi tiêu đề có hai dấu
-         cách bên trong).
+      2. KHÔNG xét level. Level suy từ số năm kinh nghiệm ở từng trang nên hai lần đăng của cùng
+         một tin hay ra level khác nhau (khoảng 34% job trùng). Cái giá: hai vị trí cùng tên, cùng
+         công ty, cùng tỉnh nhưng khác cấp sẽ bị coi là một. (Nhập tay thì level do nhân viên
+         chọn nên được xét, xem find_manual_job_duplicate.)
 
-    Tỉnh vẫn nằm trong khoá (IS NOT DISTINCT FROM): tin khác tỉnh có thể là chi nhánh khác.
+    Tỉnh nằm trong khoá (tỉnh NULL là một giá trị riêng): tin khác tỉnh có thể là chi nhánh khác.
 
     Nếu có nhiều job khớp thì chọn: job OPEN trước, rồi job cùng level với tin mới, rồi job
     tạo gần nhất (kết quả xác định, không ngẫu nhiên). `level_id` chỉ dùng để xếp hạng.
@@ -116,10 +116,7 @@ def find_repost_candidate(conn, *, company_id: str, job_title: str, province_id:
             """
             SELECT j.job_id, j.job_status::text, j.level_id, j.deadline, j.closed_reason
               FROM job_postings j
-             WHERE j.company_id = %s
-               AND lower(regexp_replace(trim(j.job_title), '\\s+', ' ', 'g'))
-                   = lower(regexp_replace(trim(%s), '\\s+', ' ', 'g'))
-               AND j.province_id IS NOT DISTINCT FROM %s
+             WHERE j.dedup_key = job_dedup_key(%s::uuid, %s::text, %s::int)
              ORDER BY (j.job_status <> 'OPEN'),
                       (j.level_id IS NOT DISTINCT FROM %s) DESC,
                       j.created_at DESC, j.job_id

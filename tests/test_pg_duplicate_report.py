@@ -7,10 +7,10 @@ file được bỏ qua.
 Chứng minh trên SQL thật:
   - chỉ trả job nằm trong nhóm >= 2 job cùng công ty + cùng tiêu đề chuẩn hoá (khác hoa/thường,
     khoảng trắng thừa vẫn cùng nhóm; công ty khác hoặc tiêu đề khác thì không);
-  - gom được cả cặp khác level / khác tỉnh (khác content_hash) mà view v_duplicate_job_candidates
-    không thấy;
+  - gom được cả cặp khác tỉnh (khác dedup_key) mà view v_duplicate_job_candidates không thấy; cặp
+    chỉ khác level thì cùng dedup_key nên view CÓ thấy (A3: level không còn nằm trong khoá);
   - đếm đúng dữ liệu con (đơn ứng tuyển, lượt lưu), cờ người sửa/ghi chú, URL nguồn trong log;
-  - số nhóm cùng hash tính ở Python khớp số dòng của view;
+  - số nhóm cùng dedup_key tính ở Python khớp số dòng của view;
   - CHỈ ĐỌC: chạy xong không đổi dữ liệu và không đổi updated_at.
 """
 import os
@@ -139,11 +139,11 @@ def test_title_normalization_matches_hash_formula(pg_conn):
     rows = _by_id(db.list_duplicate_job_rows(pg_conn))
     assert set(rows) == {j1, j2}
     assert rows[j1]["norm_title"] == rows[j2]["norm_title"]
-    # Hai job này cũng cùng content_hash (cùng khoá với trigger), nên chính là một nhóm của view.
-    assert rows[j1]["content_hash"] == rows[j2]["content_hash"]
+    # Hai job này cũng cùng dedup_key (khoá do trigger tính), nên chính là một nhóm của view.
+    assert rows[j1]["dedup_key"] == rows[j2]["dedup_key"]
 
 
-def test_groups_split_by_level_or_province_are_found_but_not_in_the_view(pg_conn):
+def test_cross_province_pairs_are_found_but_not_in_the_view_and_level_pairs_are(pg_conn):
     p1, p2 = _province_ids(pg_conn)
     c = _company(pg_conn)
     l1 = _job(pg_conn, c, "Business Analyst", level="Junior", province_id=p1)
@@ -153,7 +153,8 @@ def test_groups_split_by_level_or_province_are_found_but_not_in_the_view(pg_conn
     v2 = _job(pg_conn, c2, "Kế toán", level="Junior", province_id=p2)           # khác tỉnh
     rows = db.list_duplicate_job_rows(pg_conn)
     assert {r["job_id"] for r in rows} == {l1, l2, v1, v2}
-    assert db.count_duplicate_job_groups(pg_conn) == 0  # view cũ không thấy (hash khác nhau)
+    # View theo dedup_key (không level): cặp khác level cùng khoá nên view thấy, cặp khác tỉnh thì không.
+    assert db.count_duplicate_job_groups(pg_conn) == 1
 
     by_title = {g.title: g for g in dr.build_groups(rows)}
     assert by_title["Business Analyst"].tier == dr.TIER_LEVEL
@@ -208,16 +209,19 @@ def test_statuses_deadlines_and_company_fields_are_returned(pg_conn):
 
 
 # ------------------------------------------------------------------ đối chiếu view + chỉ đọc
-def test_hash_group_count_matches_view_row_count(pg_conn):
+def test_key_group_count_matches_view_row_count(pg_conn):
+    p1, p2 = _province_ids(pg_conn)
     c = _company(pg_conn)
     for _ in range(3):
-        _job(pg_conn, c, "Sales Executive")           # nhóm 3 job cùng hash
+        _job(pg_conn, c, "Sales Executive", province_id=p1)           # nhóm 3 job cùng khoá
     c2 = _company(pg_conn)
-    _job(pg_conn, c2, "Marketing")
-    _job(pg_conn, c2, "Marketing")                    # nhóm 2 job cùng hash
-    _job(pg_conn, c2, "Marketing", level="Senior")    # cùng nhóm lỏng, khác hash
+    _job(pg_conn, c2, "Marketing", province_id=p1)
+    _job(pg_conn, c2, "Marketing", province_id=p1)                    # nhóm 2 job cùng khoá
+    _job(pg_conn, c2, "Marketing", province_id=p1, level="Senior")    # khác level: vẫn cùng khoá
+    _job(pg_conn, c2, "Marketing", province_id=p2)                    # cùng nhóm lỏng, khác khoá (khác tỉnh)
     rows = db.list_duplicate_job_rows(pg_conn)
-    assert dr.count_hash_groups(rows) == db.count_duplicate_job_groups(pg_conn) == 2
+    assert len(rows) == 7                                             # báo cáo thấy cả job khác tỉnh
+    assert dr.count_key_groups(rows) == db.count_duplicate_job_groups(pg_conn) == 2
 
 
 def test_run_is_read_only_and_reports(pg_conn, capsys, tmp_path):

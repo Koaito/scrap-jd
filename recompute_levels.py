@@ -27,8 +27,10 @@ AN TOÀN:
   - Mặc định CHẠY THỬ (không ghi). Thêm --apply mới ghi.
   - updated_at KHÔNG nhảy: ghi trong transaction bật cờ app.skip_updated_at (cần đã chạy
     `python main.py migrate`; --apply tự kiểm tra và từ chối nếu thiếu). Không khoá bảng.
-  - content_hash vẫn được tính lại (level nằm trong hash). Lệnh in danh sách job rời/nhập
-    nhóm job nghi trùng (v_duplicate_job_candidates) do đổi level; KHÔNG tự gộp.
+  - content_hash vẫn được tính lại (level còn nằm trong hash này). Nhóm job nghi trùng theo
+    khoá chống trùng (dedup_key, view v_duplicate_job_candidates) KHÔNG đổi khi đổi level vì
+    khoá không gồm level. Lệnh vẫn in job rời/nhập nhóm cùng content_hash (khoá cũ) để tham
+    khảo; KHÔNG tự gộp.
   - Ghi theo lô (mỗi lô một transaction). Bị ngắt giữa chừng thì lô đã commit vẫn giữ,
     chạy lại sẽ tiếp tục vì job đã xong không còn được chọn.
   - Ghi kiểu so-sánh-rồi-ghi: job bị crawl/người sửa giữa lúc chọn và lúc ghi sẽ được
@@ -102,7 +104,8 @@ def build_plans(rows: list, rule_version: int = normalize.LEVEL_RULE_VERSION) ->
 
 
 def simulate_group_effects(members: dict, moves: list) -> dict:
-    """Ảnh hưởng của việc đổi level lên nhóm job nghi trùng (cùng content_hash).
+    """Ảnh hưởng của việc đổi level lên nhóm cùng content_hash (khoá cũ, còn gồm level; không còn là
+    tiêu chí job trùng từ A3, chỉ để tham khảo).
 
     members: {content_hash: {job_id: job_title}} — job HIỆN CÓ mang các hash liên quan.
     moves:   [{job_id, job_title, old_hash, new_hash}] — job đổi hash do đổi level.
@@ -208,7 +211,7 @@ def print_report(summary: Summary, effects: Optional[dict], *, apply: bool, rule
             print(f"  {_short(row['job_id'])} {row['job_title'][:60]} (level hiện tại {row.get('level_code')})")
 
     if effects is not None:
-        print("\nẢnh hưởng tới nhóm job nghi trùng (content_hash đổi vì level nằm trong hash):")
+        print("\nẢnh hưởng tới nhóm cùng content_hash (khoá cũ, còn gồm level; nhóm trùng theo dedup_key không đổi khi đổi level):")
         print(f"  Nhóm trùng bị đụng tới: trước = {effects['groups_before']}, sau = {effects['groups_after']}")
         print(f"  Job RỜI nhóm trùng cũ: {len(effects['left'])}")
         for e in effects["left"][:show]:
@@ -219,7 +222,7 @@ def print_report(summary: Summary, effects: Optional[dict], *, apply: bool, rule
             print(f"    {_short(e['job_id'])} {e['job_title'][:50]} (trùng với "
                   f"{', '.join(_short(o) for o in e['others'][:5])})")
         if effects["left"] or effects["joined"]:
-            print("  Lệnh này KHÔNG tự gộp job trùng; kiểm tra các nhóm trên bằng v_duplicate_job_candidates.")
+            print("  Lệnh này KHÔNG tự gộp job. Các nhóm trên là nhóm cùng content_hash (khoá cũ), không phải nhóm trùng theo dedup_key.")
 
     if apply:
         print(f"\nĐã ghi: {written} job. updated_at giữ nguyên (cờ {SKIP_UPDATED_AT_SETTING}).")

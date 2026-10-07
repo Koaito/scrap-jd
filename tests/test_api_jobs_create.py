@@ -13,7 +13,7 @@ route, mock `api.routers.jobs.db_module`, không qua HTTP/DB thật.
 import uuid
 from unittest.mock import patch
 
-from api.schemas import JobCreate, JobCreateResult, JobDetailOut
+from api.schemas import JobCreate, JobCreateResult, JobDetailOut, SimilarJobOut
 
 
 def _job_row(job_id: str, company_id: str) -> dict:
@@ -29,7 +29,7 @@ def _job_row(job_id: str, company_id: str) -> dict:
     }
 
 
-def _call_create(mock_conn, ss_team_user, *, duplicate: bool):
+def _call_create(mock_conn, ss_team_user, *, duplicate: bool, similar=None):
     from api.routers.jobs import create_job
 
     company_id = str(uuid.uuid4())
@@ -43,6 +43,7 @@ def _call_create(mock_conn, ss_team_user, *, duplicate: bool):
             {"job_id": job_id} if duplicate else None
         )
         mock_db.create_manual_job.return_value = job_id
+        mock_db.find_similar_open_jobs.return_value = similar or []
         mock_db.get_job_by_id.return_value = _job_row(job_id, company_id)
 
         result = create_job(
@@ -82,3 +83,33 @@ def test_job_create_result_extends_job_detail_out_only_for_post():
     assert issubclass(JobCreateResult, JobDetailOut)
     assert "was_existing" in JobCreateResult.model_fields
     assert "was_existing" not in JobDetailOut.model_fields
+
+
+def test_create_job_without_similar_jobs_returns_empty_list(mock_conn, ss_team_user):
+    result, mock_db = _call_create(mock_conn, ss_team_user, duplicate=False)
+
+    assert result["similar_jobs"] == []
+    # bỏ chính job trả về khi tìm job giống, tìm theo đúng khoá (công ty, tên job, tỉnh)
+    kwargs = mock_db.find_similar_open_jobs.call_args.kwargs
+    assert kwargs["exclude_job_id"] == result["job_id"]
+    assert kwargs["job_title"] == "Data Analyst" and kwargs["province_id"] == 7
+    assert "level_id" not in kwargs
+
+
+def test_create_job_warns_about_similar_open_jobs_of_another_level(mock_conn, ss_team_user):
+    other = {"job_id": str(uuid.uuid4()), "job_title": "Data Analyst", "level_code": "Senior",
+             "job_status": "OPEN", "deadline": None}
+    result, mock_db = _call_create(mock_conn, ss_team_user, duplicate=False, similar=[other])
+
+    # vẫn tạo job mới (level do nhân viên chọn), kèm cảnh báo
+    assert result["was_existing"] is False
+    assert result["similar_jobs"] == [other]
+    mock_db.create_manual_job.assert_called_once()
+    mock_db.log_action.assert_called_once()
+    # từng phần tử khớp schema SimilarJobOut của response
+    assert SimilarJobOut(**result["similar_jobs"][0]).level_code == "Senior"
+
+
+def test_job_create_result_similar_jobs_is_optional_and_only_on_post():
+    assert JobCreateResult.model_fields["similar_jobs"].default_factory is list
+    assert "similar_jobs" not in JobDetailOut.model_fields

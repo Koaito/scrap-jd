@@ -6,15 +6,15 @@ MỤC ĐÍCH: có số liệu thật để quyết luật chọn job giữ khi g
 viết bất kỳ lệnh ghi nào. Báo cáo KHÔNG gộp, KHÔNG xoá, KHÔNG đổi gì.
 
 NHÓM NGHI TRÙNG: các job cùng company_id và cùng tiêu đề chuẩn hoá (lower + gộp khoảng
-trắng, đúng công thức của generate_job_hash). Khác v_duplicate_job_candidates (gom theo
-content_hash, tức cả level và tỉnh nằm trong khoá), cách này thấy được cả cặp trùng bị tách
-nhóm chỉ vì level hoặc tỉnh khác nhau. Mọi trạng thái job (OPEN/CLOSED) đều được xét, giống
-view.
+trắng, đúng công thức của job_dedup_key). Khoá chống trùng của job (dedup_key, A3) là công ty
++ tiêu đề + tỉnh, không level; v_duplicate_job_candidates gom đúng theo khoá đó. Báo cáo này
+gom rộng hơn một bậc (bỏ cả tỉnh) để thấy thêm các cặp khác tỉnh, xếp riêng ở tầng "province".
+Mọi trạng thái job (OPEN/CLOSED) đều được xét, giống view.
 
 PHÂN LOẠI (mỗi nhóm):
-  - tầng (tier): strict = cùng tỉnh và cùng level (cùng content_hash, chính là khoá mà
-    pipeline coi là "đăng lại"); level = cùng tỉnh, khác level; province = khác tỉnh (dễ là
-    tin riêng của từng chi nhánh, không đề xuất gộp).
+  - tầng (tier): strict = cùng tỉnh và cùng level; level = cùng tỉnh, khác level (strict và
+    level đều là cùng dedup_key, chính là khoá mà pipeline coi là "đăng lại"); province = khác
+    tỉnh (khác dedup_key, dễ là tin riêng của từng chi nhánh, không đề xuất gộp).
   - độ chắc: cao / cần xem / thấp, theo tầng, có chung URL nguồn không, có >= 2 tin cùng
     đang OPEN không (xem confidence()).
   - dữ liệu cần bảo vệ khi gộp: job từng có người sửa, ghi chú, đơn ứng tuyển, lượt lưu,
@@ -37,16 +37,16 @@ import db
 
 logger = logging.getLogger(__name__)
 
-TIER_STRICT = "strict"      # cùng tỉnh, cùng level (cùng content_hash)
-TIER_LEVEL = "level"        # cùng tỉnh, khác level
-TIER_PROVINCE = "province"  # khác tỉnh
+TIER_STRICT = "strict"      # cùng tỉnh, cùng level
+TIER_LEVEL = "level"        # cùng tỉnh, khác level (vẫn cùng dedup_key)
+TIER_PROVINCE = "province"  # khác tỉnh (khác dedup_key)
 
 CONF_HIGH = "cao"
 CONF_REVIEW = "cần xem"
 CONF_LOW = "thấp"
 
 TIER_LABELS = {
-    TIER_STRICT: "cùng tỉnh + cùng level (cùng content_hash)",
+    TIER_STRICT: "cùng tỉnh + cùng level",
     TIER_LEVEL: "cùng tỉnh, KHÁC level",
     TIER_PROVINCE: "KHÁC tỉnh",
 }
@@ -130,7 +130,7 @@ def confidence(tier: str, open_count: int, shared_url: bool) -> str:
       - khác tỉnh: thấp (dễ là tin riêng từng chi nhánh); nếu còn chung URL nguồn thì cần xem;
       - chung URL nguồn: cao;
       - khác level: cần xem (level gán sai/đổi theo thời gian, hoặc hai vị trí khác cấp);
-      - cùng khoá content_hash: cao nếu <= 1 tin đang mở (đăng lại / chéo nguồn, đúng loại pipeline
+      - cùng tỉnh và cùng level: cao nếu <= 1 tin đang mở (đăng lại / chéo nguồn, đúng loại pipeline
         đã coi là một job); cần xem nếu >= 2 tin cùng đang mở (có thể là hai vị trí khác nhau)."""
     if tier == TIER_PROVINCE:
         return CONF_REVIEW if shared_url else CONF_LOW
@@ -251,21 +251,21 @@ def build_groups(rows: list) -> list:
     return groups
 
 
-def count_hash_groups(rows: list) -> int:
-    """Số content_hash có >= 2 job trong `rows`: phải bằng số dòng của
+def count_key_groups(rows: list) -> int:
+    """Số dedup_key có >= 2 job trong `rows`: phải bằng số dòng của
     v_duplicate_job_candidates (dùng để đối chiếu hai cách đếm)."""
-    return sum(1 for n in Counter(r["content_hash"] for r in rows).values() if n >= 2)
+    return sum(1 for n in Counter(r["dedup_key"] for r in rows).values() if n >= 2)
 
 
 class Summary:
     """Số liệu tổng hợp từ danh sách nhóm để in báo cáo."""
 
     def __init__(self, groups: list, *, total_jobs: int, jobs_in_groups: int,
-                 hash_groups: int, view_groups: Optional[int]):
+                 key_groups: int, view_groups: Optional[int]):
         self.total_jobs = total_jobs
         self.jobs_in_groups = jobs_in_groups
         self.groups = len(groups)
-        self.hash_groups = hash_groups
+        self.key_groups = key_groups
         self.view_groups = view_groups
         self.by_tier: Counter = Counter(g.tier for g in groups)
         self.by_conf: Counter = Counter(g.confidence for g in groups)
@@ -323,11 +323,11 @@ def print_report(summary: Summary, groups: list, *, show: int = DEFAULT_SHOW) ->
     print(f"Nhóm nghi trùng (cùng công ty + tiêu đề chuẩn hoá): {s.groups}, gồm {s.jobs_in_groups} job "
           f"(nếu mỗi nhóm giữ một thì dư {s.extra_jobs} job)")
     if s.view_groups is None:
-        print(f"  Đối chiếu view v_duplicate_job_candidates: không đọc được (tính lại: {s.hash_groups} nhóm cùng hash)")
+        print(f"  Đối chiếu view v_duplicate_job_candidates: không đọc được (tính lại: {s.key_groups} nhóm cùng khoá)")
     else:
-        status = "khớp" if s.view_groups == s.hash_groups else "LỆCH (có thể do job đổi giữa hai lần đọc, chạy lại)"
+        status = "khớp" if s.view_groups == s.key_groups else "LỆCH (có thể do job đổi giữa hai lần đọc, chạy lại)"
         print(f"  Đối chiếu view v_duplicate_job_candidates: view = {s.view_groups}, "
-              f"tính lại ở đây = {s.hash_groups} nhóm cùng hash ({status})")
+              f"tính lại ở đây = {s.key_groups} nhóm cùng khoá ({status})")
 
     print("\nTheo tầng:")
     for tier in (TIER_STRICT, TIER_LEVEL, TIER_PROVINCE):
@@ -407,7 +407,7 @@ def run(conn, *, show: int = DEFAULT_SHOW, csv_path: Optional[str] = None) -> in
 
     groups = build_groups(rows)
     summary = Summary(groups, total_jobs=total_jobs, jobs_in_groups=len(rows),
-                      hash_groups=count_hash_groups(rows), view_groups=view_groups)
+                      key_groups=count_key_groups(rows), view_groups=view_groups)
     print_report(summary, groups, show=show)
     if csv_path:
         n = export_csv(groups, csv_path)

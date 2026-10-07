@@ -240,14 +240,25 @@ response — 2 field này chỉ có ý nghĩa với học viên (`user`).
 
 `company_id` phải đã tồn tại (tạo trước bằng `POST /companies` nếu chưa
 có) — route KHÔNG tự tạo company kèm job. Gọi lại nhiều lần với data y
-hệt (cùng company_id + job_title + level_code + province_name) sẽ KHÔNG
-tạo job trùng — trả về job đã có.
+hệt (cùng company_id + job_title + province_name + level_code) sẽ KHÔNG
+tạo job trùng — trả về job đã có, để nhân viên vào sửa job đó thay vì tạo
+thêm. Job đã `CLOSED` không tính.
+
+Cùng công ty + tên job + tỉnh nhưng **khác level** thì vẫn tạo job mới (level
+do nhân viên chọn nên đáng tin hơn level máy suy ra bên crawl), kèm cảnh báo
+ở `similar_jobs` bên dưới.
 
 Response là `JobDetailOut` kèm thêm `was_existing: bool` (thêm 09/2026,
 cùng dạng `POST /companies`): `true` = job trả về là job **cũ**, mọi dữ
 liệu vừa gửi (lương, deadline, mô tả...) bị bỏ, KHÔNG ghi đè lên job cũ —
 client nên báo cho người dùng thay vì hiện "đã tạo". `false` = job vừa
 được tạo mới thật sự. Status vẫn `201` ở cả hai trường hợp.
+
+Response còn có `similar_jobs` (thêm 10/2026, A3): danh sách các job **đang mở khác**
+(không gồm job trả về) cùng công ty, cùng tên job và tỉnh nhưng khác level, mỗi phần tử
+`{job_id, job_title, level_code, job_status, deadline}`. Mảng rỗng = không có job giống.
+Client nên hiện cảnh báo để nhân viên kiểm tra có nhập trùng không. Đây là trường mới,
+không phá client cũ (client cũ bỏ qua).
 
 `salary_period`: `"MONTH"` (mặc định) | `"YEAR"`. **Job nhập tay KHÔNG
 tự suy luận được field này** như job crawl — nếu nhập lương NĂM, **phải

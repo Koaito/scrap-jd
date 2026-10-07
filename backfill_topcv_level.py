@@ -39,9 +39,10 @@ xác nhận level hiện tại đúng) được ghi vào file trạng thái (m�
 .backfill_topcv_level.done) để lần sau bỏ qua. Job chỉ suy từ chữ mà không đổi
 được thì KHÔNG ghi, để lần chạy có tải trang sau thử lại. --reset-state xoá file.
 
-LƯU Ý TRÙNG LẶP: đổi level_id làm trigger set_job_hash tính lại content_hash,
-nên hai job cũ có thể thành "cùng khoá" (company + title + level + province).
-Script KHÔNG tự gộp, chỉ in số nhóm trong v_duplicate_job_candidates trước/sau.
+LƯU Ý TRÙNG LẶP: đổi level_id làm trigger set_job_hash tính lại content_hash (khoá cũ,
+còn gồm level). Khoá chống trùng hiện hành (dedup_key = company + title + province) không
+gồm level nên nhóm job nghi trùng KHÔNG đổi vì việc này. Script KHÔNG tự gộp, chỉ in số
+nhóm trong v_duplicate_job_candidates trước/sau (kỳ vọng bằng nhau).
 """
 
 import argparse

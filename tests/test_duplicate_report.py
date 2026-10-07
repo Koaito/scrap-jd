@@ -24,7 +24,7 @@ def _row(job_id, *, company="c1", title="Business Analyst", level="Junior", prov
         "province_id": province, "province_name": f"T{province}" if province else None,
         "job_status": status, "created_at": created, "deadline": deadline, "salary_min": None,
         "salary_max": None, "source_url": url if url is not None else f"https://www.topcv.vn/{job_id}",
-        "content_hash": h or f"h-{company}-{level}-{province}", "has_editor": editor, "has_notes": notes,
+        "dedup_key": h or f"k-{company}-{' '.join(title.lower().split())}-{province}", "has_editor": editor, "has_notes": notes,
         "log_urls": log_urls or [], "n_applications": apps, "n_saved": saved, "n_contact_links": contacts,
     }
 
@@ -177,10 +177,17 @@ def test_build_groups_sorted_by_confidence_then_tier_then_size():
     assert [g.confidence for g in dr.build_groups(rows)] == [CONF_HIGH, CONF_REVIEW, CONF_LOW]
 
 
-def test_count_hash_groups_matches_view_definition():
+def test_count_key_groups_matches_view_definition():
     rows = [_row("a", h="H1"), _row("b", h="H1"), _row("c", h="H2"), _row("d", h="H2"), _row("e", h="H2"),
             _row("f", h="H3")]
-    assert dr.count_hash_groups(rows) == 2  # H1 và H2; H3 chỉ một job (khác level/tỉnh)
+    assert dr.count_key_groups(rows) == 2  # H1 và H2; H3 chỉ một job (khác tỉnh)
+
+
+def test_default_key_ignores_level_but_not_province():
+    """Khoá mặc định của helper phản ánh dedup_key: bỏ level, phân biệt tỉnh."""
+    rows = [_row("a", level="Junior"), _row("b", level="Senior"), _row("c", level="Junior", province=2)]
+    assert rows[0]["dedup_key"] == rows[1]["dedup_key"] != rows[2]["dedup_key"]
+    assert dr.count_key_groups(rows) == 1
 
 
 def test_summary_counts():
@@ -188,7 +195,7 @@ def test_summary_counts():
         _row("a1", company="a", status="CLOSED", title="X", apps=1), _row("a2", company="a", title="X"),
         _row("b1", company="b", province=1, title="X"), _row("b2", company="b", province=2, title="X"),
     ])
-    s = dr.Summary(groups, total_jobs=10, jobs_in_groups=4, hash_groups=0, view_groups=0)
+    s = dr.Summary(groups, total_jobs=10, jobs_in_groups=4, key_groups=0, view_groups=0)
     assert s.groups == 2 and s.extra_jobs == 2
     assert s.by_tier[TIER_STRICT] == 1 and s.by_tier[TIER_PROVINCE] == 1
     assert (s.single_open, s.multi_open) == (1, 1)  # a: 1 OPEN + 1 CLOSED; b: cả hai OPEN
@@ -203,7 +210,7 @@ def test_print_report_contains_key_sections_and_tolerates_missing_fields(capsys)
     groups = dr.build_groups([_row("a1", company="a", title="X"), _row("a2", company="a", title="X"),
                               dict(sparse, company_id="s", norm_title="y"), dict(sparse, company_id="s", norm_title="y",
                                                                                  job_id="zz2")])
-    s = dr.Summary(groups, total_jobs=100, jobs_in_groups=4, hash_groups=2, view_groups=2)
+    s = dr.Summary(groups, total_jobs=100, jobs_in_groups=4, key_groups=2, view_groups=2)
     dr.print_report(s, groups, show=5)
     out = capsys.readouterr().out
     assert "BÁO CÁO JOB NGHI TRÙNG" in out and "khớp" in out
@@ -213,7 +220,7 @@ def test_print_report_contains_key_sections_and_tolerates_missing_fields(capsys)
 
 def test_print_report_flags_view_mismatch_and_show_zero_prints_no_groups(capsys):
     groups = dr.build_groups([_row("a1", title="X"), _row("a2", title="X")])
-    s = dr.Summary(groups, total_jobs=2, jobs_in_groups=2, hash_groups=1, view_groups=5)
+    s = dr.Summary(groups, total_jobs=2, jobs_in_groups=2, key_groups=1, view_groups=5)
     dr.print_report(s, groups, show=0)
     out = capsys.readouterr().out
     assert "LỆCH" in out and "Độ chắc \"cao\"" not in out and "tầng: strict" not in out

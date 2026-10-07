@@ -311,43 +311,69 @@ def count_jobs(conn) -> int:
 def find_manual_job_duplicate(conn, *, company_id: str, job_title: str,
                                level_id: Optional[int],
                                province_id: Optional[int]) -> Optional[str]:
-    """Tìm job đã tồn tại TRÙNG (company_id, job_title, level_id,
-    province_id) — CÙNG bộ khoá mà trigger Postgres generate_job_hash()
-    dùng để tính content_hash (xem sql/schema.sql mục 5) — dùng để chống
-    trùng khi POST /jobs bị gọi nhiều lần với data y hệt.
+    """Tìm job CHƯA đóng mà POST /jobs nên coi là "đúng cái đó rồi": cùng khoá chống trùng
+    (job_postings.dedup_key = công ty + tiêu đề chuẩn hoá + tỉnh, xem sql/0039_add_job_dedup_key.sql)
+    VÀ cùng level. Dùng để chống tạo trùng khi POST /jobs bị gọi nhiều lần với data y hệt.
 
-    TẠI SAO CẦN HÀM RIÊNG (không tái dùng job_exists_by_source_url() có
-    sẵn): job crawl chống trùng theo source_url (link JD gốc, ổn định,
-    duy nhất) — nhưng job NHẬP TAY qua create_manual_job() không có link
-    gốc thật, source_url tự sinh NGẪU NHIÊN mỗi lần gọi
-    ("manual://<uuid4-mới>") NÊN LUÔN LUÔN KHÁC NHAU -> cơ chế chống
-    trùng theo source_url KHÔNG BAO GIỜ bắt được job nhập tay bị gửi lặp
-    (vd người dùng bấm "Execute" trên Swagger nhiều lần, hoặc double-
-    click nút Submit ở frontend sau này) -> mỗi lần bấm tạo 1 job_id mới
-    dù nội dung y hệt (phát hiện qua test thật 08/2026).
+    TẠI SAO CẦN HÀM RIÊNG (không tái dùng job_exists_by_source_url()): job nhập tay không có link
+    gốc, source_url tự sinh NGẪU NHIÊN mỗi lần ("manual://<uuid4-mới>"), nên chống trùng theo
+    source_url không bao giờ bắt được job nhập tay bị gửi lặp (bấm Execute nhiều lần, double-click
+    Submit...).
 
-    So khớp job_title không phân biệt hoa/thường + bỏ khoảng trắng thừa
-    (giống cách content_hash chuẩn hoá) — level_id/province_id dùng
-    IS NOT DISTINCT FROM để so khớp đúng cả trường hợp NULL (khác NULL
-    != NULL thông thường của SQL, nếu dùng = thường sẽ luôn False khi 1
-    trong 2 bên NULL, bỏ sót trường hợp cả 2 cùng thiếu level/province).
+    Khác khoá của crawler ở ĐÚNG MỘT điểm, có chủ đích: level. Crawler không dùng level vì level do
+    máy suy ra nên không đủ tin cậy làm danh tính. Nhập tay thì level do nhân viên chọn, nên cùng
+    khoá nhưng KHÁC level được phép tạo job mới (create_job báo qua find_similar_open_jobs); cùng
+    khoá và cùng level thì trả lại job cũ, để nhân viên vào sửa job đó thay vì tạo thêm.
 
-    Trả về job_id đã có (str) nếu tìm thấy trùng, None nếu chưa có."""
+    Tiêu đề chuẩn hoá (lower + gộp khoảng trắng) và tỉnh NULL do job_dedup_key() lo, nên không còn
+    lệch với find_repost_candidate như trước (hàm này từng chỉ trim hai đầu). level_id so bằng
+    IS NOT DISTINCT FROM để cả hai cùng thiếu level vẫn khớp. Job CLOSED không tính: cho phép tạo
+    lại job y hệt khi job cũ đã bị đóng có chủ đích. Nhiều job khớp thì lấy job tạo sớm nhất (kết
+    quả xác định).
+
+    Trả về job_id đã có (str) nếu tìm thấy, None nếu chưa có."""
     with conn.cursor() as cur:
         cur.execute(
             """
             SELECT job_id FROM job_postings
-            WHERE company_id = %s
-              AND lower(trim(job_title)) = lower(trim(%s))
+            WHERE dedup_key = job_dedup_key(%s::uuid, %s::text, %s::int)
               AND level_id IS NOT DISTINCT FROM %s
-              AND province_id IS NOT DISTINCT FROM %s
               AND job_status != 'CLOSED'
+            ORDER BY created_at, job_id
             LIMIT 1
             """,
-            (company_id, job_title, level_id, province_id),
+            (company_id, job_title, province_id, level_id),
         )
         row = cur.fetchone()
         return str(row[0]) if row else None
+
+
+def find_similar_open_jobs(conn, *, company_id: str, job_title: str,
+                           province_id: Optional[int],
+                           exclude_job_id: Optional[str] = None) -> list:
+    """Các job CHƯA đóng cùng khoá chống trùng (dedup_key) với job vừa nhập, mọi level, để POST /jobs
+    cảnh báo "đã có job giống" cho nhân viên. Chỉ đọc, không đóng transaction.
+
+    exclude_job_id: bỏ job này ra (chính job vừa tạo hoặc vừa được trả lại). Mỗi phần tử là dict
+    {job_id, job_title, level_code, job_status, deadline}, cũ nhất trước. Rỗng nếu không có job nào."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT j.job_id, j.job_title, l.level_code, j.job_status::text, j.deadline
+              FROM job_postings j
+              LEFT JOIN levels l ON l.level_id = j.level_id
+             WHERE j.dedup_key = job_dedup_key(%s::uuid, %s::text, %s::int)
+               AND j.job_status != 'CLOSED'
+               AND (%s::uuid IS NULL OR j.job_id != %s::uuid)
+             ORDER BY j.created_at, j.job_id
+            """,
+            (company_id, job_title, province_id, exclude_job_id, exclude_job_id),
+        )
+        return [
+            {"job_id": str(r[0]), "job_title": r[1], "level_code": r[2],
+             "job_status": r[3], "deadline": r[4]}
+            for r in cur.fetchall()
+        ]
 
 
 def create_manual_job(conn, *, job_title: str, company_id: str,
@@ -369,9 +395,11 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
     job_sources_log.
 
     IDEMPOTENT (08/2026, vá bug trùng job — xem find_manual_job_duplicate()):
-    kiểm tra trùng TRƯỚC khi insert — nếu đã có job cùng (company_id,
-    job_title, level_id, province_id) VÀ CHƯA bị đóng (job_status !=
-    'CLOSED'), trả về job_id ĐÃ CÓ đó thay vì tạo mới. An toàn khi bấm
+    kiểm tra trùng TRƯỚC khi insert — nếu đã có job cùng khoá chống trùng
+    (company_id + tiêu đề + tỉnh, job_postings.dedup_key) VÀ cùng level_id VÀ
+    CHƯA bị đóng (job_status != 'CLOSED'), trả về job_id ĐÃ CÓ đó thay vì tạo
+    mới. Cùng khoá nhưng KHÁC level thì vẫn tạo mới (route POST /jobs cảnh báo
+    bằng find_similar_open_jobs). An toàn khi bấm
     "Execute"/Submit nhiều lần với data y hệt (double-click, F5, gọi lại
     do timeout tưởng lỗi...). Chỉ bỏ qua job đã CLOSED khi so khớp — cho
     phép tạo lại 1 job y hệt title/company nếu job cũ đã bị đóng có chủ

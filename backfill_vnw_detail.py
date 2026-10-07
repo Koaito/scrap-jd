@@ -50,10 +50,10 @@ TIẾN ĐỘ: với --apply, job đã xử lý xong được ghi vào file trạ
 (mặc định .backfill_vnw_detail.done) để lần chạy sau bỏ qua; dùng --reset-state
 để xoá. Dry-run không ghi file này.
 
-LƯU Ý TRÙNG LẶP: đổi level_id làm trigger set_job_hash tính lại content_hash.
-Không có ràng buộc UNIQUE nên không lỗi, nhưng hai job cũ có thể trở thành "cùng
-khoá" (company + title + level + province). Script KHÔNG tự gộp, chỉ in số nhóm
-trong view v_duplicate_job_candidates trước và sau để bạn so sánh.
+LƯU Ý TRÙNG LẶP: đổi level_id làm trigger set_job_hash tính lại content_hash (khoá cũ,
+còn gồm level). Khoá chống trùng hiện hành (dedup_key = company + title + province) không
+gồm level nên nhóm job nghi trùng KHÔNG đổi vì việc này. Script KHÔNG tự gộp, chỉ in số
+nhóm trong view v_duplicate_job_candidates trước và sau (kỳ vọng bằng nhau).
 """
 
 import argparse

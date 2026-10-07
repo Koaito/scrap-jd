@@ -636,14 +636,16 @@ FOR EACH ROW EXECUTE FUNCTION trg_set_job_dedup_key();
 -- 6. VIEW hỗ trợ — tìm job nghi ngờ trùng lặp
 -- ============================================================
 
+-- Gom theo dedup_key (công ty + tiêu đề chuẩn hoá + tỉnh, không level), xem
+-- sql/0040_dedup_key_duplicate_view.sql.
 CREATE OR REPLACE VIEW v_duplicate_job_candidates AS
 SELECT
-    content_hash,
+    dedup_key,
     array_agg(job_id ORDER BY created_at) AS job_ids,
     array_agg(job_title ORDER BY created_at) AS job_titles,
     count(*) AS num_duplicates
 FROM job_postings
-GROUP BY content_hash
+GROUP BY dedup_key
 HAVING count(*) > 1;
 
 -- ============================================================
