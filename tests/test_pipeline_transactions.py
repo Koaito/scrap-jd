@@ -38,6 +38,9 @@ WRITE_FUNCS = {
     "get_or_create_company_by_profile", "update_company_profile",
     "link_repost_source", "extend_job_deadline", "reopen_job_for_repost", "insert_job",
     "update_job_from_recrawl",
+    # Giành khoá advisory cấp transaction (A4): không ghi dữ liệu nhưng giữ transaction mở tới
+    # commit/rollback của nhánh, nên coi như ghi: nhánh nào gọi nó phải tự commit ở cuối.
+    "lock_job_dedup_key",
 }
 
 FULL_DETAIL = {
@@ -120,6 +123,9 @@ class FakeDB:
         return list(self._code_rows)
 
     # --- ghi
+    def lock_job_dedup_key(self, conn, *a, **k):
+        return self._write("lock_job_dedup_key", conn)
+
     def update_job_fields(self, conn, *a, **k):
         return self._write("update_job_fields", conn)
 
@@ -289,6 +295,8 @@ def test_company_page_not_fetched_no_extra_rollback(monkeypatch):
 @pytest.mark.parametrize("fail_on,probe,duplicate", [
     ("get_or_create_province", None, None),
     ("get_or_create_company_by_profile", None, None),
+    ("lock_job_dedup_key", None, None),            # A4: hết thời gian chờ khoá chống trùng (job mới)
+    ("lock_job_dedup_key", None, "old-job"),       # A4: như trên, nhánh sẽ là tin đăng lại
     ("insert_job", None, None),
     ("link_repost_source", None, "old-job"),
     ("extend_job_deadline", None, "old-job"),

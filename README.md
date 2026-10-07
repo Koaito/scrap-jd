@@ -810,6 +810,10 @@ Chi tiết danh sách biến môi trường và endpoint xem `API_README.md`.
   lượt có ghi `crawl_runs`. Lượt chạy `--no-track` hoặc gọi thẳng
   `run_pipeline()` không có khoá này; không chạy chồng hai lượt cùng nguồn
   (race condition có thể sinh job trùng, soát bằng `v_duplicate_job_candidates`).
+  Khác nguồn thì chạy song song được (TopCV, VietnamWorks, CareerViet, trên web lẫn máy cá nhân):
+  từ A4 pipeline giành khoá advisory theo `dedup_key` (`db.lock_job_dedup_key`) trước bước tra
+  đăng lại, nên cùng một tin xuất hiện ở hai nguồn cùng lúc chỉ sinh một job. Khoá cấp transaction
+  nên không rò qua pooler; chờ quá 10 giây thì job đó bị bỏ qua và đếm vào lỗi, lần crawl sau xử lý lại.
 - **Log live chỉ gắn đúng lượt chạy với code chạy cùng luồng.** Code chạy
   trong thread con do chính job tạo ra không thừa kế dấu này nên log của
   nó không vào log của lượt (hiện crawl và bảo trì không làm vậy; xem

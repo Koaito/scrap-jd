@@ -567,6 +567,15 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     # hết hạn sinh job mới) và đòi cùng level (~34%: level suy từ số năm kinh nghiệm nên
     # hai lần đăng hay ra level khác nhau). Cái giá: hai vị trí cùng tên, công ty, tỉnh nhưng
     # khác cấp bị coi là một (dữ liệu gốc của tin bị gộp vẫn nằm trong job_sources_log).
+    #
+    # A4 (10/2026): giành khoá advisory theo khoá chống trùng TRƯỚC câu tra. Các nguồn (TopCV,
+    # VietnamWorks, CareerViet) và nhập tay có thể chạy song song, hai bên cùng tra thấy "chưa có"
+    # rồi cùng insert sẽ ra hai job trùng. Khoá cấp transaction giữ tới commit/rollback của nhánh
+    # này (nhánh đăng lại và nhánh insert đều commit ở cuối), bên đến sau chờ rồi tra lại và thấy
+    # job vừa tạo. Hết thời gian chờ thì raise JobDedupLockTimeout, vòng lặp job rollback và đếm lỗi.
+    db.lock_job_dedup_key(
+        conn, company_id=company_id, job_title=raw.job_title, province_id=province_id,
+    )
     repost_candidate = db.find_repost_candidate(
         conn, company_id=company_id, job_title=raw.job_title,
         province_id=province_id, level_id=level_id,
