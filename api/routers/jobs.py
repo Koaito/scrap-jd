@@ -13,6 +13,7 @@ from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import JobApplicantOut, JobCreate, JobCreateResult, JobDataHealth, JobDetailOut, JobSaverOut, JobUpdate, PaginatedJobs
 # Import thẳng (không qua db_module) để test patch được db_module bằng MagicMock
 # mà hằng số này vẫn là dict thật — cùng cách contacts.py import ContactHasLinksError.
+from db.job_dedup_lock import JobDedupLockTimeout
 from db.jobs import JOB_CLEARABLE_FIELD_TO_COLUMN
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
@@ -313,6 +314,24 @@ def create_job(
     # xem docstring), nên phải tự kiểm tra trùng TRƯỚC để biết job vừa
     # trả về là MỚI hay TÁI SỬ DỤNG — chỉ ghi CREATE_JOB khi thật sự
     # tạo mới, tránh log spam mỗi lần double-click Submit.
+    #
+    # A4 (10/2026): giành khoá chống trùng TRƯỚC bước tra này và giữ tới conn.commit() bên dưới.
+    # Nếu chỉ khoá bên trong create_manual_job thì hai request cùng lúc đều tra was_duplicate=False
+    # trước khi chờ khoá, bên sau rồi nhận lại job của bên trước nhưng vẫn ghi thêm một CREATE_JOB
+    # cho job không phải do nó tạo. Khoá ở đây làm "tra, tạo, ghi log" thành một khối.
+    try:
+        db_module.lock_job_dedup_key(
+            conn, company_id=payload.company_id, job_title=payload.job_title,
+            province_id=province_id,
+        )
+    except JobDedupLockTimeout:
+        # get_db rollback khi route raise, nên transaction bị đánh dấu lỗi không rò sang request sau.
+        raise HTTPException(
+            status_code=503,
+            detail={"error_code": error_codes.JOB_DEDUP_LOCK_TIMEOUT,
+                    "message": "Có thao tác khác đang tạo job cùng công ty, tên và tỉnh. "
+                               "Đợi vài giây rồi thử lại."},
+        )
     was_duplicate = db_module.find_manual_job_duplicate(
         conn, company_id=payload.company_id, job_title=payload.job_title,
         level_id=level_id, province_id=province_id,

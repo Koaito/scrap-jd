@@ -70,12 +70,14 @@ from db.jobs import (
     count_jobs,
     find_manual_job_duplicate,
     find_similar_open_jobs,
-    lock_job_dedup_key,
-    JobDedupLockTimeout,
-    JOB_DEDUP_LOCK_TIMEOUT_MS,
     create_manual_job,
     update_job,
     job_exists_by_id,
+)
+from db.job_dedup_lock import (
+    lock_job_dedup_key,
+    JobDedupLockTimeout,
+    JOB_DEDUP_LOCK_TIMEOUT_MS,
 )
 from db.job_recrawl import (
     link_repost_source,

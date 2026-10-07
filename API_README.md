@@ -260,6 +260,12 @@ Response còn có `similar_jobs` (thêm 10/2026, A3): danh sách các job **đan
 Client nên hiện cảnh báo để nhân viên kiểm tra có nhập trùng không. Đây là trường mới,
 không phá client cũ (client cũ bỏ qua).
 
+Hai request `POST /jobs` cùng công ty, tên job và tỉnh đến cùng lúc được xếp hàng bằng khoá advisory
+(thêm 10/2026, A4): bên đến sau chờ bên trước commit rồi mới tra, nên không bao giờ sinh hai job trùng
+do đua, và chỉ bên thật sự tạo job mới ghi `CREATE_JOB`. Khoá theo khoá chống trùng (không gồm level),
+nên hai job khác level vẫn tạo được, chỉ là lần lượt. Chờ quá 10 giây (có thao tác khác đang giữ khoá
+bất thường) thì trả `503` với `error_code = job_dedup_lock_timeout`; client nên cho thử lại, không có gì bị ghi.
+
 `salary_period`: `"MONTH"` (mặc định) | `"YEAR"`. **Job nhập tay KHÔNG
 tự suy luận được field này** như job crawl — nếu nhập lương NĂM, **phải
 tự truyền `"salary_period": "YEAR"`**, nếu không hệ thống mặc định hiểu

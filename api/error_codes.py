@@ -189,6 +189,7 @@ JOB_COMPANY_NOT_FOUND = "job_company_not_found"
 JOB_CURSOR_INVALID = "job_cursor_invalid"
 JOB_CURSOR_WITH_OFFSET_NOT_ALLOWED = "job_cursor_with_offset_not_allowed"
 JOB_IDS_INVALID_UUID = "job_ids_invalid_uuid"
+JOB_DEDUP_LOCK_TIMEOUT = "job_dedup_lock_timeout"
 
 # ---------------------------------------------------------------
 # api/routers/maintenance.py
