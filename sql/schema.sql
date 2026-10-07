@@ -256,6 +256,10 @@ CREATE TABLE IF NOT EXISTS job_postings (
     job_status        job_status_enum NOT NULL DEFAULT 'OPEN',
     ss_team_notes     TEXT,
     content_hash      VARCHAR(64),
+    -- Khoá chống trùng (công ty + tiêu đề chuẩn hoá + tỉnh, không level) và phiên bản công thức,
+    -- xem sql/0039_add_job_dedup_key.sql. Do trigger set_job_dedup_key luôn tính lại.
+    dedup_key         VARCHAR(64) NOT NULL,
+    dedup_key_version SMALLINT NOT NULL,
     source_url        VARCHAR(500),
     -- Vì sao job CLOSED và lúc đóng (xem sql/0037_add_job_closed_reason.sql). NULL khi OPEN.
     -- Bất biến do CHECK + trigger set_job_closed_state giữ.
@@ -470,6 +474,7 @@ CREATE INDEX IF NOT EXISTS idx_job_postings_level         ON job_postings(level_
 CREATE INDEX IF NOT EXISTS idx_job_postings_province      ON job_postings(province_id);
 CREATE INDEX IF NOT EXISTS idx_job_postings_status        ON job_postings(job_status);
 CREATE INDEX IF NOT EXISTS idx_job_postings_content_hash  ON job_postings(content_hash);
+CREATE INDEX IF NOT EXISTS idx_job_postings_dedup_key     ON job_postings(dedup_key);
 CREATE INDEX IF NOT EXISTS idx_company_contacts_company   ON company_contacts(company_id);
 CREATE INDEX IF NOT EXISTS idx_company_contacts_status    ON company_contacts(contact_status);
 CREATE INDEX IF NOT EXISTS idx_job_sources_log_job        ON job_sources_log(job_id);
@@ -588,6 +593,44 @@ DROP TRIGGER IF EXISTS set_job_closed_state ON job_postings;
 CREATE TRIGGER set_job_closed_state
 BEFORE INSERT OR UPDATE ON job_postings
 FOR EACH ROW EXECUTE FUNCTION trg_set_job_closed_state();
+
+-- Khoá chống trùng của job (A3, xem sql/0039_add_job_dedup_key.sql): công ty + tiêu đề chuẩn hoá +
+-- tỉnh, KHÔNG gồm level. Tiêu đề chuẩn hoá giống generate_job_hash(): lower + gộp khoảng trắng.
+-- job_dedup_key_version() là phiên bản của công thức; đổi công thức thì tăng số này (xem migration).
+CREATE OR REPLACE FUNCTION job_dedup_key_version() RETURNS SMALLINT AS $$
+    SELECT 1::smallint;
+$$ LANGUAGE sql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION job_dedup_key(
+    p_company_id  UUID,
+    p_job_title   TEXT,
+    p_province_id INT
+) RETURNS VARCHAR(64) AS $$
+BEGIN
+    RETURN encode(
+        digest(
+            p_company_id::text || '|' ||
+            lower(regexp_replace(trim(p_job_title), '\s+', ' ', 'g')) || '|' ||
+            COALESCE(p_province_id::text, ''),
+            'sha256'
+        ),
+        'hex'
+    );
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION trg_set_job_dedup_key() RETURNS TRIGGER AS $$
+BEGIN
+    NEW.dedup_key := job_dedup_key(NEW.company_id, NEW.job_title, NEW.province_id);
+    NEW.dedup_key_version := job_dedup_key_version();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS set_job_dedup_key ON job_postings;
+CREATE TRIGGER set_job_dedup_key
+BEFORE INSERT OR UPDATE ON job_postings
+FOR EACH ROW EXECUTE FUNCTION trg_set_job_dedup_key();
 
 -- ============================================================
 -- 6. VIEW hỗ trợ — tìm job nghi ngờ trùng lặp
@@ -1242,6 +1285,11 @@ COMMENT ON COLUMN job_postings.closed_reason IS
     'Vì sao job CLOSED: staff | expired_auto | merged (dự phòng) | unknown. NULL khi OPEN. Pipeline chỉ tự mở lại job expired_auto.';
 COMMENT ON COLUMN job_postings.closed_at IS
     'Lúc job chuyển sang CLOSED. NULL khi OPEN, hoặc job đóng từ trước khi có cột mà không biết giờ.';
+
+COMMENT ON COLUMN job_postings.dedup_key IS
+    'Khoá chống trùng: sha256(company_id | tiêu đề chuẩn hoá | province_id), không gồm level. Do trigger set_job_dedup_key tính, xem hàm job_dedup_key().';
+COMMENT ON COLUMN job_postings.dedup_key_version IS
+    'Phiên bản công thức đã dùng để tính dedup_key (job_dedup_key_version()). Khác phiên bản hiện hành = chưa tính lại.';
 
 -- ============================================================
 -- HẾT FILE
