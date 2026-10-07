@@ -14,6 +14,8 @@ Ví dụ:
     python main.py recompute-levels --apply    # ghi thật (updated_at giữ nguyên)
     python main.py report-duplicates           # báo cáo job nghi trùng (chỉ đọc)
     python main.py report-duplicates --csv trung.csv   # xuất toàn bộ nhóm ra file duyệt tay
+    python main.py report-reposts              # đo tỷ lệ gộp nhầm: so JD các tin đã gộp (chỉ đọc)
+    python main.py report-reposts --csv gop.csv --threshold 0.3   # xuất từng cặp tin, chỉnh ngưỡng nghi gộp nhầm
     python main.py merge-duplicates            # gộp job trùng: CHẠY THỬ, chỉ in kế hoạch (không ghi)
     python main.py merge-duplicates --only duyet.csv --csv ke_hoach.csv   # chỉ nhóm đã duyệt tay
     python main.py merge-duplicates --apply --limit 1   # gộp thật 1 nhóm đầu (hỏi xác nhận; backup DB trước)
@@ -35,6 +37,7 @@ from pipeline import run_pipeline
 import duplicate_report
 import merge_duplicates
 import recompute_levels
+import repost_report
 from config import (
     TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
 )
@@ -195,6 +198,11 @@ def cmd_recompute_levels(args):
 def cmd_report_duplicates(args):
     """Báo cáo job nghi trùng (Phần 3a), CHỈ ĐỌC. Xem docstring duplicate_report.py."""
     sys.exit(duplicate_report.run_cli(args))
+
+
+def cmd_report_reposts(args):
+    """Đo tỷ lệ gộp nhầm (A5), CHỈ ĐỌC. Xem docstring repost_report.py."""
+    sys.exit(repost_report.run_cli(args))
 
 
 def cmd_merge_duplicates(args):
@@ -498,6 +506,25 @@ def main():
         help="Xuất toàn bộ nhóm (mỗi job một dòng) ra file CSV để duyệt tay",
     )
 
+    p_reposts = sub.add_parser(
+        "report-reposts",
+        help="Đo tỷ lệ gộp nhầm: so nội dung JD giữa các tin của cùng một job (tin đăng lại, tin do "
+             "merge-duplicates chuyển sang). CHỈ ĐỌC, không ghi DB",
+    )
+    p_reposts.add_argument(
+        "--show", type=int, default=repost_report.DEFAULT_SHOW,
+        help="Số job nghi gộp nhầm in chi tiết (mặc định %(default)s)",
+    )
+    p_reposts.add_argument(
+        "--csv", default=None, metavar="FILE",
+        help="Xuất mọi cặp tin so được (mỗi cặp một dòng) ra file CSV để duyệt tay",
+    )
+    p_reposts.add_argument(
+        "--threshold", type=float, default=repost_report.DEFAULT_SUSPECT_BELOW,
+        help="Độ giống dưới ngưỡng này thì coi là nghi gộp nhầm, trong (0, 0.5] (mặc định %(default)s; "
+             "ước lượng ban đầu, chỉnh sau khi xem phân bố)",
+    )
+
     p_merge = sub.add_parser(
         "merge-duplicates",
         help="Gộp job trùng (Phần 3b): chọn job giữ, hợp nhất trường, chuyển dữ liệu con, xoá job phụ "
@@ -592,6 +619,8 @@ def main():
         cmd_recompute_levels(args)
     elif args.command == "report-duplicates":
         cmd_report_duplicates(args)
+    elif args.command == "report-reposts":
+        cmd_report_reposts(args)
     elif args.command == "merge-duplicates":
         cmd_merge_duplicates(args)
     elif args.command == "crawl":

@@ -107,6 +107,10 @@ from db.job_merge import (
     MergeStaleError,
     MergeIntegrityError,
 )
+from db.job_reposts import (
+    list_multi_source_job_logs,
+    list_merge_log_origins,
+)
 from db.job_queries import (
     list_jobs,
     get_job_by_id,
@@ -346,6 +350,8 @@ __all__ = [
     "list_active_runs",
     "MergeStaleError",
     "MergeIntegrityError",
+    "list_multi_source_job_logs",
+    "list_merge_log_origins",
     "count_jobs",
     "find_manual_job_duplicate",
     "find_similar_open_jobs",

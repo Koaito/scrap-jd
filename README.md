@@ -145,6 +145,25 @@ thật (cao / cần xem / thấp), liệt kê dữ liệu cần bảo vệ khi g
 tuyển, lượt lưu, liên hệ) và **đề xuất** job giữ theo luật v0 (chưa phải luật đã chốt). Lệnh
 không gộp, không xoá gì. Chi tiết xem docstring `duplicate_report.py`.
 
+**Đo tỷ lệ gộp nhầm** (A5, chỉ đọc: không ghi DB, không cần migration mới):
+
+```bash
+python main.py report-reposts                       # tổng hợp, phân bố, vài job nghi gộp nhầm nhất
+python main.py report-reposts --show 30             # in chi tiết 30 job
+python main.py report-reposts --csv gop.csv         # xuất mọi cặp tin so được để duyệt tay
+python main.py report-reposts --threshold 0.3       # chỉnh ngưỡng "nghi gộp nhầm" (mặc định 0.2)
+```
+
+Khoá chống trùng không gồm level nên hai vị trí cùng tên, công ty, tỉnh nhưng khác cấp có thể bị coi là
+một job. Lệnh này so nội dung JD (`job_sources_log.raw_jd_content`) giữa các tin của cùng một job: tin đăng
+lại thật thì JD gần như giống, tin có JD khác hẳn là nghi gộp nhầm. Chỉ so phần "Mô tả công việc" và "Yêu cầu
+ứng viên" (bỏ "Quyền lợi" vì hay dùng chung giữa các JD của cùng công ty), độ giống là Jaccard trên cụm 3 từ,
+mỗi job lấy cặp tin khác nhau nhất. Số liệu được tách theo cặp cùng trang / khác trang và theo việc có tin do
+`merge-duplicates` chuyển sang hay không (đọc từ `audit_logs` `MERGE_JOB`). **Các ngưỡng (0.80 / 0.50 / 0.20)
+là ước lượng ban đầu, chưa hiệu chuẩn**: xem phân bố và `--csv`, đối chiếu bằng mắt rồi chỉnh `--threshold`.
+Chỉ bắt được gộp nhầm khi nội dung khác; hai vị trí khác cấp dùng chung một JD thì không bị bắt. Chi tiết xem
+docstring `repost_report.py`.
+
 **Gộp job trùng** (Phần 3b, phương án A): job phụ bị **xoá thật** sau khi chụp nguyên dòng vào
 `audit_logs`; dữ liệu con chuyển sang job giữ. Mặc định chỉ **chạy thử** (in kế hoạch, không ghi gì),
 `--apply` mới gộp thật:
