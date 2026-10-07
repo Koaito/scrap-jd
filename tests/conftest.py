@@ -2,6 +2,8 @@
 Pytest fixtures cho API tests — mock DB connection, auth user, và
 TestClient FastAPI.
 """
+import os
+import sys
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -9,6 +11,12 @@ from unittest.mock import MagicMock
 
 import pytest
 from starlette.requests import Request as StarletteRequest
+
+# Đưa thư mục gốc repo vào sys.path để `import db`, `import pipeline`... chạy được dù chạy
+# `pytest` thường (không phải `python -m pytest`) và dù file test nào được thu thập trước. Trước đây
+# chỉ một số file test tự chèn đường dẫn nên file không chèn (như các test_pg_* mới) chỉ chạy được
+# khi một file có chèn đã được thu thập trước nó.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 
 def make_fake_request(headers: dict | None = None) -> StarletteRequest:
