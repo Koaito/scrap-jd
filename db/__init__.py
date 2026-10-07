@@ -57,6 +57,7 @@ from db.company_analytics import (
 )
 from db.jobs import (
     _UNSET as JOB_UNSET,
+    JOB_CLOSED_REASONS,
     JOB_CLEARABLE_FIELD_TO_COLUMN,
     get_open_jobs_with_source_url,
     probe_needs_enrichment,
@@ -77,6 +78,7 @@ from db.job_recrawl import (
     extend_job_deadline,
     find_repost_candidate,
     reopen_job_for_repost,
+    AUTO_REOPEN_REASONS,
     find_jobs_by_source_url_regex,
     update_job_from_recrawl,
 )
@@ -322,6 +324,7 @@ __all__ = [
     "extend_job_deadline",
     "find_repost_candidate",
     "reopen_job_for_repost",
+    "AUTO_REOPEN_REASONS",
     "find_jobs_by_source_url_regex",
     "update_job_from_recrawl",
     "skip_updated_at_supported",
@@ -342,6 +345,7 @@ __all__ = [
     "create_manual_job",
     "update_job",
     "JOB_UNSET",
+    "JOB_CLOSED_REASONS",
     "JOB_CLEARABLE_FIELD_TO_COLUMN",
     "job_exists_by_id",
     "list_jobs",

@@ -36,6 +36,10 @@ logger = logging.getLogger(__name__)
 # chỉ cần đổi default sang _UNSET, không cần sửa lại chữ ký hàm.
 _UNSET = object()
 
+# Giá trị hợp lệ của job_postings.closed_reason (CHECK chk_job_postings_closed_reason, xem
+# sql/0037_add_job_closed_reason.sql). 'merged' là dự phòng, hiện chưa có nơi nào ghi.
+JOB_CLOSED_REASONS = frozenset({"staff", "expired_auto", "merged", "unknown"})
+
 # Thêm 09/2026 (migrate Next.js, JobForm — trang sửa job): 4 field job mà
 # update_job() bên dưới trước đây KHÔNG CÓ CÁCH NÀO đưa về NULL, vì mọi
 # tham số của chúng dùng `is not None` để nghĩa là "có gửi" — gửi
@@ -443,6 +447,7 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
                salary_period: Optional[str] = None,
                deadline=None,
                job_status: Optional[str] = None,
+               closed_reason: Optional[str] = None,
                ss_team_notes: Optional[str] = None,
                parsed_content: Optional[dict] = None,
                updated_by: Optional[str] = None,
@@ -517,8 +522,19 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     truyền level_source). Đường sửa tay (không truyền level_source) KHÔNG đụng tới
     level_signals: đó là dữ kiện về nguồn crawl, không phụ thuộc ai đặt level.
 
+    closed_reason (A2): vì sao job bị đóng, chỉ có nghĩa khi job_status='CLOSED'. Mặc định 'staff'
+    (update_job là đường sửa tay: PATCH, import). check_expired_source_jobs truyền 'expired_auto'.
+    Chỉ ghi khi job vừa chuyển từ OPEN sang CLOSED: job đã CLOSED mà form gửi lại job_status=CLOSED
+    thì giữ lý do cũ (không biến 'expired_auto' thành 'staff'). Mở lại (job_status='OPEN') thì
+    trigger set_job_closed_state tự xoá closed_reason/closed_at.
+
     Trả False nếu job_id không tồn tại (không có gì để update), True nếu
     đã update thành công — route dùng giá trị này để trả 404 đúng lúc."""
+    if closed_reason is not None:
+        if closed_reason not in JOB_CLOSED_REASONS:
+            raise ValueError(f"closed_reason không hợp lệ: {closed_reason!r}")
+        if job_status != "CLOSED":
+            raise ValueError("closed_reason chỉ có nghĩa khi job_status='CLOSED'")
     updates = []
     values = []
 
@@ -591,6 +607,10 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     if job_status is not None:
         updates.append("job_status = %s")
         values.append(job_status)
+        if job_status == "CLOSED":
+            updates.append("closed_reason = CASE WHEN job_status <> 'CLOSED' THEN %s "
+                           "ELSE closed_reason END")
+            values.append(closed_reason or "staff")
     if ss_team_notes is not None:
         updates.append("ss_team_notes = %s")
         values.append(ss_team_notes)

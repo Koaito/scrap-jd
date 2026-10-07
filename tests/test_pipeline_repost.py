@@ -28,10 +28,12 @@ DETAIL = {
 }
 
 
-def _candidate(job_id, status="OPEN", closed_by_staff=False):
-    """Kết quả db.find_repost_candidate() cho test (mock db)."""
+def _candidate(job_id, status="OPEN", closed_reason=None):
+    """Kết quả db.find_repost_candidate() cho test (mock db). Job CLOSED mặc định do hết hạn tự đóng."""
+    if status == "CLOSED" and closed_reason is None:
+        closed_reason = "expired_auto"
     return {"job_id": job_id, "job_status": status, "level_id": None, "deadline": None,
-            "closed_by_staff": closed_by_staff}
+            "closed_reason": closed_reason}
 
 
 class FakeAdapter(BaseAdapter):
@@ -167,8 +169,10 @@ def test_repost_of_closed_job_reopens_it_with_new_url_and_deadline(fake_db):
     conn.commit.assert_called()
 
 
-def test_repost_of_job_closed_by_staff_is_not_reopened(fake_db):
-    fake_db.find_repost_candidate.return_value = _candidate("job-orig", status="CLOSED", closed_by_staff=True)
+@pytest.mark.parametrize("reason", ["staff", "unknown", "merged"])
+def test_repost_of_job_not_closed_by_expiry_is_not_reopened(fake_db, reason):
+    # staff: nhân viên đóng; unknown: không rõ nên coi như nhân viên đóng; merged: dự phòng.
+    fake_db.find_repost_candidate.return_value = _candidate("job-orig", status="CLOSED", closed_reason=reason)
 
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), MagicMock(), "data-analyst", 1)
 

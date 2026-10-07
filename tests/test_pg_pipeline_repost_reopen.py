@@ -129,14 +129,14 @@ def _only_job(conn, company):
     return rows[0]
 
 
-def _seed_closed_job(conn, company, url="https://x/old", **adapter_kw):
-    """Crawl thật một job rồi đóng nó như check_expired_source_jobs (không audit)."""
+def _seed_closed_job(conn, company, url="https://x/old", reason="expired_auto", **adapter_kw):
+    """Crawl thật một job rồi đóng nó như check_expired_source_jobs (closed_reason, không audit)."""
     stats = _crawl(conn, FakeAdapter([url], company=company, **adapter_kw))
     assert stats["inserted"] == 1
     job_id = _only_job(conn, company)[0]
     with conn.cursor() as cur:
-        cur.execute("UPDATE job_postings SET job_status = 'CLOSED', deadline = '2020-01-01' WHERE job_id = %s",
-                    (job_id,))
+        cur.execute("UPDATE job_postings SET job_status = 'CLOSED', closed_reason = %s, "
+                    "deadline = '2020-01-01' WHERE job_id = %s", (reason, job_id))
     conn.commit()
     return job_id
 
@@ -179,14 +179,9 @@ def test_repost_with_different_level_and_spacing_is_still_recognised(pg_conn, co
     assert level_id == senior                      # job giữ level cũ, không bị tin đăng lại đổi
 
 
-def test_job_closed_by_staff_stays_closed_and_only_gets_the_new_url(pg_conn, company):
-    job_id = _seed_closed_job(pg_conn, company)
-    with pg_conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO audit_logs (action_type, entity_type, entity_id, changes, is_manual_log) "
-            "VALUES ('DELETE_JOB', 'JOB', %s, %s, true)",
-            (job_id, psycopg2.extras.Json({"job_status": {"old": "OPEN", "new": "CLOSED"}})))
-    pg_conn.commit()
+@pytest.mark.parametrize("reason", ["staff", "unknown"])
+def test_job_not_closed_by_expiry_stays_closed_and_only_gets_the_new_url(pg_conn, company, reason):
+    job_id = _seed_closed_job(pg_conn, company, reason=reason)
 
     stats = _crawl(pg_conn, FakeAdapter(["https://x/new"], company=company))
     assert stats["inserted"] == 0 and stats["skipped_duplicate_repost"] == 1
@@ -194,19 +189,36 @@ def test_job_closed_by_staff_stays_closed_and_only_gets_the_new_url(pg_conn, com
     jid, status, deadline, source_url, _ = _only_job(pg_conn, company)
     assert (jid, status, deadline, source_url) == (job_id, "CLOSED", date(2020, 1, 1), "https://x/old")
     assert str(db.get_job_probe_by_source_url(pg_conn, "https://x/new")[0]) == job_id   # URL mới đã được ghi nhận
+    assert _scalar(pg_conn, "SELECT count(*) FROM audit_logs WHERE action_type = 'REOPEN_JOB'") == 0
     pg_conn.rollback()
 
-    # Nhân viên mở lại rồi tin lại đăng: lần này tự mở lại được (sự kiện gần nhất không còn là đóng tay)
+    # Nhân viên mở lại bằng tay rồi job hết hạn tự đóng: lần này tự mở lại được.
     with pg_conn.cursor() as cur:
         cur.execute("UPDATE job_postings SET job_status = 'OPEN' WHERE job_id = %s", (job_id,))
-        cur.execute(
-            "INSERT INTO audit_logs (action_type, entity_type, entity_id, changes, is_manual_log, created_at) "
-            "VALUES ('UPDATE_JOB', 'JOB', %s, %s, true, now() + interval '1 second')",
-            (job_id, psycopg2.extras.Json({"job_status": {"old": "CLOSED", "new": "OPEN"}})))
-        cur.execute("UPDATE job_postings SET job_status = 'CLOSED' WHERE job_id = %s", (job_id,))  # hết hạn tự đóng
+        cur.execute("UPDATE job_postings SET job_status = 'CLOSED', closed_reason = 'expired_auto' "
+                    "WHERE job_id = %s", (job_id,))
     pg_conn.commit()
     stats = _crawl(pg_conn, FakeAdapter(["https://x/newer"], company=company))
     assert stats["repost_reopened"] == 1 and _only_job(pg_conn, company)[1] == "OPEN"
+
+
+def test_reopen_clears_closed_state_and_writes_reopen_job_audit(pg_conn, company):
+    job_id = _seed_closed_job(pg_conn, company)
+    _crawl(pg_conn, FakeAdapter(["https://x/new"], company=company))
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT closed_reason, closed_at FROM job_postings WHERE job_id = %s", (job_id,))
+        assert cur.fetchone() == (None, None)
+        cur.execute("SELECT actor_id, entity_type, entity_label, is_manual_log, changes "
+                    "FROM audit_logs WHERE action_type = 'REOPEN_JOB' AND entity_id = %s", (job_id,))
+        rows = cur.fetchall()
+    pg_conn.rollback()
+    assert len(rows) == 1
+    actor, entity_type, label, is_manual, changes = rows[0]
+    assert (actor, entity_type, is_manual) == (None, "JOB", False) and label
+    assert changes["job_status"] == {"old": "CLOSED", "new": "OPEN"}
+    assert changes["closed_reason"] == {"old": "expired_auto", "new": None}
+    assert changes["source_url"] == {"old": "https://x/old", "new": "https://x/new"}
+    assert changes["deadline"]["old"] == "2020-01-01" and changes["deadline"]["new"] == "2099-12-31"
 
 
 def test_repost_whose_deadline_already_passed_does_not_reopen(pg_conn, company):

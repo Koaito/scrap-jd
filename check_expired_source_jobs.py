@@ -231,7 +231,8 @@ def run(limit: Optional[int] = None, check_deadline_only: bool = False,
                 stats["expired_by_deadline"] += 1
                 logger.info("  -> deadline %s đã qua -> CLOSED", deadline)
                 if not dry_run:
-                    db.update_job(conn, job_id, job_status="CLOSED")
+                    db.update_job(conn, job_id, job_status="CLOSED",
+                                  closed_reason="expired_auto")
                     conn.commit()
                 continue
 
@@ -243,7 +244,8 @@ def run(limit: Optional[int] = None, check_deadline_only: bool = False,
                 stats["expired_by_source_dead"] += 1
                 logger.info("  -> nguồn trả HTTP %d -> CLOSED", status_code)
                 if not dry_run:
-                    db.update_job(conn, job_id, job_status="CLOSED")
+                    db.update_job(conn, job_id, job_status="CLOSED",
+                                  closed_reason="expired_auto")
                     conn.commit()
             elif status_code is not None and 200 <= status_code < 300:
                 stats["still_alive"] += 1

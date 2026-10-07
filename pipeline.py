@@ -9,6 +9,7 @@ from dataclasses import asdict
 
 from adapters.base import BaseAdapter, CrawlBlockedError
 import db
+from db.job_recrawl import AUTO_REOPEN_REASONS
 import normalize
 from config import DEGRADED_EMPTY_RATE
 from field_stats import WARN_MIN_SAMPLES, EmptyFieldCounter, degraded_reasons
@@ -251,11 +252,12 @@ def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
     Xử lý theo trạng thái job cũ:
       - OPEN: dời deadline ra sau nếu hạn mới muộn hơn (db.extend_job_deadline, không bao
         giờ rút ngắn); job đã quá hạn được đăng lại sẽ sống lại.
-      - CLOSED, không phải nhân viên chủ động đóng: MỞ LẠI (db.reopen_job_for_repost: OPEN,
+      - CLOSED với closed_reason='expired_auto' (do check_expired_source_jobs tự đóng): MỞ LẠI
+        (db.reopen_job_for_repost, ghi audit REOPEN_JOB: OPEN,
         hạn mới, source_url mới). Đổi cả source_url vì check_expired_source_jobs kiểm tra
         theo job_postings.source_url, để URL cũ (đã chết) thì job bị đóng lại ngay. Không
         mở lại nếu hạn của tin mới đã qua.
-      - CLOSED mà nhân viên chủ động đóng (candidate["closed_by_staff"], từ audit_logs) hoặc
+      - CLOSED với closed_reason khác (staff, unknown, merged; cột job_postings.closed_reason) hoặc
         không mở lại được: giữ nguyên CLOSED, chỉ ghi URL mới làm nguồn phụ.
     Nội dung (parsed_content, work_type) thì KHÔNG vá từ tin đăng lại. raw_jd_content của tin
     đăng lại được giữ lại để còn dữ liệu xem lại các trường hợp gộp nhầm.
@@ -271,14 +273,18 @@ def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
     )
     action = ""
     if candidate["job_status"] == "CLOSED":
-        if not candidate["closed_by_staff"] and db.reopen_job_for_repost(
+        reason = candidate["closed_reason"]
+        # Chỉ job do check_expired_source_jobs đóng mới tự mở lại; staff / unknown / merged giữ CLOSED.
+        if reason in AUTO_REOPEN_REASONS and db.reopen_job_for_repost(
                 conn, duplicate_job_id, source_url=raw.source_url, deadline=deadline):
             stats.repost_reopened += 1
             action = f", MỞ LẠI job đã đóng (hạn {deadline})"
         else:
             stats.repost_kept_closed += 1
-            action = (", giữ nguyên CLOSED (nhân viên đã đóng)" if candidate["closed_by_staff"]
-                      else ", giữ nguyên CLOSED (hạn mới đã qua hoặc job đã đổi)")
+            if reason in AUTO_REOPEN_REASONS:
+                action = ", giữ nguyên CLOSED (hạn mới đã qua hoặc job đã đổi)"
+            else:
+                action = f", giữ nguyên CLOSED (closed_reason={reason})"
     elif db.extend_job_deadline(conn, duplicate_job_id, deadline):
         stats.repost_deadline_extended += 1
         action = f", dời deadline sang {deadline}"

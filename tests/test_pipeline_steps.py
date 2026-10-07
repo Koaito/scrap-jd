@@ -54,10 +54,10 @@ class StubAdapter(BaseAdapter):
         return dict(self.detail) if self.detail is not None else None
 
 
-def _candidate(job_id, status="OPEN", closed_by_staff=False):
+def _candidate(job_id, status="OPEN", closed_reason=None):
     """Kết quả db.find_repost_candidate() cho test (mock db)."""
     return {"job_id": job_id, "job_status": status, "level_id": None, "deadline": None,
-            "closed_by_staff": closed_by_staff}
+            "closed_reason": closed_reason}
 
 
 @pytest.fixture

@@ -109,7 +109,7 @@ def scenario_db(monkeypatch):
     fdb.get_or_create_company_by_profile.return_value = "company-1"
     fdb.find_repost_candidate.side_effect = (
         lambda conn, **kw: {"job_id": "dup-job", "job_status": "OPEN", "level_id": None,
-                            "deadline": None, "closed_by_staff": False}
+                            "deadline": None, "closed_reason": None}
         if kw["job_title"] == "Job 4" else None
     )
     fdb.extend_job_deadline.return_value = True

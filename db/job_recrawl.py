@@ -10,9 +10,15 @@ import logging
 from datetime import date
 from typing import Optional
 
+from db.audit_logs import log_action
 from db.job_levels import _derived_level_assignments
 
 logger = logging.getLogger(__name__)
+
+# closed_reason mà pipeline được phép TỰ mở lại khi thấy tin đăng lại. Chỉ job do check_expired_source_jobs
+# đóng. 'staff' là nhân viên chủ động đóng, 'unknown' không rõ (coi như do nhân viên đóng), 'merged' dự
+# phòng: cả ba giữ CLOSED.
+AUTO_REOPEN_REASONS = frozenset({"expired_auto"})
 
 
 def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
@@ -99,25 +105,16 @@ def find_repost_candidate(conn, *, company_id: str, job_title: str, province_id:
     Nếu có nhiều job khớp thì chọn: job OPEN trước, rồi job cùng level với tin mới, rồi job
     tạo gần nhất (kết quả xác định, không ngẫu nhiên). `level_id` chỉ dùng để xếp hạng.
 
-    Trả dict {job_id, job_status, level_id, deadline, closed_by_staff} hoặc None.
-    `closed_by_staff` = True nếu sự kiện gần nhất trong audit_logs của job là nhân viên đóng
-    JD (DELETE_JOB) mà sau đó chưa ai mở lại (UPDATE_JOB đổi job_status sang OPEN). Job bị
-    check_expired_source_jobs đóng tự động không ghi audit nên không bị tính. Job đóng tay
-    từ trước khi có audit_logs cũng không nhận ra được. Chỉ đọc, không đóng transaction."""
+    Trả dict {job_id, job_status, level_id, deadline, closed_reason} hoặc None. `closed_reason` đọc
+    thẳng từ cột job_postings.closed_reason (A2): None khi job OPEN; khi CLOSED là 'staff' |
+    'expired_auto' | 'merged' | 'unknown'. Nơi gọi chỉ tự mở lại khi closed_reason thuộc
+    AUTO_REOPEN_REASONS (hiện chỉ 'expired_auto'). Trước A2 giá trị này suy từ audit_logs (thiếu bản
+    ghi DELETE_JOB = coi là đóng tự động); nay không còn đọc audit_logs. Chỉ đọc, không đóng
+    transaction."""
     with conn.cursor() as cur:
         cur.execute(
             """
-            SELECT j.job_id, j.job_status::text, j.level_id, j.deadline,
-                   COALESCE((
-                       SELECT a.action_type = 'DELETE_JOB'
-                         FROM audit_logs a
-                        WHERE a.entity_type = 'JOB' AND a.entity_id = j.job_id
-                          AND (a.action_type = 'DELETE_JOB'
-                               OR (a.action_type = 'UPDATE_JOB'
-                                   AND a.changes -> 'job_status' ->> 'new' = 'OPEN'))
-                        ORDER BY a.created_at DESC
-                        LIMIT 1
-                   ), false) AS closed_by_staff
+            SELECT j.job_id, j.job_status::text, j.level_id, j.deadline, j.closed_reason
               FROM job_postings j
              WHERE j.company_id = %s
                AND lower(regexp_replace(trim(j.job_title), '\\s+', ' ', 'g'))
@@ -134,7 +131,7 @@ def find_repost_candidate(conn, *, company_id: str, job_title: str, province_id:
     if row is None:
         return None
     return {"job_id": str(row[0]), "job_status": row[1], "level_id": row[2],
-            "deadline": row[3], "closed_by_staff": bool(row[4])}
+            "deadline": row[3], "closed_reason": row[4]}
 
 
 def reopen_job_for_repost(conn, job_id: str, *, source_url: str, deadline,
@@ -144,27 +141,54 @@ def reopen_job_for_repost(conn, job_id: str, *, source_url: str, deadline,
     tin mới. Phải đổi cả source_url vì check_expired_source_jobs kiểm tra theo
     job_postings.source_url: để URL cũ (đã chết) thì lượt kiểm tra sau sẽ đóng lại ngay.
     URL cũ vẫn còn trong job_sources_log. deadline NULL (tin mới không có hạn) thì ghi NULL,
-    vì hạn cũ đã qua và sẽ làm job bị đóng lại theo deadline.
+    vì hạn cũ đã qua và sẽ làm job bị đóng lại theo deadline. closed_reason/closed_at được xoá
+    (job OPEN không có lý do đóng).
 
     KHÔNG mở lại khi hạn của tin mới đã qua (deadline < today, today mặc định date.today()
     như check_expired_source_jobs), vì job sẽ bị đóng lại ngay lượt kiểm tra sau.
 
     Một câu UPDATE có điều kiện job_status = 'CLOSED' nên an toàn khi crawl chạy song song
     (chỉ một bên mở được, bên kia nhận False) và không đụng job đang OPEN. Việc loại job do
-    nhân viên chủ động đóng (closed_by_staff của find_repost_candidate) là việc của nơi gọi.
+    nhân viên chủ động đóng (closed_reason, xem find_repost_candidate) là việc của nơi gọi.
+
+    Mở lại được thì ghi audit REOPEN_JOB (actor NULL, changes = giá trị cũ/mới của job_status,
+    deadline, source_url, closed_reason) CÙNG transaction, nên không có lần mở lại nào thiếu log.
     Không tự commit. Trả True nếu có dòng được mở lại."""
     if deadline is not None and deadline < (today or date.today()):
         return False
     with conn.cursor() as cur:
         cur.execute(
             """
-            UPDATE job_postings
-               SET job_status = 'OPEN', deadline = %s, source_url = %s
-             WHERE job_id = %s AND job_status = 'CLOSED'
+            WITH old AS (
+                SELECT job_id, deadline, source_url, closed_reason
+                  FROM job_postings
+                 WHERE job_id = %s AND job_status = 'CLOSED'
+                   FOR UPDATE
+            )
+            UPDATE job_postings j
+               SET job_status = 'OPEN', deadline = %s, source_url = %s,
+                   closed_reason = NULL, closed_at = NULL
+              FROM old
+             WHERE j.job_id = old.job_id
+            RETURNING j.job_title, j.company_id, old.deadline, old.source_url, old.closed_reason
             """,
-            (deadline, source_url, job_id),
+            (job_id, deadline, source_url),
         )
-        return cur.rowcount > 0
+        row = cur.fetchone()
+    if row is None:
+        return False
+    title, company_id, old_deadline, old_url, old_reason = row
+    log_action(
+        conn, actor_id=None, action_type="REOPEN_JOB", entity_type="JOB", entity_id=job_id,
+        entity_label=title, company_id=str(company_id),
+        changes={
+            "job_status": {"old": "CLOSED", "new": "OPEN"},
+            "deadline": {"old": old_deadline, "new": deadline},
+            "source_url": {"old": old_url, "new": source_url},
+            "closed_reason": {"old": old_reason, "new": None},
+        },
+    )
+    return True
 
 
 def find_jobs_by_source_url_regex(conn, *, source_name: str, url_regex: str) -> list:

@@ -9,7 +9,7 @@ Chứng minh:
   - khoá tra: cùng công ty + tiêu đề (không phân biệt hoa/thường, gộp khoảng trắng bên trong) +
     tỉnh; KHÔNG xét level; xét cả job CLOSED; tỉnh/công ty khác thì không khớp;
   - thứ tự chọn khi nhiều job khớp: OPEN > cùng level > tạo gần nhất;
-  - closed_by_staff đọc đúng từ audit_logs (đóng tay, mở lại, đóng lại, đóng tự động);
+  - closed_reason đọc thẳng từ cột job_postings.closed_reason (A2), không còn đọc audit_logs;
   - reopen: OPEN + hạn mới + source_url mới, chỉ khi job đang CLOSED và hạn mới chưa qua,
     chạy lại/chạy song song chỉ một bên thắng; content_hash không đổi;
   - find_manual_job_duplicate (dùng cho POST /jobs) giữ nguyên hành vi cũ.
@@ -129,7 +129,7 @@ def test_matches_open_job_ignoring_level_case_and_inner_whitespace(pg_conn):
     for title in ("Data Engineer", "DATA ENGINEER", "  data   engineer  ", "Data\tEngineer"):
         res = _find(pg_conn, c, title, level="Senior")
         assert res is not None and res["job_id"] == job, title
-    assert res["job_status"] == "OPEN" and res["closed_by_staff"] is False
+    assert res["job_status"] == "OPEN" and res["closed_reason"] is None
 
 
 def test_matches_closed_job_too(pg_conn):
@@ -188,38 +188,39 @@ def test_prefers_same_level_then_most_recent_within_same_status(pg_conn):
     assert _find(pg_conn, c, "QA")["level_id"] == db.get_level_id(pg_conn, "Junior")
 
 
-# ------------------------------------------------------------------ closed_by_staff
-def test_closed_by_staff_follows_the_latest_close_or_reopen_event(pg_conn):
+# ------------------------------------------------------------------ closed_reason
+def _close(conn, job_id, reason=None):
+    with conn.cursor() as cur:
+        if reason is None:
+            cur.execute("UPDATE job_postings SET job_status = 'CLOSED' WHERE job_id = %s", (job_id,))
+        else:
+            cur.execute("UPDATE job_postings SET job_status = 'CLOSED', closed_reason = %s "
+                        "WHERE job_id = %s", (reason, job_id))
+    conn.commit()
+
+
+@pytest.mark.parametrize("reason", ["staff", "expired_auto", "merged", "unknown"])
+def test_closed_reason_is_read_from_the_column(pg_conn, reason):
     c = _company(pg_conn)
-    job = _job(pg_conn, c, "DevOps", status="CLOSED")
-    assert _find(pg_conn, c, "DevOps")["closed_by_staff"] is False        # đóng tự động: không có audit
-
-    _audit(pg_conn, job, "DELETE_JOB", {"job_status": {"old": "OPEN", "new": "CLOSED"}}, "2026-09-10 10:00:00")
-    assert _find(pg_conn, c, "DevOps")["closed_by_staff"] is True         # nhân viên đóng
-
-    _audit(pg_conn, job, "UPDATE_JOB", {"job_status": {"old": "CLOSED", "new": "OPEN"}}, "2026-09-11 10:00:00")
-    assert _find(pg_conn, c, "DevOps")["closed_by_staff"] is False        # nhân viên mở lại
-
-    _audit(pg_conn, job, "DELETE_JOB", {"job_status": {"old": "OPEN", "new": "CLOSED"}}, "2026-09-12 10:00:00")
-    assert _find(pg_conn, c, "DevOps")["closed_by_staff"] is True         # đóng lại lần nữa
+    job = _job(pg_conn, c, "DevOps")
+    _close(pg_conn, job, reason)
+    assert _find(pg_conn, c, "DevOps")["closed_reason"] == reason
 
 
-def test_other_audit_events_do_not_count_as_staff_close(pg_conn):
+def test_closed_without_reason_reads_as_unknown_and_open_as_none(pg_conn):
     c = _company(pg_conn)
-    job = _job(pg_conn, c, "SRE", status="CLOSED")
-    _audit(pg_conn, job, "UPDATE_JOB", {"salary_min": {"old": 1, "new": 2}})            # sửa trường khác
-    _audit(pg_conn, job, "UPDATE_JOB", {"job_status": {"old": "OPEN", "new": "CLOSED"}})  # không phải mở lại
-    _audit(pg_conn, job, "CREATE_JOB", None)
-    assert _find(pg_conn, c, "SRE")["closed_by_staff"] is False
+    job = _job(pg_conn, c, "SRE")
+    assert _find(pg_conn, c, "SRE")["closed_reason"] is None
+    _close(pg_conn, job)                                    # code quên truyền lý do: trigger điền unknown
+    assert _find(pg_conn, c, "SRE")["closed_reason"] == "unknown"
 
 
-def test_audit_of_another_job_does_not_leak(pg_conn):
+def test_audit_logs_are_no_longer_read(pg_conn):
     c = _company(pg_conn)
-    other = _job(pg_conn, c, "Khác", status="CLOSED")
-    mine = _job(pg_conn, c, "SRE", status="CLOSED")
-    _audit(pg_conn, other, "DELETE_JOB", {"job_status": {"old": "OPEN", "new": "CLOSED"}})
-    assert _find(pg_conn, c, "SRE")["job_id"] == mine
-    assert _find(pg_conn, c, "SRE")["closed_by_staff"] is False
+    job = _job(pg_conn, c, "SRE")
+    _close(pg_conn, job, "expired_auto")
+    _audit(pg_conn, job, "DELETE_JOB", {"job_status": {"old": "OPEN", "new": "CLOSED"}})
+    assert _find(pg_conn, c, "SRE")["closed_reason"] == "expired_auto"
 
 
 def test_find_repost_candidate_leaves_the_transaction_alone(pg_conn):

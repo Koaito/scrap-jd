@@ -113,7 +113,7 @@ class FakeDB:
         # duplicate: None, job_id (str, job OPEN) hoặc dict ứng viên đầy đủ (vd job CLOSED)
         if isinstance(self._duplicate, str):
             return {"job_id": self._duplicate, "job_status": "OPEN", "level_id": None,
-                    "deadline": None, "closed_by_staff": False}
+                    "deadline": None, "closed_reason": None}
         return self._duplicate
 
     def find_jobs_by_source_url_regex(self, conn, **kw):
@@ -293,7 +293,7 @@ def test_company_page_not_fetched_no_extra_rollback(monkeypatch):
     ("link_repost_source", None, "old-job"),
     ("extend_job_deadline", None, "old-job"),
     ("reopen_job_for_repost", None, {"job_id": "old-job", "job_status": "CLOSED", "level_id": None,
-                                      "deadline": None, "closed_by_staff": False}),
+                                      "deadline": None, "closed_reason": "expired_auto"}),
     ("update_job_fields", NEEDS_PATCH_PROBE, None),
     ("mark_source_detail_checked", NEEDS_PATCH_PROBE, None),
 ])
