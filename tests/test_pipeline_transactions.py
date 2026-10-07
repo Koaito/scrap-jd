@@ -31,12 +31,12 @@ from pipeline_stats import PipelineStats
 READ_FUNCS = {
     "get_job_probe_by_source_url", "job_needs_detail_enrichment",
     "find_company_probe", "probe_needs_enrichment", "get_level_id",
-    "find_manual_job_duplicate", "find_jobs_by_source_url_regex",
+    "find_repost_candidate", "find_jobs_by_source_url_regex",
 }
 WRITE_FUNCS = {
     "update_job_fields", "mark_source_detail_checked", "get_or_create_province",
     "get_or_create_company_by_profile", "update_company_profile",
-    "link_repost_source", "extend_job_deadline", "insert_job",
+    "link_repost_source", "extend_job_deadline", "reopen_job_for_repost", "insert_job",
     "update_job_from_recrawl",
 }
 
@@ -109,7 +109,11 @@ class FakeDB:
     def get_level_id(self, conn, code):
         return 3
 
-    def find_manual_job_duplicate(self, conn, **kw):
+    def find_repost_candidate(self, conn, **kw):
+        # duplicate: None, job_id (str, job OPEN) hoặc dict ứng viên đầy đủ (vd job CLOSED)
+        if isinstance(self._duplicate, str):
+            return {"job_id": self._duplicate, "job_status": "OPEN", "level_id": None,
+                    "deadline": None, "closed_by_staff": False}
         return self._duplicate
 
     def find_jobs_by_source_url_regex(self, conn, **kw):
@@ -136,6 +140,9 @@ class FakeDB:
 
     def extend_job_deadline(self, conn, *a, **k):
         return self._write("extend_job_deadline", conn, True)
+
+    def reopen_job_for_repost(self, conn, *a, **k):
+        return self._write("reopen_job_for_repost", conn, True)
 
     def insert_job(self, conn, **k):
         return self._write("insert_job", conn)
@@ -285,6 +292,8 @@ def test_company_page_not_fetched_no_extra_rollback(monkeypatch):
     ("insert_job", None, None),
     ("link_repost_source", None, "old-job"),
     ("extend_job_deadline", None, "old-job"),
+    ("reopen_job_for_repost", None, {"job_id": "old-job", "job_status": "CLOSED", "level_id": None,
+                                      "deadline": None, "closed_by_staff": False}),
     ("update_job_fields", NEEDS_PATCH_PROBE, None),
     ("mark_source_detail_checked", NEEDS_PATCH_PROBE, None),
 ])

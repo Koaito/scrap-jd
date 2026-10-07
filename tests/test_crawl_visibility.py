@@ -174,7 +174,7 @@ def fake_db(monkeypatch):
     fdb.find_company_probe.return_value = None
     fdb.probe_needs_enrichment.return_value = False
     fdb.get_or_create_company_by_profile.return_value = "company-1"
-    fdb.find_manual_job_duplicate.return_value = None
+    fdb.find_repost_candidate.return_value = None
     monkeypatch.setattr(pipeline, "db", fdb)
     return fdb
 

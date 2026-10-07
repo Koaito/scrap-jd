@@ -19,6 +19,7 @@ from dataclasses import dataclass, fields
 _OPTIONAL_KEYS = frozenset({
     "skipped_detail_unavailable", "field_empty", "degraded", "blocked",
     "updated_by_job_code", "linked_by_job_code_only", "job_code_title_mismatch",
+    "repost_reopened", "repost_kept_closed",
 })
 
 
@@ -36,6 +37,15 @@ class PipelineStats:
     skipped_duplicate_repost: int = 0
     # Số tin đăng lại làm deadline của job cũ được dời ra sau.
     repost_deadline_extended: int = 0
+    # Tin đăng lại khớp một job đã CLOSED và job đó được MỞ LẠI (OPEN + hạn mới +
+    # source_url mới, Phần 3c). Đã nằm trong skipped_duplicate_repost. CHỈ xuất hiện
+    # trong to_dict() khi > 0 (xem _OPTIONAL_KEYS).
+    repost_reopened: int = 0
+    # Tin đăng lại khớp một job đã CLOSED nhưng KHÔNG mở lại: nhân viên đã chủ động
+    # đóng (audit DELETE_JOB, chưa ai mở lại), hoặc hạn nộp của tin mới đã qua, hoặc
+    # job đã bị luồng khác mở/đổi lúc đang xử lý. Chỉ ghi URL mới làm nguồn phụ. Cũng
+    # nằm trong skipped_duplicate_repost; CHỈ xuất hiện khi > 0.
+    repost_kept_closed: int = 0
     # Job cũ được vá thêm work_type/deadline/parsed_content.
     updated_existing: int = 0
     skipped_fetch_failed: int = 0

@@ -237,44 +237,57 @@ def _make_known_url_checker(conn, on_known_skipped=None):
     return checker
 
 
-def _import_repost(conn, raw, duplicate_job_id, deadline, raw_jd_content,
+def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
                     stats: PipelineStats) -> None:
-    """Nhánh "tin đăng lại" (bước 3c): URL mới nhưng trùng company + title +
-    level + province với job đã có -> KHÔNG insert job mới, ghi source_url mới
-    vào job cũ như nguồn phụ. Tách ra từ _process_jobs() (đợt B2, 10/2026),
-    KHÔNG đổi hành vi.
+    """Nhánh "tin đăng lại" (bước 3c): URL mới nhưng trùng company + title + province
+    (không xét level, xét cả job đã CLOSED, xem db.find_repost_candidate) với job đã có
+    -> KHÔNG insert job mới, ghi source_url mới vào job cũ như nguồn phụ. `candidate` là
+    dict db.find_repost_candidate() trả về.
 
-    Trước đây bỏ hẳn mà không ghi gì, nên lượt crawl sau URL này vẫn "chưa
-    từng thấy": fetch chi tiết + xử lý công ty rồi lại bỏ, lặp mãi. Có dòng
-    log thì lần sau URL đi nhánh "job đã có" và không tốn request nếu job cũ
-    đã đủ field.
+    Trước đây bỏ hẳn mà không ghi gì, nên lượt crawl sau URL này vẫn "chưa từng
+    thấy": fetch chi tiết + xử lý công ty rồi lại bỏ, lặp mãi. Có dòng log thì lần sau
+    URL đi nhánh "job đã có" và không tốn request nếu job cũ đã đủ field.
 
-    Tin đăng lại có thể là bản MỚI HƠN thật sự (job cũ đã quá hạn, được đăng
-    lại với deadline mới) nên deadline của job cũ được dời ra sau nếu hạn mới
-    muộn hơn (db.extend_job_deadline, không bao giờ rút ngắn). Nội dung
-    (parsed_content, work_type) thì KHÔNG vá từ tin đăng lại. raw_jd_content
-    của tin đăng lại được giữ lại để còn dữ liệu xem lại các trường hợp gộp
-    nhầm.
+    Xử lý theo trạng thái job cũ:
+      - OPEN: dời deadline ra sau nếu hạn mới muộn hơn (db.extend_job_deadline, không bao
+        giờ rút ngắn); job đã quá hạn được đăng lại sẽ sống lại.
+      - CLOSED, không phải nhân viên chủ động đóng: MỞ LẠI (db.reopen_job_for_repost: OPEN,
+        hạn mới, source_url mới). Đổi cả source_url vì check_expired_source_jobs kiểm tra
+        theo job_postings.source_url, để URL cũ (đã chết) thì job bị đóng lại ngay. Không
+        mở lại nếu hạn của tin mới đã qua.
+      - CLOSED mà nhân viên chủ động đóng (candidate["closed_by_staff"], từ audit_logs) hoặc
+        không mở lại được: giữ nguyên CLOSED, chỉ ghi URL mới làm nguồn phụ.
+    Nội dung (parsed_content, work_type) thì KHÔNG vá từ tin đăng lại. raw_jd_content của tin
+    đăng lại được giữ lại để còn dữ liệu xem lại các trường hợp gộp nhầm.
 
     Commit ở cuối để chốt cả phần ghi công ty ở bước trước (nhánh này không
     đi qua commit của bước insert)."""
+    duplicate_job_id = candidate["job_id"]
     stats.skipped_duplicate_repost += 1
     db.link_repost_source(
         conn, duplicate_job_id,
         source_name=raw.source_name, source_url=raw.source_url,
         raw_jd_content=raw_jd_content, salary_raw_text=raw.salary_text,
     )
-    extended = db.extend_job_deadline(conn, duplicate_job_id, deadline)
-    if extended:
+    action = ""
+    if candidate["job_status"] == "CLOSED":
+        if not candidate["closed_by_staff"] and db.reopen_job_for_repost(
+                conn, duplicate_job_id, source_url=raw.source_url, deadline=deadline):
+            stats.repost_reopened += 1
+            action = f", MỞ LẠI job đã đóng (hạn {deadline})"
+        else:
+            stats.repost_kept_closed += 1
+            action = (", giữ nguyên CLOSED (nhân viên đã đóng)" if candidate["closed_by_staff"]
+                      else ", giữ nguyên CLOSED (hạn mới đã qua hoặc job đã đổi)")
+    elif db.extend_job_deadline(conn, duplicate_job_id, deadline):
         stats.repost_deadline_extended += 1
+        action = f", dời deadline sang {deadline}"
     conn.commit()
     logger.info(
-        "Tin đăng lại (trùng company/title/level/province với "
+        "Tin đăng lại (trùng company/title/province với "
         "job_id=%s), không tạo job mới, đã ghi URL làm nguồn phụ%s: "
         "%s @ %s",
-        duplicate_job_id,
-        f", dời deadline sang {deadline}" if extended else "",
-        raw.job_title, raw.source_url,
+        duplicate_job_id, action, raw.job_title, raw.source_url,
     )
 
 
@@ -534,21 +547,23 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     # 3c) Chống trùng kiểu "đăng lại dưới URL khác" — job_probe ở bước (1)
     # (_process_job) chỉ bắt được trùng THEO source_url, không bắt được
     # trường hợp TopCV/VietnamWorks cấp source_url MỚI cho job đã đăng trước
-    # đó (cùng company + title + level + province, thường do nhà tuyển dụng
-    # "làm mới" tin để đẩy lên top tìm kiếm — đã xác nhận thực tế 08/2026, 2
-    # tin "Fullstack Developer" cùng công ty, cùng nội dung, khác job_id/URL,
-    # đăng cách nhau ~1 phút). Dùng lại find_manual_job_duplicate() (vốn viết
-    # cho luồng nhập tay ở POST /jobs) vì cùng bộ khoá (company_id,
-    # job_title, level_id, province_id) với generate_job_hash().
+    # đó (cùng company + title + province, thường do nhà tuyển dụng "làm mới"
+    # tin để đẩy lên top tìm kiếm — đã xác nhận thực tế 08/2026, 2 tin
+    # "Fullstack Developer" cùng công ty, cùng nội dung, khác job_id/URL, đăng
+    # cách nhau ~1 phút).
     #
-    # CHƯA làm (để riêng): siết khoá trùng (hiện company + title + level +
-    # province, so khớp cả NULL với NULL nên có thể gộp nhầm 2 tin khác nhau).
-    duplicate_job_id = db.find_manual_job_duplicate(
+    # Phần 3c (10/2026): dùng db.find_repost_candidate() thay cho
+    # find_manual_job_duplicate() (vẫn dùng cho POST /jobs) vì đo trên 230 job trùng
+    # thật, khoá cũ hụt ở hai chỗ: bỏ qua job đã CLOSED (~88%: tin đăng lại của job đã
+    # hết hạn sinh job mới) và đòi cùng level (~34%: level suy từ số năm kinh nghiệm nên
+    # hai lần đăng hay ra level khác nhau). Cái giá: hai vị trí cùng tên, công ty, tỉnh nhưng
+    # khác cấp bị coi là một (dữ liệu gốc của tin bị gộp vẫn nằm trong job_sources_log).
+    repost_candidate = db.find_repost_candidate(
         conn, company_id=company_id, job_title=raw.job_title,
-        level_id=level_id, province_id=province_id,
+        province_id=province_id, level_id=level_id,
     )
-    if duplicate_job_id is not None:
-        _import_repost(conn, raw, duplicate_job_id, deadline, raw_jd_content, stats)
+    if repost_candidate is not None:
+        _import_repost(conn, raw, repost_candidate, deadline, raw_jd_content, stats)
         return
 
     # 4) Insert job mới

@@ -54,6 +54,12 @@ class StubAdapter(BaseAdapter):
         return dict(self.detail) if self.detail is not None else None
 
 
+def _candidate(job_id, status="OPEN", closed_by_staff=False):
+    """Kết quả db.find_repost_candidate() cho test (mock db)."""
+    return {"job_id": job_id, "job_status": status, "level_id": None, "deadline": None,
+            "closed_by_staff": closed_by_staff}
+
+
 @pytest.fixture
 def fake_db(monkeypatch):
     fdb = MagicMock()
@@ -63,7 +69,7 @@ def fake_db(monkeypatch):
     fdb.get_or_create_company_by_profile.return_value = "company-1"
     fdb.get_or_create_province.return_value = 7
     fdb.get_level_id.return_value = 3
-    fdb.find_manual_job_duplicate.return_value = None
+    fdb.find_repost_candidate.return_value = None
     fdb.extend_job_deadline.return_value = False
     monkeypatch.setattr(pipeline, "db", fdb)
     return fdb
@@ -145,7 +151,7 @@ def test_new_job_is_inserted_then_committed_once(fake_db):
 
 
 def test_repost_links_source_and_commits_without_insert(fake_db):
-    fake_db.find_manual_job_duplicate.return_value = "old-job"
+    fake_db.find_repost_candidate.return_value = _candidate("old-job")
     fake_db.extend_job_deadline.return_value = True
     conn = MagicMock()
 
@@ -161,7 +167,7 @@ def test_repost_links_source_and_commits_without_insert(fake_db):
 
 
 def test_repost_without_later_deadline_does_not_count_extension(fake_db):
-    fake_db.find_manual_job_duplicate.return_value = "old-job"
+    fake_db.find_repost_candidate.return_value = _candidate("old-job")
     fake_db.extend_job_deadline.return_value = False
 
     stats = _run_step(StubAdapter(), MagicMock())
@@ -200,7 +206,7 @@ def test_error_inside_insert_step_is_rolled_back_counted_and_heartbeat_still_fir
 
 
 def test_error_inside_repost_step_is_rolled_back_and_counted(fake_db):
-    fake_db.find_manual_job_duplicate.return_value = "old-job"
+    fake_db.find_repost_candidate.return_value = _candidate("old-job")
     fake_db.link_repost_source.side_effect = RuntimeError("boom")
     conn = MagicMock()
 

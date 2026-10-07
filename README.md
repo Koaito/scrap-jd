@@ -217,21 +217,27 @@ COMMIT;
 Muốn trả cả trường đã đổi ở job giữ thì lấy giá trị `old` trong dòng `MERGE_JOB` của job giữ. Nhớ: khôi phục
 xong nếu không muốn job bị gộp lại lần sau thì xử lý nguyên nhân trùng (level/tỉnh) trước.
 
-**Chặn nguồn sinh job trùng (Phần 3c, đang làm dở).** Gộp xong mà crawler vẫn sinh trùng thì trùng sẽ mọc
-lại. Nguyên nhân (đo trên 230 job trùng thật): bước 3c của `pipeline.py` tra tin đăng lại bằng
-`find_manual_job_duplicate`, hàm này bỏ qua job đã CLOSED (khoảng 88% job trùng) và dùng cả level làm khoá
-(khoảng 34%). Nửa 1/2 (đã xong, **chưa nối vào pipeline nên hành vi crawl chưa đổi**) thêm hai hàm tầng DB
-trong `db/job_recrawl.py`:
+**Chặn nguồn sinh job trùng (Phần 3c).** Gộp xong mà crawler vẫn sinh trùng thì trùng sẽ mọc lại. Nguyên nhân
+(đo trên 230 job trùng thật): bước 3c của `pipeline.py` tra tin đăng lại bằng `find_manual_job_duplicate`, hàm này bỏ
+qua job đã CLOSED (khoảng 88% job trùng) và dùng cả level làm khoá (khoảng 34%). Nay pipeline dùng
+`db.find_repost_candidate` (`db/job_recrawl.py`): khoá là công ty + tiêu đề (chuẩn hoá giống `generate_job_hash`:
+không phân biệt hoa/thường, gộp khoảng trắng) + tỉnh, **không xét level**, **xét cả job CLOSED**; nhiều job khớp thì
+chọn OPEN, rồi cùng level, rồi tạo gần nhất. `find_manual_job_duplicate` (dùng cho `POST /jobs` nhập tay) giữ nguyên.
+Xử lý theo trạng thái job cũ (`pipeline._import_repost`), mọi trường hợp đều ghi URL mới làm nguồn phụ:
 
-- `find_repost_candidate`: khoá là công ty + tiêu đề (chuẩn hoá giống `generate_job_hash`: không phân biệt
-  hoa/thường, gộp khoảng trắng) + tỉnh; **không xét level**; **xét cả job CLOSED**. Nhiều job khớp thì chọn OPEN,
-  rồi cùng level, rồi tạo gần nhất. Kèm cờ `closed_by_staff`: sự kiện gần nhất trong `audit_logs` là nhân viên
-  đóng JD (`DELETE_JOB`) mà chưa ai mở lại. Job bị đóng tự động không ghi audit nên không tính.
-- `reopen_job_for_repost` (cách A): mở lại job CLOSED, đặt `job_status` OPEN, hạn nộp và `source_url` của tin mới
-  (phải đổi cả `source_url`, nếu không `check_expired_source_jobs` kiểm tra URL cũ đã chết và đóng lại ngay).
-  Không mở lại nếu hạn của tin mới đã qua.
+- Job OPEN: dời hạn nộp ra sau nếu hạn mới muộn hơn (như trước).
+- Job CLOSED: **mở lại** (`db.reopen_job_for_repost`: OPEN, hạn nộp mới, `source_url` mới; phải đổi cả `source_url` vì
+  `check_expired_source_jobs` kiểm tra theo `job_postings.source_url`, để URL cũ đã chết thì job bị đóng lại ngay).
+  Tin mới không có hạn thì hạn ghi NULL.
+- **Không mở lại** (chỉ ghi nguồn phụ, giữ CLOSED) khi: nhân viên đã chủ động đóng JD (audit `DELETE_JOB` gần nhất, chưa
+  ai mở lại; job bị đóng tự động không ghi audit nên vẫn mở lại được), hoặc hạn của tin mới đã qua, hoặc job vừa bị luồng
+  khác mở/đổi. Job nhân viên đóng từ trước khi có `audit_logs` thì không nhận ra được.
 
-`find_manual_job_duplicate` (dùng cho `POST /jobs` nhập tay) giữ nguyên. Nửa 2/2 sẽ nối vào `pipeline.py`.
+Thống kê lượt crawl có thêm hai khoá, chỉ xuất hiện khi > 0 và đã nằm trong `skipped_duplicate_repost`:
+`repost_reopened` (số job được mở lại) và `repost_kept_closed` (số tin đăng lại khớp job CLOSED nhưng không mở lại).
+Cái giá của việc bỏ level khỏi khoá: hai vị trí cùng tên, cùng công ty, cùng tỉnh nhưng khác cấp bị coi là một (tin gốc
+vẫn nằm trong `job_sources_log`). Thứ tự khuyến nghị khi áp dụng: commit code, backup DB, `merge-duplicates --apply`
+để dọn trùng cũ, rồi mới crawl lại.
 
 ### 4. Chạy test
 
@@ -419,13 +425,15 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
 - Gộp công ty **ưu tiên theo mã số thuế**: hai job cùng công ty nhưng tên
   viết khác nhau vẫn nhận ra là một.
 - Phát hiện job "đăng lại" (repost) dưới `source_url` khác: nếu trùng
-  `company_id` + `job_title` + `level_id` + `province_id` với job đã có thì
-  **không tạo job mới**. URL mới được ghi làm nguồn phụ của job cũ nên lượt
-  sau không fetch lại; nếu bản đăng lại có hạn nộp muộn hơn thì deadline
-  của job cũ được dời ra sau (không bao giờ rút ngắn), job đã quá hạn được
-  đăng lại sẽ sống lại. Nội dung (mô tả, `work_type`) không vá từ bản đăng
-  lại. Số lượng nằm ở `skipped_duplicate_repost` và `repost_deadline_extended`
-  trong thống kê lượt chạy (xem [Giới hạn đã biết](#giới-hạn-đã-biết)).
+  `company_id` + `job_title` (chuẩn hoá) + `province_id` với job đã có, **kể cả job
+  đã CLOSED và không xét level**, thì **không tạo job mới**. URL mới được ghi làm
+  nguồn phụ của job cũ nên lượt sau không fetch lại; job OPEN thì deadline được dời
+  ra sau nếu hạn mới muộn hơn (không bao giờ rút ngắn), job CLOSED thì được mở lại
+  (trừ job nhân viên đã chủ động đóng, xem mục "Chặn nguồn sinh job trùng" ở trên).
+  Nội dung (mô tả, `work_type`) không vá từ bản đăng lại. Số lượng nằm ở
+  `skipped_duplicate_repost`, `repost_deadline_extended`, `repost_reopened`,
+  `repost_kept_closed` trong thống kê lượt chạy (xem
+  [Giới hạn đã biết](#giới-hạn-đã-biết)).
 - **VietnamWorks: nhận ra tin bị sửa tiêu đề theo mã job.** Nhà tuyển dụng sửa
   tiêu đề thì URL đổi (phần chữ) còn mã số cuối URL (`...-<mã>-jv`) giữ
   nguyên. Gặp URL chưa có trong DB, pipeline tìm job VietnamWorks còn `OPEN`
@@ -778,8 +786,8 @@ Chi tiết danh sách biến môi trường và endpoint xem `API_README.md`.
 ## Giới hạn đã biết
 
 - **Khoá nhận diện tin đăng lại khá thô.** Hai tin khác nhau của cùng công
-  ở cùng tỉnh, cùng cấp bậc và cùng tên vị trí bị coi là một job, nên có thể
-  gộp nhầm. Dữ liệu gốc của tin bị gộp vẫn được giữ trong nguồn phụ để soát
+  ty ở cùng tỉnh và cùng tên vị trí bị coi là một job (kể cả khác cấp bậc, vì
+  level không còn nằm trong khoá), nên có thể gộp nhầm. Dữ liệu gốc của tin bị gộp vẫn được giữ trong nguồn phụ để soát
   lại. Theo dõi `skipped_duplicate_repost` trên trang `/crawl` trước khi
   quyết định siết khoá. Bước kiểm tra này nằm sau bước fetch chi tiết và hồ
   sơ công ty, nên một tin đăng lại tốn 1-2 request ở lần đầu gặp.

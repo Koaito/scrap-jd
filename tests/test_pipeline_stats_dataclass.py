@@ -34,6 +34,14 @@ COUNTER_KEYS = {
 # ----------------------------------------------------------------------
 # Bản thân dataclass
 # ----------------------------------------------------------------------
+def test_repost_reopen_counters_are_optional_keys_only_present_when_positive():
+    # Hợp đồng ra ngoài: lượt chạy bình thường giữ nguyên tập khoá cũ (COUNTER_KEYS).
+    assert "repost_reopened" not in PipelineStats().to_dict()
+    assert "repost_kept_closed" not in PipelineStats().to_dict()
+    data = PipelineStats(repost_reopened=2, repost_kept_closed=1).to_dict()
+    assert data["repost_reopened"] == 2 and data["repost_kept_closed"] == 1
+
+
 def test_default_to_dict_has_exactly_the_counter_keys_all_zero():
     assert PipelineStats().to_dict() == {key: 0 for key in COUNTER_KEYS}
 
@@ -99,8 +107,10 @@ def scenario_db(monkeypatch):
     fdb.find_company_probe.return_value = None
     fdb.probe_needs_enrichment.return_value = False
     fdb.get_or_create_company_by_profile.return_value = "company-1"
-    fdb.find_manual_job_duplicate.side_effect = (
-        lambda conn, **kw: "dup-job" if kw["job_title"] == "Job 4" else None
+    fdb.find_repost_candidate.side_effect = (
+        lambda conn, **kw: {"job_id": "dup-job", "job_status": "OPEN", "level_id": None,
+                            "deadline": None, "closed_by_staff": False}
+        if kw["job_title"] == "Job 4" else None
     )
     fdb.extend_job_deadline.return_value = True
 
