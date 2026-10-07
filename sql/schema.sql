@@ -257,6 +257,10 @@ CREATE TABLE IF NOT EXISTS job_postings (
     ss_team_notes     TEXT,
     content_hash      VARCHAR(64),
     source_url        VARCHAR(500),
+    -- Vì sao job CLOSED và lúc đóng (xem sql/0037_add_job_closed_reason.sql). NULL khi OPEN.
+    -- Bất biến do CHECK + trigger set_job_closed_state giữ.
+    closed_reason     VARCHAR(20),
+    closed_at         TIMESTAMPTZ,
     created_at        TIMESTAMP NOT NULL DEFAULT now(),
     updated_at        TIMESTAMP NOT NULL DEFAULT now(),
 
@@ -283,6 +287,16 @@ CREATE TABLE IF NOT EXISTS job_postings (
     ),
     CONSTRAINT chk_job_postings_level_signals CHECK (
         level_signals IS NULL OR jsonb_typeof(level_signals) = 'object'
+    ),
+    CONSTRAINT chk_job_postings_closed_reason CHECK (
+        closed_reason IS NULL OR closed_reason IN ('staff', 'expired_auto', 'merged', 'unknown')
+    ),
+    -- CASE (không phải AND/OR): CHECK coi NULL là "đạt".
+    CONSTRAINT chk_job_postings_closed_state CHECK (
+        CASE
+            WHEN job_status = 'CLOSED' THEN closed_reason IS NOT NULL
+            ELSE closed_reason IS NULL AND closed_at IS NULL
+        END
     )
 );
 
@@ -548,6 +562,32 @@ DROP TRIGGER IF EXISTS set_job_hash ON job_postings;
 CREATE TRIGGER set_job_hash
 BEFORE INSERT OR UPDATE ON job_postings
 FOR EACH ROW EXECUTE FUNCTION trg_set_job_hash();
+
+-- closed_reason / closed_at luôn khớp job_status (xem sql/0037_add_job_closed_reason.sql).
+CREATE OR REPLACE FUNCTION trg_set_job_closed_state() RETURNS TRIGGER AS $$
+BEGIN
+    IF NEW.job_status = 'CLOSED' THEN
+        IF TG_OP = 'INSERT' OR OLD.job_status <> 'CLOSED' THEN
+            -- Vừa chuyển sang CLOSED.
+            NEW.closed_reason := COALESCE(NEW.closed_reason, 'unknown');
+            NEW.closed_at := COALESCE(NEW.closed_at, now());
+        ELSE
+            -- Đã CLOSED từ trước: giữ lý do và giờ cũ, không bịa giờ mới.
+            NEW.closed_reason := COALESCE(NEW.closed_reason, OLD.closed_reason, 'unknown');
+            NEW.closed_at := COALESCE(NEW.closed_at, OLD.closed_at);
+        END IF;
+    ELSE
+        NEW.closed_reason := NULL;
+        NEW.closed_at := NULL;
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS set_job_closed_state ON job_postings;
+CREATE TRIGGER set_job_closed_state
+BEFORE INSERT OR UPDATE ON job_postings
+FOR EACH ROW EXECUTE FUNCTION trg_set_job_closed_state();
 
 -- ============================================================
 -- 6. VIEW hỗ trợ — tìm job nghi ngờ trùng lặp
@@ -1189,11 +1229,19 @@ ALTER TYPE audit_action_enum ADD VALUE IF NOT EXISTS 'WITHDRAW_JOB_APPLICATION';
 -- Gộp job trùng (python main.py merge-duplicates --apply), xem sql/migration_add_merge_job_audit_action.sql.
 ALTER TYPE audit_action_enum ADD VALUE IF NOT EXISTS 'MERGE_JOB';
 
+-- Pipeline tự mở lại job đã đóng khi tin được đăng lại, xem sql/0038_add_reopen_job_audit_action.sql.
+ALTER TYPE audit_action_enum ADD VALUE IF NOT EXISTS 'REOPEN_JOB';
+
 -- Hình thức làm việc linh hoạt.
 ALTER TYPE work_type_enum ADD VALUE IF NOT EXISTS 'FLEXIBLE';
 
 COMMENT ON COLUMN companies.source_profile_url IS
     'URL trang hồ sơ công ty trên nguồn crawl gốc (TopCV/VietnamWorks/CareerViet) — dùng để backfill lại industry/company_size/address/website sau này mà không cần công ty còn job đang active.';
+
+COMMENT ON COLUMN job_postings.closed_reason IS
+    'Vì sao job CLOSED: staff | expired_auto | merged (dự phòng) | unknown. NULL khi OPEN. Pipeline chỉ tự mở lại job expired_auto.';
+COMMENT ON COLUMN job_postings.closed_at IS
+    'Lúc job chuyển sang CLOSED. NULL khi OPEN, hoặc job đóng từ trước khi có cột mà không biết giờ.';
 
 -- ============================================================
 -- HẾT FILE
