@@ -460,6 +460,10 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   `skipped_duplicate_repost`, `repost_deadline_extended`, `repost_reopened`,
   `repost_kept_closed` trong thống kê lượt chạy (xem
   [Giới hạn đã biết](#giới-hạn-đã-biết)).
+- Một `source_url` chỉ thuộc **một** job: `job_sources_log` có `UNIQUE (source_url)` (migration
+  `0041`, D2), đồng thời là index cho các câu tra "URL này đã crawl chưa". Ghi nguồn phụ trùng URL
+  của job khác thì `link_repost_source` không ghi đè, trả `False` và cảnh báo; `insert_job` raise
+  `UniqueViolation` và pipeline rollback job đó. Migration dừng nếu DB đang có URL nằm ở nhiều dòng.
 - **VietnamWorks: nhận ra tin bị sửa tiêu đề theo mã job.** Nhà tuyển dụng sửa
   tiêu đề thì URL đổi (phần chữ) còn mã số cuối URL (`...-<mã>-jv`) giữ
   nguyên. Gặp URL chưa có trong DB, pipeline tìm job VietnamWorks còn `OPEN`

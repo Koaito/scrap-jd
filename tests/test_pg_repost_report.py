@@ -172,23 +172,43 @@ def test_empty_database_gives_empty_lists(pg_conn):
 
 
 # ------------------------------------------------------------------ list_merge_log_origins (gộp thật)
-def test_origins_come_from_a_real_merge_and_count_dropped_logs(pg_conn):
+def test_origins_come_from_a_real_merge(pg_conn):
     c = _company(pg_conn)
     shared = "https://www.topcv.vn/cung-url"
     keeper = _job(pg_conn, c, "Data Analyst", url=shared, body=BODY_A)
     donor = _job(pg_conn, c, "Data Analyst", level="Senior", url=shared + "-khac", body=BODY_B)
-    _repost(pg_conn, donor, url=shared, body=BODY_B)        # trùng (job, url) với log của job giữ => bị bỏ
-    moved_log = _scalar(pg_conn, "SELECT log_id::text FROM job_sources_log WHERE job_id = %s AND source_url = %s",
-                        (donor, shared + "-khac"))
+    _repost(pg_conn, donor, url=shared + "-lai", body=BODY_B)
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT log_id::text FROM job_sources_log WHERE job_id = %s", (donor,))
+        moved_logs = {r[0] for r in cur.fetchall()}
+    pg_conn.rollback()
+    assert len(moved_logs) == 2
 
     res = _merge(pg_conn, [keeper, donor], keeper)
-    assert res["children"]["job_sources_log"] == (1, 1)
+    # Từ D2 một URL chỉ thuộc một job nên một lần gộp thật không còn bỏ log nào vì trùng URL.
+    assert res["children"]["job_sources_log"] == (2, 0)
 
     origins = db.list_merge_log_origins(pg_conn)
-    assert origins["dropped"] == 1
-    assert set(origins["moved"]) == {moved_log}
-    info = origins["moved"][moved_log]
+    assert origins["dropped"] == 0
+    assert set(origins["moved"]) == moved_logs
+    info = origins["moved"][next(iter(moved_logs))]
     assert info["donor_job_id"] == donor and info["keeper_job_id"] == keeper and info["merged_at"] is not None
+
+
+def test_dropped_logs_of_old_merges_are_still_counted(pg_conn):
+    """Các lần merge-duplicates chạy TRƯỚC D2 có thể đã bỏ log trùng (job_id, source_url). Sau D2 không
+    còn tạo được trạng thái đó bằng một lần gộp thật, nên dựng thẳng dòng audit như bản cũ để chứng
+    minh báo cáo vẫn đếm đúng phần lịch sử."""
+    c = _company(pg_conn)
+    keeper = _job(pg_conn, c, "Data Analyst")
+    donor = str(uuid.uuid4())
+    snapshot = {"job_sources_log": {"moved": [], "dropped": [{"log_id": str(uuid.uuid4())},
+                                                                {"log_id": str(uuid.uuid4())}]}}
+    db.log_action(pg_conn, actor_id=None, action_type="MERGE_JOB", entity_type="JOB", entity_id=donor,
+                  entity_label="Data Analyst", company_id=c,
+                  changes={"merged_into": keeper, "snapshot": snapshot})
+    pg_conn.commit()
+    assert db.list_merge_log_origins(pg_conn) == {"moved": {}, "dropped": 2}
 
 
 def test_non_merge_audit_rows_are_not_mistaken_for_merges(pg_conn):

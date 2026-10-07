@@ -295,6 +295,9 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
                                           salary_raw_content, raw_jd_content,
                                           detail_checked_at)
             VALUES (%s, %s, %s, %s, %s, CASE WHEN %s THEN now() END)
+            -- job_id vừa sinh nên ON CONFLICT (job_id, source_url) không bao giờ kích hoạt. Nếu URL đã
+            -- thuộc job khác (UNIQUE (source_url), D2) thì INSERT này raise UniqueViolation: cố ý để
+            -- ồn ào, vòng lặp pipeline rollback cả job vừa insert thay vì để lại job không có dòng log.
             ON CONFLICT (job_id, source_url) DO NOTHING
             """,
             (job_id, source_name, source_url, salary_raw_text, raw_jd_content or None,

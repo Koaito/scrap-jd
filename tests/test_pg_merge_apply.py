@@ -274,7 +274,7 @@ def _rich_group(conn):
     keeper = _job(conn, c, "Data Engineer", status="CLOSED", deadline="2026-09-01",
                   salary=(20_000_000, 30_000_000), url="https://www.topcv.vn/old")
     d1 = _job(conn, c, "Data Engineer", status="OPEN", deadline="2026-11-01", url="https://www.topcv.vn/new")
-    d2 = _job(conn, c, "Data Engineer", status="OPEN", deadline="2026-10-01", url="https://www.topcv.vn/new")
+    d2 = _job(conn, c, "Data Engineer", status="OPEN", deadline="2026-10-01", url="https://www.topcv.vn/new-2")
     _save(conn, u1, keeper)
     _save(conn, u1, d1)                                      # trùng người dùng -> bỏ
     _save(conn, u2, d1)                                      # chuyển
@@ -318,7 +318,8 @@ def test_merge_group_moves_children_merges_fields_and_writes_snapshots(pg_conn):
     assert _one(pg_conn, "SELECT cv_url FROM job_applications WHERE job_id = %s AND ss_user_id = %s",
                 (keeper, g["u"][0]))[0] == "cv/keeper.pdf"
     urls = sorted(r[0] for r in _all(pg_conn, "SELECT source_url FROM job_sources_log WHERE job_id = %s", (keeper,)))
-    assert urls == ["https://www.topcv.vn/new", "https://www.topcv.vn/old"]     # log trùng URL bị bỏ
+    assert urls == ["https://www.topcv.vn/new", "https://www.topcv.vn/new-2",
+                    "https://www.topcv.vn/old"]                              # mọi URL của job phụ dồn về job giữ
 
     # --- liên hệ: liên kết trùng dồn, liên kết khác chuyển; lịch sử trao đổi về một mối; trạng thái giữ của job giữ
     links = {r[1]: r for r in _all(pg_conn, "SELECT link_id::text, contact_id::text, interaction_status, "
@@ -352,8 +353,11 @@ def test_merge_group_moves_children_merges_fields_and_writes_snapshots(pg_conn):
 
     s2 = by_entity[d2]["changes"]["snapshot"]
     assert s2["job_contact_links"]["moved"] == [g["links"][2]]
-    dropped_log = s2["job_sources_log"]["dropped"] + snap["job_sources_log"]["dropped"]
-    assert len(dropped_log) == 1 and "raw_jd_content" not in dropped_log[0]            # bản trùng URL, không đổ cả JD vào audit
+    # Từ D2 một URL chỉ thuộc một job nên không còn log nào bị bỏ vì trùng URL với job giữ (nhánh bỏ log
+    # vẫn còn trong code cho các lần gộp cũ và DB chưa có UNIQUE (source_url)). Cả hai log của job phụ
+    # được chuyển, snapshot chỉ ghi log_id của chúng.
+    assert s2["job_sources_log"]["dropped"] == [] and snap["job_sources_log"]["dropped"] == []
+    assert len(s2["job_sources_log"]["moved"]) == 1 and len(snap["job_sources_log"]["moved"]) == 1
     assert res["cv_dropped"] == 1
 
     kc = by_entity[keeper]["changes"]

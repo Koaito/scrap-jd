@@ -364,7 +364,11 @@ CREATE TABLE IF NOT EXISTS job_sources_log (
     -- db/jobs.py::job_needs_detail_enrichment.
     detail_checked_at TIMESTAMPTZ,
 
-    CONSTRAINT uq_job_source UNIQUE (job_id, source_url)
+    CONSTRAINT uq_job_source UNIQUE (job_id, source_url),
+    -- Một URL nguồn chỉ thuộc một job, đồng thời là index cho các câu tra theo riêng source_url
+    -- (D2, sql/0041_unique_source_url_job_sources_log.sql). uq_job_source giờ thừa về ràng buộc
+    -- nhưng còn được insert_job dùng làm đích ON CONFLICT; gỡ ở đợt C.
+    CONSTRAINT uq_job_sources_log_source_url UNIQUE (source_url)
 );
 
 CREATE TABLE IF NOT EXISTS job_contact_links (

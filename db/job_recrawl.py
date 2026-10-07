@@ -44,7 +44,13 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
     nằm ở job_sources_log.
 
     Không tự commit (đúng quy ước của lớp db: nơi gọi chịu trách nhiệm).
-    Trả True nếu vừa thêm dòng mới, False nếu (job_id, source_url) đã có."""
+    Trả True nếu vừa thêm dòng mới, False nếu source_url đã có.
+
+    Một URL chỉ thuộc một job (UNIQUE (source_url), D2, sql/0041_unique_source_url_job_sources_log.sql)
+    nên ON CONFLICT nhắm vào source_url chứ không còn (job_id, source_url). Pipeline đã tra URL đã biết
+    trước khi tới đây (get_job_probe_by_source_url), nên URL đã nằm ở một job KHÁC chỉ xảy ra khi hai
+    tiến trình crawl gặp cùng URL cùng lúc. Khi đó hàm KHÔNG ghi đè và KHÔNG báo lỗi, trả False và ghi
+    cảnh báo để còn dấu vết."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -52,11 +58,20 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
                                           salary_raw_content, raw_jd_content,
                                           detail_checked_at)
             VALUES (%s, %s, %s, %s, %s, now())
-            ON CONFLICT (job_id, source_url) DO NOTHING
+            ON CONFLICT (source_url) DO NOTHING
             """,
             (job_id, source_name, source_url, salary_raw_text, raw_jd_content or None),
         )
-        return cur.rowcount > 0
+        inserted = cur.rowcount > 0
+        if not inserted:
+            cur.execute("SELECT job_id FROM job_sources_log WHERE source_url = %s", (source_url,))
+            row = cur.fetchone()
+            if row is not None and str(row[0]) != str(job_id):
+                logger.warning(
+                    "URL %s đã thuộc job %s, không ghi thêm làm nguồn phụ của job %s.",
+                    source_url, row[0], job_id,
+                )
+        return inserted
 
 
 def extend_job_deadline(conn, job_id: str, new_deadline) -> bool:
