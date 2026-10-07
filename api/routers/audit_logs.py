@@ -55,7 +55,7 @@ def list_audit_logs(
                     "APPLY_JOB | WITHDRAW_JOB_APPLICATION | BULK_IMPORT_JOB | "
                     "BULK_IMPORT_COMPANY | BULK_IMPORT_CONTACT | "
                     "CREATE_EMAIL_TEMPLATE | UPDATE_EMAIL_TEMPLATE | "
-                    "DELETE_EMAIL_TEMPLATE | MERGE_JOB",
+                    "DELETE_EMAIL_TEMPLATE | MERGE_JOB | REOPEN_JOB",
     ),
     pending_note: Optional[bool] = Query(
         None,
