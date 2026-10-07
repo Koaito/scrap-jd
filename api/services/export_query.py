@@ -18,7 +18,7 @@ cái đó", tránh lệch như 2 nơi định nghĩa filter riêng rẽ.
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 import psycopg2.extras
@@ -207,6 +207,33 @@ def query_contacts_for_export(conn, filters: Optional[ExportFilters] = None) -> 
     return _format_rows(rows, "contact")
 
 
+# Việt Nam dùng UTC+7 quanh năm (không có giờ mùa hè từ 1975) nên dùng offset cố
+# định, không cần ZoneInfo/gói tzdata trên máy chạy.
+_VN_TZ = timezone(timedelta(hours=7))
+_EXPORT_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
+
+
+def _format_export_value(val):
+    """Giá trị 1 ô trong file export (đã loại None và bool).
+
+    Thời điểm (datetime) xuất theo GIỜ VIỆT NAM, dạng "YYYY-MM-DD HH:MM:SS", đọc
+    thẳng được trong Excel. Trước đây xuất chuỗi isoformat thô, tức giờ UTC không
+    kèm nhãn, nhân viên ở VN dễ đọc nhầm thành giờ VN (lệch 7 tiếng).
+
+    Cột created_at/updated_at hiện là TIMESTAMP không múi giờ, lưu theo UTC, nên
+    datetime naive được coi là UTC. Sau D3 (đổi sang TIMESTAMPTZ) psycopg2 trả
+    datetime có múi giờ, hàm này xử lý được cả hai nên không cần đổi lại.
+    Giá trị kiểu date thuần (vd deadline) giữ nguyên isoformat, vì không có giờ
+    để quy đổi."""
+    if isinstance(val, datetime):
+        if val.tzinfo is None:
+            val = val.replace(tzinfo=timezone.utc)
+        return val.astimezone(_VN_TZ).strftime(_EXPORT_DATETIME_FORMAT)
+    if hasattr(val, "isoformat"):
+        return val.isoformat()
+    return val
+
+
 def _format_rows(rows: list[dict], entity_type: str) -> list[dict]:
     spec = get_spec(entity_type)
     out = []
@@ -218,10 +245,8 @@ def _format_rows(rows: list[dict], entity_type: str) -> list[dict]:
                 formatted[col] = None
             elif isinstance(val, bool):
                 formatted[col] = "true" if val else "false"
-            elif hasattr(val, "isoformat"):
-                formatted[col] = val.isoformat()
             else:
-                formatted[col] = val
+                formatted[col] = _format_export_value(val)
         out.append(formatted)
     return out
 

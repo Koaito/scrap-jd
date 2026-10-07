@@ -238,7 +238,8 @@ def test_run_is_read_only_and_reports(pg_conn, capsys, tmp_path):
     assert path.read_bytes().startswith(b"\xef\xbb\xbf")
 
     after = _one(pg_conn, "SELECT count(*), max(updated_at)::text, min(updated_at)::text FROM job_postings")
-    assert after == before and before[1] == before[2] == PAST  # không đổi updated_at của job nào
+    # [:19] bỏ hậu tố múi giờ ("+00") nếu cột là TIMESTAMPTZ (D3): test đúng với cả hai kiểu cột.
+    assert after == before and before[1][:19] == before[2][:19] == PAST  # không đổi updated_at của job nào
     assert _one(pg_conn, "SELECT content_hash FROM job_postings WHERE job_id = %s", (j1,))[0] == hash_before
 
 

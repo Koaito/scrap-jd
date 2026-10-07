@@ -30,10 +30,12 @@ Flask (đều nhỏ, nêu rõ để không ai tưởng là lỗi lệch):
      tính theo Asia/Ho_Chi_Minh (Phụ lục F của plan). Flask lấy phần ngày
      của chuỗi created_at thô (UTC) so với now_vn() — trộn 2 múi giờ,
      lệch 1 ngày với dữ liệu tạo trong khung 17:00-24:00 UTC. Cột
-     job_postings/companies.created_at là TIMESTAMP (không tz) do
-     DEFAULT now() ghi theo TimeZone của session — Supabase mặc định UTC,
-     cùng giả định mà db.stats.get_monthly_engagement_stats() đã dùng.
-     Xem _VN_TODAY / _vn_date() bên dưới.
+     job_postings/companies.created_at hiện là TIMESTAMP (không tz) do
+     DEFAULT now() ghi theo TimeZone của session — Supabase mặc định UTC
+     (đã kiểm SHOW timezone = UTC), cùng giả định mà
+     db.stats.get_monthly_engagement_stats() đã dùng. Kế hoạch D3 đổi các
+     cột này sang TIMESTAMPTZ; _vn_date() viết sao cho đúng ở CẢ HAI trạng
+     thái, để code đi trước migration. Xem _VN_TODAY / _vn_date() bên dưới.
   2. THỨ TỰ KHI BẰNG ĐIỂM (cùng số đếm / cùng số ngày) là thứ tự tường
      minh theo tên/id, không phụ thuộc thứ tự dict/list Python như Flask
      (Flask ngầm dựa vào thứ tự API trả về, không ổn định giữa các lần).
@@ -55,12 +57,22 @@ _VN_TODAY = "(now() AT TIME ZONE 'Asia/Ho_Chi_Minh')::date"
 
 
 def _vn_date(column: str) -> str:
-    """Biểu thức SQL đổi 1 cột TIMESTAMP (naive, lưu theo UTC) sang NGÀY
-    theo giờ VN: gắn nhãn UTC trước ('AT TIME ZONE 'UTC'' -> timestamptz)
-    rồi mới quy đổi sang giờ VN ('AT TIME ZONE 'Asia/Ho_Chi_Minh'' ->
-    timestamp naive giờ VN) — thiếu bước đầu, Postgres sẽ hiểu cột naive
-    theo TimeZone của session thay vì UTC."""
-    return f"(({column} AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/Ho_Chi_Minh')::date"
+    """Biểu thức SQL đổi 1 cột thời điểm sang NGÀY theo giờ VN, đúng cho cả
+    hai kiểu cột:
+
+      - TIMESTAMP (naive, lưu theo UTC — trạng thái hiện tại): `::timestamptz`
+        gắn nhãn múi giờ của session. Session là UTC (Supabase mặc định,
+        đã kiểm SHOW timezone = UTC) nên đây đúng là gắn nhãn UTC.
+      - TIMESTAMPTZ (sau D3): `::timestamptz` không làm gì cả, và từ đây
+        kết quả không còn phụ thuộc TimeZone của session.
+
+    Rồi `AT TIME ZONE 'Asia/Ho_Chi_Minh'` -> timestamp naive giờ VN -> ::date.
+
+    KHÔNG dùng lại dạng cũ `(col AT TIME ZONE 'UTC') AT TIME ZONE 'Asia/...'`:
+    trên cột TIMESTAMPTZ, `AT TIME ZONE 'UTC'` trả timestamp naive UTC, rồi
+    lần `AT TIME ZONE` thứ hai hiểu nó là giờ VN, kết quả lệch 14 giờ, tức
+    sai ngày ở 14/24 khung giờ (đã tái hiện trên Postgres 16)."""
+    return f"(({column})::timestamptz AT TIME ZONE 'Asia/Ho_Chi_Minh')::date"
 
 
 # ---------------------------------------------------------------

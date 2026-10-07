@@ -305,7 +305,7 @@ def test_merge_group_moves_children_merges_fields_and_writes_snapshots(pg_conn):
                         "FROM job_postings WHERE job_id = %s", (keeper,))
     assert row[0] == "OPEN" and row[1] == "2026-11-01" and row[2] == "https://www.topcv.vn/new"
     assert (row[3], row[4]) == (20_000_000, 30_000_000)
-    assert row[5] == PAST
+    assert row[5][:19] == PAST   # [:19] bỏ hậu tố múi giờ nếu cột là TIMESTAMPTZ (D3)
 
     # --- dữ liệu con: không còn gì trỏ vào job phụ
     for table in ("job_sources_log", "saved_jobs", "job_applications", "job_contact_links"):
@@ -327,7 +327,7 @@ def test_merge_group_moves_children_merges_fields_and_writes_snapshots(pg_conn):
     assert set(links) == set(g["k"])
     assert links[g["k"][0]][0] == g["links"][0] and links[g["k"][0]][2] == "Đã gọi"
     assert links[g["k"][1]][0] == g["links"][2]                                  # liên kết chuyển giữ nguyên link_id
-    assert all(r[3] == PAST for r in links.values())                             # updated_at dòng con cũng không nhảy
+    assert all(r[3][:19] == PAST for r in links.values())                             # updated_at dòng con cũng không nhảy
     assert _one(pg_conn, "SELECT count(*) FROM job_contact_interactions WHERE link_id = %s", (g["links"][0],))[0] == 3
 
     # --- audit: một dòng mỗi job phụ + một dòng job giữ; tự động, không người thực hiện
