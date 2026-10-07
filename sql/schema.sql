@@ -134,7 +134,7 @@ CREATE TABLE IF NOT EXISTS app_users (
     phone                             VARCHAR(30),
     track                               VARCHAR(100),
 
-    created_at      TIMESTAMP NOT NULL DEFAULT now(),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     CONSTRAINT chk_ss_team_members_role
         CHECK (role IN ('user', 'ss_team', 'admin'))
@@ -213,8 +213,8 @@ CREATE TABLE IF NOT EXISTS companies (
     -- vẫn tham chiếu company_id này qua FK, xoá cứng sẽ vỡ FK/mất lịch sử).
     is_active        BOOLEAN NOT NULL DEFAULT true,
 
-    created_at       TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at       TIMESTAMP NOT NULL DEFAULT now(),
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     -- Audit trail "ai tạo/sửa" (xem migration_add_audit_columns.sql).
     created_by       UUID REFERENCES app_users(ss_user_id),
@@ -265,8 +265,8 @@ CREATE TABLE IF NOT EXISTS job_postings (
     -- Bất biến do CHECK + trigger set_job_closed_state giữ.
     closed_reason     VARCHAR(20),
     closed_at         TIMESTAMPTZ,
-    created_at        TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at        TIMESTAMP NOT NULL DEFAULT now(),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     -- Audit trail "ai tạo/sửa" (xem migration_add_audit_columns.sql).
     -- NULL = job tạo qua crawl pipeline tự động, không phải lỗi.
@@ -317,8 +317,8 @@ CREATE TABLE IF NOT EXISTS company_contacts (
     assigned_ss_user  UUID REFERENCES app_users(ss_user_id),
     last_contacted_date DATE,
     contact_status    contact_status_enum NOT NULL DEFAULT 'UNCONTACTED',
-    created_at        TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at        TIMESTAMP NOT NULL DEFAULT now(),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     -- Soft-delete — xoá qua API là UPDATE is_active=false, KHÔNG DELETE
     -- thật, giữ lại lịch sử liên hệ (xem migration_add_role_hierarchy.sql).
@@ -376,8 +376,8 @@ CREATE TABLE IF NOT EXISTS job_contact_links (
     job_id            UUID NOT NULL REFERENCES job_postings(job_id),
     contact_id        UUID NOT NULL REFERENCES company_contacts(contact_id),
     interaction_status VARCHAR(50),
-    created_at        TIMESTAMP NOT NULL DEFAULT now(),
-    updated_at        TIMESTAMP NOT NULL DEFAULT now(),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
 
     CONSTRAINT uq_job_contact UNIQUE (job_id, contact_id)
 );

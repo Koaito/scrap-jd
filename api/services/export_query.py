@@ -18,12 +18,42 @@ cái đó", tránh lệch như 2 nơi định nghĩa filter riêng rẽ.
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Optional
 
 import psycopg2.extras
 
 from api.services.entity_specs import get_spec
+
+
+# Việt Nam dùng UTC+7 quanh năm (không có giờ mùa hè từ 1975) nên dùng offset cố
+# định, không cần ZoneInfo/gói tzdata trên máy chạy. Dùng CHUNG cho hai việc cần khớp nhau:
+# bộ lọc from_date/to_date (vn_day_range) và giờ hiện trong file export (_format_export_value).
+_VN_TZ = timezone(timedelta(hours=7))
+
+
+def vn_day_range(
+    from_date: Optional[date], to_date: Optional[date]
+) -> tuple[Optional[datetime], Optional[datetime]]:
+    """Đổi khoảng NGÀY VIỆT NAM [from_date, to_date] (gồm cả hai đầu) thành khoảng thời điểm
+    nửa mở [start, end) để so với cột TIMESTAMPTZ: start = 00:00 giờ VN của from_date,
+    end = 00:00 giờ VN của NGÀY SAU to_date. Mỗi đầu là None nếu tham số tương ứng là None.
+
+    Vì sao nửa mở thay vì `<= to_date`: so cột thời điểm với một date là so với 00:00 của ngày đó,
+    nên `col <= to_date` loại gần hết ngày cuối (chỉ giữ dòng tạo đúng 00:00:00). Còn `col <
+    to_date + 1 ngày` thì gồm đủ 24 giờ, và không cần đoán độ chính xác của cột (giây, micro giây).
+    Cùng cách db.stats đang tính ranh giới tháng.
+
+    Ranh giới theo giờ VN (không phải UTC) để khớp giờ hiện trong file và ngày staff nhìn thấy.
+    Kết quả là datetime CÓ múi giờ, nên so sánh đúng bất kể TimeZone của session.
+
+    to_date là ngày lớn nhất Python biểu diễn được (9999-12-31) thì không có ngày sau để làm
+    đầu mút: coi như không giới hạn trên (đúng ý nghĩa «đến hết»)."""
+    start = datetime.combine(from_date, time.min, tzinfo=_VN_TZ) if from_date is not None else None
+    end = None
+    if to_date is not None and to_date < date.max:
+        end = datetime.combine(to_date + timedelta(days=1), time.min, tzinfo=_VN_TZ)
+    return start, end
 
 
 @dataclass
@@ -39,7 +69,9 @@ class ExportFilters:
     company_id: riêng job/contact (company export theo company_id chính
         nó, không filter theo company khác).
     date_field: "created_at" | "updated_at" — cột áp from_date/to_date.
-    from_date/to_date: khoảng ngày inclusive theo date_field.
+    from_date/to_date: khoảng NGÀY VIỆT NAM (UTC+7), gồm cả hai đầu, theo date_field.
+        Một dòng tạo lúc 01:00 sáng 08/10 giờ VN (= 18:00 07/10 UTC) thuộc ngày 08/10,
+        đúng như giờ hiện trong file. Xem vn_day_range().
     limit: lấy N dòng ĐẦU sau khi đã áp mọi filter khác + đã ORDER BY
         created_at DESC — dùng cho trường hợp "không lọc gì, chỉ cần N
         job/company/contact mới nhất". None = không giới hạn.
@@ -89,13 +121,16 @@ def _build_where(
         clauses.append(f"{company_column} = %s")
         params.append(filters.company_id)
 
+    # Khoảng ngày VN -> khoảng thời điểm nửa mở [start, end), xem vn_day_range(). Cột trần (không bọc
+    # hàm) nên dùng được index trên created_at/updated_at nếu sau này thêm.
     date_col = f"{date_table_alias}.{filters.date_field}"
-    if filters.from_date is not None:
+    start, end = vn_day_range(filters.from_date, filters.to_date)
+    if start is not None:
         clauses.append(f"{date_col} >= %s")
-        params.append(filters.from_date)
-    if filters.to_date is not None:
-        clauses.append(f"{date_col} <= %s")
-        params.append(filters.to_date)
+        params.append(start)
+    if end is not None:
+        clauses.append(f"{date_col} < %s")
+        params.append(end)
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     return where, params
@@ -207,9 +242,6 @@ def query_contacts_for_export(conn, filters: Optional[ExportFilters] = None) -> 
     return _format_rows(rows, "contact")
 
 
-# Việt Nam dùng UTC+7 quanh năm (không có giờ mùa hè từ 1975) nên dùng offset cố
-# định, không cần ZoneInfo/gói tzdata trên máy chạy.
-_VN_TZ = timezone(timedelta(hours=7))
 _EXPORT_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
@@ -220,9 +252,9 @@ def _format_export_value(val):
     thẳng được trong Excel. Trước đây xuất chuỗi isoformat thô, tức giờ UTC không
     kèm nhãn, nhân viên ở VN dễ đọc nhầm thành giờ VN (lệch 7 tiếng).
 
-    Cột created_at/updated_at hiện là TIMESTAMP không múi giờ, lưu theo UTC, nên
-    datetime naive được coi là UTC. Sau D3 (đổi sang TIMESTAMPTZ) psycopg2 trả
-    datetime có múi giờ, hàm này xử lý được cả hai nên không cần đổi lại.
+    Cột created_at/updated_at là TIMESTAMPTZ (migration 0042, D3) nên psycopg2 trả datetime có
+    múi giờ, quy đổi sang giờ VN. Datetime naive (DB chưa chạy 0042, cột còn là TIMESTAMP lưu
+    theo UTC) vẫn được coi là UTC, nên hàm đúng ở cả hai trạng thái.
     Giá trị kiểu date thuần (vd deadline) giữ nguyên isoformat, vì không có giờ
     để quy đổi."""
     if isinstance(val, datetime):

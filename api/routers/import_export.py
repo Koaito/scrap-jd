@@ -150,8 +150,12 @@ def _export_filter_params(
     date_field: Literal["created_at", "updated_at"] = Query(
         "created_at", description="Cột áp from_date/to_date."
     ),
-    from_date: Optional[date] = Query(None, description="Từ ngày (inclusive), theo date_field."),
-    to_date: Optional[date] = Query(None, description="Đến ngày (inclusive), theo date_field."),
+    from_date: Optional[date] = Query(
+        None, description="Từ ngày (gồm ngày này), tính theo NGÀY VIỆT NAM (UTC+7), theo date_field."
+    ),
+    to_date: Optional[date] = Query(
+        None, description="Đến hết ngày này (gồm cả ngày này), tính theo NGÀY VIỆT NAM (UTC+7), theo date_field."
+    ),
     limit: Optional[int] = Query(
         None, gt=0,
         description="Không lọc gì, chỉ muốn N dòng MỚI NHẤT? Truyền limit — "

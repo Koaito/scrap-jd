@@ -30,12 +30,10 @@ Flask (đều nhỏ, nêu rõ để không ai tưởng là lỗi lệch):
      tính theo Asia/Ho_Chi_Minh (Phụ lục F của plan). Flask lấy phần ngày
      của chuỗi created_at thô (UTC) so với now_vn() — trộn 2 múi giờ,
      lệch 1 ngày với dữ liệu tạo trong khung 17:00-24:00 UTC. Cột
-     job_postings/companies.created_at hiện là TIMESTAMP (không tz) do
-     DEFAULT now() ghi theo TimeZone của session — Supabase mặc định UTC
-     (đã kiểm SHOW timezone = UTC), cùng giả định mà
-     db.stats.get_monthly_engagement_stats() đã dùng. Kế hoạch D3 đổi các
-     cột này sang TIMESTAMPTZ; _vn_date() viết sao cho đúng ở CẢ HAI trạng
-     thái, để code đi trước migration. Xem _VN_TODAY / _vn_date() bên dưới.
+     job_postings/companies.created_at là TIMESTAMPTZ từ migration 0042 (D3);
+     trước đó là TIMESTAMP (không tz) lưu theo UTC. _vn_date() viết sao cho
+     đúng ở CẢ HAI trạng thái, để code và migration triển khai theo thứ tự
+     nào cũng được. Xem _VN_TODAY / _vn_date() bên dưới.
   2. THỨ TỰ KHI BẰNG ĐIỂM (cùng số đếm / cùng số ngày) là thứ tự tường
      minh theo tên/id, không phụ thuộc thứ tự dict/list Python như Flask
      (Flask ngầm dựa vào thứ tự API trả về, không ổn định giữa các lần).
@@ -60,11 +58,11 @@ def _vn_date(column: str) -> str:
     """Biểu thức SQL đổi 1 cột thời điểm sang NGÀY theo giờ VN, đúng cho cả
     hai kiểu cột:
 
-      - TIMESTAMP (naive, lưu theo UTC — trạng thái hiện tại): `::timestamptz`
+      - TIMESTAMPTZ (từ migration 0042, D3 — trạng thái hiện tại): `::timestamptz`
+        không làm gì cả, kết quả không phụ thuộc TimeZone của session.
+      - TIMESTAMP (naive, lưu theo UTC — DB chưa chạy 0042): `::timestamptz`
         gắn nhãn múi giờ của session. Session là UTC (Supabase mặc định,
         đã kiểm SHOW timezone = UTC) nên đây đúng là gắn nhãn UTC.
-      - TIMESTAMPTZ (sau D3): `::timestamptz` không làm gì cả, và từ đây
-        kết quả không còn phụ thuộc TimeZone của session.
 
     Rồi `AT TIME ZONE 'Asia/Ho_Chi_Minh'` -> timestamp naive giờ VN -> ::date.
 
