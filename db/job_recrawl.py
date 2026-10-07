@@ -19,7 +19,8 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
                        raw_jd_content: str = "", salary_raw_text: str = "") -> bool:
     """Ghi 1 source_url mới vào job ĐÃ CÓ như một nguồn phụ (job_sources_log),
     không tạo job mới. Dùng khi pipeline nhận ra tin vừa crawl là đăng lại của
-    job đã có (cùng company/title/level/province nhưng khác source_url).
+    job đã có (cùng công ty, tiêu đề chuẩn hoá và tỉnh, nhưng khác source_url; khoá này
+    không gồm level, xem find_repost_candidate).
 
     Trước đây tin đăng lại bị bỏ mà KHÔNG ghi gì, nên lượt crawl sau URL đó vẫn
     "chưa từng thấy": fetch chi tiết, xử lý công ty rồi lại bỏ, lặp mãi. Có dòng
@@ -28,7 +29,13 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
 
     raw_jd_content được giữ làm bằng chứng gốc của tin đăng lại: nếu sau này
     khoá trùng được siết chặt hơn thì còn dữ liệu để xem lại tin nào từng bị
-    gộp nhầm. job_postings.source_url (nguồn gốc của job) KHÔNG đổi.
+    gộp nhầm.
+
+    Hàm này KHÔNG đụng job_postings.source_url. Cột đó không phải "nguồn gốc bất biến" của
+    job: nó là URL mà check_expired_source_jobs kiểm tra còn sống hay không, lúc tạo bằng URL
+    tin crawl đầu tiên và có thể bị ghi đè sau đó (reopen_job_for_repost khi mở lại job đóng;
+    merge-duplicates khi job giữ lấy lại OPEN từ job phụ). Mọi URL từng thấy, kể cả URL cũ,
+    nằm ở job_sources_log.
 
     Không tự commit (đúng quy ước của lớp db: nơi gọi chịu trách nhiệm).
     Trả True nếu vừa thêm dòng mới, False nếu (job_id, source_url) đã có."""

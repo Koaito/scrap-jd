@@ -78,7 +78,9 @@ def member_urls(row: dict) -> set:
 
 
 def primary_site(row: dict) -> str:
-    """Trang của job_postings.source_url (nguồn gốc của job); thiếu thì lấy URL log đầu tiên."""
+    """Trang của job_postings.source_url (URL job đang trỏ tới, có thể đã đổi sang tin đăng
+    lại, xem db.reopen_job_for_repost; không phải nguồn gốc bất biến); thiếu thì lấy URL log
+    đầu tiên theo thứ tự chữ cái."""
     url = row.get("source_url") or next(iter(sorted(row.get("log_urls") or [])), None)
     return site_of_url(url)
 

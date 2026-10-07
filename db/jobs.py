@@ -64,8 +64,9 @@ JOB_CLEARABLE_FIELD_TO_COLUMN = {
 }
 
 def get_open_jobs_with_source_url(conn):
-    """Lấy job đang OPEN và có source_url (job crawl — job nhập tay
-    KHÔNG có source_url nên tự động bị loại, không có gì để re-check).
+    """Lấy job đang OPEN và có source_url khác rỗng. LƯU Ý: job nhập tay cũng được lấy, vì
+    insert_job ghi job_postings.source_url = 'manual://<uuid>' (không phải NULL); câu truy vấn
+    dưới đây không loại các giá trị đó.
     Dùng cho check_expired_source_jobs.py — script re-check job còn OPEN
     trong DB có còn tồn tại thật ở nguồn (TopCV/VietnamWorks) hay không.
 

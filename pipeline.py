@@ -364,7 +364,10 @@ def _update_job_by_job_code(conn, raw, match, *, level_code: str, level_source: 
 
     Luôn ghi URL mới vào job_sources_log trước, kể cả khi không sửa gì: nhờ đó lượt
     crawl sau URL này đi nhánh "job đã có" và không bị fetch lại (cùng lý do với
-    _import_repost). job_postings.source_url (nguồn gốc của job) KHÔNG đổi.
+    _import_repost). Nhánh này KHÔNG đổi job_postings.source_url: cột đó là URL mà
+    check_expired_source_jobs kiểm tra còn sống hay không (không phải "nguồn gốc bất biến",
+    reopen_job_for_repost và merge-duplicates vẫn có thể ghi đè); URL mới chỉ vào
+    job_sources_log.
 
     Job đã có người sửa tay (updated_by khác rỗng) thì chỉ dừng ở bước ghi URL.
     Còn lại cập nhật: tiêu đề; level; mô tả/yêu cầu (parsed_content); lương; hình
