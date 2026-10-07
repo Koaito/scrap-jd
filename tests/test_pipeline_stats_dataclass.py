@@ -16,7 +16,6 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import db as real_db
 import pipeline
 from adapters.base import CrawlBlockedError
 from pipeline_stats import PipelineStats
@@ -96,31 +95,25 @@ def test_to_dict_is_json_serializable():
 # Hành vi của run_pipeline() trên kịch bản chạm mọi counter
 # ----------------------------------------------------------------------
 @pytest.fixture
-def scenario_db(monkeypatch):
-    fdb = MagicMock()
+def scenario_db(pipeline_db):
     probes = {
         "u-1": ("job-1", "Toàn thời gian", "2026-09-05", {"a": 1}, None),  # đã đủ field
         "u-2": ("job-2", None, None, None, None),  # thiếu field -> vá
     }
-    fdb.get_job_probe_by_source_url.side_effect = lambda conn, url: probes.get(url)
-    fdb.job_needs_detail_enrichment.side_effect = real_db.job_needs_detail_enrichment
-    fdb.find_company_probe.return_value = None
-    fdb.probe_needs_enrichment.return_value = False
-    fdb.get_or_create_company_by_profile.return_value = "company-1"
-    fdb.find_repost_candidate.side_effect = (
+    pipeline_db.get_job_probe_by_source_url.side_effect = lambda conn, url: probes.get(url)
+    pipeline_db.find_repost_candidate.side_effect = (
         lambda conn, **kw: {"job_id": "dup-job", "job_status": "OPEN", "level_id": None,
                             "deadline": None, "closed_reason": None}
         if kw["job_title"] == "Job 4" else None
     )
-    fdb.extend_job_deadline.return_value = True
+    pipeline_db.extend_job_deadline.return_value = True
 
     def _insert(*args, **kwargs):
         if kwargs["job_title"] == "Job 6":
             raise RuntimeError("boom")
 
-    fdb.insert_job.side_effect = _insert
-    monkeypatch.setattr(pipeline, "db", fdb)
-    return fdb
+    pipeline_db.insert_job.side_effect = _insert
+    return pipeline_db
 
 
 def _detail_for(i):

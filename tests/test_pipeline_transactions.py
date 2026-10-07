@@ -147,6 +147,34 @@ class FakeDB:
         return self._write("update_job_from_recrawl", conn, self._update_returns)
 
 
+def test_fakedb_has_exactly_the_pipelinedb_functions():
+    """FakeDB tự viết tay (có trạng thái, test kế thừa và ghi đè từng hàm) nên không được Fake dùng
+    chung ở pipeline_fakes.py kiểm chữ ký; ít nhất khoá nó phủ đúng tập hàm của PipelineDB, và mọi hàm
+    GHI đều đi qua _write (hàm đọc thì không), để không thể quên đánh dấu transaction bẩn."""
+    from pipeline_db import PipelineDB
+
+    methods = {name for name in vars(FakeDB) if not name.startswith("_") and callable(vars(FakeDB)[name])}
+    assert methods == {name for name in vars(PipelineDB) if not name.startswith("_")}
+
+    def call(name, conn):
+        # Gọi hàm với tham số bắt buộc điền "x", theo chữ ký của PipelineDB.
+        import inspect
+
+        params = list(inspect.signature(getattr(PipelineDB, name)).parameters.values())[2:]  # bỏ self, conn
+        args = ["x" for p in params if p.kind == p.POSITIONAL_OR_KEYWORD and p.default is p.empty]
+        kwargs = {p.name: "x" for p in params if p.kind == p.KEYWORD_ONLY and p.default is p.empty}
+        return getattr(FakeDB(), name)(conn, *args, **kwargs)
+
+    for name in sorted(WRITE_FUNCS):
+        conn = FakeConn()
+        call(name, conn)
+        assert conn.pending == 1, f"FakeDB.{name} là hàm ghi nhưng không đánh dấu conn bẩn"
+    for name in sorted(READ_FUNCS - {"job_needs_detail_enrichment", "probe_needs_enrichment"}):
+        conn = FakeConn()
+        call(name, conn)
+        assert conn.pending == 0, f"FakeDB.{name} là hàm đọc nhưng làm conn bẩn"
+
+
 class OneJobAdapter(BaseAdapter):
     source_name = "Fake"
 

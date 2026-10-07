@@ -12,7 +12,6 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import db as real_db
 import pipeline
 from adapters.base import BaseAdapter
 from models import RawJobRecord
@@ -54,27 +53,20 @@ class FakeAdapter(BaseAdapter):
         return dict(DETAIL)
 
 
-@pytest.fixture
-def fake_db(monkeypatch):
-    """Thay module db trong pipeline bằng MagicMock; probe tra theo URL."""
-    probes = {}
-    fdb = MagicMock()
-    fdb.get_job_probe_by_source_url.side_effect = lambda conn, url: probes.get(url)
-    fdb.job_needs_detail_enrichment.side_effect = real_db.job_needs_detail_enrichment
-    fdb.find_company_probe.return_value = None
-    fdb.probe_needs_enrichment.return_value = False
-    fdb.get_or_create_company_by_profile.return_value = "company-1"
-    fdb.find_repost_candidate.return_value = None
-    monkeypatch.setattr(pipeline, "db", fdb)
-    fdb.probes = probes
-    return fdb
-
 
 # ----------------------------------------------------------------------
 # _make_known_url_checker
 # ----------------------------------------------------------------------
-def test_known_url_checker_semantics(fake_db):
-    fake_db.probes.update({"complete": COMPLETE_PROBE, "old": NEEDS_PATCH_PROBE})
+@pytest.fixture
+def probes(pipeline_db):
+    """Bảng probe tra theo URL cho db.get_job_probe_by_source_url; test điền vào bằng .update()."""
+    table = {}
+    pipeline_db.get_job_probe_by_source_url.side_effect = lambda conn, url: table.get(url)
+    return table
+
+
+def test_known_url_checker_semantics(pipeline_db, probes):
+    probes.update({"complete": COMPLETE_PROBE, "old": NEEDS_PATCH_PROBE})
     check = pipeline._make_known_url_checker(MagicMock())
 
     assert check("complete") is True   # đã có và đủ field -> bỏ qua an toàn
@@ -82,8 +74,8 @@ def test_known_url_checker_semantics(fake_db):
     assert check("brand-new") is False  # chưa có
 
 
-def test_known_url_checker_db_error_means_not_known_and_rolls_back(fake_db):
-    fake_db.get_job_probe_by_source_url.side_effect = RuntimeError("DB mất kết nối")
+def test_known_url_checker_db_error_means_not_known_and_rolls_back(pipeline_db):
+    pipeline_db.get_job_probe_by_source_url.side_effect = RuntimeError("DB mất kết nối")
     conn = MagicMock()
     check = pipeline._make_known_url_checker(conn)
 
@@ -94,8 +86,8 @@ def test_known_url_checker_db_error_means_not_known_and_rolls_back(fake_db):
 # ----------------------------------------------------------------------
 # run_pipeline
 # ----------------------------------------------------------------------
-def test_run_pipeline_skips_known_urls_and_reports_count(fake_db):
-    fake_db.probes.update({
+def test_run_pipeline_skips_known_urls_and_reports_count(pipeline_db, probes):
+    probes.update({
         "u-known": COMPLETE_PROBE,
         "u-old": NEEDS_PATCH_PROBE,
     })
@@ -107,11 +99,11 @@ def test_run_pipeline_skips_known_urls_and_reports_count(fake_db):
     assert stats["fetched"] == 2                # chỉ u-old và u-new
     assert stats["updated_existing"] == 1       # u-old vẫn được vá như trước
     assert stats["inserted"] == 1               # u-new được insert
-    fake_db.update_job_fields.assert_called_once()
-    fake_db.insert_job.assert_called_once()
+    pipeline_db.update_job_fields.assert_called_once()
+    pipeline_db.insert_job.assert_called_once()
 
 
-def test_run_pipeline_works_with_adapter_without_hook(fake_db):
+def test_run_pipeline_works_with_adapter_without_hook(pipeline_db):
     """Adapter không kế thừa BaseAdapter (không có set_known_url_checker)
     vẫn chạy bình thường, skipped_known_url = 0."""
 
@@ -127,7 +119,7 @@ def test_run_pipeline_works_with_adapter_without_hook(fake_db):
     assert stats["skipped_known_url"] == 0
 
 
-def test_run_pipeline_reports_field_empty_rates(fake_db):
+def test_run_pipeline_reports_field_empty_rates(pipeline_db):
     adapter = FakeAdapter(["u-1", "u-2"])
 
     stats = pipeline.run_pipeline(adapter, MagicMock(), "data-analyst", 1)
@@ -141,7 +133,7 @@ def test_run_pipeline_reports_field_empty_rates(fake_db):
     assert field_empty["detail"]["fields"]["job_description"]["rate"] == 0.0
 
 
-def test_run_pipeline_failed_detail_fetch_not_counted_in_detail_total(fake_db):
+def test_run_pipeline_failed_detail_fetch_not_counted_in_detail_total(pipeline_db):
     class FailingDetail(FakeAdapter):
         def fetch_job_full_detail(self, source_url):
             return None
@@ -153,18 +145,18 @@ def test_run_pipeline_failed_detail_fetch_not_counted_in_detail_total(fake_db):
     assert stats["field_empty"]["listing"]["total"] == 1
 
 
-def test_run_pipeline_stats_are_json_serializable(fake_db):
+def test_run_pipeline_stats_are_json_serializable(pipeline_db):
     import json
 
     stats = pipeline.run_pipeline(FakeAdapter(["u-1"]), MagicMock(), "data-analyst", 1)
     json.dumps(stats)
 
 
-def test_heartbeat_fires_for_every_job_even_when_skipped(fake_db):
+def test_heartbeat_fires_for_every_job_even_when_skipped(pipeline_db, probes):
     """Regression: on_progress từng nằm SAU khối try nên mọi `continue` (job
     trùng URL, ẩn danh, đăng lại, fetch lỗi) bỏ qua heartbeat -> watchdog
     tính theo tiến độ tưởng lượt crawl đang treo."""
-    fake_db.probes.update({"u-1": COMPLETE_PROBE, "u-2": COMPLETE_PROBE})
+    probes.update({"u-1": COMPLETE_PROBE, "u-2": COMPLETE_PROBE})
 
     class NoHookAdapter(FakeAdapter):
         def set_known_url_checker(self, checker):  # tắt hook để job đi vào nhánh trùng URL
@@ -181,7 +173,7 @@ def test_heartbeat_fires_for_every_job_even_when_skipped(fake_db):
     assert calls[-1] == {"fetched": 2, "inserted": 0}
 
 
-def test_heartbeat_error_does_not_break_crawl(fake_db):
+def test_heartbeat_error_does_not_break_crawl(pipeline_db):
     def boom(_):
         raise RuntimeError("DB tạm mất kết nối lúc ghi progress")
 
@@ -191,10 +183,10 @@ def test_heartbeat_error_does_not_break_crawl(fake_db):
     assert stats["inserted"] == 2
 
 
-def test_heartbeat_fires_when_adapter_skips_known_urls(fake_db):
+def test_heartbeat_fires_when_adapter_skips_known_urls(pipeline_db, probes):
     """Trang toàn job đã biết: adapter bỏ qua hết nên pipeline không nhận
     record nào. Vẫn phải có heartbeat, nếu không watchdog tưởng bị treo."""
-    fake_db.probes.update({"u-1": COMPLETE_PROBE, "u-2": COMPLETE_PROBE, "u-3": COMPLETE_PROBE})
+    probes.update({"u-1": COMPLETE_PROBE, "u-2": COMPLETE_PROBE, "u-3": COMPLETE_PROBE})
     calls = []
 
     stats = pipeline.run_pipeline(

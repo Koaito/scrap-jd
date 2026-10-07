@@ -12,7 +12,6 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import db as real_db
 import pipeline
 from adapters.base import BaseAdapter, CrawlBlockedError
 from field_stats import PLACEHOLDER_VALUES, degraded_reasons, is_empty, EmptyFieldCounter
@@ -61,23 +60,11 @@ class ScriptedAdapter(BaseAdapter):
         return dict(result) if result is not None else None
 
 
-@pytest.fixture
-def fake_db(monkeypatch):
-    fdb = MagicMock()
-    fdb.get_job_probe_by_source_url.return_value = None
-    fdb.job_needs_detail_enrichment.side_effect = real_db.job_needs_detail_enrichment
-    fdb.find_company_probe.return_value = None
-    fdb.probe_needs_enrichment.return_value = False
-    fdb.get_or_create_company_by_profile.return_value = "company-1"
-    fdb.find_repost_candidate.return_value = None
-    monkeypatch.setattr(pipeline, "db", fdb)
-    return fdb
-
 
 # ----------------------------------------------------------------------
 # (a) bị chặn giữa chừng
 # ----------------------------------------------------------------------
-def test_block_during_detail_fetch_is_not_swallowed_and_keeps_partial_stats(fake_db):
+def test_block_during_detail_fetch_is_not_swallowed_and_keeps_partial_stats(pipeline_db):
     """Ngắt mạch raise TRONG fetch_job_full_detail() của job thứ 3 — nằm trong
     try của từng job. Phải lan ra ngoài (không chạy tiếp job 4, 5...), rollback
     job dở dang, và mang theo số liệu của 2 job đã lưu."""
@@ -95,11 +82,11 @@ def test_block_during_detail_fetch_is_not_swallowed_and_keeps_partial_stats(fake
     assert stats["fetched"] == 3        # job 0, 1 xong; job 2 bị chặn
     assert stats["inserted"] == 2
     assert stats["errors"] == 0         # KHÔNG bị tính là "lỗi từng job" rồi đi tiếp
-    assert fake_db.insert_job.call_count == 2   # job 3, 4 chưa bao giờ được xử lý
+    assert pipeline_db.insert_job.call_count == 2   # job 3, 4 chưa bao giờ được xử lý
     conn.rollback.assert_called()
 
 
-def test_block_in_generator_still_carries_stats_with_field_summary(fake_db):
+def test_block_in_generator_still_carries_stats_with_field_summary(pipeline_db):
     class BlockedAfterTwo(ScriptedAdapter):
         def fetch_jobs(self, category_key, max_pages):
             yield self.raw_for(0)
@@ -115,7 +102,7 @@ def test_block_in_generator_still_carries_stats_with_field_summary(fake_db):
     assert stats["field_empty"]["listing"]["total"] == 2
 
 
-def test_block_before_any_job_still_has_stats(fake_db):
+def test_block_before_any_job_still_has_stats(pipeline_db):
     class BlockedAtStart(BaseAdapter):
         source_name = "Fake"
 
@@ -132,7 +119,7 @@ def test_block_before_any_job_still_has_stats(fake_db):
     assert "field_empty" not in stats
 
 
-def test_ordinary_job_error_still_does_not_stop_the_run(fake_db):
+def test_ordinary_job_error_still_does_not_stop_the_run(pipeline_db):
     """Chỉ CrawlBlockedError mới dừng cả lượt; lỗi thường của 1 job vẫn chỉ
     tính vào stats["errors"] như trước."""
     adapter = ScriptedAdapter(
@@ -148,12 +135,12 @@ def test_ordinary_job_error_still_does_not_stop_the_run(fake_db):
 # ----------------------------------------------------------------------
 # (b) degraded
 # ----------------------------------------------------------------------
-def test_clean_run_has_no_degraded_key(fake_db):
+def test_clean_run_has_no_degraded_key(pipeline_db):
     stats = pipeline.run_pipeline(ScriptedAdapter(12), MagicMock(), "data-analyst", 3)
     assert "degraded" not in stats
 
 
-def test_degraded_when_detail_description_empty_almost_everywhere(fake_db):
+def test_degraded_when_detail_description_empty_almost_everywhere(pipeline_db):
     adapter = ScriptedAdapter(12, detail_for=lambda i: BLANK_DETAIL)
     stats = pipeline.run_pipeline(adapter, MagicMock(), "data-analyst", 3)
 
@@ -164,21 +151,21 @@ def test_degraded_when_detail_description_empty_almost_everywhere(fake_db):
     assert stats["inserted"] == 12  # chỉ cảnh báo, KHÔNG chặn insert
 
 
-def test_not_degraded_when_only_some_descriptions_are_empty(fake_db):
+def test_not_degraded_when_only_some_descriptions_are_empty(pipeline_db):
     # 5/12 ~ 42% rỗng: dưới ngưỡng 90%
     adapter = ScriptedAdapter(12, detail_for=lambda i: BLANK_DETAIL if i < 5 else GOOD_DETAIL)
     stats = pipeline.run_pipeline(adapter, MagicMock(), "data-analyst", 3)
     assert "degraded" not in stats
 
 
-def test_not_degraded_with_too_few_samples(fake_db):
+def test_not_degraded_with_too_few_samples(pipeline_db):
     """Crawl thử 5 job toàn rỗng: mẫu quá nhỏ (< 10) nên không kết luận."""
     adapter = ScriptedAdapter(5, detail_for=lambda i: BLANK_DETAIL)
     stats = pipeline.run_pipeline(adapter, MagicMock(), "data-analyst", 3)
     assert "degraded" not in stats
 
 
-def test_placeholder_company_name_counts_as_empty(fake_db):
+def test_placeholder_company_name_counts_as_empty(pipeline_db):
     """TopCV điền "Chưa xác định" khi không bắt được tên công ty — nếu không
     coi là rỗng thì company_name không bao giờ hiện hỏng."""
     adapter = ScriptedAdapter(
@@ -190,7 +177,7 @@ def test_placeholder_company_name_counts_as_empty(fake_db):
     assert ("listing", "company_name") in fields
 
 
-def test_listing_anomaly_marks_run_degraded(fake_db):
+def test_listing_anomaly_marks_run_degraded(pipeline_db):
     class EmptyFirstPage(BaseAdapter):
         source_name = "Fake"
 
@@ -203,7 +190,7 @@ def test_listing_anomaly_marks_run_degraded(fake_db):
     assert stats["fetched"] == 0
 
 
-def test_adapter_without_anomaly_attribute_is_fine(fake_db):
+def test_adapter_without_anomaly_attribute_is_fine(pipeline_db):
     """Adapter tự viết, không kế thừa BaseAdapter (như BlockedAdapter ở
     test_crawl_blocked.py) không có listing_anomalies — không được lỗi."""
 

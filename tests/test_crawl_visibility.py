@@ -167,17 +167,6 @@ class DroppingAdapter(BaseAdapter):
                 "requirements": "", "perks": "", "required_skills": []}
 
 
-@pytest.fixture
-def fake_db(monkeypatch):
-    fdb = MagicMock()
-    fdb.get_job_probe_by_source_url.return_value = None
-    fdb.find_company_probe.return_value = None
-    fdb.probe_needs_enrichment.return_value = False
-    fdb.get_or_create_company_by_profile.return_value = "company-1"
-    fdb.find_repost_candidate.return_value = None
-    monkeypatch.setattr(pipeline, "db", fdb)
-    return fdb
-
 
 def _run(adapter):
     return pipeline.run_pipeline(adapter, MagicMock(), "data-analyst", 1)
@@ -187,13 +176,13 @@ def _reason_types(stats):
     return [r["type"] for r in (stats.get("degraded") or {}).get("reasons", [])]
 
 
-def test_dropped_count_reaches_stats_without_degraded_when_few(fake_db):
+def test_dropped_count_reaches_stats_without_degraded_when_few(pipeline_db):
     stats = _run(DroppingAdapter(dropped=2, delivered=20))
     assert stats["skipped_detail_unavailable"] == 2
     assert "jobs_dropped" not in _reason_types(stats)
 
 
-def test_most_jobs_dropped_marks_run_degraded(fake_db):
+def test_most_jobs_dropped_marks_run_degraded(pipeline_db):
     """Parse trang chi tiết hỏng cả loạt: tải được trang nên circuit breaker không
     nổ; trước đây lượt này kết thúc 'done' không một cảnh báo."""
     stats = _run(DroppingAdapter(dropped=38, delivered=2))
@@ -202,23 +191,23 @@ def test_most_jobs_dropped_marks_run_degraded(fake_db):
     assert reason["dropped"] == 38 and reason["total"] == 40 and reason["rate"] == 0.95
 
 
-def test_small_sample_is_not_flagged_degraded(fake_db):
+def test_small_sample_is_not_flagged_degraded(pipeline_db):
     """Crawl thử 3 job mà cả 3 bị bỏ: mẫu quá nhỏ, không báo nhầm."""
     stats = _run(DroppingAdapter(dropped=3, delivered=0))
     assert "degraded" not in stats
 
 
-def test_half_dropped_is_not_flagged_degraded(fake_db):
+def test_half_dropped_is_not_flagged_degraded(pipeline_db):
     stats = _run(DroppingAdapter(dropped=20, delivered=20))
     assert "jobs_dropped" not in _reason_types(stats)
 
 
-def test_listing_page_failed_anomaly_becomes_degraded_reason(fake_db):
+def test_listing_page_failed_anomaly_becomes_degraded_reason(pipeline_db):
     stats = _run(DroppingAdapter(dropped=0, delivered=3, anomalies=[ANOMALY_LISTING_PAGE_FAILED]))
     assert _reason_types(stats) == [ANOMALY_LISTING_PAGE_FAILED]
 
 
-def test_normal_run_has_no_new_keys(fake_db):
+def test_normal_run_has_no_new_keys(pipeline_db):
     """Lượt bình thường giữ nguyên tập khoá cũ (hợp đồng với frontend/crawl_runs.stats)."""
     stats = _run(DroppingAdapter(dropped=0, delivered=3))
     assert "skipped_detail_unavailable" not in stats
@@ -234,7 +223,7 @@ class ExplodingAdapter(DroppingAdapter):
         raise KeyError("parser nổ ở trang 2")
 
 
-def test_unexpected_adapter_error_keeps_partial_stats_on_exception(fake_db):
+def test_unexpected_adapter_error_keeps_partial_stats_on_exception(pipeline_db):
     conn = MagicMock()
     with pytest.raises(KeyError) as exc_info:
         pipeline.run_pipeline(ExplodingAdapter(dropped=1, delivered=3), conn, "data-analyst", 2)
@@ -246,7 +235,7 @@ def test_unexpected_adapter_error_keeps_partial_stats_on_exception(fake_db):
     conn.rollback.assert_called()
 
 
-def test_error_while_building_partial_stats_does_not_hide_original_error(fake_db, monkeypatch):
+def test_error_while_building_partial_stats_does_not_hide_original_error(pipeline_db, monkeypatch):
     def boom(*a, **kw):
         raise RuntimeError("không dựng được stats")
     monkeypatch.setattr(pipeline, "_finalize_stats", boom)

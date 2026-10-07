@@ -16,7 +16,6 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import db as real_db
 import pipeline
 from adapters.base import BaseAdapter
 from models import RawJobRecord
@@ -55,34 +54,19 @@ class FakeAdapter(BaseAdapter):
         return dict(DETAIL)
 
 
-@pytest.fixture
-def fake_db(monkeypatch):
-    fdb = MagicMock()
-    fdb.get_job_probe_by_source_url.return_value = None
-    fdb.job_needs_detail_enrichment.side_effect = real_db.job_needs_detail_enrichment
-    fdb.find_company_probe.return_value = None
-    fdb.probe_needs_enrichment.return_value = False
-    fdb.get_or_create_company_by_profile.return_value = "company-1"
-    fdb.find_repost_candidate.return_value = None
-    fdb.insert_job.return_value = "new-job"
-    fdb.extend_job_deadline.return_value = False
-    fdb.reopen_job_for_repost.return_value = True
-    monkeypatch.setattr(pipeline, "db", fdb)
-    return fdb
 
-
-def test_repost_links_source_to_existing_job_and_commits(fake_db):
-    fake_db.find_repost_candidate.return_value = _candidate("job-orig")
+def test_repost_links_source_to_existing_job_and_commits(pipeline_db):
+    pipeline_db.find_repost_candidate.return_value = _candidate("job-orig")
     conn = MagicMock()
 
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), conn, "data-analyst", 1)
 
     assert stats["skipped_duplicate_repost"] == 1
     assert stats["inserted"] == 0
-    fake_db.insert_job.assert_not_called()
+    pipeline_db.insert_job.assert_not_called()
 
-    fake_db.link_repost_source.assert_called_once()
-    args, kwargs = fake_db.link_repost_source.call_args
+    pipeline_db.link_repost_source.assert_called_once()
+    args, kwargs = pipeline_db.link_repost_source.call_args
     assert args == (conn, "job-orig")
     assert kwargs["source_name"] == "Fake"
     assert kwargs["source_url"] == "https://x/new-url"
@@ -91,17 +75,17 @@ def test_repost_links_source_to_existing_job_and_commits(fake_db):
     conn.commit.assert_called()
 
 
-def test_non_duplicate_does_not_link(fake_db):
+def test_non_duplicate_does_not_link(pipeline_db):
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/u1"]), MagicMock(), "data-analyst", 1)
 
     assert stats["inserted"] == 1
-    fake_db.link_repost_source.assert_not_called()
+    pipeline_db.link_repost_source.assert_not_called()
 
 
-def test_link_failure_counts_error_rolls_back_and_continues(fake_db):
+def test_link_failure_counts_error_rolls_back_and_continues(pipeline_db):
     # Tin 1 là đăng lại nhưng ghi nguồn phụ lỗi; tin 2 là tin mới bình thường.
-    fake_db.find_repost_candidate.side_effect = [_candidate("job-orig"), None]
-    fake_db.link_repost_source.side_effect = RuntimeError("DB mất kết nối")
+    pipeline_db.find_repost_candidate.side_effect = [_candidate("job-orig"), None]
+    pipeline_db.link_repost_source.side_effect = RuntimeError("DB mất kết nối")
     conn = MagicMock()
 
     stats = pipeline.run_pipeline(
@@ -113,23 +97,23 @@ def test_link_failure_counts_error_rolls_back_and_continues(fake_db):
     conn.rollback.assert_called()
 
 
-def test_repost_extends_deadline_of_existing_job(fake_db):
+def test_repost_extends_deadline_of_existing_job(pipeline_db):
     from datetime import date
 
-    fake_db.find_repost_candidate.return_value = _candidate("job-orig")
-    fake_db.extend_job_deadline.return_value = True
+    pipeline_db.find_repost_candidate.return_value = _candidate("job-orig")
+    pipeline_db.extend_job_deadline.return_value = True
     conn = MagicMock()
 
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), conn, "data-analyst", 1)
 
-    fake_db.extend_job_deadline.assert_called_once_with(conn, "job-orig", date(2026, 9, 5))
+    pipeline_db.extend_job_deadline.assert_called_once_with(conn, "job-orig", date(2026, 9, 5))
     assert stats["repost_deadline_extended"] == 1
     assert stats["skipped_duplicate_repost"] == 1
 
 
-def test_repost_deadline_not_counted_when_db_keeps_later_deadline(fake_db):
-    fake_db.find_repost_candidate.return_value = _candidate("job-orig")
-    fake_db.extend_job_deadline.return_value = False  # job cũ đã có hạn muộn hơn
+def test_repost_deadline_not_counted_when_db_keeps_later_deadline(pipeline_db):
+    pipeline_db.find_repost_candidate.return_value = _candidate("job-orig")
+    pipeline_db.extend_job_deadline.return_value = False  # job cũ đã có hạn muộn hơn
 
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), MagicMock(), "data-analyst", 1)
 
@@ -140,51 +124,54 @@ def test_repost_deadline_not_counted_when_db_keeps_later_deadline(fake_db):
 # ----------------------------------------------------------------------
 # Phần 3c: job đã CLOSED + khoá tra không xét level (mock db)
 # ----------------------------------------------------------------------
-def test_pipeline_uses_the_new_lookup_not_the_manual_one(fake_db):
+def test_pipeline_uses_the_new_lookup_not_the_manual_one(pipeline_db):
     conn = MagicMock()
-    pipeline.run_pipeline(FakeAdapter(["https://x/u1"]), conn, "data-analyst", 1)
+    stats = pipeline.run_pipeline(FakeAdapter(["https://x/u1"]), conn, "data-analyst", 1)
 
-    fake_db.find_manual_job_duplicate.assert_not_called()      # POST /jobs vẫn dùng hàm đó, crawler thì không
-    fake_db.find_repost_candidate.assert_called_once()
-    kwargs = fake_db.find_repost_candidate.call_args.kwargs
+    # POST /jobs vẫn dùng find_manual_job_duplicate, crawler thì không: hàm đó không nằm trong
+    # PipelineDB nên Fake không có nó (gọi là AttributeError, job bị đếm vào stats.errors).
+    assert not hasattr(pipeline_db, "find_manual_job_duplicate")
+    assert stats["errors"] == 0
+    pipeline_db.find_repost_candidate.assert_called_once()
+    kwargs = pipeline_db.find_repost_candidate.call_args.kwargs
     assert kwargs["company_id"] == "company-1" and kwargs["job_title"] == "Data Analyst"
     assert "level_id" in kwargs and "province_id" in kwargs    # level chỉ để xếp hạng, không lọc
 
 
-def test_repost_of_closed_job_reopens_it_with_new_url_and_deadline(fake_db):
+def test_repost_of_closed_job_reopens_it_with_new_url_and_deadline(pipeline_db):
     from datetime import date
 
-    fake_db.find_repost_candidate.return_value = _candidate("job-orig", status="CLOSED")
+    pipeline_db.find_repost_candidate.return_value = _candidate("job-orig", status="CLOSED")
     conn = MagicMock()
 
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), conn, "data-analyst", 1)
 
-    fake_db.reopen_job_for_repost.assert_called_once_with(
+    pipeline_db.reopen_job_for_repost.assert_called_once_with(
         conn, "job-orig", source_url="https://x/new-url", deadline=date(2026, 9, 5))
-    fake_db.extend_job_deadline.assert_not_called()             # job CLOSED không đi nhánh dời hạn
-    fake_db.link_repost_source.assert_called_once()
-    fake_db.insert_job.assert_not_called()
+    pipeline_db.extend_job_deadline.assert_not_called()             # job CLOSED không đi nhánh dời hạn
+    pipeline_db.link_repost_source.assert_called_once()
+    pipeline_db.insert_job.assert_not_called()
     assert stats["repost_reopened"] == 1 and stats["skipped_duplicate_repost"] == 1
     assert "repost_kept_closed" not in stats
     conn.commit.assert_called()
 
 
 @pytest.mark.parametrize("reason", ["staff", "unknown", "merged"])
-def test_repost_of_job_not_closed_by_expiry_is_not_reopened(fake_db, reason):
+def test_repost_of_job_not_closed_by_expiry_is_not_reopened(pipeline_db, reason):
     # staff: nhân viên đóng; unknown: không rõ nên coi như nhân viên đóng; merged: dự phòng.
-    fake_db.find_repost_candidate.return_value = _candidate("job-orig", status="CLOSED", closed_reason=reason)
+    pipeline_db.find_repost_candidate.return_value = _candidate("job-orig", status="CLOSED", closed_reason=reason)
 
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), MagicMock(), "data-analyst", 1)
 
-    fake_db.reopen_job_for_repost.assert_not_called()
-    fake_db.link_repost_source.assert_called_once()              # vẫn ghi URL mới làm nguồn phụ
+    pipeline_db.reopen_job_for_repost.assert_not_called()
+    pipeline_db.link_repost_source.assert_called_once()              # vẫn ghi URL mới làm nguồn phụ
     assert stats["repost_kept_closed"] == 1 and stats["skipped_duplicate_repost"] == 1
     assert "repost_reopened" not in stats
 
 
-def test_repost_not_reopened_by_db_counts_as_kept_closed(fake_db):
-    fake_db.find_repost_candidate.return_value = _candidate("job-orig", status="CLOSED")
-    fake_db.reopen_job_for_repost.return_value = False           # hạn mới đã qua hoặc luồng khác đã mở trước
+def test_repost_not_reopened_by_db_counts_as_kept_closed(pipeline_db):
+    pipeline_db.find_repost_candidate.return_value = _candidate("job-orig", status="CLOSED")
+    pipeline_db.reopen_job_for_repost.return_value = False           # hạn mới đã qua hoặc luồng khác đã mở trước
 
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), MagicMock(), "data-analyst", 1)
 
@@ -192,18 +179,18 @@ def test_repost_not_reopened_by_db_counts_as_kept_closed(fake_db):
     assert stats["skipped_duplicate_repost"] == 1
 
 
-def test_repost_of_open_job_never_tries_to_reopen(fake_db):
-    fake_db.find_repost_candidate.return_value = _candidate("job-orig", status="OPEN")
+def test_repost_of_open_job_never_tries_to_reopen(pipeline_db):
+    pipeline_db.find_repost_candidate.return_value = _candidate("job-orig", status="OPEN")
 
     pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), MagicMock(), "data-analyst", 1)
 
-    fake_db.reopen_job_for_repost.assert_not_called()
-    fake_db.extend_job_deadline.assert_called_once()
+    pipeline_db.reopen_job_for_repost.assert_not_called()
+    pipeline_db.extend_job_deadline.assert_called_once()
 
 
-def test_reopen_failure_counts_error_rolls_back_and_continues(fake_db):
-    fake_db.find_repost_candidate.side_effect = [_candidate("job-orig", status="CLOSED"), None]
-    fake_db.reopen_job_for_repost.side_effect = RuntimeError("DB mất kết nối")
+def test_reopen_failure_counts_error_rolls_back_and_continues(pipeline_db):
+    pipeline_db.find_repost_candidate.side_effect = [_candidate("job-orig", status="CLOSED"), None]
+    pipeline_db.reopen_job_for_repost.side_effect = RuntimeError("DB mất kết nối")
     conn = MagicMock()
 
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/repost", "https://x/fresh"]), conn, "data-analyst", 1)

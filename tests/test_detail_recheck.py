@@ -102,24 +102,13 @@ class FakeAdapter(BaseAdapter):
         return None if self.detail is None else dict(self.detail)
 
 
-@pytest.fixture
-def fake_db(monkeypatch):
-    fdb = MagicMock()
-    fdb.job_needs_detail_enrichment.side_effect = db.job_needs_detail_enrichment
-    fdb.find_company_probe.return_value = None
-    fdb.probe_needs_enrichment.return_value = False
-    fdb.get_or_create_company_by_profile.return_value = "company-1"
-    fdb.find_repost_candidate.return_value = None
-    monkeypatch.setattr(pipeline, "db", fdb)
-    return fdb
-
 
 def _run(adapter):
     return pipeline.run_pipeline(adapter, MagicMock(), "data-analyst", 1)
 
 
-def test_existing_incomplete_job_recently_checked_is_not_fetched(fake_db):
-    fake_db.get_job_probe_by_source_url.return_value = _probe(
+def test_existing_incomplete_job_recently_checked_is_not_fetched(pipeline_db):
+    pipeline_db.get_job_probe_by_source_url.return_value = _probe(
         NO_DEADLINE, datetime.now(timezone.utc) - timedelta(hours=1))
     adapter = FakeAdapter("https://x/a")
 
@@ -127,36 +116,36 @@ def test_existing_incomplete_job_recently_checked_is_not_fetched(fake_db):
 
     assert adapter.detail_calls == 0
     assert stats["skipped_duplicate"] == 1
-    fake_db.mark_source_detail_checked.assert_not_called()
+    pipeline_db.mark_source_detail_checked.assert_not_called()
 
 
-def test_existing_incomplete_job_due_is_fetched_and_stamped(fake_db):
-    fake_db.get_job_probe_by_source_url.return_value = _probe(
+def test_existing_incomplete_job_due_is_fetched_and_stamped(pipeline_db):
+    pipeline_db.get_job_probe_by_source_url.return_value = _probe(
         NO_DEADLINE, datetime.now(timezone.utc) - timedelta(days=30))
     adapter = FakeAdapter("https://x/a")
 
     _run(adapter)
 
     assert adapter.detail_calls == 1
-    fake_db.mark_source_detail_checked.assert_called_once()
-    assert fake_db.mark_source_detail_checked.call_args.args[1] == "https://x/a"
+    pipeline_db.mark_source_detail_checked.assert_called_once()
+    assert pipeline_db.mark_source_detail_checked.call_args.args[1] == "https://x/a"
 
 
-def test_failed_fetch_is_not_stamped_so_it_retries_next_crawl(fake_db):
-    fake_db.get_job_probe_by_source_url.return_value = _probe(NO_DEADLINE, None)
+def test_failed_fetch_is_not_stamped_so_it_retries_next_crawl(pipeline_db):
+    pipeline_db.get_job_probe_by_source_url.return_value = _probe(NO_DEADLINE, None)
     adapter = FakeAdapter("https://x/a", detail=None)
 
     stats = _run(adapter)
 
     assert adapter.detail_calls == 1
     assert stats["skipped_fetch_failed"] == 1
-    fake_db.mark_source_detail_checked.assert_not_called()
+    pipeline_db.mark_source_detail_checked.assert_not_called()
 
 
-def test_new_job_insert_is_marked_as_detail_fetched(fake_db):
-    fake_db.get_job_probe_by_source_url.return_value = None
-    fake_db.insert_job.return_value = "new-job"
+def test_new_job_insert_is_marked_as_detail_fetched(pipeline_db):
+    pipeline_db.get_job_probe_by_source_url.return_value = None
+    pipeline_db.insert_job.return_value = "new-job"
 
     _run(FakeAdapter("https://x/new"))
 
-    assert fake_db.insert_job.call_args.kwargs["detail_fetched"] is True
+    assert pipeline_db.insert_job.call_args.kwargs["detail_fetched"] is True
