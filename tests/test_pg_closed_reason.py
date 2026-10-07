@@ -114,7 +114,7 @@ def _audit(cur, job_id, action, changes=None, at="2026-03-01 10:00:00+00"):
 
 
 def _state(cur, job_id):
-    cur.execute("SELECT job_status::text, closed_reason, closed_at, updated_at::text "
+    cur.execute("SELECT job_status::text, closed_reason, closed_at AT TIME ZONE 'UTC', updated_at::text "
                 "FROM job_postings WHERE job_id = %s", (job_id,))
     return cur.fetchone()
 

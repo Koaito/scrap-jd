@@ -225,9 +225,9 @@ def test_view_groups_by_dedup_key_so_a_level_only_difference_is_one_group(pg_con
     b = _job(pg_conn, c, "Business Analyst", level="Senior", province_id=hn)
     _job(pg_conn, c, "Business Analyst", level="Junior", province_id=_province(pg_conn, "Đà Nẵng"))
     with pg_conn.cursor() as cur:
-        cur.execute("SELECT dedup_key, job_ids, num_duplicates FROM v_duplicate_job_candidates")
+        cur.execute("SELECT dedup_key, job_ids::text[], num_duplicates FROM v_duplicate_job_candidates")
         rows = cur.fetchall()
     pg_conn.rollback()
     assert len(rows) == 1 and rows[0][2] == 2
-    assert {str(j) for j in rows[0][1]} == {a, b}
+    assert set(rows[0][1]) == {a, b}
     assert db.count_duplicate_job_groups(pg_conn) == 1
