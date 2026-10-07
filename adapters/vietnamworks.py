@@ -209,6 +209,10 @@ def _build_company_url(company_name: str, company_id) -> str:
 class VietnamWorksAdapter(BaseAdapter):
     source_name = "VietnamWorks"
 
+    def dedup_resolvers(self) -> tuple:
+        # Thứ tự quan trọng: mã job (job_code_url_regex) trước, đăng lại sau.
+        return ("job_code", "repost")
+
     def __init__(self, session: Optional[requests.Session] = None):
         # Session curl_cffi + throttle/retry dùng chung giờ nằm ở
         # BaseAdapter.__init__() (xem adapters/base.py) — VietnamWorks

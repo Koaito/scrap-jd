@@ -211,6 +211,10 @@ def _is_non_company_website(url: str) -> bool:
 class CareerVietAdapter(BaseAdapter):
     source_name = "CareerViet"
 
+    def dedup_resolvers(self) -> tuple:
+        # URL CareerViet không có mã job ổn định theo tiêu đề: chỉ chống trùng kiểu đăng lại.
+        return ("repost",)
+
     def __init__(self, session: Optional["requests.Session"] = None):
         # Session curl_cffi + throttle/retry dùng chung giờ nằm ở
         # BaseAdapter.__init__() (xem adapters/base.py) — impersonate=

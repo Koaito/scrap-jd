@@ -5,9 +5,10 @@ ITviec là gì (đúng kiến trúc "1 khung chung + N adapter riêng" đã bàn
 """
 
 import logging
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
+from typing import Callable, Optional
 
-from adapters.base import BaseAdapter, CrawlBlockedError
+from adapters.base import DEFAULT_DEDUP_RESOLVERS, BaseAdapter, CrawlBlockedError
 import db
 from db.job_recrawl import AUTO_REOPEN_REASONS
 import normalize
@@ -472,6 +473,134 @@ def _insert_new_job(conn, raw, *, company_id, level_id, province_id, work_type, 
     logger.info("Đã lưu: [%s] %s @ %s", level_code, raw.job_title, company_name)
 
 
+# --------------------------------------------------------------------------
+# Chống trùng cho job MỚI: danh sách resolver theo thứ tự (B1, kế hoạch backend)
+# --------------------------------------------------------------------------
+# Trước B1 hai bước chống trùng (mã job, tin đăng lại) viết cứng trong _import_new_job().
+# Giờ mỗi bước là một resolver có tên, adapter khai báo nó dùng những bước nào và theo thứ
+# tự nào (BaseAdapter.dedup_resolvers()). Thêm một kiểu chống trùng mới = thêm một resolver
+# vào DEDUP_RESOLVERS và ghi tên nó ở adapter cần, không sửa _import_new_job().
+#
+# Hai giai đoạn (stage) vì có resolver cần tỉnh/cấp bậc/công ty đã tra hoặc tạo, có resolver
+# thì không được tạo chúng (nhánh khớp mã job không được sinh tỉnh/công ty thừa):
+#   STAGE_BEFORE_COMPANY  chạy ngay sau khi fetch chi tiết, trước tỉnh/công ty.
+#   STAGE_AFTER_COMPANY   chạy sau khi đã có province_id, level_id, company_id.
+# Trong cùng giai đoạn chạy theo thứ tự adapter khai báo; giai đoạn BEFORE luôn trước AFTER
+# dù adapter ghi tên theo thứ tự nào. Resolver khớp thì tự xử lý xong job (kể cả commit)
+# và trả True, các resolver sau không chạy. Không khớp trả False; transaction vẫn mở và
+# KHÔNG được rollback ở đây vì khoá advisory của "repost" phải giữ tới commit của bước insert.
+
+STAGE_BEFORE_COMPANY = "before_company"
+STAGE_AFTER_COMPANY = "after_company"
+
+
+@dataclass
+class _DedupContext:
+    """Mọi thứ một resolver có thể cần cho job đang xử lý. Các trường company_id,
+    province_id, level_id là None ở giai đoạn BEFORE_COMPANY, có giá trị ở AFTER_COMPANY."""
+    adapter: BaseAdapter
+    conn: object
+    raw: object
+    stats: PipelineStats
+    level_code: str
+    level_source: str
+    level_signals: dict
+    salary: object
+    work_type: object
+    deadline: object
+    parsed_content: object
+    raw_jd_content: str
+    company_id: Optional[str] = None
+    province_id: Optional[int] = None
+    level_id: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class _DedupResolver:
+    name: str
+    stage: str
+    resolve: Callable[[_DedupContext], bool]
+
+
+def _resolve_by_job_code(ctx: _DedupContext) -> bool:
+    """Cùng mã job với một job đã lưu -> cập nhật job đó. Xem _find_job_by_job_code."""
+    existing_job = _find_job_by_job_code(ctx.adapter, ctx.conn, ctx.raw, ctx.stats)
+    if existing_job is None:
+        return False
+    _update_job_by_job_code(
+        ctx.conn, ctx.raw, existing_job, level_code=ctx.level_code,
+        level_source=ctx.level_source, level_signals=ctx.level_signals, salary=ctx.salary,
+        work_type=ctx.work_type, deadline=ctx.deadline, parsed_content=ctx.parsed_content,
+        raw_jd_content=ctx.raw_jd_content, stats=ctx.stats,
+    )
+    return True
+
+
+def _resolve_by_repost(ctx: _DedupContext) -> bool:
+    """Tin đăng lại dưới URL khác (cùng công ty + tiêu đề + tỉnh) -> ghi URL làm nguồn phụ.
+
+    A4 (10/2026): giành khoá advisory theo khoá chống trùng TRƯỚC câu tra. Các nguồn (TopCV,
+    VietnamWorks, CareerViet) và nhập tay có thể chạy song song, hai bên cùng tra thấy "chưa có"
+    rồi cùng insert sẽ ra hai job trùng. Khoá cấp transaction giữ tới commit/rollback của nhánh
+    này (nhánh đăng lại và nhánh insert đều commit ở cuối), bên đến sau chờ rồi tra lại và thấy
+    job vừa tạo. Hết thời gian chờ thì raise JobDedupLockTimeout, vòng lặp job rollback và đếm lỗi.
+    Vì vậy khi KHÔNG khớp, hàm này để nguyên khoá cho bước insert phía sau.
+
+    Dùng db.find_repost_candidate() (không phải find_manual_job_duplicate() của POST /jobs):
+    khoá cũ hụt ở hai chỗ khi đo trên 230 job trùng thật: bỏ qua job đã CLOSED (~88%) và đòi
+    cùng level (~34%, level suy từ số năm kinh nghiệm nên hai lần đăng hay ra level khác nhau).
+    Cái giá: hai vị trí cùng tên, công ty, tỉnh nhưng khác cấp bị coi là một (dữ liệu gốc của tin
+    bị gộp vẫn nằm trong job_sources_log). Xem _import_repost cho cách xử lý theo trạng thái."""
+    db.lock_job_dedup_key(
+        ctx.conn, company_id=ctx.company_id, job_title=ctx.raw.job_title,
+        province_id=ctx.province_id,
+    )
+    candidate = db.find_repost_candidate(
+        ctx.conn, company_id=ctx.company_id, job_title=ctx.raw.job_title,
+        province_id=ctx.province_id, level_id=ctx.level_id,
+    )
+    if candidate is None:
+        return False
+    _import_repost(ctx.conn, ctx.raw, candidate, ctx.deadline, ctx.raw_jd_content, ctx.stats)
+    return True
+
+
+DEDUP_RESOLVERS = {
+    resolver.name: resolver for resolver in (
+        _DedupResolver("job_code", STAGE_BEFORE_COMPANY, _resolve_by_job_code),
+        _DedupResolver("repost", STAGE_AFTER_COMPANY, _resolve_by_repost),
+    )
+}
+
+
+def _resolvers_for(adapter) -> "list[_DedupResolver]":
+    """Danh sách resolver của adapter, theo thứ tự adapter khai báo. Adapter không có hook
+    dedup_resolvers() (không kế thừa BaseAdapter) hoặc trả giá trị không phải tuple/list thì
+    dùng DEFAULT_DEDUP_RESOLVERS, giống set_known_url_checker ở run_pipeline(). Tên không có
+    trong DEDUP_RESOLVERS hoặc khai báo lặp thì raise ValueError (lỗi cấu hình, run_pipeline()
+    gọi hàm này đầu lượt để lỗi hiện ngay, không bị nuốt thành lỗi từng job)."""
+    declare = getattr(adapter, "dedup_resolvers", None)
+    names = declare() if callable(declare) else None
+    if not isinstance(names, (tuple, list)):
+        names = DEFAULT_DEDUP_RESOLVERS
+    unknown = [name for name in names if name not in DEDUP_RESOLVERS]
+    if unknown:
+        raise ValueError(
+            f"Adapter {type(adapter).__name__} khai báo resolver chống trùng không tồn tại: "
+            f"{unknown} (có: {sorted(DEDUP_RESOLVERS)})"
+        )
+    if len(set(names)) != len(names):
+        raise ValueError(
+            f"Adapter {type(adapter).__name__} khai báo resolver chống trùng bị lặp: {list(names)}"
+        )
+    return [DEDUP_RESOLVERS[name] for name in names]
+
+
+def _run_dedup_stage(resolvers, stage: str, ctx: _DedupContext) -> bool:
+    """Chạy các resolver thuộc `stage` theo thứ tự; True nếu có resolver đã xử lý xong job."""
+    return any(r.resolve(ctx) for r in resolvers if r.stage == stage)
+
+
 def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
                      field_counter: EmptyFieldCounter) -> None:
     """Xử lý job CHƯA từng crawl (source_url chưa có trong DB): chuẩn hoá, lọc
@@ -531,18 +660,18 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     deadline = normalize.normalize_deadline(job_detail.get("deadline_text", ""))
     parsed_content, raw_jd_content = _build_parsed_content_and_raw(job_detail)
 
-    # 2c) Cùng MÃ JOB với một job đã lưu (nhà tuyển dụng sửa tiêu đề nên URL đổi)
-    # -> cập nhật job đó thay vì tạo job trùng. Đặt TRƯỚC bước tỉnh/công ty vì nhánh
-    # này không cần tới chúng và không được tạo công ty/tỉnh thừa. Xem
-    # _find_job_by_job_code / _update_job_by_job_code.
-    existing_job = _find_job_by_job_code(adapter, conn, raw, stats)
-    if existing_job is not None:
-        _update_job_by_job_code(
-            conn, raw, existing_job, level_code=level_code,
-            level_source=level_decision.source, level_signals=level_signals, salary=salary,
-            work_type=work_type, deadline=deadline, parsed_content=parsed_content,
-            raw_jd_content=raw_jd_content, stats=stats,
-        )
+    # 2c) Chống trùng GIAI ĐOẠN TRƯỚC công ty (resolver "job_code": cùng MÃ JOB với một job
+    # đã lưu, nhà tuyển dụng sửa tiêu đề nên URL đổi -> cập nhật job đó thay vì tạo job
+    # trùng). Đặt TRƯỚC bước tỉnh/công ty vì nhánh này không cần tới chúng và không được tạo
+    # công ty/tỉnh thừa. Resolver nào chạy, theo thứ tự nào: adapter.dedup_resolvers().
+    resolvers = _resolvers_for(adapter)
+    ctx = _DedupContext(
+        adapter=adapter, conn=conn, raw=raw, stats=stats, level_code=level_code,
+        level_source=level_decision.source, level_signals=level_signals, salary=salary,
+        work_type=work_type, deadline=deadline, parsed_content=parsed_content,
+        raw_jd_content=raw_jd_content,
+    )
+    if _run_dedup_stage(resolvers, STAGE_BEFORE_COMPANY, ctx):
         return
 
     # 3) Map sang khóa ngoại thật trong DB
@@ -553,35 +682,15 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     # company tương ứng — xem docstring _resolve_company().
     company_id = _resolve_company(adapter, conn, raw, company_name, province_id)
 
-    # 3c) Chống trùng kiểu "đăng lại dưới URL khác" — job_probe ở bước (1)
-    # (_process_job) chỉ bắt được trùng THEO source_url, không bắt được
-    # trường hợp TopCV/VietnamWorks cấp source_url MỚI cho job đã đăng trước
-    # đó (cùng company + title + province, thường do nhà tuyển dụng "làm mới"
-    # tin để đẩy lên top tìm kiếm — đã xác nhận thực tế 08/2026, 2 tin
-    # "Fullstack Developer" cùng công ty, cùng nội dung, khác job_id/URL, đăng
-    # cách nhau ~1 phút).
-    #
-    # Phần 3c (10/2026): dùng db.find_repost_candidate() thay cho
-    # find_manual_job_duplicate() (vẫn dùng cho POST /jobs) vì đo trên 230 job trùng
-    # thật, khoá cũ hụt ở hai chỗ: bỏ qua job đã CLOSED (~88%: tin đăng lại của job đã
-    # hết hạn sinh job mới) và đòi cùng level (~34%: level suy từ số năm kinh nghiệm nên
-    # hai lần đăng hay ra level khác nhau). Cái giá: hai vị trí cùng tên, công ty, tỉnh nhưng
-    # khác cấp bị coi là một (dữ liệu gốc của tin bị gộp vẫn nằm trong job_sources_log).
-    #
-    # A4 (10/2026): giành khoá advisory theo khoá chống trùng TRƯỚC câu tra. Các nguồn (TopCV,
-    # VietnamWorks, CareerViet) và nhập tay có thể chạy song song, hai bên cùng tra thấy "chưa có"
-    # rồi cùng insert sẽ ra hai job trùng. Khoá cấp transaction giữ tới commit/rollback của nhánh
-    # này (nhánh đăng lại và nhánh insert đều commit ở cuối), bên đến sau chờ rồi tra lại và thấy
-    # job vừa tạo. Hết thời gian chờ thì raise JobDedupLockTimeout, vòng lặp job rollback và đếm lỗi.
-    db.lock_job_dedup_key(
-        conn, company_id=company_id, job_title=raw.job_title, province_id=province_id,
-    )
-    repost_candidate = db.find_repost_candidate(
-        conn, company_id=company_id, job_title=raw.job_title,
-        province_id=province_id, level_id=level_id,
-    )
-    if repost_candidate is not None:
-        _import_repost(conn, raw, repost_candidate, deadline, raw_jd_content, stats)
+    # 3c) Chống trùng GIAI ĐOẠN SAU công ty (resolver "repost": "đăng lại dưới URL khác").
+    # job_probe ở bước (1) (_process_job) chỉ bắt được trùng THEO source_url, không bắt được
+    # trường hợp TopCV/VietnamWorks cấp source_url MỚI cho job đã đăng trước đó (cùng
+    # company + title + province, thường do nhà tuyển dụng "làm mới" tin để đẩy lên top tìm
+    # kiếm, đã xác nhận thực tế 08/2026: 2 tin "Fullstack Developer" cùng công ty, cùng nội
+    # dung, khác job_id/URL, đăng cách nhau ~1 phút). Chi tiết khoá và cách xử lý: xem
+    # _resolve_by_repost. Không resolver nào khớp thì khoá advisory vẫn được giữ cho bước insert.
+    ctx.province_id, ctx.level_id, ctx.company_id = province_id, level_id, company_id
+    if _run_dedup_stage(resolvers, STAGE_AFTER_COMPANY, ctx):
         return
 
     # 4) Insert job mới
@@ -724,6 +833,7 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
     Đợt B1 (10/2026): bên trong pipeline thống kê nằm trong PipelineStats
     (pipeline_stats.py); run_pipeline() vẫn TRẢ VỀ dict (to_dict()), cùng tập
     khoá như trước — các chú thích stats.xxx ở trên là tên khoá của dict đó."""
+    _resolvers_for(adapter)  # cấu hình chống trùng sai thì báo ngay, trước khi crawl
     stats = PipelineStats()
     field_counter = EmptyFieldCounter()
 

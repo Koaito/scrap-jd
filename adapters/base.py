@@ -51,6 +51,10 @@ class CrawlBlockedError(Exception):
     stats: Optional[dict] = None
 
 
+# Bộ resolver mặc định của BaseAdapter.dedup_resolvers(); tên khớp pipeline.DEDUP_RESOLVERS.
+DEFAULT_DEDUP_RESOLVERS = ("job_code", "repost")
+
+
 class BaseAdapter(ABC):
     """
     Mọi adapter nguồn (TopCV, ITviec, VietnamWorks, ...) phải kế thừa class
@@ -251,6 +255,22 @@ class BaseAdapter(ABC):
         job trùng. Regex phải đủ chặt để không khớp job khác (neo cả hai đầu mã)
         và chỉ dựng từ chữ số của mã, không chèn nguyên văn đoạn nào của URL."""
         return None
+
+    def dedup_resolvers(self) -> tuple:
+        """Các bước chống trùng cho job MỚI của nguồn này, THEO THỨ TỰ chạy (B1). Mỗi phần
+        tử là tên một resolver đăng ký ở pipeline.DEDUP_RESOLVERS; bước nào khớp trước thì
+        job được xử lý ở đó và các bước sau không chạy.
+
+          "job_code"  cùng mã job trong URL (URL đổi vì sửa tiêu đề) -> cập nhật job cũ.
+                      Cần job_code_url_regex(); chạy trước khi tạo tỉnh/công ty.
+          "repost"    cùng công ty + tiêu đề + tỉnh dưới URL khác -> ghi URL làm nguồn phụ.
+                      Giành khoá advisory theo khoá chống trùng trước khi tra.
+
+        Mặc định (adapter không khai báo gì) là cả hai, đúng hành vi trước B1: "job_code"
+        không tốn câu SQL nào khi nguồn không có mã job. Nguồn nào khai báo thì ghi rõ cái
+        nó dùng, để đọc adapter là biết nó chống trùng bằng cách nào. Tên lạ hoặc lặp thì
+        run_pipeline() báo lỗi ngay đầu lượt crawl."""
+        return DEFAULT_DEDUP_RESOLVERS
 
     @abstractmethod
     def fetch_jobs(self, category_key: str, max_pages: int) -> Iterator[RawJobRecord]:

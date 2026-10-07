@@ -93,6 +93,10 @@ POSTED_PATTERN = re.compile(r"\u0110\u0103ng\s+.+?tr\u01b0\u1edbc")
 class TopCVAdapter(BaseAdapter):
     source_name = "TopCV"
 
+    def dedup_resolvers(self) -> tuple:
+        # URL TopCV không có mã job ổn định theo tiêu đề: chỉ chống trùng kiểu đăng lại.
+        return ("repost",)
+
     def __init__(self, session: Optional[requests.Session] = None):
         # Session curl_cffi (impersonate="chrome124" -> giả lập TLS
         # fingerprint Chrome) + throttle/retry dùng chung giờ nằm ở
