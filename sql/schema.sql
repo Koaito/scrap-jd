@@ -364,11 +364,34 @@ CREATE TABLE IF NOT EXISTS job_sources_log (
     -- db/jobs.py::job_needs_detail_enrichment.
     detail_checked_at TIMESTAMPTZ,
 
+    -- Trạng thái của chính listing (URL tin đăng) này (C1, sql/0043_add_listing_state_job_sources_log.sql).
+    -- UNKNOWN = chưa kết luận: mặc định cho dòng ghi bởi code chưa biết các cột này.
+    listing_status    VARCHAR(10) NOT NULL DEFAULT 'UNKNOWN',
+    deadline          DATE,
+    first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    closed_reason     VARCHAR(20),
+    closed_at         TIMESTAMPTZ,
+
     CONSTRAINT uq_job_source UNIQUE (job_id, source_url),
     -- Một URL nguồn chỉ thuộc một job, đồng thời là index cho các câu tra theo riêng source_url
     -- (D2, sql/0041_unique_source_url_job_sources_log.sql). uq_job_source giờ thừa về ràng buộc
     -- nhưng còn được insert_job dùng làm đích ON CONFLICT; gỡ ở đợt C.
-    CONSTRAINT uq_job_sources_log_source_url UNIQUE (source_url)
+    CONSTRAINT uq_job_sources_log_source_url UNIQUE (source_url),
+    CONSTRAINT chk_job_sources_log_listing_status CHECK (
+        listing_status IN ('OPEN', 'CLOSED', 'UNKNOWN')
+    ),
+    CONSTRAINT chk_job_sources_log_closed_reason CHECK (
+        closed_reason IS NULL OR closed_reason IN ('staff', 'expired_auto', 'merged', 'unknown')
+    ),
+    -- CASE (không phải AND/OR): CHECK coi NULL là "đạt".
+    CONSTRAINT chk_job_sources_log_closed_state CHECK (
+        CASE
+            WHEN listing_status = 'CLOSED' THEN closed_reason IS NOT NULL
+            ELSE closed_reason IS NULL AND closed_at IS NULL
+        END
+    ),
+    CONSTRAINT chk_job_sources_log_seen_order CHECK (last_seen_at >= first_seen_at)
 );
 
 CREATE TABLE IF NOT EXISTS job_contact_links (
@@ -1291,6 +1314,19 @@ COMMENT ON COLUMN job_postings.closed_reason IS
     'Vì sao job CLOSED: staff | expired_auto | merged (dự phòng) | unknown. NULL khi OPEN. Pipeline chỉ tự mở lại job expired_auto.';
 COMMENT ON COLUMN job_postings.closed_at IS
     'Lúc job chuyển sang CLOSED. NULL khi OPEN, hoặc job đóng từ trước khi có cột mà không biết giờ.';
+
+COMMENT ON COLUMN job_sources_log.listing_status IS
+    'Trạng thái của listing (URL tin đăng) này: OPEN | CLOSED | UNKNOWN (chưa kết luận, mặc định cho dòng ghi bởi code cũ).';
+COMMENT ON COLUMN job_sources_log.deadline IS
+    'Hạn nộp của chính listing này. NULL = không biết hoặc tin không ghi hạn.';
+COMMENT ON COLUMN job_sources_log.first_seen_at IS
+    'Lần đầu hệ thống thấy listing. Dòng tạo trước migration 0043: 00:00 giờ VN của collected_date (xấp xỉ).';
+COMMENT ON COLUMN job_sources_log.last_seen_at IS
+    'Lần gần nhất hệ thống thấy listing còn tồn tại ở nguồn; luôn >= first_seen_at. Khác detail_checked_at (chỉ tính lần fetch thành công trang chi tiết).';
+COMMENT ON COLUMN job_sources_log.closed_reason IS
+    'Vì sao listing CLOSED: staff | expired_auto | merged | unknown (cùng bộ giá trị job_postings.closed_reason). NULL khi không CLOSED.';
+COMMENT ON COLUMN job_sources_log.closed_at IS
+    'Lúc listing chuyển sang CLOSED. NULL khi không CLOSED, hoặc đóng từ trước migration mà không biết giờ.';
 
 COMMENT ON COLUMN job_postings.dedup_key IS
     'Khoá chống trùng: sha256(company_id | tiêu đề chuẩn hoá | province_id), không gồm level. Do trigger set_job_dedup_key tính, xem hàm job_dedup_key().';

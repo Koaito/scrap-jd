@@ -24,14 +24,8 @@ Chứng minh:
 Cách chạy như tests/test_pg_migrations.py: đặt TEST_DATABASE_URL (tên database chứa "test"); không đặt
 thì cả file được bỏ qua. Mỗi test tự tạo và xoá database tạm.
 """
-import os
-import pathlib
-import re
-import shutil
 import uuid
-from contextlib import contextmanager
 from datetime import date, datetime, timezone
-from urllib.parse import urlparse
 
 import psycopg2
 import psycopg2.errors
@@ -42,17 +36,18 @@ import db
 from api.routers.jobs import _decode_cursor, _encode_cursor
 from api.services.export_query import ExportFilters, query_jobs_for_export
 from db.dashboard import _vn_date
-
-TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
-
-pytestmark = pytest.mark.skipif(
-    not TEST_DATABASE_URL,
-    reason="Không đặt TEST_DATABASE_URL — bỏ qua test cần Postgres thật",
+from pg_migration_helpers import (
+    SCHEMA as _SCHEMA,
+    SQL_DIR as _SQL_DIR,
+    connect as _connect,
+    legacy_db_before,
+    migrate_one,
+    requires_pg,
+    temp_database as _temp_db,
 )
 
-_SQL_DIR = pathlib.Path(__file__).resolve().parent.parent / "sql"
-_SCHEMA = str(_SQL_DIR / "schema.sql")
-_BASELINE = str(_SQL_DIR / "baseline" / "0036_schema.sql")
+pytestmark = requires_pg
+
 _MIGRATION = "0042_timestamptz_core_tables.sql"
 
 # (bảng, cột): đúng 9 cột của D3.
@@ -77,74 +72,17 @@ _T = [
 
 
 # ----------------------------------------------------------------------------- hạ tầng test
-@contextmanager
 def _temp_database():
-    parsed = urlparse(TEST_DATABASE_URL)
-    base = parsed.path.lstrip("/")
-    if "test" not in base.lower():
-        pytest.fail(f"Từ chối chạy: database '{base}' không chứa 'test' trong tên.")
-    name = f"{base}_tz_{uuid.uuid4().hex[:8]}"
-    admin = psycopg2.connect(TEST_DATABASE_URL)
-    admin.autocommit = True
-    try:
-        with admin.cursor() as cur:
-            cur.execute(pgsql.SQL("CREATE DATABASE {}").format(pgsql.Identifier(name)))
-        try:
-            yield parsed._replace(path=f"/{name}").geturl()
-        finally:
-            with admin.cursor() as cur:
-                cur.execute(pgsql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)")
-                            .format(pgsql.Identifier(name)))
-    finally:
-        admin.close()
-
-
-@contextmanager
-def _connect(url):
-    conn = psycopg2.connect(url)
-    conn.autocommit = False
-    try:
-        yield conn
-    finally:
-        conn.rollback()
-        conn.close()
-
-
-def _numbered_before_0042():
-    out = []
-    for f in sorted(os.listdir(_SQL_DIR)):
-        m = re.match(r"^(\d{4})_[a-z0-9_]+\.sql$", f)
-        if m and int(m.group(1)) < 42:
-            out.append(f)
-    return out
-
-
-def _stage(tmp_path, names):
-    for n in names:
-        shutil.copy(_SQL_DIR / n, tmp_path / n)
+    return _temp_db("tz")
 
 
 def _legacy_db_before_0042(conn, tmp_path):
     """DB đúng trạng thái trước D3 đợt 2: baseline 0036 + 36 migration cũ (ghi nhận) + 0037..0041."""
-    db.apply_schema(conn, _BASELINE)
-    legacy = [f for f in db.connection._list_migration_files(str(_SQL_DIR))
-              if f.startswith("migration_")]
-    db.connection._ensure_schema_migrations_table(conn)
-    with conn.cursor() as cur:
-        for f in legacy:
-            cur.execute("INSERT INTO schema_migrations (filename) VALUES (%s)", (f,))
-    conn.commit()
-    pre = _numbered_before_0042()
-    _stage(tmp_path, pre)
-    assert db.apply_migrations(conn, str(tmp_path)) == pre
+    legacy_db_before(conn, tmp_path, 42)
 
 
 def _migrate_0042(conn, tmp_path, *, sql_edit=None):
-    text = (_SQL_DIR / _MIGRATION).read_text(encoding="utf-8")
-    if sql_edit is not None:
-        text = sql_edit(text)
-    (tmp_path / _MIGRATION).write_text(text, encoding="utf-8")
-    return db.apply_migrations(conn, str(tmp_path))
+    return migrate_one(conn, tmp_path, _MIGRATION, sql_edit=sql_edit)
 
 
 def _data_type(cur, table, column):
