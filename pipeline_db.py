@@ -63,7 +63,7 @@ class PipelineDB(Protocol):
         parsed_content: Optional[dict] = None,
     ) -> None: ...
 
-    def mark_source_detail_checked(self, conn, source_url: str) -> None: ...
+    def mark_source_detail_checked(self, conn, source_url: str, *, deadline=None) -> None: ...
 
     def lock_job_dedup_key(
         self, conn, *, company_id: str, job_title: str, province_id: Optional[int],
@@ -72,7 +72,7 @@ class PipelineDB(Protocol):
 
     def link_repost_source(
         self, conn, job_id: str, *, source_name: str, source_url: str, raw_jd_content: str = "",
-        salary_raw_text: str = "",
+        salary_raw_text: str = "", deadline=None,
     ) -> bool: ...
 
     def extend_job_deadline(self, conn, job_id: str, new_deadline) -> bool: ...

@@ -72,6 +72,9 @@ def test_repost_links_source_to_existing_job_and_commits(pipeline_db):
     assert kwargs["source_url"] == "https://x/new-url"
     assert "mô tả công việc" in kwargs["raw_jd_content"]  # giữ bằng chứng gốc
     assert kwargs["salary_raw_text"] == "15-20 triệu"
+    # hạn của chính tin đăng lại đi vào listing (C1), không chỉ vào job
+    from datetime import date
+    assert kwargs["deadline"] == date(2026, 9, 5)
     conn.commit.assert_called()
 
 

@@ -14,6 +14,13 @@ from typing import Iterable, Optional
 from config import DETAIL_RECHECK_DAYS
 from db.job_dedup_lock import lock_job_dedup_key
 from db.job_levels import _check_level_signals, _check_level_stamp, _derived_level_assignments
+from db.listing_state import (
+    CONFLICT_JOB_AND_URL,
+    insert_listing,
+    job_is_closed_locked,
+    mark_listing_detail_checked,
+    sync_listings_after_job_update,
+)
 from normalize import LEVEL_SOURCE_MANUAL
 
 logger = logging.getLogger(__name__)
@@ -190,15 +197,12 @@ def job_needs_detail_enrichment(probe, *, now=None, recheck_days=None) -> bool:
     return now - checked_at >= timedelta(days=recheck_days)
 
 
-def mark_source_detail_checked(conn, source_url: str) -> None:
-    """Ghi nhận vừa fetch THÀNH CÔNG trang chi tiết của source_url này (không
-    ghi khi fetch lỗi: lỗi có thể chỉ là tạm thời, lượt sau thử lại ngay).
+def mark_source_detail_checked(conn, source_url: str, *, deadline=None) -> None:
+    """Ghi nhận vừa fetch THÀNH CÔNG trang chi tiết của source_url này (không ghi khi fetch lỗi: lỗi có
+    thể chỉ là tạm thời, lượt sau thử lại ngay). Ghi cả last_seen_at và, nếu có, hạn đọc được từ trang
+    (`deadline`) vào listing, xem db.listing_state.mark_listing_detail_checked (C1).
     Không đụng job_postings nên không làm nhảy updated_at. Không tự commit."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE job_sources_log SET detail_checked_at = now() WHERE source_url = %s",
-            (source_url,),
-        )
+    mark_listing_detail_checked(conn, source_url, deadline=deadline)
 
 
 def update_job_fields(conn, job_id: str, *, work_type: Optional[str] = None,
@@ -289,19 +293,14 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
         )
         job_id = cur.fetchone()[0]
 
-        cur.execute(
-            """
-            INSERT INTO job_sources_log (job_id, source_name, source_url,
-                                          salary_raw_content, raw_jd_content,
-                                          detail_checked_at)
-            VALUES (%s, %s, %s, %s, %s, CASE WHEN %s THEN now() END)
-            -- job_id vừa sinh nên ON CONFLICT (job_id, source_url) không bao giờ kích hoạt. Nếu URL đã
-            -- thuộc job khác (UNIQUE (source_url), D2) thì INSERT này raise UniqueViolation: cố ý để
-            -- ồn ào, vòng lặp pipeline rollback cả job vừa insert thay vì để lại job không có dòng log.
-            ON CONFLICT (job_id, source_url) DO NOTHING
-            """,
-            (job_id, source_name, source_url, salary_raw_text, raw_jd_content or None,
-             detail_fetched),
+        # Listing đầu tiên của job (C1): OPEN vì job vừa tạo OPEN, hạn = hạn của job. job_id vừa sinh nên
+        # ON CONFLICT (job_id, source_url) không bao giờ kích hoạt. Nếu URL đã thuộc job khác (UNIQUE
+        # (source_url), D2) thì INSERT raise UniqueViolation: cố ý để ồn ào, vòng lặp pipeline rollback cả
+        # job vừa insert thay vì để lại job không có dòng log.
+        insert_listing(
+            conn, job_id=job_id, source_name=source_name, source_url=source_url,
+            salary_raw_text=salary_raw_text, raw_jd_content=raw_jd_content,
+            detail_fetched=detail_fetched, deadline=deadline, on_conflict=CONFLICT_JOB_AND_URL,
         )
         return str(job_id)
 
@@ -645,6 +644,7 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     if deadline is not None:
         updates.append("deadline = %s")
         values.append(deadline)
+    was_closed = job_status == "OPEN" and job_is_closed_locked(conn, job_id)
     if job_status is not None:
         updates.append("job_status = %s")
         values.append(job_status)
@@ -678,7 +678,13 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
             f"UPDATE job_postings SET {', '.join(updates)} WHERE job_id = %s",
             values,
         )
-        return cur.rowcount > 0
+        found = cur.rowcount > 0
+    if found:
+        sync_listings_after_job_update(
+            conn, job_id, job_status=job_status, was_closed=was_closed,
+            deadline_changed=deadline is not None or "deadline" in clear_cols, deadline=deadline,
+        )
+    return found
 
 
 def job_exists_by_id(conn, job_id: str) -> bool:

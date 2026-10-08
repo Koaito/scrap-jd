@@ -36,8 +36,16 @@ def _conn_and_cursor():
     return conn, cur
 
 
+def _job_update_call(cur):
+    """Lệnh UPDATE job_postings của update_job. Từ C1, update_job còn chạy thêm câu UPDATE job_sources_log
+    (đồng bộ listing) SAU câu này, nên không còn lấy lệnh cuối cùng được nữa."""
+    calls = [c for c in cur.execute.call_args_list if "UPDATE job_postings" in c[0][0]]
+    assert len(calls) == 1
+    return calls[0]
+
+
 def _executed_sql(cur) -> str:
-    return cur.execute.call_args[0][0]
+    return _job_update_call(cur)[0][0]
 
 
 def test_update_job_clear_fields_sets_columns_to_null():
@@ -64,8 +72,9 @@ def test_update_job_clear_fields_can_be_combined_with_other_updates():
     assert "deadline = NULL" in sql
     # tham số truyền cho %s chỉ gồm job_title + job_id, KHÔNG có giá trị
     # nào cho cột bị xoá (NULL viết thẳng vào câu SQL)
-    assert cur.execute.call_args[0][1][0] == "Mới"
-    assert len(cur.execute.call_args[0][1]) == 2
+    params = _job_update_call(cur)[0][1]
+    assert params[0] == "Mới"
+    assert len(params) == 2
 
 
 def test_update_job_default_none_args_do_not_touch_clearable_columns():

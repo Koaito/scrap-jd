@@ -464,6 +464,16 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   `0041`, D2), đồng thời là index cho các câu tra "URL này đã crawl chưa". Ghi nguồn phụ trùng URL
   của job khác thì `link_repost_source` không ghi đè, trả `False` và cảnh báo; `insert_job` raise
   `UniqueViolation` và pipeline rollback job đó. Migration dừng nếu DB đang có URL nằm ở nhiều dòng.
+- **Trạng thái từng listing** (C1, migration `0043` và `db/listing_state.py`): mỗi dòng `job_sources_log`
+  (một URL tin đăng) có `listing_status` (`OPEN` | `CLOSED` | `UNKNOWN`), `deadline`, `first_seen_at`,
+  `last_seen_at`, `closed_reason`, `closed_at`. Hiện CHỈ ĐƯỢC GHI, chưa chỗ đọc nào dùng (C2 và C3 sẽ chuyển
+  job thành giá trị tổng hợp từ listing). Mọi SQL ghi trạng thái nằm ở `db/listing_state.py`. Luật ghi:
+  listing mới là `OPEN` (cả job nhập tay), trừ khi job đang `CLOSED` thì listing sinh ra đã `CLOSED` với đúng
+  `closed_reason` của job; job chuyển `CLOSED` thì mọi listing chưa đóng đóng theo cùng lý do (listing đã đóng
+  giữ lý do cũ); nhân viên mở lại job thì listing đóng vì `staff` và listing hiện hành (URL trùng
+  `job_postings.source_url`) về `OPEN`; pipeline mở lại job vì tin đăng lại thì listing của URL mới về `OPEN`
+  kèm hạn mới. Fetch chi tiết thành công ghi `last_seen_at` và hạn đọc được; `check_expired_source_jobs` ghi
+  `last_seen_at` cho URL trả HTTP 2xx. Không có migration mới ở bước này, chạy được ngay sau khi push.
 - **VietnamWorks: nhận ra tin bị sửa tiêu đề theo mã job.** Nhà tuyển dụng sửa
   tiêu đề thì URL đổi (phần chữ) còn mã số cuối URL (`...-<mã>-jv`) giữ
   nguyên. Gặp URL chưa có trong DB, pipeline tìm job VietnamWorks còn `OPEN`

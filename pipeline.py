@@ -116,7 +116,7 @@ def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: Pipe
             # Ghi dấu "đã fetch chi tiết": nếu nguồn thật sự không có field
             # còn thiếu thì job không bị fetch lại ở mọi lượt crawl nữa, chỉ
             # sau DETAIL_RECHECK_DAYS ngày (xem db.job_needs_detail_enrichment).
-            db.mark_source_detail_checked(conn, raw.source_url)
+            db.mark_source_detail_checked(conn, raw.source_url, deadline=new_deadline)
             conn.commit()
             if new_work_type or new_deadline or new_parsed_content:
                 stats.updated_existing += 1
@@ -270,7 +270,7 @@ def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
     db.link_repost_source(
         conn, duplicate_job_id,
         source_name=raw.source_name, source_url=raw.source_url,
-        raw_jd_content=raw_jd_content, salary_raw_text=raw.salary_text,
+        raw_jd_content=raw_jd_content, salary_raw_text=raw.salary_text, deadline=deadline,
     )
     action = ""
     if candidate["job_status"] == "CLOSED":
@@ -395,7 +395,7 @@ def _update_job_by_job_code(conn, raw, match, *, level_code: str, level_source: 
     db.link_repost_source(
         conn, job_id,
         source_name=raw.source_name, source_url=raw.source_url,
-        raw_jd_content=raw_jd_content, salary_raw_text=raw.salary_text,
+        raw_jd_content=raw_jd_content, salary_raw_text=raw.salary_text, deadline=deadline,
     )
     updated = False
     if not updated_by:

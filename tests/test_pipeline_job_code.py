@@ -92,6 +92,7 @@ def test_similar_title_updates_the_old_job_instead_of_inserting(pipeline_db):
     link = pipeline_db.link_repost_source.call_args
     assert link.args == (conn, "old-1")
     assert link.kwargs["source_url"] == NEW_URL and link.kwargs["source_name"] == "Fake"
+    assert link.kwargs["deadline"] == normalize.normalize_deadline("05/09/2026")   # hạn của listing mới (C1)
 
     update = pipeline_db.update_job_from_recrawl.call_args
     assert update.args == (conn, "old-1")

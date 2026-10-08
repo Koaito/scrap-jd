@@ -129,6 +129,19 @@ def test_existing_incomplete_job_due_is_fetched_and_stamped(pipeline_db):
     assert adapter.detail_calls == 1
     pipeline_db.mark_source_detail_checked.assert_called_once()
     assert pipeline_db.mark_source_detail_checked.call_args.args[1] == "https://x/a"
+    assert pipeline_db.mark_source_detail_checked.call_args.kwargs == {"deadline": None}   # trang không ghi hạn
+
+
+def test_existing_job_detail_deadline_is_passed_to_listing_stamp(pipeline_db):
+    from datetime import date
+    pipeline_db.get_job_probe_by_source_url.return_value = _probe(NO_DEADLINE, None)
+    adapter = FakeAdapter("https://x/a", detail={**DETAIL, "deadline_text": "05/09/2026"})
+
+    _run(adapter)
+
+    kwargs = pipeline_db.mark_source_detail_checked.call_args.kwargs
+    assert kwargs == {"deadline": date(2026, 9, 5)}                # cùng hạn với update_job_fields
+    assert pipeline_db.update_job_fields.call_args.kwargs["deadline"] == date(2026, 9, 5)
 
 
 def test_failed_fetch_is_not_stamped_so_it_retries_next_crawl(pipeline_db):

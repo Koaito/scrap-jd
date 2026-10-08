@@ -284,7 +284,8 @@ def test_old_code_insert_without_the_new_columns_still_works_and_yields_unknown(
 
 
 def test_existing_writers_in_the_codebase_work_on_the_migrated_schema(migrated):
-    """link_repost_source và đường cập nhật detail_checked_at của code hiện tại chạy được sau migration."""
+    """link_repost_source của code hiện tại chạy được sau migration. Từ C1 nửa 2/2 nó ghi trạng thái luôn:
+    job của L1 đang OPEN nên listing tin đăng lại là OPEN (chi tiết các luật: tests/test_pg_listing_state_writes.py)."""
     import db
     conn, ids, _ = migrated
     with conn.cursor() as cur:
@@ -296,7 +297,7 @@ def test_existing_writers_in_the_codebase_work_on_the_migrated_schema(migrated):
     with conn.cursor() as cur:
         cur.execute("SELECT log_id FROM job_sources_log WHERE source_url = 'https://x/repost-new'")
         state = _listing_state(conn, cur.fetchone()[0])
-    assert state["listing_status"] == "UNKNOWN"
+    assert state["listing_status"] == "OPEN"
 
 
 # ----------------------------------------------------------------------------- idempotent

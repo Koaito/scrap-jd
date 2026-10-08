@@ -249,6 +249,10 @@ def run(limit: Optional[int] = None, check_deadline_only: bool = False,
                     conn.commit()
             elif status_code is not None and 200 <= status_code < 300:
                 stats["still_alive"] += 1
+                if not dry_run:
+                    # Bằng chứng còn sống cho listing (C1): chỉ ghi last_seen_at, không đổi trạng thái.
+                    db.mark_listing_seen(conn, source_url)
+                    conn.commit()
             else:
                 # None (lỗi fetch) hoặc mã khác (3xx lạ, 403, 5xx...) —
                 # KHÔNG mơ hồ đủ để tự kết luận, xem docstring đầu file.

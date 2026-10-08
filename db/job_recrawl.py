@@ -12,6 +12,7 @@ from typing import Optional
 
 from db.audit_logs import log_action
 from db.job_levels import _derived_level_assignments
+from db.listing_state import CONFLICT_URL, insert_listing, reopen_listing_for_repost
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ AUTO_REOPEN_REASONS = frozenset({"expired_auto"})
 
 
 def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
-                       raw_jd_content: str = "", salary_raw_text: str = "") -> bool:
+                       raw_jd_content: str = "", salary_raw_text: str = "", deadline=None) -> bool:
     """Ghi 1 source_url mới vào job ĐÃ CÓ như một nguồn phụ (job_sources_log),
     không tạo job mới. Dùng khi pipeline nhận ra tin vừa crawl là đăng lại của
     job đã có (cùng công ty, tiêu đề chuẩn hoá và tỉnh, nhưng khác source_url; khoá này
@@ -43,6 +44,11 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
     merge-duplicates khi job giữ lấy lại OPEN từ job phụ). Mọi URL từng thấy, kể cả URL cũ,
     nằm ở job_sources_log.
 
+    Trạng thái của listing mới (C1, db.listing_state): OPEN, trừ khi job đang CLOSED thì listing sinh ra
+    đã CLOSED với đúng closed_reason của job (tin đăng lại không mở được job đóng vì staff, unknown,
+    merged; job đóng vì expired_auto được pipeline mở lại ngay sau bằng reopen_job_for_repost, khi đó
+    listing này về OPEN). `deadline` là hạn của chính tin đăng lại này, ghi vào listing.
+
     Không tự commit (đúng quy ước của lớp db: nơi gọi chịu trách nhiệm).
     Trả True nếu vừa thêm dòng mới, False nếu source_url đã có.
 
@@ -51,18 +57,12 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
     trước khi tới đây (get_job_probe_by_source_url), nên URL đã nằm ở một job KHÁC chỉ xảy ra khi hai
     tiến trình crawl gặp cùng URL cùng lúc. Khi đó hàm KHÔNG ghi đè và KHÔNG báo lỗi, trả False và ghi
     cảnh báo để còn dấu vết."""
+    inserted = insert_listing(
+        conn, job_id=job_id, source_name=source_name, source_url=source_url,
+        salary_raw_text=salary_raw_text, raw_jd_content=raw_jd_content,
+        detail_fetched=True, deadline=deadline, on_conflict=CONFLICT_URL,
+    )
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO job_sources_log (job_id, source_name, source_url,
-                                          salary_raw_content, raw_jd_content,
-                                          detail_checked_at)
-            VALUES (%s, %s, %s, %s, %s, now())
-            ON CONFLICT (source_url) DO NOTHING
-            """,
-            (job_id, source_name, source_url, salary_raw_text, raw_jd_content or None),
-        )
-        inserted = cur.rowcount > 0
         if not inserted:
             cur.execute("SELECT job_id FROM job_sources_log WHERE source_url = %s", (source_url,))
             row = cur.fetchone()
@@ -163,6 +163,9 @@ def reopen_job_for_repost(conn, job_id: str, *, source_url: str, deadline,
     (chỉ một bên mở được, bên kia nhận False) và không đụng job đang OPEN. Việc loại job do
     nhân viên chủ động đóng (closed_reason, xem find_repost_candidate) là việc của nơi gọi.
 
+    Listing của source_url mới cũng về OPEN kèm hạn mới (db.listing_state.reopen_listing_for_repost);
+    listing cũ giữ nguyên (URL cũ đã chết nên vẫn CLOSED).
+
     Mở lại được thì ghi audit REOPEN_JOB (actor NULL, changes = giá trị cũ/mới của job_status,
     deadline, source_url, closed_reason) CÙNG transaction, nên không có lần mở lại nào thiếu log.
     Không tự commit. Trả True nếu có dòng được mở lại."""
@@ -190,6 +193,8 @@ def reopen_job_for_repost(conn, job_id: str, *, source_url: str, deadline,
     if row is None:
         return False
     title, company_id, old_deadline, old_url, old_reason = row
+    # Listing của URL mới (pipeline vừa ghi nó CLOSED theo job) về OPEN kèm hạn mới (C1, luật 4).
+    reopen_listing_for_repost(conn, job_id, source_url, deadline)
     log_action(
         conn, actor_id=None, action_type="REOPEN_JOB", entity_type="JOB", entity_id=job_id,
         entity_label=title, company_id=str(company_id),
