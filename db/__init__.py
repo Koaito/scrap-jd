@@ -91,6 +91,10 @@ from db.job_recrawl import (
 from db.listing_state import (
     mark_listing_seen,
 )
+from db.job_derivation import (
+    derive_job_from_listings,
+    list_jobs_with_listings,
+)
 from db.job_level_recompute import (
     skip_updated_at_supported,
     list_level_recompute_candidates,
@@ -339,6 +343,8 @@ __all__ = [
     "reopen_job_for_repost",
     "AUTO_REOPEN_REASONS",
     "mark_listing_seen",
+    "derive_job_from_listings",
+    "list_jobs_with_listings",
     "find_jobs_by_source_url_regex",
     "update_job_from_recrawl",
     "skip_updated_at_supported",

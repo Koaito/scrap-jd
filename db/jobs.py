@@ -15,7 +15,7 @@ from config import DETAIL_RECHECK_DAYS
 from db.job_dedup_lock import lock_job_dedup_key
 from db.job_levels import _check_level_signals, _check_level_stamp, _derived_level_assignments
 from db.listing_state import (
-    CONFLICT_JOB_AND_URL,
+    CONFLICT_NONE,
     insert_listing,
     job_is_closed_locked,
     mark_listing_detail_checked,
@@ -293,14 +293,15 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
         )
         job_id = cur.fetchone()[0]
 
-        # Listing đầu tiên của job (C1): OPEN vì job vừa tạo OPEN, hạn = hạn của job. job_id vừa sinh nên
-        # ON CONFLICT (job_id, source_url) không bao giờ kích hoạt. Nếu URL đã thuộc job khác (UNIQUE
-        # (source_url), D2) thì INSERT raise UniqueViolation: cố ý để ồn ào, vòng lặp pipeline rollback cả
-        # job vừa insert thay vì để lại job không có dòng log.
+        # Listing đầu tiên của job (C1): OPEN vì job vừa tạo OPEN, hạn = hạn của job. INSERT thường, không
+        # ON CONFLICT (C2: không còn dùng uq_job_source, ràng buộc đó gỡ ở migration riêng): job_id vừa sinh
+        # nên chỉ có thể vướng UNIQUE (source_url) (D2) khi URL đã thuộc job khác, và khi đó raise
+        # UniqueViolation là CỐ Ý (ồn ào): vòng lặp pipeline rollback cả job vừa insert thay vì để lại job
+        # không có dòng log. Đổi đích ON CONFLICT sang (source_url) DO NOTHING sẽ nuốt lỗi đó.
         insert_listing(
             conn, job_id=job_id, source_name=source_name, source_url=source_url,
             salary_raw_text=salary_raw_text, raw_jd_content=raw_jd_content,
-            detail_fetched=detail_fetched, deadline=deadline, on_conflict=CONFLICT_JOB_AND_URL,
+            detail_fetched=detail_fetched, deadline=deadline, on_conflict=CONFLICT_NONE,
         )
         return str(job_id)
 

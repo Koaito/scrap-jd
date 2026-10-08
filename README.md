@@ -474,6 +474,11 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   `job_postings.source_url`) về `OPEN`; pipeline mở lại job vì tin đăng lại thì listing của URL mới về `OPEN`
   kèm hạn mới. Fetch chi tiết thành công ghi `last_seen_at` và hạn đọc được; `check_expired_source_jobs` ghi
   `last_seen_at` cho URL trả HTTP 2xx. Không có migration mới ở bước này, chạy được ngay sau khi push.
+- **So job với listing** (C2 nửa 1/2): `python main.py check-listing-derivation` (chỉ đọc) suy ra trạng thái,
+  hạn và `source_url` của từng job từ các listing của nó (luật ở `db/job_derivation.py`: OPEN nếu có listing
+  OPEN hoặc UNKNOWN; hạn muộn nhất trong các listing OPEN; URL của listing OPEN mới nhất) rồi so với giá trị
+  đang lưu trong `job_postings`, in số liệu lệch theo từng trường và loại lệch. `--csv FILE` xuất từng trường
+  lệch, `--show N` đổi số ví dụ, `--strict` thoát mã 2 nếu còn lệch. Chưa có chỗ ghi nào dùng phép suy ra này.
 - **VietnamWorks: nhận ra tin bị sửa tiêu đề theo mã job.** Nhà tuyển dụng sửa
   tiêu đề thì URL đổi (phần chữ) còn mã số cuối URL (`...-<mã>-jv`) giữ
   nguyên. Gặp URL chưa có trong DB, pipeline tìm job VietnamWorks còn `OPEN`

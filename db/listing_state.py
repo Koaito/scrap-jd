@@ -35,10 +35,10 @@ LISTING_CLOSED = "CLOSED"
 LISTING_UNKNOWN = "UNKNOWN"
 
 # Cách xử lý khi URL đã có trong job_sources_log. Chuỗi SQL cố định (không nhận từ bên ngoài).
-CONFLICT_JOB_AND_URL = "job_and_url"   # ON CONFLICT (job_id, source_url): giữ đúng hành vi cũ của insert_job
-CONFLICT_URL = "url"                   # ON CONFLICT (source_url): giữ đúng hành vi cũ của link_repost_source
+CONFLICT_NONE = "none"                 # INSERT thường: URL đã có thì raise UniqueViolation (insert_job)
+CONFLICT_URL = "url"                   # ON CONFLICT (source_url) DO NOTHING (link_repost_source)
 _CONFLICT_SQL = {
-    CONFLICT_JOB_AND_URL: "ON CONFLICT (job_id, source_url) DO NOTHING",
+    CONFLICT_NONE: "",
     CONFLICT_URL: "ON CONFLICT (source_url) DO NOTHING",
 }
 
@@ -57,7 +57,7 @@ def insert_listing(conn, *, job_id: str, source_name: str, source_url: str,
                    detail_fetched: bool = False, deadline=None,
                    on_conflict: str = CONFLICT_URL) -> bool:
     """Ghi một listing mới cho job ĐÃ CÓ; trạng thái suy ra từ job lúc này (luật 1). Trả True nếu vừa
-    thêm dòng, False nếu URL đã có (ON CONFLICT DO NOTHING). Raise LookupError nếu job không tồn tại.
+    thêm dòng, False nếu URL đã có (chỉ với CONFLICT_URL; CONFLICT_NONE thì raise UniqueViolation). Raise LookupError nếu job không tồn tại.
 
     first_seen_at và last_seen_at lấy mặc định now() của cột (cùng một giá trị, nên last_seen_at >=
     first_seen_at). detail_fetched=True ghi luôn detail_checked_at = now(): fetch trang chi tiết vừa thành

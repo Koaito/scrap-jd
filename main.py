@@ -16,6 +16,8 @@ Ví dụ:
     python main.py report-duplicates --csv trung.csv   # xuất toàn bộ nhóm ra file duyệt tay
     python main.py report-reposts              # đo tỷ lệ gộp nhầm: so JD các tin đã gộp (chỉ đọc)
     python main.py report-reposts --csv gop.csv --threshold 0.3   # xuất từng cặp tin, chỉnh ngưỡng nghi gộp nhầm
+    python main.py check-listing-derivation    # so giá trị job suy ra từ listing với giá trị đang lưu (chỉ đọc)
+    python main.py check-listing-derivation --csv lech.csv --strict   # xuất từng trường lệch; mã thoát 2 nếu còn lệch
     python main.py merge-duplicates            # gộp job trùng: CHẠY THỬ, chỉ in kế hoạch (không ghi)
     python main.py merge-duplicates --only duyet.csv --csv ke_hoach.csv   # chỉ nhóm đã duyệt tay
     python main.py merge-duplicates --apply --limit 1   # gộp thật 1 nhóm đầu (hỏi xác nhận; backup DB trước)
@@ -34,6 +36,7 @@ import sys
 import db
 from adapters.base import CrawlBlockedError
 from pipeline import run_pipeline
+import check_listing_derivation
 import duplicate_report
 import merge_duplicates
 import recompute_levels
@@ -203,6 +206,11 @@ def cmd_report_duplicates(args):
 def cmd_report_reposts(args):
     """Đo tỷ lệ gộp nhầm (A5), CHỈ ĐỌC. Xem docstring repost_report.py."""
     sys.exit(repost_report.run_cli(args))
+
+
+def cmd_check_listing_derivation(args):
+    """So job suy ra từ listing với job đang lưu (C2), CHỈ ĐỌC. Xem docstring check_listing_derivation.py."""
+    sys.exit(check_listing_derivation.run_cli(args))
 
 
 def cmd_merge_duplicates(args):
@@ -525,6 +533,24 @@ def main():
              "ước lượng ban đầu, chỉnh sau khi xem phân bố)",
     )
 
+    p_derive = sub.add_parser(
+        "check-listing-derivation",
+        help="So trạng thái, hạn, URL của job suy ra từ listing với giá trị đang lưu trong job_postings, "
+             "phân loại chỗ lệch (C2). CHỈ ĐỌC, không ghi DB",
+    )
+    p_derive.add_argument(
+        "--show", type=int, default=check_listing_derivation.DEFAULT_SHOW,
+        help="Số dòng ví dụ in cho MỖI loại lệch (mặc định %(default)s; 0 = chỉ in số liệu)",
+    )
+    p_derive.add_argument(
+        "--csv", default=None, metavar="FILE",
+        help="Xuất mọi trường lệch (mỗi trường một dòng) ra file CSV",
+    )
+    p_derive.add_argument(
+        "--strict", action="store_true",
+        help="Thoát với mã 2 nếu còn bất kỳ trường nào lệch (dùng làm cổng trước khi chuyển bước)",
+    )
+
     p_merge = sub.add_parser(
         "merge-duplicates",
         help="Gộp job trùng (Phần 3b): chọn job giữ, hợp nhất trường, chuyển dữ liệu con, xoá job phụ "
@@ -621,6 +647,8 @@ def main():
         cmd_report_duplicates(args)
     elif args.command == "report-reposts":
         cmd_report_reposts(args)
+    elif args.command == "check-listing-derivation":
+        cmd_check_listing_derivation(args)
     elif args.command == "merge-duplicates":
         cmd_merge_duplicates(args)
     elif args.command == "crawl":
