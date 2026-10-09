@@ -138,7 +138,7 @@ def is_gone_page(html: str) -> bool:
     chưa phải bằng chứng chắc chắn job đã đóng (chính trang đó ghi "có thể đã bị
     xóa hoặc tạm thời không hỗ trợ"), nên không dùng để tự đóng job."""
     target = redirect_target(html)
-    return bool(target) and target.rstrip("/").endswith("/410")
+    return bool(target and target.rstrip("/").endswith("/410"))
 
 
 def parse_detail_page(html: str) -> Optional[dict]:

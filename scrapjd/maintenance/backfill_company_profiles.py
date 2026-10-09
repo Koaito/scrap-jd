@@ -59,6 +59,7 @@ from typing import Optional
 from urllib.parse import urlsplit
 
 from scrapjd import db
+from scrapjd.adapters.base import BaseAdapter
 from scrapjd.adapters.topcv import TopCVAdapter
 from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from scrapjd.adapters.careerviet import CareerVietAdapter
@@ -73,7 +74,7 @@ logger = logging.getLogger(__name__)
 # Map domain -> adapter chịu trách nhiệm crawl domain đó. Thêm nguồn mới
 # (vd ITviec) chỉ cần thêm 1 dòng ở đây, không cần sửa gì khác trong file
 # này — logic chọn adapter ở _adapter_for_url() bên dưới tự động dùng.
-_DOMAIN_ADAPTERS = {
+_DOMAIN_ADAPTERS: dict[str, type[BaseAdapter]] = {
     "topcv.vn": TopCVAdapter,
     "vietnamworks.com": VietnamWorksAdapter,
     "careerviet.vn": CareerVietAdapter,

@@ -43,7 +43,7 @@ thread có thể mượn/trả connection đồng thời, pool dùng
 ThreadedConnectionPool (không phải SimpleConnectionPool) — xem db.py.
 """
 
-from typing import Iterator
+from typing import Iterator, Optional
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -192,7 +192,8 @@ def get_current_user(
 # crawl + tạo/đổi role user khác. So sánh THEO BẬC (>=) chứ không so
 # khớp đúng 1 chuỗi — admin tự động thoả mọi route yêu cầu ss_team trở
 # xuống, không cần liệt kê admin riêng ở từng nơi.
-ROLE_HIERARCHY = {"user": 0, "ss_team": 1, "admin": 2}
+# Khoá là Optional vì nơi tra (user.get("role")) có thể là None; None không có trong dict nên rơi về -1 (từ chối).
+ROLE_HIERARCHY: dict[Optional[str], int] = {"user": 0, "ss_team": 1, "admin": 2}
 
 
 def require_role(min_role: str):

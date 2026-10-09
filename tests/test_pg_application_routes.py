@@ -266,6 +266,17 @@ def test_apply_with_non_pdf_is_400_and_creates_nothing(pg_conn):
     assert _fetch(pg_conn, "SELECT 1 FROM job_applications") == []
 
 
+def test_apply_with_missing_filename_is_400_not_a_crash(pg_conn):
+    # UploadFile.filename có kiểu Optional[str]. Thiếu tên file phải bị từ chối như file sai định dạng (400),
+    # không được văng AttributeError (500) ở bước kiểm đuôi .pdf.
+    student = _make_user(pg_conn)
+    jid, _ = _make_job(pg_conn)
+    with pytest.raises(HTTPException) as e:
+        _call_apply(pg_conn, student, jid, cv_file=_pdf(name=None))
+    assert _http_error(e) == (400, error_codes.PROFILE_CV_FORMAT_INVALID)
+    assert _fetch(pg_conn, "SELECT 1 FROM job_applications") == []
+
+
 # ---------------------------------------------------------------------
 # DELETE /me/applications/{job_id}
 # ---------------------------------------------------------------------

@@ -32,7 +32,7 @@ LISTING_CLOSED = "CLOSED"
 LISTING_UNKNOWN = "UNKNOWN"
 
 # Thứ tự thắng khi hai listing đóng cùng một lúc: lý do do người quyết định trước lý do tự động.
-_REASON_PRIORITY = {"staff": 0, "merged": 1, "unknown": 2, "expired_auto": 3}
+_REASON_PRIORITY: dict[Optional[str], int] = {"staff": 0, "merged": 1, "unknown": 2, "expired_auto": 3}
 
 
 @dataclass(frozen=True)

@@ -22,7 +22,7 @@ ra 0 job, xem README mục "Debug khi TopCV đổi giao diện" để tự sửa
 
 import re
 import logging
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional, cast
 from urllib.parse import urljoin, urlsplit, urlunsplit, parse_qsl, urlencode
 
 # ĐỔI từ `requests` thuần sang `curl_cffi.requests` (08/2026): TopCV bắt
@@ -228,12 +228,14 @@ class TopCVAdapter(BaseAdapter):
         )
 
         # Loại bỏ trùng theo href, chỉ giữ href có text (tránh bắt link ảnh <a><img></a> lặp)
-        seen_href = {}
+        seen_href: dict[str, tuple[Any, str]] = {}
         for a in job_links:
-            href = a.get("href", "")
+            # bs4 gõ kiểu thuộc tính là `str | AttributeValueList`; href/title luôn là chuỗi lúc chạy
+            # (chỉ class, rel... mới là list), nên cast để mypy hiểu. Cast không đổi hành vi.
+            href = cast(str, a.get("href", ""))
             if not href:
                 continue
-            title = a.get_text(strip=True) or a.get("title", "")
+            title = a.get_text(strip=True) or cast(str, a.get("title", ""))
             if not title:
                 continue
             # Giữ bản có title dài nhất (thẻ <a> bọc <h3> thường có text đầy đủ hơn)
@@ -408,7 +410,7 @@ class TopCVAdapter(BaseAdapter):
         else:
             anchors_after_h1 = soup.find_all("a", href=True)
         for a in anchors_after_h1:
-            href = a.get("href", "").strip()
+            href = cast(str, a.get("href", "")).strip()
             if not href.startswith("http"):
                 continue
             # Loại trừ MỌI link thuộc chính domain TopCV (breadcrumb,

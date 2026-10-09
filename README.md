@@ -305,6 +305,18 @@ python -m pytest -q --cov --cov-report=html                        # báo cáo H
 Chỉ đo, chưa có ngưỡng chặn: `pytest` thường không đo, và CI chỉ in bảng chứ không đỏ vì số phần trăm.
 Kết quả đo (`.coverage`, `htmlcov/`, `coverage.xml`) đã nằm trong `.gitignore`.
 
+**Kiểm kiểu (mypy).** mypy đọc type hint để bắt lỗi kiểu như dùng giá trị có thể `None` mà chưa kiểm, không cần
+chạy code và không cần DB. Cài công cụ (có ghim phiên bản) rồi chạy từ gốc repo:
+
+```bash
+pip install -r requirements-dev.txt
+mypy
+```
+
+Cấu hình ở `pyproject.toml` (mục `[tool.mypy]`): kiểm `scrapjd/`, `scripts/` và `main.py`, kiểm cả hàm chưa có
+type hint, báo `# type: ignore` thừa. Hiện sạch cảnh báo; chưa chạy trong CI và chưa bắt buộc mọi hàm phải có
+type hint. Chỗ nào buộc phải bỏ qua thì dùng `# type: ignore[mã-lỗi]` kèm một dòng giải thích lý do.
+
 ---
 
 ## Quy trình đầu-cuối

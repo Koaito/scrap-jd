@@ -103,9 +103,12 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
     """Chạy company resolution (nếu cần) + conflict detection cho toàn bộ
     cleaned_rows, trả về dict preview_data đúng cấu trúc mô tả ở đầu file
     (CHƯA lưu DB — save_preview() lo phần lưu)."""
+    # Router chỉ gọi khi validation_result.is_valid (nhánh không hợp lệ đã trả lỗi trước đó), lúc đó cleaned_rows luôn có.
+    cleaned_rows = validation_result.cleaned_rows
+    assert cleaned_rows is not None
     rows_out = []
     summary = {
-        "total_rows": len(validation_result.cleaned_rows),
+        "total_rows": len(cleaned_rows),
         "new_records": 0,
         "conflicts": 0,
         "conflicts_inactive": 0,
@@ -120,7 +123,7 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
         "id_field": get_spec(entity_type).id_field,
     }
 
-    for row in validation_result.cleaned_rows:
+    for row in cleaned_rows:
         row_index = row["_row_index"]
         # "_row_index" (khoá nội bộ) và mọi "_<field>_raw" (giá trị gốc
         # của field strict_enum_fields không khớp — xem validation_engine.

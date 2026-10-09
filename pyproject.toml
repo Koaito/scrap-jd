@@ -28,3 +28,21 @@ exclude_also = [
     'if __name__ == "__main__":',
     "if TYPE_CHECKING:",
 ]
+
+# mypy (kiểm kiểu). Mức hiện tại: kiểm cả hàm chưa có type hint và dọn sạch cảnh báo; CHƯA bắt buộc mọi hàm phải có type hint,
+# và CHƯA chạy trong CI.
+# Chạy từ gốc repo: `mypy`. Phiên bản mypy và stubs ghim ở requirements-dev.txt.
+[tool.mypy]
+python_version = "3.12"
+files = ["scrapjd", "scripts", "main.py"]
+check_untyped_defs = true   # kiểm cả thân hàm chưa có type hint (mặc định mypy bỏ qua)
+warn_unused_ignores = true  # "# type: ignore" thừa thì báo, tránh ignore nằm lại sau khi lỗi đã hết
+warn_redundant_casts = true
+no_implicit_optional = true
+warn_unused_configs = true
+show_error_codes = true
+
+[[tool.mypy.overrides]]
+# Hai thư viện không có type hint kèm theo (không có py.typed, không có gói stubs chính thức).
+module = ["apscheduler.*", "tavily.*"]
+ignore_missing_imports = true

@@ -10,7 +10,7 @@ con là hàm THUẦN ở scrapjd/cli/merge_duplicates.py; ở đây chỉ chạy
   - merge_job_enum_supported / list_active_runs: kiểm tra DB sẵn sàng + crawl/bảo trì đang chạy.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from psycopg2.extras import Json
 
@@ -471,7 +471,9 @@ def merge_job_group(conn, *, keeper_id: str, donor_ids: list, expected: dict, ch
         ))
     derived = dict(derived_changes or {})
     if changes or derived or listing_log or conflicts or status_conflicts:
-        keeper_changes = {col: {"old": c["old"], "new": c["new"]} for col, c in {**changes, **derived}.items()}
+        keeper_changes: dict[str, Any] = {
+            col: {"old": c["old"], "new": c["new"]} for col, c in {**changes, **derived}.items()
+        }
         keeper_changes["merged_from"] = donors
         if listing_log:
             keeper_changes["listing_actions"] = listing_log

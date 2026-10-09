@@ -130,10 +130,10 @@ def normalize_salary(salary_text: str) -> NormalizedSalary:
     salary_period = "YEAR" if _YEARLY_SALARY_MARKER.search(lowered) else "MONTH"
 
     # Bỏ hết ký tự không phải số / dấu chấm phẩy để tách các con số
-    numbers = [
+    parsed_numbers = [
         _parse_number(n) for n in re.findall(r"[\d][\d.,]*", text)
     ]
-    numbers = [n for n in numbers if n is not None]
+    numbers: list[float] = [n for n in parsed_numbers if n is not None]
 
     currency = "USD" if is_usd else "VNĐ"
 
@@ -289,7 +289,7 @@ def _title_level_matches(title: str) -> list:
     dạng [(start, end, level)], sắp theo vị trí. Có cả "Middle" (chỉ để nhận ra
     tiêu đề liệt kê khoảng cấp; tiêu đề chỉ có "Middle" thì KHÔNG quyết định
     level, số năm quyết định)."""
-    spans = []
+    spans: list[tuple[int, int, str]] = []
     for level, rx in (
         ("Intern", _INTERN_TITLE), ("Fresher", _FRESHER_TITLE), ("Lead", _LEAD_TITLE),
         ("Lead", _DEPUTY_TITLE), ("Manager", _MANAGER_TITLE),

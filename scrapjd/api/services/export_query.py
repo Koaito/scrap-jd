@@ -19,7 +19,7 @@ cái đó", tránh lệch như 2 nơi định nghĩa filter riêng rẽ.
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2.extras
 
@@ -106,8 +106,8 @@ def _build_where(
         cố định (kiểm ở router bằng schema) nên ghép thẳng, không có
         nguy cơ SQL injection.
     """
-    clauses = []
-    params = []
+    clauses: list[str] = []
+    params: list[Any] = []
 
     if filters.status and status_column:
         clauses.append(f"{status_column} = %s")
@@ -270,7 +270,7 @@ def _format_rows(rows: list[dict], entity_type: str) -> list[dict]:
     spec = get_spec(entity_type)
     out = []
     for row in rows:
-        formatted = {}
+        formatted: dict[str, Any] = {}
         for col in spec.export_columns:
             val = row.get(col)
             if val is None:

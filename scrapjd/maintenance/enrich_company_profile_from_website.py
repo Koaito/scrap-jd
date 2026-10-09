@@ -162,8 +162,8 @@ class _PageFetcher:
     scrapjd/maintenance/get_company_fb_linkedin_link.py.SocialLinkFetcher, viết lại riêng ở
     đây để giữ script này tự chứa (xem docstring đầu file)."""
 
-    def __init__(self):
-        self.session = requests.Session(impersonate="chrome124")
+    def __init__(self) -> None:
+        self.session: requests.Session = requests.Session(impersonate="chrome124")
         self.session.headers.update(DEFAULT_HEADERS)
         self._last_request_time: Optional[float] = None
 

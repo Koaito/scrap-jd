@@ -6,6 +6,7 @@ logic pipeline hay adapter.
 """
 
 import os
+from typing import Any
 
 # ------------------------------------------------------------------
 # 08/2026 — ĐẢO CẤU TRÚC category-first (trước đây là 3 dict riêng
@@ -37,7 +38,7 @@ import os
 # như cũ). Nói cách khác: sửa TẬN GỐC ở JOB_CATEGORIES, phần còn lại của
 # codebase tự động thấy thay đổi.
 # ------------------------------------------------------------------
-JOB_CATEGORIES = {
+JOB_CATEGORIES: dict[str, dict[str, Any]] = {
     "data-analyst": {
         "label": "Data Analyst",
         "matching_industry": "Data Analysis",
@@ -214,7 +215,7 @@ try:
 except ImportError:
     pass
 
-DB_CONFIG = {
+DB_CONFIG: dict[str, Any] = {
     "host": os.getenv("PGHOST", "localhost"),
     "port": os.getenv("PGPORT", "5432"),
     "dbname": os.getenv("PGDATABASE", "Student Success — Job Postings & Company Contacts"),

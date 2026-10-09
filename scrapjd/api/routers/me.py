@@ -70,7 +70,7 @@ def apply_to_job(
         )
 
     # 1. Kiểm tra file PDF
-    if not cv_file.filename.lower().endswith(".pdf"):
+    if not (cv_file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_CV_FORMAT_INVALID, "message": "Chỉ chấp nhận file CV định dạng .pdf."})
     
     file_bytes = cv_file.file.read()

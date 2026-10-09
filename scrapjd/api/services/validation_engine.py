@@ -46,7 +46,7 @@ kiểu string), mà là 1 case cần resolve/gợi ý riêng.
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Optional
+from typing import Optional, cast
 
 import pandas as pd
 
@@ -189,7 +189,9 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
         return ValidationResult(is_valid=False, errors=errors)
 
     for idx, row in df.iterrows():
-        row_number = idx + 2  # +1 về 1-based, +1 vì header chiếm dòng 1
+        # iterrows() gõ idx là Hashable; DataFrame do file_parser dựng có index số nguyên 0..n-1. Cast không đổi hành vi.
+        row_idx = cast(int, idx)
+        row_number = row_idx + 2  # +1 về 1-based, +1 vì header chiếm dòng 1
         row_dict = row.to_dict()
         cleaned: dict = {}
         # field -> {"rule", "message"} — lỗi CỦA RIÊNG DÒNG NÀY, không còn
@@ -205,8 +207,8 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
         for f, raw_val in row_dict.items():
             # raw_val luôn là string (hoặc str của số từ Excel).
             # Strip và convert empty → None.
-            val_str = str(raw_val).strip()
-            normalized[f] = None if val_str == "" else val_str
+            stripped = str(raw_val).strip()
+            normalized[f] = None if stripped == "" else stripped
 
         # Required field check — chạy SAU khi normalize. Thiếu giá trị ở
         # 1 dòng (KHÁC thiếu hẳn cột — đã reject ở missing_columns phía
@@ -274,7 +276,7 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
         # riêng khi sau này Company/Contact có rule liên trường mới.
         run_cross_field_rules(spec, cleaned, row_number, field_errors)
 
-        cleaned["_row_index"] = int(idx)  # 0-based, dùng làm khoá nội bộ preview
+        cleaned["_row_index"] = int(row_idx)  # 0-based, dùng làm khoá nội bộ preview
         if field_errors:
             cleaned["_field_errors"] = field_errors
         cleaned_rows.append(cleaned)

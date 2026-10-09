@@ -291,11 +291,11 @@ def update_audit_log_note(conn, log_id: str, note: str, note_updated_by: str) ->
     đó TRƯỚC khi gọi hàm này, vì set NULL cho dòng note_required=true
     sẽ vi phạm CHECK constraint ở DB, raise lỗi rõ ràng thay vì âm thầm
     cho qua)."""
-    note = (note or "").strip() or None
+    clean_note = (note or "").strip() or None
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE audit_logs SET note = %s, note_updated_by = %s, "
             "note_updated_at = now() WHERE log_id = %s",
-            (note, note_updated_by, log_id),
+            (clean_note, note_updated_by, log_id),
         )
         return cur.rowcount > 0

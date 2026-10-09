@@ -94,7 +94,7 @@ import argparse
 import logging
 import re
 import time
-from typing import Optional
+from typing import Optional, cast
 from urllib.parse import urljoin, urlsplit, urlunsplit, parse_qsl, unquote
 
 from curl_cffi import requests
@@ -330,9 +330,10 @@ def find_social_links(html: str, page_url: str) -> tuple:
     "trang thật sự không có LinkedIn" và đếm riêng, tự kiểm tra tay."""
     soup = BeautifulSoup(html, "html.parser")
 
+    # bs4 gõ thuộc tính là `str | AttributeValueList`; href/src luôn là chuỗi lúc chạy. Cast không đổi hành vi.
     raw_urls = (
-        [a["href"] for a in soup.find_all("a", href=True)]
-        + [f["src"] for f in soup.find_all("iframe", src=True)]
+        [cast(str, a["href"]) for a in soup.find_all("a", href=True)]
+        + [cast(str, f["src"]) for f in soup.find_all("iframe", src=True)]
     )
 
     fanpage_candidates = []
@@ -389,8 +390,8 @@ class SocialLinkFetcher:
     curl_cffi cho nhất quán với phần còn lại của project và vì 1 số
     website doanh nghiệp cũng có Cloudflare/WAF cơ bản."""
 
-    def __init__(self):
-        self.session = requests.Session(impersonate="chrome124")
+    def __init__(self) -> None:
+        self.session: requests.Session = requests.Session(impersonate="chrome124")
         self.session.headers.update(DEFAULT_HEADERS)
         self._last_request_time: Optional[float] = None
 

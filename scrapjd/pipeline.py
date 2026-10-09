@@ -14,6 +14,7 @@ from scrapjd.db.job_recrawl import AUTO_REOPEN_REASONS
 from scrapjd import normalize
 from scrapjd.config import DEGRADED_EMPTY_RATE
 from scrapjd.field_stats import WARN_MIN_SAMPLES, EmptyFieldCounter, degraded_reasons
+from scrapjd.models import RawJobRecord
 from scrapjd.pipeline_stats import PipelineStats
 
 logger = logging.getLogger(__name__)
@@ -499,7 +500,7 @@ class _DedupContext:
     province_id, level_id là None ở giai đoạn BEFORE_COMPANY, có giá trị ở AFTER_COMPANY."""
     adapter: BaseAdapter
     conn: object
-    raw: object
+    raw: RawJobRecord
     stats: PipelineStats
     level_code: str
     level_source: str
@@ -550,6 +551,7 @@ def _resolve_by_repost(ctx: _DedupContext) -> bool:
     cùng level (~34%, level suy từ số năm kinh nghiệm nên hai lần đăng hay ra level khác nhau).
     Cái giá: hai vị trí cùng tên, công ty, tỉnh nhưng khác cấp bị coi là một (dữ liệu gốc của tin
     bị gộp vẫn nằm trong job_sources_log). Xem _import_repost cho cách xử lý theo trạng thái."""
+    assert ctx.company_id is not None  # resolver giai đoạn AFTER_COMPANY: company_id đã có (xem _DedupContext)
     db.lock_job_dedup_key(
         ctx.conn, company_id=ctx.company_id, job_title=ctx.raw.job_title,
         province_id=ctx.province_id,
@@ -868,7 +870,8 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
         try:
             conn.rollback()
             _finalize_stats(adapter, stats, field_counter)
-            exc.stats = stats.to_dict()
+            # stats gắn động vào lỗi bất ngờ; scrapjd/api/crawl_runner.py đọc lại bằng getattr(exc, "stats", None).
+            exc.stats = stats.to_dict()  # type: ignore[attr-defined]
         except Exception:  # noqa: BLE001
             logger.exception("Không dựng được stats tạm khi lượt crawl lỗi, bỏ qua")
         raise

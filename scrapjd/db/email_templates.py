@@ -9,7 +9,7 @@ gọi log_action() TRƯỚC khi xoá — xem scrapjd/api/routers/email_templates
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2
 import psycopg2.extras
@@ -100,7 +100,8 @@ def patch_email_template(
     pattern patch_company_profile()/patch_contact(). description truyền
     "" (chuỗi rỗng, khác None) hợp lệ — xoá mô tả cũ, DB cho phép NULL
     lẫn "". Trả False nếu template_id không tồn tại."""
-    fields, values = [], []
+    fields: list[str] = []
+    values: list[Any] = []
     if title is not None:
         fields.append("title = %s")
         values.append(title)

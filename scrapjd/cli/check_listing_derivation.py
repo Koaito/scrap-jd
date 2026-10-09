@@ -23,7 +23,7 @@ Hàm so (compare_job) và phân loại là hàm THUẦN, có test ở tests/test
 import csv
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from scrapjd import db
 from scrapjd.db.job_derivation import DerivedJob, derive_job_from_listings
@@ -82,7 +82,7 @@ def _kind_url(stored: Optional[str], listing_urls: set) -> str:
 
 def compare_job(job: dict, derived: DerivedJob) -> list:
     """Danh sách (trường, loại, giá trị đang lưu, giá trị suy ra) cho các trường lệch của một job."""
-    out = []
+    out: list[tuple[str, str, Any, Any]] = []
     if job["job_status"] != derived.job_status:
         out.append(("job_status", _kind_status(job["job_status"], derived.job_status),
                     job["job_status"], derived.job_status))

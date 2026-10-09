@@ -112,8 +112,8 @@ class _Throttled404Checker:
     trang như scrapjd/maintenance/get_company_fb_linkedin_link.py, nên KHÔNG cần BeautifulSoup
     ở đây, chỉ cần status_code."""
 
-    def __init__(self):
-        self.session = requests.Session(impersonate="chrome124")
+    def __init__(self) -> None:
+        self.session: requests.Session = requests.Session(impersonate="chrome124")
         self.session.headers.update(DEFAULT_HEADERS)
         self._last_request_time: Optional[float] = None
 

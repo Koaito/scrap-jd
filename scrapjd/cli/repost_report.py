@@ -335,6 +335,7 @@ def _origin_label(log: LogInfo) -> str:
 
 def _print_job(no: int, r: JobResult) -> None:
     worst = r.worst
+    assert worst is not None  # chỉ gọi với job nghi gộp nhầm (klass chỉ đặt khi có cặp so được)
     print(f"\n#{no}  job {r.job_id[:8]} [{r.job_status}]  {r.company_name} — {r.job_title}")
     print(f"    level {r.level_code or '-'}, tỉnh {r.province_name or '-'}, "
           f"{r.n_logs} tin ({r.n_comparable_logs} đủ nội dung), "

@@ -367,6 +367,7 @@ def main():
         state_fh = open(args.state_file, "a", encoding="utf-8") if args.apply else None
         try:
             def on_done(job_id):
+                assert state_fh is not None  # on_done chỉ được truyền khi --apply, lúc đó file tiến độ đã mở
                 state_fh.write(f"{job_id}\n")
                 state_fh.flush()
 

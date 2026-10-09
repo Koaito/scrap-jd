@@ -7,7 +7,7 @@ tín hiệu + thống kê -> scrapjd/db/company_analytics.py.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from scrapjd.normalize import normalize_company_size
 
@@ -227,8 +227,8 @@ def patch_company_profile(conn, company_id: str, *,
 
     Trả False nếu company_id không tồn tại, True nếu update thành công
     — route dùng để trả 404 đúng lúc."""
-    updates = []
-    values = []
+    updates: list[str] = []
+    values: list[Any] = []
 
     if updated_by is not None:
         updates.append("updated_by = %s")

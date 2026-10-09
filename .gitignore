@@ -37,3 +37,6 @@ tools/hr_contact_tool.html
 .coverage.*
 htmlcov/
 coverage.xml
+
+# Bộ nhớ đệm của mypy
+.mypy_cache/

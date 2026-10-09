@@ -46,10 +46,10 @@ class CompanyResolution:
     status: str  # "resolved" | "needs_resolution"
     company_id: Optional[str] = None
     company_is_active: Optional[bool] = None
-    suggestions: list[CompanySuggestion] = None
+    suggestions: Optional[list[CompanySuggestion]] = None
 
 
-def resolve_company(conn, company_name: str, tax_id: Optional[str] = None) -> CompanyResolution:
+def resolve_company(conn, company_name: Optional[str], tax_id: Optional[str] = None) -> CompanyResolution:
     company_name = (company_name or "").strip()
     tax_id = (tax_id or "").strip() or None
 

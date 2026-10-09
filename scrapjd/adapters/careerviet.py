@@ -143,7 +143,7 @@ import json
 import re
 import logging
 from datetime import datetime
-from typing import Iterator, Optional
+from typing import Iterator, Optional, cast
 from urllib.parse import urljoin, urlsplit
 
 from curl_cffi import requests
@@ -744,7 +744,8 @@ class CareerVietAdapter(BaseAdapter):
         if map_div:
             a = map_div.find("a")
             if a:
-                val = (a.get("title") or "").strip() or _clean(a.get_text())
+                # bs4 gõ thuộc tính là `str | AttributeValueList`; title luôn là chuỗi lúc chạy. Cast không đổi hành vi.
+                val = cast(str, a.get("title") or "").strip() or _clean(a.get_text())
                 if val:
                     return val
         return ""

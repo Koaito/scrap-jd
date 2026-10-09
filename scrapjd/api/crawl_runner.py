@@ -463,9 +463,9 @@ def _execute_one(run_id: str) -> Optional[str]:
                     logger.error("Crawl run %s lỗi: %s", run_id, exc)
                     # run_pipeline() gắn stats tạm (số job đã lưu...) vào lỗi bất ngờ
                     # phát ra từ adapter; lỗi không đi qua pipeline thì không có.
-                    partial = getattr(exc, "stats", None)
-                    if isinstance(partial, dict) and partial:
-                        db_module.mark_crawl_run_error(conn, run_id, str(exc), stats=partial)
+                    exc_stats = getattr(exc, "stats", None)
+                    if isinstance(exc_stats, dict) and exc_stats:
+                        db_module.mark_crawl_run_error(conn, run_id, str(exc), stats=exc_stats)
                     else:
                         db_module.mark_crawl_run_error(conn, run_id, str(exc))
                 finally:

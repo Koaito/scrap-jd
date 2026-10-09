@@ -89,7 +89,7 @@ import json
 import logging
 import re
 import time
-from typing import Optional
+from typing import Any, Optional
 
 from tavily import TavilyClient
 from google import genai
@@ -394,7 +394,7 @@ def enrich_one_company(tavily_client: TavilyClient, gemini_client, company_name:
     Gọi Tavily 2 LẦN (query riêng cho website, query riêng cho tax_id —
     xem docstring đầu file mục "TÁCH 2 QUERY TAVILY"), gộp cả 2 bộ kết
     quả vào ĐÚNG 1 lần gọi Gemini duy nhất."""
-    result = {}
+    result: dict[str, Any] = {}
 
     website_results = _tavily_search(
         tavily_client, f"{company_name} website chính thức", company_name, "website"

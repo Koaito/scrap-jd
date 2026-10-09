@@ -186,7 +186,9 @@ app = FastAPI(
 #     decorator @limiter.limit(...) không chạy dù đã khai báo state +
 #     exception handler ở trên (lỗi hay gặp khi tích hợp slowapi).
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+# slowapi khai báo handler nhận RateLimitExceeded còn Starlette đòi Exception: lệch kiểu của thư viện, cách dùng này là chính
+# tài liệu slowapi, chạy đúng.
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 app.add_middleware(SlowAPIMiddleware)
 
 # CORS: chỉ cho phép domain khai báo trong ALLOWED_ORIGINS (.env) gọi API

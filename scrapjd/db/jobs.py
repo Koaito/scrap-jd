@@ -9,7 +9,7 @@ thống kê sang scrapjd/db/job_health.py (get_job_data_health).
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from scrapjd.config import DETAIL_RECHECK_DAYS
 from scrapjd.db.job_dedup_lock import lock_job_dedup_key
@@ -550,8 +550,8 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
             raise ValueError(f"closed_reason không hợp lệ: {closed_reason!r}")
         if job_status != "CLOSED":
             raise ValueError("closed_reason chỉ có nghĩa khi job_status='CLOSED'")
-    updates = []
-    values = []
+    updates: list[str] = []
+    values: list[Any] = []
 
     clear_cols = set(clear_fields or ())
     unknown = clear_cols - set(JOB_CLEARABLE_FIELD_TO_COLUMN.values())
