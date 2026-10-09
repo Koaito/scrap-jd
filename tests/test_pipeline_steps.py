@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scrapjd import normalize
 import pipeline
-from adapters.base import BaseAdapter, CrawlBlockedError
+from scrapjd.adapters.base import BaseAdapter, CrawlBlockedError
 from db.job_recrawl import RepostLink
 from field_stats import EmptyFieldCounter
 from scrapjd.models import RawJobRecord

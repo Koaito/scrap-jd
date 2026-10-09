@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import api.crawl_runner as runner
 import main
-from adapters.base import CrawlBlockedError
+from scrapjd.adapters.base import CrawlBlockedError
 
 
 class ActiveCrawlExistsError(Exception):

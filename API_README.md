@@ -1,6 +1,6 @@
 # API Layer (FastAPI) — hướng dẫn chạy
 
-Lớp API này **bọc ngoài** codebase crawler hiện có (`adapters/`, `normalize.py`,
+Lớp API này **bọc ngoài** codebase crawler hiện có (`scrapjd/adapters/`, `normalize.py`,
 `db/`, `pipeline.py`) — không sửa gì các file đó ngoại trừ thêm 1 nhóm
 hàm query mới riêng cho API (nằm rải theo domain trong `db/`, ví dụ
 `db/jobs.py`, `db/companies.py`... — trước 08/2026 gộp chung 1 file
@@ -193,7 +193,7 @@ ra ngay, không đợi access token 30 phút tự hết hạn).
 | GET | `/dashboard/insights/companies?followup_days=7\|14\|30` | Thêm 09/2026 — tab "Doanh nghiệp": công ty tiềm năng cao thiếu/nguội contact, contact cần follow-up, công ty nở rộ/im ắng. `followup_days` ngoài whitelist → `400` | API key + JWT (ss_team+) |
 | GET | `/dashboard/insights/monthly` | Thêm 09/2026 — tab "Báo cáo tháng": job/công ty mới + % so tháng trước, job hết hạn, top ngành/công ty, ứng tuyển/lưu job. Tháng theo lịch, giờ VN | API key + JWT (ss_team+) |
 | GET | `/messages/conversations/{partner_id}` | Thêm 09/2026 — tra đúng 1 người đối thoại (tên, role, `relationship_*`), kể cả chưa từng nhắn. `404` gộp "không tồn tại" và "không được phép thấy" | API key + JWT |
-| GET | `/sources` | Danh sách source/category có sẵn (đọc từ `sources_registry.py`, phái sinh từ `config.py::JOB_CATEGORIES` — 08/2026, xem README.md#thêm-ngành--nguồn-crawl-mới) — frontend render dropdown | API key |
+| GET | `/sources` | Danh sách source/category có sẵn (đọc từ `scrapjd/sources_registry.py`, phái sinh từ `config.py::JOB_CATEGORIES` — 08/2026, xem README.md#thêm-ngành--nguồn-crawl-mới) — frontend render dropdown | API key |
 | GET | `/enums` | Danh sách enum hợp lệ dạng `{tên: [giá trị,...]}` (job_status, work_type, level_code, ... — không đọc DB, tính từ `constants.py`). Thêm 09/2026: `province_name` — 34 tỉnh/thành sau sáp nhập + `Khác`/`Remote`, dùng build dropdown "Địa điểm" của form job (gửi giá trị khác/gõ tự do sẽ bị backend âm thầm gán về `Khác`) | API key |
 | GET | `/health` | Health check | API key |
 | POST | `/auth/register` | Tự đăng ký (phone/track cho học viên, luôn role `user`), gửi email xác thực | **KHÔNG cần API key** |

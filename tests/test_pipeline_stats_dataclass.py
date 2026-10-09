@@ -17,7 +17,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pipeline
-from adapters.base import CrawlBlockedError
+from scrapjd.adapters.base import CrawlBlockedError
 from db.job_recrawl import RepostLink
 from pipeline_stats import PipelineStats
 from test_pipeline_blocked_degraded import BLANK_DETAIL, GOOD_DETAIL, ScriptedAdapter, _raw

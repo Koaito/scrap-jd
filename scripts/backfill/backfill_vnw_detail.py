@@ -64,8 +64,8 @@ from typing import Optional
 
 import db
 from scrapjd import normalize
-from adapters.base import CrawlBlockedError
-from adapters.vietnamworks import VietnamWorksAdapter
+from scrapjd.adapters.base import CrawlBlockedError
+from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from pipeline import _build_parsed_content_and_raw  # cùng cách dựng parsed_content như crawl
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",

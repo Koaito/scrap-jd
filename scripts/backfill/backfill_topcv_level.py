@@ -53,8 +53,8 @@ from typing import Optional
 
 import db
 from scrapjd import normalize
-from adapters.base import CrawlBlockedError
-from adapters.topcv import TopCVAdapter
+from scrapjd.adapters.base import CrawlBlockedError
+from scrapjd.adapters.topcv import TopCVAdapter
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                     datefmt="%H:%M:%S")

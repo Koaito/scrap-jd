@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import api.crawl_runner as runner
-from adapters.base import BaseAdapter, CrawlBlockedError
+from scrapjd.adapters.base import BaseAdapter, CrawlBlockedError
 
 RUN = {"run_id": "run-1", "source": "fakesrc", "category": "data-analyst",
        "pages": 3, "max_jobs": None, "batch_id": None, "batch_position": None}

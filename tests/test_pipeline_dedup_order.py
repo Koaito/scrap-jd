@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pipeline
-from adapters.base import BaseAdapter
+from scrapjd.adapters.base import BaseAdapter
 from field_stats import EmptyFieldCounter
 from scrapjd.models import RawJobRecord
 from pipeline_fakes import called_names

@@ -26,7 +26,7 @@ import pytest
 
 import db
 import pipeline
-from adapters.base import BaseAdapter
+from scrapjd.adapters.base import BaseAdapter
 from scrapjd.models import RawJobRecord
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")

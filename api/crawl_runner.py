@@ -104,7 +104,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import db as db_module
-from adapters.base import CrawlBlockedError
+from scrapjd.adapters.base import CrawlBlockedError
 from pipeline import run_pipeline
 from snapshots import SnapshotRecorder
 from scrapjd.config import DEFAULT_MAX_PAGES, CRAWL_BLOCK_COOLDOWN_MINUTES
@@ -115,7 +115,7 @@ from api.run_log import capture_run_logs
 # bug CareerViet "crawl được qua CLI nhưng không hiện trên web" (thiếu
 # đăng ký thủ công ở đúng dict này), xem docstring sources_registry.py
 # để biết đầy đủ lý do refactor + cách thêm nguồn crawl mới sau này.
-from sources_registry import SOURCE_ADAPTERS as _SOURCE_ADAPTERS
+from scrapjd.sources_registry import SOURCE_ADAPTERS as _SOURCE_ADAPTERS
 
 logger = logging.getLogger(__name__)
 

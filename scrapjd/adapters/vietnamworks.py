@@ -89,8 +89,8 @@ from curl_cffi import requests
 from bs4 import BeautifulSoup
 
 from scrapjd import normalize
-from adapters.base import BaseAdapter, CrawlBlockedError
-from adapters.vietnamworks_detail import (
+from scrapjd.adapters.base import BaseAdapter, CrawlBlockedError
+from scrapjd.adapters.vietnamworks_detail import (
     is_gone_page,
     job_id_from_url,
     parse_detail_page,

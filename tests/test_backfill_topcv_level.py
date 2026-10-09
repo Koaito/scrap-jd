@@ -14,8 +14,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scripts.backfill import backfill_topcv_level as bf
 from scrapjd import normalize
-from adapters.base import CrawlBlockedError
-from adapters.topcv import TopCVAdapter
+from scrapjd.adapters.base import CrawlBlockedError
+from scrapjd.adapters.topcv import TopCVAdapter
 
 HERE = os.path.dirname(__file__)
 URL = "https://www.topcv.vn/viec-lam/data-analyst/123.html"

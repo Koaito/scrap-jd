@@ -37,7 +37,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit, parse_qsl, urlencode
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 
-from adapters.base import BaseAdapter, CrawlBlockedError
+from scrapjd.adapters.base import BaseAdapter, CrawlBlockedError
 from scrapjd.models import RawJobRecord
 from scrapjd.config import (
     TOPCV_CATEGORIES, DEFAULT_HEADERS,

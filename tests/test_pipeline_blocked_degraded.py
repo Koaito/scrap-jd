@@ -13,7 +13,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pipeline
-from adapters.base import BaseAdapter, CrawlBlockedError
+from scrapjd.adapters.base import BaseAdapter, CrawlBlockedError
 from field_stats import PLACEHOLDER_VALUES, degraded_reasons, is_empty, EmptyFieldCounter
 from scrapjd.models import RawJobRecord
 

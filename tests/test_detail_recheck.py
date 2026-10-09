@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import db
 import pipeline
-from adapters.base import BaseAdapter
+from scrapjd.adapters.base import BaseAdapter
 from scrapjd.models import RawJobRecord
 
 NOW = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)

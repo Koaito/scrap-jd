@@ -12,10 +12,10 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pipeline
-from adapters.base import DEFAULT_DEDUP_RESOLVERS
-from adapters.careerviet import CareerVietAdapter
-from adapters.topcv import TopCVAdapter
-from adapters.vietnamworks import VietnamWorksAdapter
+from scrapjd.adapters.base import DEFAULT_DEDUP_RESOLVERS
+from scrapjd.adapters.careerviet import CareerVietAdapter
+from scrapjd.adapters.topcv import TopCVAdapter
+from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from field_stats import EmptyFieldCounter
 from pipeline_stats import PipelineStats
 

@@ -31,9 +31,9 @@ báo nhãn hiển thị ở blueprints/crawl.py (_SOURCE_LABELS) — không trá
 gộp về 1 nguồn sự thật duy nhất.
 """
 
-from adapters.topcv import TopCVAdapter
-from adapters.vietnamworks import VietnamWorksAdapter
-from adapters.careerviet import CareerVietAdapter
+from scrapjd.adapters.topcv import TopCVAdapter
+from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
+from scrapjd.adapters.careerviet import CareerVietAdapter
 from scrapjd.config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, CAREERVIET_CATEGORIES
 
 # Đăng ký nguồn crawl ở đây — thêm nguồn mới sau này (ITviec...) chỉ cần

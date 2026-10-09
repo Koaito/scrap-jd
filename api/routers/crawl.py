@@ -17,7 +17,7 @@ from api.schemas import (
 # category hợp lệ, tự nhiên đúng, kể cả CareerViet chỉ có 5/6 category
 # vì thiếu "ui-ux-design", xem comment trong config.py). Xem docstring
 # sources_registry.py để biết cách thêm nguồn crawl mới sau này.
-from sources_registry import CATEGORIES_BY_SOURCE as _CATEGORIES_BY_SOURCE
+from scrapjd.sources_registry import CATEGORIES_BY_SOURCE as _CATEGORIES_BY_SOURCE
 
 router = APIRouter(prefix="/crawl", tags=["crawl"])
 

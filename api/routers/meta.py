@@ -11,7 +11,7 @@ from api.schemas import EngagementStatsOut, StatsOut
 # tự động chạy qua MỌI nguồn trong registry, không hardcode tên nguồn
 # nào nữa -> thêm nguồn mới vào registry là endpoint này tự khớp theo,
 # không cần sửa file này nữa.
-from sources_registry import CATEGORIES_BY_SOURCE
+from scrapjd.sources_registry import CATEGORIES_BY_SOURCE
 from scrapjd import constants
 
 router = APIRouter(tags=["meta"])

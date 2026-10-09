@@ -34,7 +34,7 @@ import logging
 import sys
 
 import db
-from adapters.base import CrawlBlockedError
+from scrapjd.adapters.base import CrawlBlockedError
 from pipeline import run_pipeline
 import check_listing_derivation
 import duplicate_report
@@ -50,7 +50,7 @@ from scrapjd.config import (
 # lệch, đã từng gây bug CareerViet "crawl được nhưng không hiện trên
 # web"). Thêm nguồn crawl mới -> sửa sources_registry.py, KHÔNG sửa
 # file này.
-from sources_registry import SOURCES, DEFAULT_SOURCE
+from scrapjd.sources_registry import SOURCES, DEFAULT_SOURCE
 
 logging.basicConfig(
     level=logging.INFO,

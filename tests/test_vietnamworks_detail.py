@@ -20,13 +20,13 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scrapjd import normalize
-from adapters.base import CrawlBlockedError
-from adapters.vietnamworks import (
+from scrapjd.adapters.base import CrawlBlockedError
+from scrapjd.adapters.vietnamworks import (
     ANOMALY_DETAIL_UNPARSABLE,
     VietnamWorksAdapter,
     _level_hint_from_job_level,
 )
-from adapters.vietnamworks_detail import is_gone_page, job_id_from_url, parse_detail_page, redirect_target
+from scrapjd.adapters.vietnamworks_detail import is_gone_page, job_id_from_url, parse_detail_page, redirect_target
 from snapshots import SnapshotRecorder
 from vnw_page_builder import build_detail_html
 

@@ -12,8 +12,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scripts.backfill import backfill_vnw_detail as bf
-from adapters.base import CrawlBlockedError
-from adapters.vietnamworks import VietnamWorksAdapter
+from scrapjd.adapters.base import CrawlBlockedError
+from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from vnw_page_builder import build_detail_html
 
 URL = "https://www.vietnamworks.com/data-engineer-2109772-jv"

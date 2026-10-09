@@ -161,7 +161,7 @@ def test_get_sources_matches_categories_registry():
     để không tự lỗi thời nếu có nguồn mới (TopCV/VietnamWorks/CareerViet...)
     được thêm sau này (đúng bug lịch sử mà docstring get_sources() nhắc
     tới: từng quên hardcode CareerViet ở đây)."""
-    from sources_registry import CATEGORIES_BY_SOURCE
+    from scrapjd.sources_registry import CATEGORIES_BY_SOURCE
     from api.routers.meta import get_sources
 
     result = get_sources()

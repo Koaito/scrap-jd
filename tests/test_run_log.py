@@ -158,7 +158,7 @@ def test_append_failure_does_not_break_the_job():
 # ---------------------------------------------------------------------
 
 def _install_crawl(monkeypatch, sink, pipeline):
-    from adapters.base import BaseAdapter
+    from scrapjd.adapters.base import BaseAdapter
 
     class FakeAdapter(BaseAdapter):
         source_name = "Fake"

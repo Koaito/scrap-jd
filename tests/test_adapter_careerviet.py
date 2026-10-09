@@ -20,8 +20,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scrapjd import normalize
-from adapters.base import CrawlBlockedError
-from adapters.careerviet import (
+from scrapjd.adapters.base import CrawlBlockedError
+from scrapjd.adapters.careerviet import (
     BASE_URL,
     CareerVietAdapter,
     _extract_employment_type_text,

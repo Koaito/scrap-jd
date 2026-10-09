@@ -8,7 +8,7 @@ import logging
 from dataclasses import asdict, dataclass
 from typing import Callable, Optional
 
-from adapters.base import DEFAULT_DEDUP_RESOLVERS, BaseAdapter, CrawlBlockedError
+from scrapjd.adapters.base import DEFAULT_DEDUP_RESOLVERS, BaseAdapter, CrawlBlockedError
 import db
 from db.job_recrawl import AUTO_REOPEN_REASONS
 from scrapjd import normalize

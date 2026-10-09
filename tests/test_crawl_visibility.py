@@ -22,10 +22,10 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import api.crawl_runner as runner
 import pipeline
-from adapters.base import ANOMALY_LISTING_PAGE_FAILED, BaseAdapter
-from adapters.careerviet import CareerVietAdapter
-from adapters.topcv import TopCVAdapter
-from adapters.vietnamworks import VietnamWorksAdapter
+from scrapjd.adapters.base import ANOMALY_LISTING_PAGE_FAILED, BaseAdapter
+from scrapjd.adapters.careerviet import CareerVietAdapter
+from scrapjd.adapters.topcv import TopCVAdapter
+from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from scrapjd.config import TOPCV_CATEGORIES
 from scrapjd.models import RawJobRecord
 from pipeline_stats import PipelineStats

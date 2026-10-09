@@ -20,8 +20,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from urllib.parse import urljoin
 
-from adapters.base import CrawlBlockedError
-from adapters.vietnamworks import (
+from scrapjd.adapters.base import CrawlBlockedError
+from scrapjd.adapters.vietnamworks import (
     VietnamWorksAdapter,
     _build_company_url,
     _slugify_company_name,

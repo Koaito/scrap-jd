@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scrapjd import normalize
 import pipeline
-from adapters.base import BaseAdapter
+from scrapjd.adapters.base import BaseAdapter
 from field_stats import EmptyFieldCounter
 from scrapjd.models import RawJobRecord
 from pipeline_stats import PipelineStats
@@ -277,8 +277,8 @@ def test_jd_looks_truncated(parsed, expected):
 def test_other_sources_have_no_job_code_hook_behaviour():
     """TopCV cấp job_id mới mỗi lần làm mới tin và CareerViet không có mã ổn định
     trong URL: dùng hook mặc định (None), nên luồng của chúng không đổi."""
-    from adapters.careerviet import CareerVietAdapter
-    from adapters.topcv import TopCVAdapter
+    from scrapjd.adapters.careerviet import CareerVietAdapter
+    from scrapjd.adapters.topcv import TopCVAdapter
 
     for adapter in (TopCVAdapter(), CareerVietAdapter()):
         assert adapter.job_code_url_regex("https://example.com/viec-lam/abc-123") is None

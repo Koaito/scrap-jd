@@ -346,9 +346,9 @@ scrapjd/                   <- package code lõi (đang dời dần từ thư m�
   models.py                <- RawJobRecord: khuôn dữ liệu chung mọi adapter phải trả về
   normalize.py             <- dùng chung: parse lương, suy luận level, deadline, work_type
   province_alias.py        <- quy đổi tên tỉnh cũ/mới
-sources_registry.py        <- nguồn sự thật DUY NHẤT để đăng ký nguồn crawl (SOURCES);
+  sources_registry.py      <- nguồn sự thật DUY NHẤT để đăng ký nguồn crawl (SOURCES);
                               main.py và toàn bộ api/ import từ đây
-adapters/                  <- base.py (BaseAdapter: session curl_cffi, _throttle(), _fetch_html()
+  adapters/                <- base.py (BaseAdapter: session curl_cffi, _throttle(), _fetch_html()
                               với retry/backoff, ngắt mạch, ghi snapshot) + topcv.py,
                               vietnamworks.py, careerviet.py (mỗi adapter chỉ chứa logic parse riêng)
 pipeline.py                <- nối adapter -> normalize -> db; xử lý từng job theo các bước nhỏ
@@ -782,18 +782,18 @@ nên adapter và `main.py` không cần sửa khi thêm category.
 
 ### Thêm hẳn một nguồn crawl mới (ví dụ ITviec)
 
-Việc đăng ký nguồn nằm trong **một module duy nhất**: `sources_registry.py`.
+Việc đăng ký nguồn nằm trong **một module duy nhất**: `scrapjd/sources_registry.py`.
 
 1. Thêm bộ category cho nguồn mới vào `config.py` (theo cấu trúc `sources`
    ở trên, hoặc một dict `{key: {..., "matching_industry": ...}}` riêng nếu
    nguồn mới không dùng chung bộ category).
-2. Viết `adapters/itviec.py`, kế thừa `BaseAdapter` (`adapters/base.py`).
+2. Viết `scrapjd/adapters/itviec.py`, kế thừa `BaseAdapter` (`scrapjd/adapters/base.py`).
    Session `curl_cffi`, `_throttle()`, `_fetch_html()` (retry/backoff),
    ngắt mạch và ghi snapshot đã có sẵn ở lớp cha; chỉ cần implement
    `fetch_jobs()` với logic parse riêng. Nếu nguồn có mã job ổn định trong URL
    (URL đổi theo tiêu đề nhưng mã giữ nguyên, như VietnamWorks) thì override
    thêm `job_code_url_regex()` để pipeline cập nhật job cũ thay vì tạo job trùng.
-3. Thêm đúng một entry vào `SOURCES` trong `sources_registry.py`:
+3. Thêm đúng một entry vào `SOURCES` trong `scrapjd/sources_registry.py`:
 
    ```python
    "itviec": {"adapter_cls": ITViecAdapter, "categories": ITVIEC_CATEGORIES},
@@ -823,8 +823,8 @@ có cờ `degraded`):
    Các lượt crawl chạy từ máy cũng có snapshot; nếu thiếu, mở URL trong
    trình duyệt, chọn "View Page Source" (không phải Inspect Element, vì cần
    đúng HTML server trả về).
-2. Đối chiếu pattern URL hoặc nhãn tiếng Việt trong `adapters/topcv.py`,
-   `adapters/vietnamworks.py`, `adapters/careerviet.py` với HTML thật, sửa
+2. Đối chiếu pattern URL hoặc nhãn tiếng Việt trong `scrapjd/adapters/topcv.py`,
+   `scrapjd/adapters/vietnamworks.py`, `scrapjd/adapters/careerviet.py` với HTML thật, sửa
    cho khớp. Nếu trang có JSON nhúng trong HTML, ưu tiên đọc từ JSON thay
    vì từ DOM.
 3. Ẩn email/số điện thoại trong file fixture, đặt vào `tests/`, rồi chạy

@@ -21,8 +21,8 @@ from curl_cffi import requests as curl_requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from adapters.base import BaseAdapter, CrawlBlockedError
-from adapters.vietnamworks import VietnamWorksAdapter
+from scrapjd.adapters.base import BaseAdapter, CrawlBlockedError
+from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from scrapjd.config import VNW_SEARCH_URL
 
 URL = "https://example.test/job/1"
