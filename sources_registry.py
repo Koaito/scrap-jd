@@ -34,7 +34,7 @@ gộp về 1 nguồn sự thật duy nhất.
 from adapters.topcv import TopCVAdapter
 from adapters.vietnamworks import VietnamWorksAdapter
 from adapters.careerviet import CareerVietAdapter
-from config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, CAREERVIET_CATEGORIES
+from scrapjd.config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, CAREERVIET_CATEGORIES
 
 # Đăng ký nguồn crawl ở đây — thêm nguồn mới sau này (ITviec...) chỉ cần
 # thêm 1 dòng vào dict này (xem hướng dẫn ở docstring đầu file).

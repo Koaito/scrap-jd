@@ -11,7 +11,7 @@ các hàm này để luật "ghi tự động không đè level người đã s�
 import json
 from typing import Optional
 
-from normalize import LEVEL_SIGNAL_KEYS, LEVEL_SOURCE_MANUAL, LEVEL_SOURCES
+from scrapjd.normalize import LEVEL_SIGNAL_KEYS, LEVEL_SOURCE_MANUAL, LEVEL_SOURCES
 
 _DERIVED_LEVEL_SOURCES = frozenset(LEVEL_SOURCES) - {LEVEL_SOURCE_MANUAL}
 

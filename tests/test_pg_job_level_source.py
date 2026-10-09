@@ -22,10 +22,10 @@ import psycopg2
 import pytest
 
 import db
-import normalize
+from scrapjd import normalize
 import pipeline
 from adapters.base import BaseAdapter
-from models import RawJobRecord
+from scrapjd.models import RawJobRecord
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 

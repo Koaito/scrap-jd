@@ -16,11 +16,11 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import normalize
+from scrapjd import normalize
 import pipeline
 from adapters.base import BaseAdapter
 from field_stats import EmptyFieldCounter
-from models import RawJobRecord
+from scrapjd.models import RawJobRecord
 from pipeline_stats import PipelineStats
 
 NEW_URL = "https://www.vietnamworks.com/data-engineer-senior-7-jv"

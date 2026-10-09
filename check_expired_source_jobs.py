@@ -96,7 +96,7 @@ from curl_cffi import requests
 
 import db
 from api import storage as cv_storage
-from config import DEFAULT_HEADERS
+from scrapjd.config import DEFAULT_HEADERS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                      datefmt="%H:%M:%S")

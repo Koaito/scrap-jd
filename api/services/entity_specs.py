@@ -15,7 +15,7 @@ headers matching the database schema field names") — CHỈ 2 ngoại lệ cố
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-from constants import LEVEL_CODE_VALUES
+from scrapjd.constants import LEVEL_CODE_VALUES
 
 
 @dataclass

@@ -63,7 +63,7 @@ from collections import Counter
 from typing import Optional
 
 import db
-import normalize
+from scrapjd import normalize
 from adapters.base import CrawlBlockedError
 from adapters.vietnamworks import VietnamWorksAdapter
 from pipeline import _build_parsed_content_and_raw  # cùng cách dựng parsed_content như crawl

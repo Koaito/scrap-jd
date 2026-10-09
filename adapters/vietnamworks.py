@@ -88,7 +88,7 @@ from urllib.parse import urljoin, urlparse
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 
-import normalize
+from scrapjd import normalize
 from adapters.base import BaseAdapter, CrawlBlockedError
 from adapters.vietnamworks_detail import (
     is_gone_page,
@@ -96,8 +96,8 @@ from adapters.vietnamworks_detail import (
     parse_detail_page,
     redirect_target,
 )
-from models import RawJobRecord
-from config import (
+from scrapjd.models import RawJobRecord
+from scrapjd.config import (
     VIETNAMWORKS_CATEGORIES,
     VNW_SEARCH_URL,
     VNW_HEADERS,

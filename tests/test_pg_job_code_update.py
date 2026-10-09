@@ -22,7 +22,7 @@ import db
 import pipeline
 from adapters.base import BaseAdapter
 from adapters.vietnamworks import VietnamWorksAdapter
-from models import RawJobRecord
+from scrapjd.models import RawJobRecord
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 

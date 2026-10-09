@@ -26,8 +26,8 @@ from adapters.base import ANOMALY_LISTING_PAGE_FAILED, BaseAdapter
 from adapters.careerviet import CareerVietAdapter
 from adapters.topcv import TopCVAdapter
 from adapters.vietnamworks import VietnamWorksAdapter
-from config import TOPCV_CATEGORIES
-from models import RawJobRecord
+from scrapjd.config import TOPCV_CATEGORIES
+from scrapjd.models import RawJobRecord
 from pipeline_stats import PipelineStats
 from vnw_page_builder import build_detail_html
 

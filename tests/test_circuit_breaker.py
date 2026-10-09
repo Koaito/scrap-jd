@@ -23,7 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from adapters.base import BaseAdapter, CrawlBlockedError
 from adapters.vietnamworks import VietnamWorksAdapter
-from config import VNW_SEARCH_URL
+from scrapjd.config import VNW_SEARCH_URL
 
 URL = "https://example.test/job/1"
 
@@ -189,7 +189,7 @@ def test_retry_then_success_still_works_and_is_not_a_failure(sleeps):
 
 
 def test_default_threshold_comes_from_config():
-    from config import CRAWL_BLOCK_CONSECUTIVE_FAILURES
+    from scrapjd.config import CRAWL_BLOCK_CONSECUTIVE_FAILURES
 
     adapter = DummyAdapter(session=FakeSession([]), delay_seconds=0.0)
     assert adapter._block_threshold == CRAWL_BLOCK_CONSECUTIVE_FAILURES

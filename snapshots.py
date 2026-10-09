@@ -29,7 +29,7 @@ import logging
 from dataclasses import dataclass
 from typing import List, Optional
 
-from config import SNAPSHOT_MAX_CHARS, SNAPSHOT_MAX_PER_RUN
+from scrapjd.config import SNAPSHOT_MAX_CHARS, SNAPSHOT_MAX_PER_RUN
 
 logger = logging.getLogger(__name__)
 

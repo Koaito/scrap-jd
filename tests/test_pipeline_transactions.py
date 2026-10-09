@@ -23,7 +23,7 @@ import pipeline
 from adapters.base import BaseAdapter, CrawlBlockedError
 from db.job_recrawl import RepostLink
 from field_stats import EmptyFieldCounter
-from models import RawJobRecord
+from scrapjd.models import RawJobRecord
 from pipeline_db import PIPELINE_DB_READS, PIPELINE_DB_WRITES
 from pipeline_stats import PipelineStats
 

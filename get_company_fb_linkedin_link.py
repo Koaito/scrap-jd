@@ -101,7 +101,7 @@ from curl_cffi import requests
 from bs4 import BeautifulSoup
 
 import db
-from config import DEFAULT_HEADERS
+from scrapjd.config import DEFAULT_HEADERS
 
 logging.basicConfig(
     level=logging.INFO,

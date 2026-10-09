@@ -27,7 +27,7 @@ from adapters.vietnamworks import (
     _slugify_company_name,
     _work_type_text_from_id,
 )
-from config import VNW_SEARCH_URL
+from scrapjd.config import VNW_SEARCH_URL
 from vnw_page_builder import build_detail_html
 
 FIXTURE_PATH = os.path.join(os.path.dirname(__file__), "fixture_vietnamworks_search.json")

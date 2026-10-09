@@ -1,0 +1,10 @@
+# Chỉ khai báo package để import `scrapjd` (và sau này mypy, import-linter). Thư viện phụ thuộc vẫn nằm ở
+# requirements.txt (Render build bằng `pip install -r requirements.txt`, không đọc file này). Cấu hình ruff ở ruff.toml.
+[project]
+name = "scrapjd"
+version = "0.0.0"
+description = "Scrap JD backend"
+requires-python = ">=3.12"
+
+[tool.setuptools.packages.find]
+include = ["scrapjd*"]

@@ -12,7 +12,7 @@ from api.schemas import EngagementStatsOut, StatsOut
 # nào nữa -> thêm nguồn mới vào registry là endpoint này tự khớp theo,
 # không cần sửa file này nữa.
 from sources_registry import CATEGORIES_BY_SOURCE
-import constants
+from scrapjd import constants
 
 router = APIRouter(tags=["meta"])
 

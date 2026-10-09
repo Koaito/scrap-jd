@@ -43,7 +43,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import db
-import normalize
+from scrapjd import normalize
 from db.job_level_recompute import SKIP_UPDATED_AT_SETTING
 
 logger = logging.getLogger(__name__)

@@ -24,7 +24,7 @@ import argparse
 import logging
 
 import db
-from normalize import normalize_company_size
+from scrapjd.normalize import normalize_company_size
 
 logging.basicConfig(
     level=logging.INFO,

@@ -96,7 +96,7 @@ from google import genai
 from google.genai import errors as genai_errors
 
 import db
-from config import TAVILY_API_KEY, GEMINI_API_KEY, GEMINI_MODEL, ENRICH_REQUEST_DELAY_SECONDS
+from scrapjd.config import TAVILY_API_KEY, GEMINI_API_KEY, GEMINI_MODEL, ENRICH_REQUEST_DELAY_SECONDS
 
 logging.basicConfig(
     level=logging.INFO,

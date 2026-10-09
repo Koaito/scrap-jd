@@ -52,7 +52,7 @@ from collections import Counter
 from typing import Optional
 
 import db
-import normalize
+from scrapjd import normalize
 from adapters.base import CrawlBlockedError
 from adapters.topcv import TopCVAdapter
 

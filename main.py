@@ -41,7 +41,7 @@ import duplicate_report
 import merge_duplicates
 import recompute_levels
 import repost_report
-from config import (
+from scrapjd.config import (
     TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
 )
 # SOURCES/DEFAULT_SOURCE giờ sống ở 1 nguồn sự thật duy nhất

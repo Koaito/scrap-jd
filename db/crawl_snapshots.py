@@ -12,7 +12,7 @@ from typing import Iterable, Optional
 
 import psycopg2.extras
 
-from config import SNAPSHOT_RETENTION_DAYS
+from scrapjd.config import SNAPSHOT_RETENTION_DAYS
 
 logger = logging.getLogger(__name__)
 

@@ -194,7 +194,7 @@ def test_get_enums_matches_constants_module():
     module constants thật, không hard-code lại từng giá trị enum theo
     trí nhớ (dễ lỗi thời nếu ai đó thêm/sửa enum value sau này mà quên
     đồng bộ 2 nơi)."""
-    import constants
+    from scrapjd import constants
     from api.routers.meta import get_enums
 
     result = get_enums()
@@ -286,7 +286,7 @@ def test_province_values_match_schema_seed_in_order():
     """constants.PROVINCE_VALUES phải khớp ĐÚNG (cả thứ tự) seed trong
     sql/schema.sql — DB mới dựng từ schema.sql phải cho ra đúng danh sách
     mà /enums trả về."""
-    import constants
+    from scrapjd import constants
 
     assert constants.PROVINCE_VALUES == _read_province_seed("sql/schema.sql")
 
@@ -294,7 +294,7 @@ def test_province_values_match_schema_seed_in_order():
 def test_province_values_match_migration_2025():
     """Cùng danh sách với migration_update_provinces_2025.sql (đường
     cập nhật cho DB đã có sẵn từ trước khi sáp nhập)."""
-    import constants
+    from scrapjd import constants
 
     assert constants.PROVINCE_VALUES == _read_province_seed(
         "sql/migration_update_provinces_2025.sql"
@@ -307,8 +307,8 @@ def test_province_values_cover_every_alias_target():
     ngược lại — nếu lệch, job crawl từ tên tỉnh cũ sẽ được gán vào 1
     tỉnh mà dropdown không cho chọn (hoặc dropdown có tỉnh mà crawl
     không bao giờ quy đổi ra)."""
-    import constants
-    from province_alias import PROVINCE_ALIAS_MAP
+    from scrapjd import constants
+    from scrapjd.province_alias import PROVINCE_ALIAS_MAP
 
     assert set(constants.PROVINCE_VALUES) == set(PROVINCE_ALIAS_MAP.values())
 
@@ -320,7 +320,7 @@ def test_province_values_are_resolved_by_get_province_id_without_fallback():
     bảng `provinces` bằng chính danh sách đã seed, mỗi tên 1 id."""
     from unittest.mock import MagicMock
 
-    import constants
+    from scrapjd import constants
     from db.lookups import get_province_id
 
     ids = {name: i + 1 for i, name in enumerate(constants.PROVINCE_VALUES)}

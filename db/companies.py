@@ -9,7 +9,7 @@ tín hiệu + thống kê -> db/company_analytics.py.
 import logging
 from typing import Optional
 
-from normalize import normalize_company_size
+from scrapjd.normalize import normalize_company_size
 
 logger = logging.getLogger(__name__)
 

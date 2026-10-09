@@ -6,8 +6,8 @@ from typing import Callable, Iterator, Optional
 
 from curl_cffi import requests as curl_requests
 
-from models import RawJobRecord
-from config import REQUEST_DELAY_SECONDS, CRAWL_BLOCK_CONSECUTIVE_FAILURES
+from scrapjd.models import RawJobRecord
+from scrapjd.config import REQUEST_DELAY_SECONDS, CRAWL_BLOCK_CONSECUTIVE_FAILURES
 
 logger = logging.getLogger(__name__)
 

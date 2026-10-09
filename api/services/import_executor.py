@@ -19,7 +19,7 @@ import db as db_module
 from api.services import company_resolver, conflict_detector
 from api.services.entity_specs import check_cross_field_rules, get_spec
 from api.services.validation_engine import validate_single_field
-from constants import LEVEL_CODE_VALUES
+from scrapjd.constants import LEVEL_CODE_VALUES
 
 
 BATCH_PROPAGATING_ACTIONS: dict[str, dict[str, str]] = {

@@ -18,8 +18,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from adapters.topcv import TopCVAdapter
 from adapters.careerviet import CareerVietAdapter
-import normalize
-from province_alias import resolve_province_alias
+from scrapjd import normalize
+from scrapjd.province_alias import resolve_province_alias
 
 HERE = os.path.dirname(__file__)
 FIXTURE_PATH = os.path.join(HERE, "fixture_topcv_listing.html")

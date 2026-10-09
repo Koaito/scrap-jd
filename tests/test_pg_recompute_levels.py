@@ -22,7 +22,7 @@ import psycopg2
 import pytest
 
 import db
-import normalize
+from scrapjd import normalize
 import recompute_levels as rl
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")

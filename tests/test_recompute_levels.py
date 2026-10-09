@@ -2,7 +2,7 @@
 Logic THUẦN của lệnh tính lại level (recompute_levels.py, Phần 2b) — không cần DB.
 Phần chạy SQL thật nằm ở tests/test_pg_recompute_levels.py.
 """
-import normalize
+from scrapjd import normalize
 import recompute_levels as rl
 from recompute_levels import (
     ACTION_CHANGE, ACTION_KEEP, ACTION_SKIP_EDITED, ACTION_STAMP, ACTION_UNCHANGED,

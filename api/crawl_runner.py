@@ -107,7 +107,7 @@ import db as db_module
 from adapters.base import CrawlBlockedError
 from pipeline import run_pipeline
 from snapshots import SnapshotRecorder
-from config import DEFAULT_MAX_PAGES, CRAWL_BLOCK_COOLDOWN_MINUTES
+from scrapjd.config import DEFAULT_MAX_PAGES, CRAWL_BLOCK_COOLDOWN_MINUTES
 from api.concurrency import GLOBAL_JOB_SEMAPHORE
 from api.run_log import capture_run_logs
 # _SOURCE_ADAPTERS giờ import từ sources_registry.py (nguồn sự thật duy

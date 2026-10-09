@@ -18,7 +18,7 @@ from field_stats import (
     EmptyFieldCounter,
     is_empty,
 )
-from models import RawJobRecord
+from scrapjd.models import RawJobRecord
 
 
 @pytest.mark.parametrize(

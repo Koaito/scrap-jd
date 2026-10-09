@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
-from config import DETAIL_RECHECK_DAYS
+from scrapjd.config import DETAIL_RECHECK_DAYS
 from db.job_dedup_lock import lock_job_dedup_key
 from db.job_levels import _check_level_signals, _check_level_stamp, _derived_level_assignments
 from db.listing_state import (
@@ -21,7 +21,7 @@ from db.listing_state import (
     mark_listing_detail_checked,
     sync_listings_after_job_update,
 )
-from normalize import LEVEL_SOURCE_MANUAL
+from scrapjd.normalize import LEVEL_SOURCE_MANUAL
 
 logger = logging.getLogger(__name__)
 

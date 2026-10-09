@@ -13,7 +13,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scripts.backfill import backfill_topcv_level as bf
-import normalize
+from scrapjd import normalize
 from adapters.base import CrawlBlockedError
 from adapters.topcv import TopCVAdapter
 

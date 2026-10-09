@@ -11,7 +11,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.pool
-from config import DB_CONFIG, DB_POOL_MAX, DB_POOL_MIN, DB_POOL_WAIT_TIMEOUT
+from scrapjd.config import DB_CONFIG, DB_POOL_MAX, DB_POOL_MIN, DB_POOL_WAIT_TIMEOUT
 
 logger = logging.getLogger(__name__)
 

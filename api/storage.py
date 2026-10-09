@@ -11,7 +11,7 @@ from typing import Optional
 
 from curl_cffi import requests as curl_requests
 
-from config import SUPABASE_CV_BUCKET, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
+from scrapjd.config import SUPABASE_CV_BUCKET, SUPABASE_SERVICE_ROLE_KEY, SUPABASE_URL
 
 logger = logging.getLogger(__name__)
 

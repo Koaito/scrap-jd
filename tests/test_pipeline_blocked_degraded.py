@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import pipeline
 from adapters.base import BaseAdapter, CrawlBlockedError
 from field_stats import PLACEHOLDER_VALUES, degraded_reasons, is_empty, EmptyFieldCounter
-from models import RawJobRecord
+from scrapjd.models import RawJobRecord
 
 GOOD_DETAIL = {
     "work_type": "Toàn thời gian", "deadline_text": "05/09/2026",

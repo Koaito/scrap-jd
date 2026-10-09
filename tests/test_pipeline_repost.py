@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import pipeline
 from adapters.base import BaseAdapter
 from db.job_recrawl import RepostLink
-from models import RawJobRecord
+from scrapjd.models import RawJobRecord
 
 DETAIL = {
     "work_type": "Toàn thời gian", "deadline_text": "05/09/2026",

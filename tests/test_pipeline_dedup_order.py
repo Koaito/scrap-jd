@@ -22,7 +22,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import pipeline
 from adapters.base import BaseAdapter
 from field_stats import EmptyFieldCounter
-from models import RawJobRecord
+from scrapjd.models import RawJobRecord
 from pipeline_fakes import called_names
 from pipeline_stats import PipelineStats
 

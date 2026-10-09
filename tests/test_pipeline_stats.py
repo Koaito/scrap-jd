@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pipeline
 from adapters.base import BaseAdapter
-from models import RawJobRecord
+from scrapjd.models import RawJobRecord
 
 COMPLETE_PROBE = ("job-complete", "Toàn thời gian", "2026-09-05", {"job_description": "x"}, None)
 NEEDS_PATCH_PROBE = ("job-old", None, None, None, None)  # job cũ chưa ghi nhận fetch + thiếu field -> phải vá

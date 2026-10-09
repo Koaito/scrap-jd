@@ -15,8 +15,8 @@ import re
 
 import pytest
 
-import province_alias
-from province_alias import PROVINCE_ALIAS_MAP, resolve_province_alias
+from scrapjd import province_alias
+from scrapjd.province_alias import PROVINCE_ALIAS_MAP, resolve_province_alias
 
 _SCHEMA = os.path.join(os.path.dirname(__file__), "..", "sql", "schema.sql")
 

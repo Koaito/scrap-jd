@@ -19,7 +19,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import normalize
+from scrapjd import normalize
 from adapters.base import CrawlBlockedError
 from adapters.careerviet import (
     BASE_URL,

@@ -150,8 +150,8 @@ from curl_cffi import requests
 from bs4 import BeautifulSoup
 
 from adapters.base import BaseAdapter, CrawlBlockedError
-from models import RawJobRecord
-from config import CAREERVIET_CATEGORIES, DEFAULT_HEADERS
+from scrapjd.models import RawJobRecord
+from scrapjd.config import CAREERVIET_CATEGORIES, DEFAULT_HEADERS
 
 logger = logging.getLogger(__name__)
 

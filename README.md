@@ -339,15 +339,18 @@ lại nhiều lần an toàn và không tốn thêm gì cho công ty đã đủ 
 ## Kiến trúc
 
 ```
-config.py                  <- ngành/category (JOB_CATEGORIES), độ trễ request, ngưỡng ngắt mạch,
+scrapjd/                   <- package code lõi (đang dời dần từ thư mục gốc vào đây, xem kế hoạch B4b)
+  config.py                <- ngành/category (JOB_CATEGORIES), độ trễ request, ngưỡng ngắt mạch,
                               snapshot, model AI... (đọc từ biến môi trường, xem .env.example)
+  constants.py             <- hằng số dùng chung (enum, tỉnh...)
+  models.py                <- RawJobRecord: khuôn dữ liệu chung mọi adapter phải trả về
+  normalize.py             <- dùng chung: parse lương, suy luận level, deadline, work_type
+  province_alias.py        <- quy đổi tên tỉnh cũ/mới
 sources_registry.py        <- nguồn sự thật DUY NHẤT để đăng ký nguồn crawl (SOURCES);
                               main.py và toàn bộ api/ import từ đây
-models.py                  <- RawJobRecord: khuôn dữ liệu chung mọi adapter phải trả về
 adapters/                  <- base.py (BaseAdapter: session curl_cffi, _throttle(), _fetch_html()
                               với retry/backoff, ngắt mạch, ghi snapshot) + topcv.py,
                               vietnamworks.py, careerviet.py (mỗi adapter chỉ chứa logic parse riêng)
-normalize.py               <- dùng chung: parse lương, suy luận level, deadline, work_type
 pipeline.py                <- nối adapter -> normalize -> db; xử lý từng job theo các bước nhỏ
                               (_process_job -> _import_new_job -> _import_repost / _insert_new_job)
 pipeline_stats.py          <- PipelineStats: bộ đếm của một lượt crawl (dataclass, gõ sai tên báo lỗi

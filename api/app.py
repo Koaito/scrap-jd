@@ -67,7 +67,7 @@ from api.routers import auth, companies, contacts, crawl, dashboard, jobs, maint
 from api.services.preview_cleanup import CLEANUP_INTERVAL_MINUTES, run_cleanup_once
 from api.services.crawl_watchdog import run_crawl_watchdog_once
 from api.services.maintenance_watchdog import run_maintenance_watchdog_once
-from config import (
+from scrapjd.config import (
     CRAWL_WATCHDOG_INTERVAL_MINUTES,
     MAINTENANCE_WATCHDOG_INTERVAL_MINUTES,
     MAX_REQUEST_BODY_BYTES,

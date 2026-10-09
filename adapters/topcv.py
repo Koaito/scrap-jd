@@ -38,8 +38,8 @@ from curl_cffi import requests
 from bs4 import BeautifulSoup
 
 from adapters.base import BaseAdapter, CrawlBlockedError
-from models import RawJobRecord
-from config import (
+from scrapjd.models import RawJobRecord
+from scrapjd.config import (
     TOPCV_CATEGORIES, DEFAULT_HEADERS,
     # 08/2026: dùng delay RIÊNG cho TopCV (cao hơn REQUEST_DELAY_SECONDS
     # dùng chung cho VietnamWorks/CareerViet) — TopCV đang bị chặn 403
