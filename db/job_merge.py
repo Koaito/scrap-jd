@@ -4,7 +4,9 @@ merge_duplicates.py, Phần 3b). Logic chọn job giữ / hợp nhất trường
 con là hàm THUẦN ở merge_duplicates.py; ở đây chỉ chạy SQL.
 
   - list_merge_job_details: ĐỌC chi tiết job + dữ liệu con (dùng để lập kế hoạch).
-  - merge_job_group:        GHI — gộp MỘT nhóm trong transaction của nơi gọi (xem docstring hàm).
+  - merge_job_group:        GHI — gộp MỘT nhóm trong transaction của nơi gọi (xem docstring hàm). Từ C3c,
+                            trạng thái/hạn/URL của job giữ là giá trị SUY RA từ các listing sau khi gộp
+                            (db.job_sync), trừ job giữ nhập tay (xem docstring hàm).
   - merge_job_enum_supported / list_active_runs: kiểm tra DB sẵn sàng + crawl/bảo trì đang chạy.
 """
 
@@ -14,15 +16,22 @@ from psycopg2.extras import Json
 
 from db.audit_logs import log_action
 from db.job_level_recompute import SKIP_UPDATED_AT_SETTING
+from db.job_sync import sync_job_from_listings
+from db.listing_state import close_job_listings, set_job_listings_deadline
 
 # Cột của job_postings cần để lập kế hoạch gộp. Khác db.list_duplicate_job_rows (3a): lấy đủ các
 # khối cần hợp nhất (lương, hạn, trạng thái, level + dấu, ghi chú), không lấy tên công ty/tỉnh.
 _JOB_COLUMNS = (
     "job_id", "company_id", "job_title", "level_id", "level_code", "level_source",
     "level_rule_version", "level_signals", "province_id", "currency", "salary_min", "salary_max",
-    "salary_type", "salary_period", "deadline", "job_status", "ss_team_notes", "source_url",
-    "created_at", "has_editor", "has_notes",
+    "salary_type", "salary_period", "deadline", "job_status", "closed_reason", "ss_team_notes",
+    "source_url", "created_at", "has_editor", "has_notes",
 )
+
+# Cột của job_sources_log (một listing) cần để suy ra job sau gộp (C3c): cùng bộ cột với
+# db.job_derivation._LISTING_COLUMNS, trừ job_id (đã nằm ở khoá ngoài), cộng log_id.
+_LOG_COLUMNS = ("log_id", "source_url", "listing_status", "deadline", "first_seen_at", "last_seen_at",
+                "closed_reason", "closed_at")
 
 
 def _fetch_merge_job_details(conn, job_ids: list) -> dict:
@@ -38,8 +47,8 @@ def _fetch_merge_job_details(conn, job_ids: list) -> dict:
             SELECT jp.job_id, jp.company_id, jp.job_title, jp.level_id, l.level_code,
                    jp.level_source, jp.level_rule_version, jp.level_signals, jp.province_id,
                    jp.currency, jp.salary_min, jp.salary_max, jp.salary_type::text,
-                   jp.salary_period::text, jp.deadline, jp.job_status::text, jp.ss_team_notes,
-                   jp.source_url, jp.created_at,
+                   jp.salary_period::text, jp.deadline, jp.job_status::text, jp.closed_reason,
+                   jp.ss_team_notes, jp.source_url, jp.created_at,
                    (jp.updated_by IS NOT NULL) AS has_editor,
                    (COALESCE(btrim(jp.ss_team_notes), '') <> '') AS has_notes
             FROM job_postings jp
@@ -56,13 +65,14 @@ def _fetch_merge_job_details(conn, job_ids: list) -> dict:
             out[row["job_id"]] = row
 
         cur.execute(
-            "SELECT job_id, log_id, source_url FROM job_sources_log "
+            "SELECT job_id, log_id, source_url, listing_status, deadline, first_seen_at, last_seen_at, "
+            "closed_reason, closed_at FROM job_sources_log "
             "WHERE job_id = ANY(%s::uuid[]) ORDER BY collected_date, log_id",
             (ids,),
         )
-        for job_id, log_id, url in cur.fetchall():
+        for job_id, log_id, *rest in cur.fetchall():
             if str(job_id) in out:
-                out[str(job_id)]["logs"].append({"log_id": str(log_id), "source_url": url})
+                out[str(job_id)]["logs"].append(dict(zip(_LOG_COLUMNS, [str(log_id), *rest])))
 
         cur.execute(
             "SELECT job_id, saved_job_id, ss_user_id FROM saved_jobs "
@@ -107,7 +117,8 @@ def list_merge_job_details(conn, job_ids: list) -> dict:
     """{job_id (str): dict} cho các job trong `job_ids`, mỗi dict gồm:
 
       - _JOB_COLUMNS (has_editor = updated_by IS NOT NULL; has_notes = ss_team_notes không rỗng);
-      - logs:         [{log_id, source_url}]            từ job_sources_log;
+      - logs:         [{log_id, source_url, listing_status, deadline, first_seen_at, last_seen_at,
+                        closed_reason, closed_at}]        từ job_sources_log (trạng thái từng listing, C3c);
       - saved:        [{saved_job_id, ss_user_id}]      từ saved_jobs;
       - applications: [{application_id, ss_user_id, has_cv}] từ job_applications;
       - links:        [{link_id, contact_id, n_interactions}] từ job_contact_links;
@@ -178,14 +189,19 @@ class MergeIntegrityError(Exception):
     phụ...). Nơi gọi PHẢI rollback; không có gì được giữ lại."""
 
 
-# Cột job_postings mà kế hoạch gộp được phép ghi lên job giữ (merge_duplicates.SALARY_COLUMNS +
-# LEVEL_COLUMNS + hạn nộp, trạng thái, source_url, ghi chú). Danh sách trắng: tên cột đi thẳng vào
-# câu SQL nên không bao giờ nhận tên cột từ bên ngoài.
+# Cột job_postings mà kế hoạch gộp được phép GHI TRỰC TIẾP lên job giữ (merge_duplicates.SALARY_COLUMNS +
+# LEVEL_COLUMNS + ghi chú + hạn nộp). Danh sách trắng: tên cột đi thẳng vào câu SQL nên không bao giờ nhận
+# tên cột từ bên ngoài. `deadline` ở đây chỉ dành cho job giữ nhập tay có hạn trống (điền hạn suy ra).
+# Trạng thái, closed_reason, hạn và source_url do luật suy ra (C3c) KHÔNG nằm ở đây: chúng chỉ được ghi qua
+# db.job_sync.sync_job_from_listings (xem _DERIVED_JOB_COLUMNS), để một nơi duy nhất quyết định.
 _WRITABLE_JOB_COLUMNS = frozenset({
     "currency", "salary_min", "salary_max", "salary_type", "salary_period",
     "level_id", "level_source", "level_rule_version", "level_signals",
-    "deadline", "job_status", "source_url", "ss_team_notes",
+    "deadline", "ss_team_notes",
 })
+
+# Cột mà db.job_sync có thể ghi cho job giữ; `derived_changes` của kế hoạch chỉ được chứa các cột này.
+_DERIVED_JOB_COLUMNS = frozenset({"job_status", "closed_reason", "deadline", "source_url"})
 
 _CHILD_ID_COLUMNS = {
     "job_sources_log": "log_id",
@@ -226,16 +242,30 @@ def _split(rows: list, donor: str, move_ids: list, drop_ids: list) -> tuple:
 
 
 def merge_job_group(conn, *, keeper_id: str, donor_ids: list, expected: dict, changes: dict,
-                    child: dict, conflicts: Optional[list] = None, notes: Optional[list] = None,
+                    child: dict, derived_changes: Optional[dict], conflicts: Optional[list] = None,
+                    notes: Optional[list] = None, listing_actions: Optional[dict] = None,
                     actor_id: Optional[str] = None, lock_timeout_ms: int = 10_000) -> dict:
     """Gộp MỘT nhóm job trùng vào job giữ, trong transaction HIỆN TẠI của `conn`. KHÔNG commit
     và KHÔNG rollback ở đây: nơi gọi commit khi hàm trả về, rollback nếu hàm raise (mọi bước bên
     dưới nằm chung một transaction nên lỗi ở bất cứ bước nào đều không để lại gì).
 
     Tham số: `expected` = {job_id: dict} từ list_merge_job_details lúc lập kế hoạch (cả job giữ
-    lẫn job phụ); `changes` = {cột: {"old", "new"}} áp lên job giữ; `child` = MergePlan.child dưới
-    dạng dict (dataclasses.asdict); `conflicts`/`notes` = bản lệch và lý do từ kế hoạch (chỉ để ghi
-    audit).
+    lẫn job phụ); `changes` = {cột: {"old", "new"}} GHI TRỰC TIẾP lên job giữ (lương, level, ghi chú,
+    và hạn trống của job giữ nhập tay); `child` = MergePlan.child dưới dạng dict
+    (dataclasses.asdict); `conflicts`/`notes` = bản lệch và lý do từ kế hoạch (chỉ để ghi audit).
+
+    C3c, trạng thái/hạn/URL của job giữ theo luật SUY RA từ các listing sau khi gộp:
+      - `derived_changes` (BẮT BUỘC, không mặc định để người gọi không quên quyết định) = {cột: {"old", "new"}}
+        mà kế hoạch DỰ ĐOÁN sync_job_from_listings sẽ ghi
+        (chỉ các cột trong _DERIVED_JOB_COLUMNS). Không None (kể cả {}) thì sau khi dữ liệu con đã
+        chuyển, hàm gọi sync_job_from_listings cho job giữ và đối chiếu kết quả THẬT với dự đoán; lệch
+        => MergeIntegrityError (rollback cả nhóm). None = KHÔNG đồng bộ: dành cho job giữ NHẬP TAY, nơi
+        luật suy ra không được đè trạng thái/hạn/source_url của nó (bạn chốt 09/10, phương án a).
+      - `listing_actions` (chỉ có với job giữ nhập tay, để listing theo kịp giá trị được giữ nguyên):
+        "close_listings": N => job giữ đang CLOSED, đóng mọi listing chưa CLOSED của nó (luật 2 của
+        db.listing_state; N là số kế hoạch dự kiến, lệch => MergeIntegrityError);
+        "stamp_deadline": ngày => ghi hạn đó vào mọi listing OPEN của job giữ (cùng cách update_job ghi
+        hạn nhân viên sửa), để lần đồng bộ sau không suy ra hạn khác.
 
     Các bước:
       1. Bật cờ app.skip_updated_at (set_config local) => updated_at KHÔNG nhảy, kể cả job giữ,
@@ -246,7 +276,8 @@ def merge_job_group(conn, *, keeper_id: str, donor_ids: list, expected: dict, ch
       3. Chụp snapshot (job phụ nguyên dòng, dòng con bị bỏ, liên kết liên hệ bị dồn).
       4. Cập nhật job giữ; chuyển/bỏ dữ liệu con (kiểm số dòng); dồn liên kết liên hệ trùng
          (lịch sử trao đổi sang liên kết của job giữ, interaction_status theo luật: giữ của job
-         giữ, trống thì lấy của bên kia, lệch thì ghi vào audit).
+         giữ, trống thì lấy của bên kia, lệch thì ghi vào audit); rồi (C3c) đưa listing và job giữ
+         theo luật suy ra: hành động listing của job giữ nhập tay, hoặc sync_job_from_listings.
       5. Kiểm tra KHÔNG còn dòng nào trỏ vào job phụ rồi mới xoá job phụ.
       6. Ghi audit_logs MERGE_JOB: mỗi job phụ một dòng (changes = {merged_into, snapshot}), job
          giữ một dòng nếu có trường đổi hoặc có xung đột (changes = {cột: {old, new}, merged_from,
@@ -261,6 +292,12 @@ def merge_job_group(conn, *, keeper_id: str, donor_ids: list, expected: dict, ch
     bad_cols = set(changes) - _WRITABLE_JOB_COLUMNS
     if bad_cols:
         raise MergeIntegrityError(f"kế hoạch ghi cột không được phép: {sorted(bad_cols)}")
+    bad_derived = set(derived_changes or {}) - _DERIVED_JOB_COLUMNS
+    if bad_derived:
+        raise MergeIntegrityError(f"kế hoạch suy ra cột không được phép: {sorted(bad_derived)}")
+    listing_actions = dict(listing_actions or {})
+    if set(listing_actions) - {"close_listings", "stamp_deadline"}:
+        raise MergeIntegrityError(f"hành động listing không hợp lệ: {sorted(listing_actions)}")
     conflicts = list(conflicts or [])
     notes = list(notes or [])
 
@@ -375,6 +412,24 @@ def merge_job_group(conn, *, keeper_id: str, donor_ids: list, expected: dict, ch
                         "AND job_id = ANY(%s::uuid[])", (gone, donors))
             _expect_rows(cur, len(gone), "bỏ job_contact_links trùng")
 
+        # --- 4d. listing rồi job giữ theo luật suy ra (C3c). Listing của job phụ đã nằm ở job giữ.
+        listing_log: dict = {}
+        if "close_listings" in listing_actions:
+            closed = close_job_listings(conn, keeper_id)
+            if closed != listing_actions["close_listings"]:
+                raise MergeIntegrityError(
+                    f"đóng listing của job giữ: đóng {closed}, kế hoạch dự kiến {listing_actions['close_listings']}")
+            listing_log["closed_listings"] = closed
+        if "stamp_deadline" in listing_actions:
+            listing_log["deadline_stamped_listings"] = set_job_listings_deadline(
+                conn, keeper_id, listing_actions["stamp_deadline"])
+        if derived_changes is not None:
+            actual = sync_job_from_listings(conn, keeper_id)
+            planned = {col: (c["old"], c["new"]) for col, c in derived_changes.items()}
+            if actual != planned:
+                raise MergeIntegrityError(
+                    f"đồng bộ job giữ theo listing ghi {actual}, kế hoạch dự đoán {planned}")
+
         # --- 5. không còn gì trỏ vào job phụ thì mới xoá
         for table in _CHILD_ID_COLUMNS:
             cur.execute(f"SELECT count(*) FROM {table} WHERE job_id = ANY(%s::uuid[])", (donors,))
@@ -414,9 +469,12 @@ def merge_job_group(conn, *, keeper_id: str, donor_ids: list, expected: dict, ch
             note=f"Gộp job trùng vào {keeper_short} bằng lệnh merge-duplicates; job này đã bị xoá, "
                  "dữ liệu gốc nằm trong changes.snapshot.",
         ))
-    if changes or conflicts or status_conflicts:
-        keeper_changes = {col: {"old": c["old"], "new": c["new"]} for col, c in changes.items()}
+    derived = dict(derived_changes or {})
+    if changes or derived or listing_log or conflicts or status_conflicts:
+        keeper_changes = {col: {"old": c["old"], "new": c["new"]} for col, c in {**changes, **derived}.items()}
         keeper_changes["merged_from"] = donors
+        if listing_log:
+            keeper_changes["listing_actions"] = listing_log
         if conflicts:
             keeper_changes["conflicts"] = conflicts
         if status_conflicts:
@@ -440,5 +498,6 @@ def merge_job_group(conn, *, keeper_id: str, donor_ids: list, expected: dict, ch
             "job_contact_links": (len(child["links_move"]), len(merged_links)),
         },
         "interactions_moved": interactions_moved, "link_status_conflicts": len(status_conflicts),
+        "listing_actions": listing_log, "derived_changes": sorted(derived),
         "cv_dropped": sum(1 for _, i, r in app_rows if i in set(child["apps_drop"]) and r.get("cv_url")),
     }

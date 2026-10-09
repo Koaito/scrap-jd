@@ -27,11 +27,17 @@ HỢP NHẤT TRƯỜNG (lên job giữ; không ghi đè trường job giữ đã
   - Lương (currency, salary_min/max/type/period là MỘT khối): job giữ chưa có lương (min và
     max đều NULL) mà job khác có -> lấy khối của job khác (theo thứ tự xếp hạng). Hai bản
     lương khác nhau -> giữ của job giữ, ghi bản kia vào danh sách xung đột (sẽ vào audit).
-  - Hạn nộp: job giữ chưa có hạn -> lấy hạn muộn nhất của job khác (ưu tiên job OPEN).
-  - Trạng thái: OPEN nếu bất kỳ bản nào còn OPEN. Nếu job giữ đang CLOSED mà có bản OPEN
-    ("hồi sinh"), lấy luôn hạn nộp và source_url của bản OPEN đó, vì check_expired_source_jobs
-    xét theo job_postings.source_url/deadline: để nguyên hạn/URL cũ thì job vừa hồi sinh sẽ bị
-    đóng lại ở lần kiểm tra sau.
+  - Trạng thái, hạn nộp, source_url (C3c, bạn chốt 09/10): theo luật SUY RA từ các listing của
+    job giữ SAU khi gộp (db.job_derivation): OPEN nếu có listing OPEN hoặc UNKNOWN, CLOSED khi mọi
+    listing CLOSED (job giữ CLOSED mà job phụ còn listing sống thì "hồi sinh"); hạn = hạn muộn nhất
+    trong các listing OPEN (không có OPEN thì trong mọi listing); source_url = URL listing OPEN
+    mới nhất. Thay luật cũ "giữ hạn job giữ, chỉ điền khi trống". Lúc gộp thật, db.merge_job_group
+    ghi các giá trị này qua db.job_sync.sync_job_from_listings và đối chiếu với kế hoạch.
+  - NGOẠI LỆ job giữ NHẬP TAY (mọi listing của nó có URL manual://, bạn chốt 09/10 phương án a): luật
+    suy ra KHÔNG đè trạng thái, hạn, source_url của nó. Hạn có sẵn được ghi vào mọi listing OPEN của job
+    giữ (để lần đồng bộ sau không suy ra hạn khác); hạn trống thì điền hạn suy ra (không phải ghi đè);
+    job giữ đang CLOSED thì listing còn sống của job phụ đóng theo job (luật 2 của db.listing_state).
+    Job NHẬP TAY LÀ JOB PHỤ không được bảo vệ gì: nó bị xoá, listing của nó vào cuộc suy ra như mọi listing.
   - Level: lấy của job có người đặt (level_source='manual' hoặc có updated_by); không có thì
     giữ của job giữ. Hai bản "có người đặt" khác level -> xung đột, chọn theo xếp hạng.
   - Ghi chú ss_team_notes: job giữ chưa có -> lấy của job khác; hai bản khác nhau -> giữ của
@@ -80,6 +86,8 @@ from typing import Callable, Optional
 
 import db
 import duplicate_report as dr
+from db.job_derivation import derive_job_from_listings
+from db.job_sync import diff_job_from_derived
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +98,8 @@ DEFAULT_SHOW = 5
 # Các khối cột của job_postings được hợp nhất vào job giữ.
 SALARY_COLUMNS = ("currency", "salary_min", "salary_max", "salary_type", "salary_period")
 LEVEL_COLUMNS = ("level_id", "level_source", "level_rule_version", "level_signals")
+
+MANUAL_URL_PREFIX = "manual://"   # POST /jobs ghi source_url (và listing) dạng manual://<uuid>
 
 KEEPER_FROM_RULE = "luật v0"
 KEEPER_FROM_FILE = "đánh dấu x trong file"
@@ -259,10 +269,22 @@ class MergePlan:
     # Chi tiết các job của nhóm LÚC lập kế hoạch ({job_id: dict}, từ db.list_merge_job_details).
     # --apply so lại với dữ liệu đọc dưới khoá; khác thì nhóm bị bỏ qua (stale).
     expected: dict = field(default_factory=dict)
+    # C3c. `changes` chỉ còn các cột GHI TRỰC TIẾP (lương, level, ghi chú, và hạn trống của job giữ nhập
+    # tay). Trạng thái / lý do đóng / hạn / source_url theo luật suy ra nằm riêng ở đây: {cột: {"old",
+    # "new"}} mà sync_job_from_listings sẽ ghi (--apply đối chiếu kết quả thật với dự đoán này).
+    # None = job giữ nhập tay, KHÔNG đồng bộ (luật suy ra không đè được nó).
+    derived_changes: Optional[dict] = field(default_factory=dict)
+    # Chỉ có với job giữ nhập tay: {"close_listings": N, "stamp_deadline": ngày} (xem db.merge_job_group).
+    listing_actions: dict = field(default_factory=dict)
+    protected_manual: bool = False
 
     @property
     def revives(self) -> bool:
-        return self.changes.get("job_status", {}).get("new") == "OPEN"
+        return (self.derived_changes or {}).get("job_status", {}).get("new") == "OPEN"
+
+    @property
+    def deadline_changed(self) -> bool:
+        return "deadline" in self.changes or "deadline" in (self.derived_changes or {})
 
 
 def _short(job_id) -> str:
@@ -318,24 +340,78 @@ def _plan_salary(keeper: dict, donors: list, ch: _Changes, notes: list, conflict
                               "other_job_id": d["job_id"], "other": _salary_view(d)})
 
 
-def _plan_status_deadline_source(keeper: dict, donors: list, ch: _Changes, notes: list) -> None:
-    open_donors = [d for d in donors if d.get("job_status") == "OPEN"]
-    if keeper.get("job_status") != "OPEN" and open_donors:
-        src = open_donors[0]
-        ch.set("job_status", "OPEN")
-        ch.set("deadline", src.get("deadline"))
-        if src.get("source_url"):
-            ch.set("source_url", src["source_url"])
-        notes.append(f"hồi sinh: job giữ đang {keeper.get('job_status')}, lấy trạng thái OPEN + hạn nộp + "
-                     f"source_url của {_short(src['job_id'])} (để lần kiểm tra hết hạn sau không đóng lại)")
-        return
-    if keeper.get("deadline") is None:
-        pool = [d for d in open_donors if d.get("deadline") is not None] \
-            or [d for d in donors if d.get("deadline") is not None]
-        if pool:
-            best = max(pool, key=lambda d: d["deadline"])
-            ch.set("deadline", best["deadline"])
-            notes.append(f"hạn nộp lấy từ {_short(best['job_id'])} (job giữ chưa có hạn)")
+def is_manual_job(row: dict) -> bool:
+    """Job nhập tay: có ít nhất một listing và MỌI listing đều là manual://<uuid> (POST /jobs ghi như vậy).
+    Job crawl từng nhận thêm tin đăng lại (có URL thật) thì không còn là job nhập tay."""
+    logs = row.get("logs") or []
+    return bool(logs) and all((x.get("source_url") or "").startswith(MANUAL_URL_PREFIX) for x in logs)
+
+
+def _merged_listings(keeper: dict, donors: list, child: "ChildPlan") -> list:
+    """Các listing của job giữ SAU khi gộp: của chính nó cộng listing của job phụ được chuyển sang."""
+    moved = set(child.logs_move)
+    return list(keeper["logs"]) + [x for d in donors for x in d["logs"] if x["log_id"] in moved]
+
+
+def _plan_protected_manual(keeper: dict, pool: list, derived, ch: _Changes, notes: list, warnings: list) -> dict:
+    """Job giữ NHẬP TAY (bạn chốt 09/10, phương án a): giữ nguyên trạng thái, hạn, source_url của nó. Trả
+    listing_actions để listing theo kịp, nhờ đó lần đồng bộ sau (derive) vẫn ra đúng các giá trị đó:
+      - job giữ CLOSED: listing còn sống chuyển sang bị đóng theo job (luật 2);
+      - job giữ có hạn: hạn đó ghi vào mọi listing OPEN (hoặc mọi listing nếu không còn listing OPEN), như
+        khi nhân viên sửa hạn qua update_job;
+      - job giữ chưa có hạn: điền hạn suy ra (điền chỗ trống, không phải ghi đè).
+    source_url KHÔNG thể giữ lâu dài (không có cột đánh dấu): lần đồng bộ sau suy ra lại theo listing."""
+    actions: dict = {}
+    closed = keeper.get("job_status") == "CLOSED"
+    alive = [x for x in pool if x["listing_status"] != "CLOSED"]
+    if closed and alive:
+        actions["close_listings"] = len(alive)
+        warnings.append(f"job giữ nhập tay đang CLOSED nên giữ nguyên; {len(alive)} listing còn sống sẽ bị đóng theo job "
+                        f"(lý do '{keeper.get('closed_reason') or 'unknown'}')")
+    deadline = keeper.get("deadline")
+    if deadline is not None:
+        after_close = [dict(x, listing_status="CLOSED") for x in pool] if closed else pool
+        open_ones = [x for x in after_close if x["listing_status"] == "OPEN"]
+        if any(x.get("deadline") != deadline for x in (open_ones or after_close)):
+            actions["stamp_deadline"] = deadline
+    elif derived is not None and derived.deadline is not None:
+        ch.set("deadline", derived.deadline)
+    shown = deadline.isoformat() if deadline is not None else "(trống)"
+    notes.append(f"job giữ là job nhập tay: luật suy ra không đè, giữ nguyên trạng thái {keeper.get('job_status')}, "
+                 f"hạn {shown}, source_url {keeper.get('source_url')}"
+                 + ("; hạn trống nên điền hạn suy ra " + derived.deadline.isoformat()
+                    if deadline is None and derived is not None and derived.deadline is not None else ""))
+    return actions
+
+
+def _plan_status_deadline_source(keeper: dict, donors: list, child: "ChildPlan", ch: _Changes,
+                                 notes: list, warnings: list) -> tuple:
+    """(derived_changes, listing_actions, protected_manual) của job giữ (C3c, xem docstring module).
+
+    Không nhập tay: giá trị job giữ = giá trị suy ra từ listing sau gộp (derive_job_from_listings), dự đoán
+    bằng đúng hàm so lệch mà sync_job_from_listings dùng (diff_job_from_derived). Không ai có listing nào
+    (dữ liệu thiếu, không suy ra được) thì không đổi gì."""
+    pool = _merged_listings(keeper, donors, child)
+    derived = derive_job_from_listings(pool)
+    if is_manual_job(keeper):
+        return None, _plan_protected_manual(keeper, pool, derived, ch, notes, warnings), True
+    if derived is None:
+        return {}, {}, False
+    stored = {"job_status": keeper.get("job_status"), "closed_reason": keeper.get("closed_reason"),
+              "deadline": keeper.get("deadline"), "source_url": keeper.get("source_url")}
+    diff = diff_job_from_derived(stored, derived)
+    if "job_status" in diff:
+        old, new = diff["job_status"]
+        notes.append(f"{'hồi sinh: ' if new == 'OPEN' else ''}trạng thái {old} -> {new} theo listing sau gộp")
+    if "closed_reason" in diff and "job_status" not in diff:
+        notes.append(f"lý do đóng {diff['closed_reason'][0]} -> {diff['closed_reason'][1]} (listing đóng muộn nhất)")
+    if "deadline" in diff:
+        notes.append(f"hạn nộp {diff['deadline'][0]} -> {diff['deadline'][1]} (hạn muộn nhất trong listing "
+                     f"{'OPEN' if derived.job_status == 'OPEN' else 'đã đóng'})")
+    if "source_url" in diff:
+        notes.append(f"source_url {diff['source_url'][0]} -> {diff['source_url'][1]} (listing "
+                     f"{'OPEN mới nhất' if derived.job_status == 'OPEN' else 'thấy gần nhất'})")
+    return {c: {"old": o, "new": n} for c, (o, n) in diff.items()}, {}, False
 
 
 def _plan_level(keeper: dict, donors: list, ch: _Changes, notes: list, conflicts: list) -> None:
@@ -432,13 +508,14 @@ def plan_merge(selection: Selection, details: dict) -> MergePlan:
     ch = _Changes(keeper)
     notes: list = []
     conflicts: list = []
+    warnings: list = []
     _plan_salary(keeper, donors, ch, notes, conflicts)
-    _plan_status_deadline_source(keeper, donors, ch, notes)
+    child, cv_dropped = _plan_children(keeper, donors)
+    derived_changes, listing_actions, protected = _plan_status_deadline_source(
+        keeper, donors, child, ch, notes, warnings)
     _plan_level(keeper, donors, ch, notes, conflicts)
     _plan_notes(keeper, donors, ch, notes, conflicts)
-    child, cv_dropped = _plan_children(keeper, donors)
 
-    warnings = []
     if selection.keeper_source == KEEPER_FROM_FILE and g.keeper_id and g.keeper_id != keeper["job_id"]:
         warnings.append(f"job giữ {_short(keeper['job_id'])} do bạn chọn, khác đề xuất {_short(g.keeper_id)} (luật v0)")
     if g.tier != dr.TIER_STRICT:
@@ -451,6 +528,7 @@ def plan_merge(selection: Selection, details: dict) -> MergePlan:
         donor_ids=[d["job_id"] for d in donors], changes=ch.data, notes=notes, conflicts=conflicts,
         warnings=warnings, child=child, apps_with_cv_dropped=cv_dropped,
         expected={m["job_id"]: details[m["job_id"]] for m in g.members},
+        derived_changes=derived_changes, listing_actions=listing_actions, protected_manual=protected,
     )
 
 
@@ -477,8 +555,12 @@ class Summary:
                 self.field_counts["lương lấy từ job bị gộp"] += 1
             if p.revives:
                 self.field_counts["hồi sinh (job giữ CLOSED -> OPEN)"] += 1
-            elif "deadline" in p.changes:
-                self.field_counts["hạn nộp lấy từ job bị gộp"] += 1
+            if p.deadline_changed:
+                self.field_counts["hạn nộp đổi (theo listing sau gộp)"] += 1
+            if "source_url" in (p.derived_changes or {}):
+                self.field_counts["source_url đổi (theo listing sau gộp)"] += 1
+            if p.protected_manual:
+                self.field_counts["job giữ nhập tay (luật suy ra không đè)"] += 1
             if any(c in p.changes for c in LEVEL_COLUMNS):
                 self.field_counts["level lấy từ job có người đặt"] += 1
             if "ss_team_notes" in p.changes:
@@ -550,8 +632,9 @@ def print_report(summary: Summary, plans: list, skipped: list, *, show: int = DE
 
     if s.planned:
         print("\nHợp nhất trường lên job giữ (số nhóm):")
-        for label in ("lương lấy từ job bị gộp", "hạn nộp lấy từ job bị gộp",
-                      "hồi sinh (job giữ CLOSED -> OPEN)", "level lấy từ job có người đặt",
+        for label in ("lương lấy từ job bị gộp", "hạn nộp đổi (theo listing sau gộp)",
+                      "hồi sinh (job giữ CLOSED -> OPEN)", "source_url đổi (theo listing sau gộp)",
+                      "job giữ nhập tay (luật suy ra không đè)", "level lấy từ job có người đặt",
                       "ghi chú lấy từ job bị gộp"):
             print(f"  {label:<44} {s.field_counts[label]}")
         print("Xung đột (bản lệch bị bỏ lại, ghi vào audit): "
@@ -707,7 +790,8 @@ def _apply_plans(conn, plans: list, *, force: bool, actor_id: Optional[str] = No
             res = db.merge_job_group(
                 conn, keeper_id=p.keeper_id, donor_ids=p.donor_ids, expected=p.expected,
                 changes=p.changes, child=dataclasses.asdict(p.child), conflicts=p.conflicts,
-                notes=p.notes, actor_id=actor_id)
+                notes=p.notes, derived_changes=p.derived_changes, listing_actions=p.listing_actions,
+                actor_id=actor_id)
             conn.commit()
         except db.MergeStaleError as exc:
             conn.rollback()

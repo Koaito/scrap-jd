@@ -30,12 +30,31 @@ C = "cccccccc-0000-4000-8000-000000000003"
 D = "dddddddd-0000-4000-8000-000000000004"
 
 
+def _listing(log_id, url, *, status="OPEN", deadline=None, first_seen=datetime(2026, 9, 1),
+             last_seen=None, closed_reason=None, closed_at=None):
+    """Một listing (phần tử của detail["logs"], cùng cột với db.job_merge._LOG_COLUMNS)."""
+    closed = status == "CLOSED"
+    return {"log_id": log_id, "source_url": url, "listing_status": status, "deadline": deadline,
+            "first_seen_at": first_seen, "last_seen_at": last_seen or first_seen,
+            "closed_reason": (closed_reason or "expired_auto") if closed else None,
+            "closed_at": (closed_at or first_seen) if closed else None}
+
+
 def _detail(job_id, *, status="OPEN", created=datetime(2026, 9, 1), deadline=date(2026, 10, 1),
             level_id=1, level_code="Junior", level_source=None, level_version=None, signals=None,
             editor=False, notes=None, smin=None, smax=None, currency=None, stype=None, speriod="MONTH",
             url=None, logs=(), saved=(), apps=(), links=(), province=1, company="c1",
-            title="Business Analyst"):
-    logs = [{"log_id": f"log-{job_id[:2]}-{i}", "source_url": u} for i, u in enumerate(logs)]
+            title="Business Analyst", closed_reason="expired_auto", listings=None):
+    """Chi tiết một job như db.list_merge_job_details. Listing: `listings` (danh sách _listing) nếu cho; không
+    thì mỗi URL trong `logs` là một listing mang trạng thái, hạn và giờ thấy của job; không có cả hai thì job
+    có đúng một listing cho `url` của nó (đúng như backfill C1: listing hiện hành = job.source_url)."""
+    url = url or f"https://www.topcv.vn/{job_id[:2]}"
+    if listings is not None:
+        logs = [dict(x, log_id=x.get("log_id") or f"log-{job_id[:2]}-{i}") for i, x in enumerate(listings)]
+    else:
+        urls = list(logs) or [url]
+        logs = [_listing(f"log-{job_id[:2]}-{i}", u, status=status, deadline=deadline, first_seen=created,
+                         closed_reason=closed_reason) for i, u in enumerate(urls)]
     saved = [{"saved_job_id": f"sv-{job_id[:2]}-{u}", "ss_user_id": u} for u in saved]
     apps = [{"application_id": f"ap-{job_id[:2]}-{u}", "ss_user_id": u, "has_cv": cv} for u, cv in apps]
     links = [{"link_id": f"ln-{job_id[:2]}-{c}", "contact_id": c, "n_interactions": n} for c, n in links]
@@ -44,7 +63,8 @@ def _detail(job_id, *, status="OPEN", created=datetime(2026, 9, 1), deadline=dat
         "level_code": level_code, "level_source": level_source, "level_rule_version": level_version,
         "level_signals": signals, "province_id": province, "currency": currency, "salary_min": smin,
         "salary_max": smax, "salary_type": stype, "salary_period": speriod, "deadline": deadline,
-        "job_status": status, "ss_team_notes": notes, "source_url": url or f"https://www.topcv.vn/{job_id[:2]}",
+        "job_status": status, "closed_reason": closed_reason if status == "CLOSED" else None,
+        "ss_team_notes": notes, "source_url": url,
         "created_at": created, "has_editor": editor, "has_notes": bool((notes or "").strip()),
         "logs": logs, "saved": saved, "applications": apps, "links": links,
         "n_applications": len(apps), "n_saved": len(saved), "n_contact_links": len(links),
@@ -193,20 +213,34 @@ def test_salary_equal_values_are_not_conflicts_and_two_donors_differing_are():
 
 
 # ------------------------------------------------------------------ hợp nhất: trạng thái, hạn
-def test_open_keeper_keeps_its_deadline_and_status():
-    plan = _plan([_detail(A), _detail(B, status="CLOSED", deadline=date(2026, 12, 1))])
-    assert plan.keeper_id == A and plan.changes == {} and not plan.revives
+def test_open_keeper_with_open_donor_takes_latest_open_deadline_and_newest_open_url():
+    # C3c: hạn = hạn muộn nhất trong listing OPEN; source_url = listing OPEN mới nhất (thay luật "giữ hạn job giữ")
+    keeper = _detail(A, deadline=date(2026, 10, 1), url="https://www.topcv.vn/cu")
+    donor = _detail(B, deadline=date(2026, 11, 1), url="https://www.topcv.vn/moi", created=datetime(2026, 9, 5))
+    plan = _plan([keeper, donor], keeper=A)
+    assert plan.changes == {} and not plan.revives and not plan.protected_manual
+    assert plan.derived_changes == {
+        "deadline": {"old": date(2026, 10, 1), "new": date(2026, 11, 1)},
+        "source_url": {"old": "https://www.topcv.vn/cu", "new": "https://www.topcv.vn/moi"}}
+    assert plan.listing_actions == {}
 
 
-def test_keeper_without_deadline_takes_latest_donor_deadline_preferring_open_donor():
+def test_open_keeper_keeps_its_values_when_donor_listing_is_closed_or_older():
+    keeper = _detail(A)
+    closed_donor = _detail(B, status="CLOSED", deadline=date(2026, 12, 1), created=datetime(2026, 9, 2))
+    plan = _plan([keeper, closed_donor])
+    assert plan.keeper_id == A and plan.derived_changes == {} and plan.changes == {} and not plan.revives
+
+
+def test_keeper_without_deadline_takes_latest_open_donor_deadline_and_ignores_closed_ones():
     keeper = _detail(A, deadline=None)
     closed = _detail(B, status="CLOSED", deadline=date(2026, 12, 31), created=datetime(2026, 9, 2))
     plan = _plan([keeper, closed])
-    assert plan.changes["deadline"]["new"] == date(2026, 12, 31)
+    assert "deadline" not in plan.derived_changes           # còn listing OPEN (không hạn): hạn của listing đóng không tính
 
     open_donor = _detail(C, deadline=date(2026, 11, 1), created=datetime(2026, 9, 3))
     plan = _plan([keeper, closed, open_donor], keeper=A)
-    assert plan.changes["deadline"]["new"] == date(2026, 11, 1)   # job OPEN được ưu tiên
+    assert plan.derived_changes["deadline"]["new"] == date(2026, 11, 1)
 
 
 def test_revive_takes_status_deadline_and_source_url_from_open_donor():
@@ -216,15 +250,92 @@ def test_revive_takes_status_deadline_and_source_url_from_open_donor():
                          created=datetime(2026, 9, 20))
     plan = _plan([protected_closed, open_donor])
     assert plan.keeper_id == A and plan.revives
-    assert plan.changes["job_status"] == {"old": "CLOSED", "new": "OPEN"}
-    assert plan.changes["deadline"]["new"] == date(2026, 11, 1)
-    assert plan.changes["source_url"] == {"old": "https://www.topcv.vn/cu", "new": "https://www.topcv.vn/moi"}
+    assert plan.derived_changes["job_status"] == {"old": "CLOSED", "new": "OPEN"}
+    assert plan.derived_changes["deadline"]["new"] == date(2026, 11, 1)
+    assert plan.derived_changes["source_url"] == {"old": "https://www.topcv.vn/cu", "new": "https://www.topcv.vn/moi"}
+    assert "closed_reason" not in plan.derived_changes and plan.changes == {}
     assert any("hồi sinh" in n for n in plan.notes)
 
 
-def test_all_closed_group_stays_closed():
+def test_all_closed_group_stays_closed_and_closed_reason_follows_latest_closed_listing():
     plan = _plan([_detail(A, status="CLOSED"), _detail(B, status="CLOSED", created=datetime(2026, 9, 2))])
-    assert "job_status" not in plan.changes and not plan.revives
+    assert "job_status" not in plan.derived_changes and not plan.revives
+    # cùng lý do: chỉ hạn/URL có thể đổi, lý do đóng không
+    assert "closed_reason" not in plan.derived_changes
+
+    keeper = _detail(A, status="CLOSED", closed_reason="staff", deadline=None)
+    later = _detail(B, status="CLOSED", closed_reason="merged", created=datetime(2026, 9, 2), deadline=None)
+    plan = _plan([keeper, later], keeper=A)
+    assert plan.derived_changes["closed_reason"] == {"old": "staff", "new": "merged"}     # listing đóng muộn nhất
+    assert any("lý do đóng" in n for n in plan.notes)
+
+
+def test_group_without_any_listing_derives_nothing():
+    keeper = _detail(A, listings=[])
+    donor = _detail(B, listings=[], created=datetime(2026, 9, 2))
+    plan = _plan([keeper, donor], keeper=A)
+    assert plan.derived_changes == {} and plan.listing_actions == {} and not plan.protected_manual
+
+
+# ------------------------------------------------------------------ job giữ NHẬP TAY (C3c, phương án a)
+MANUAL = "manual://11111111-1111-4111-8111-111111111111"
+
+
+def _manual(job_id, *, status="OPEN", deadline=date(2026, 10, 1), closed_reason="staff", **kw):
+    return _detail(job_id, status=status, deadline=deadline, url=MANUAL, logs=(MANUAL,),
+                   closed_reason=closed_reason, **kw)
+
+
+def test_is_manual_job_needs_every_listing_to_be_manual():
+    assert md.is_manual_job(_manual(A))
+    assert not md.is_manual_job(_detail(A))
+    assert not md.is_manual_job(_detail(A, listings=[]))                      # không listing: không phải nhập tay
+    mixed = _detail(A, logs=(MANUAL, "https://www.topcv.vn/x"))
+    assert not md.is_manual_job(mixed)                                          # từng nhận tin đăng lại thật
+
+
+def test_manual_keeper_is_not_overwritten_by_derived_values_and_is_not_synced():
+    keeper = _manual(A, deadline=date(2026, 10, 1), editor=True)
+    donor = _detail(B, deadline=date(2026, 12, 1), url="https://www.topcv.vn/moi", created=datetime(2026, 9, 5))
+    plan = _plan([keeper, donor], keeper=A)
+    assert plan.protected_manual and plan.derived_changes is None             # None = không đồng bộ
+    assert plan.changes == {} and not plan.revives
+    assert plan.listing_actions == {"stamp_deadline": date(2026, 10, 1)}      # hạn tay ghi vào mọi listing OPEN
+    assert any("job nhập tay" in n and "2026-10-01" in n for n in plan.notes)
+
+
+def test_manual_keeper_needs_no_stamp_when_every_listing_already_has_its_deadline():
+    keeper = _manual(A, deadline=date(2026, 10, 1), editor=True)
+    donor = _detail(B, deadline=date(2026, 10, 1), created=datetime(2026, 9, 5))
+    assert _plan([keeper, donor], keeper=A).listing_actions == {}
+
+
+def test_manual_keeper_without_deadline_gets_derived_deadline_filled_not_overwritten():
+    keeper = _manual(A, deadline=None, editor=True)
+    donor = _detail(B, deadline=date(2026, 12, 1), created=datetime(2026, 9, 5))
+    plan = _plan([keeper, donor], keeper=A)
+    assert plan.changes["deadline"] == {"old": None, "new": date(2026, 12, 1)}
+    assert plan.derived_changes is None and "stamp_deadline" not in plan.listing_actions
+
+
+def test_closed_manual_keeper_stays_closed_and_closes_the_live_listings_it_receives():
+    keeper = _manual(A, status="CLOSED", closed_reason="staff", editor=True)
+    donor = _detail(B, deadline=date(2026, 12, 1), created=datetime(2026, 9, 5))
+    plan = _plan([keeper, donor], keeper=A)
+    assert not plan.revives and plan.derived_changes is None
+    assert plan.listing_actions["close_listings"] == 1
+    assert any("đóng theo job" in w and "staff" in w for w in plan.warnings)
+    # donor cũng đã đóng: không còn gì để đóng, không cảnh báo
+    closed_donor = _detail(B, status="CLOSED", created=datetime(2026, 9, 5))
+    plan = _plan([keeper, closed_donor], keeper=A)
+    assert "close_listings" not in plan.listing_actions and not any("đóng theo job" in w for w in plan.warnings)
+
+
+def test_manual_donor_is_not_protected_its_listing_joins_the_derivation():
+    keeper = _detail(A, deadline=date(2026, 10, 1), url="https://www.topcv.vn/a")
+    donor = _manual(B, deadline=date(2026, 12, 1), created=datetime(2026, 9, 5))
+    plan = _plan([keeper, donor], keeper=A)
+    assert not plan.protected_manual and plan.derived_changes["deadline"]["new"] == date(2026, 12, 1)
 
 
 # ------------------------------------------------------------------ hợp nhất: level
@@ -385,9 +496,13 @@ def test_plan_carries_expected_details_of_every_member():
 def test_every_column_a_plan_can_change_is_writable_by_merge_job_group():
     # Danh sách trắng ở db/job_merge.py phải phủ mọi cột mà luật hợp nhất có thể đổi, nếu không
     # --apply sẽ từ chối nhóm vì "cột không được phép".
-    planned = set(md.SALARY_COLUMNS) | set(md.LEVEL_COLUMNS) | {"deadline", "job_status", "source_url", "ss_team_notes"}
-    from db.job_merge import _WRITABLE_JOB_COLUMNS
+    # Từ C3c trạng thái/lý do đóng/source_url chỉ đi qua sync_job_from_listings (_DERIVED_JOB_COLUMNS), không còn
+    # nằm trong danh sách ghi trực tiếp; `deadline` ở đây chỉ để điền hạn trống của job giữ nhập tay.
+    planned = set(md.SALARY_COLUMNS) | set(md.LEVEL_COLUMNS) | {"deadline", "ss_team_notes"}
+    from db.job_merge import _DERIVED_JOB_COLUMNS, _WRITABLE_JOB_COLUMNS
     assert planned == set(_WRITABLE_JOB_COLUMNS)
+    assert _DERIVED_JOB_COLUMNS == {"job_status", "closed_reason", "deadline", "source_url"}
+    assert not ({"job_status", "closed_reason", "source_url"} & set(_WRITABLE_JOB_COLUMNS))
 
 
 # ------------------------------------------------------------------ vòng gộp từng nhóm (_apply_plans)
@@ -445,7 +560,7 @@ def test_apply_plans_continues_after_stale_and_failed_groups(monkeypatch):
 
 def test_apply_plans_passes_plan_data_to_db(monkeypatch):
     p = _plan([_detail(A, status="CLOSED", deadline=date(2026, 9, 1)),
-               _detail(B, deadline=date(2026, 11, 1), created=datetime(2026, 9, 9))])
+               _detail(B, deadline=date(2026, 11, 1), created=datetime(2026, 9, 9))], keeper=A)
     seen = {}
     monkeypatch.setattr(md.db, "merge_job_group", lambda conn, **kw: seen.update(kw) or _merged())
     monkeypatch.setattr(md.db, "list_active_runs", lambda conn: [])
@@ -453,6 +568,19 @@ def test_apply_plans_passes_plan_data_to_db(monkeypatch):
     assert seen["keeper_id"] == p.keeper_id and seen["donor_ids"] == p.donor_ids
     assert seen["expected"] is p.expected and seen["changes"] is p.changes
     assert seen["child"] == dataclasses.asdict(p.child) and seen["actor_id"] is None
+    # C3c: dự đoán của luật suy ra và hành động listing đi cùng kế hoạch xuống db.merge_job_group
+    assert seen["derived_changes"] is p.derived_changes and seen["listing_actions"] is p.listing_actions
+    assert p.derived_changes and p.revives
+
+
+def test_apply_plans_passes_none_derived_changes_for_manual_keeper(monkeypatch):
+    keeper = _manual(A, status="CLOSED", editor=True)
+    p = _plan([keeper, _detail(B, created=datetime(2026, 9, 9))], keeper=A)
+    seen = {}
+    monkeypatch.setattr(md.db, "merge_job_group", lambda conn, **kw: seen.update(kw) or _merged())
+    monkeypatch.setattr(md.db, "list_active_runs", lambda conn: [])
+    md._apply_plans(_FakeConn(), [p], force=False, actor_id=None)
+    assert seen["derived_changes"] is None and seen["listing_actions"] == {"close_listings": 1}
 
 
 def test_apply_plans_stops_when_a_crawl_starts_midway(monkeypatch):

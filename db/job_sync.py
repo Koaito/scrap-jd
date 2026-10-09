@@ -23,11 +23,32 @@ QUY ƯỚC
 
 import logging
 
-from db.job_derivation import _LISTING_COLUMNS, derive_job_from_listings
+from db.job_derivation import _LISTING_COLUMNS, DerivedJob, derive_job_from_listings
 
 logger = logging.getLogger(__name__)
 
 SKIP_UPDATED_AT_SETTING = "app.skip_updated_at"
+
+
+def diff_job_from_derived(stored: dict, derived: DerivedJob, *, defer_deadline: bool = False) -> dict:
+    """{cột: (giá trị đang lưu, giá trị suy ra)} của các cột job LỆCH so với giá trị suy ra. Hàm thuần, không
+    DB. `stored` cần các khoá job_status, closed_reason, deadline, source_url. Đây là MỘT nơi duy nhất quyết
+    định cột nào phải ghi: sync_job_from_listings ghi theo nó, và kế hoạch gộp job (merge_duplicates, C3c)
+    dùng chính nó để dự đoán những gì lúc gộp thật sẽ ghi.
+
+    closed_reason chỉ có mặt khi job suy ra là CLOSED (job OPEN thì trigger trg_set_job_closed_state tự xoá lý
+    do). defer_deadline=True bỏ qua hạn (xem followup_reasons của sync_job_from_listings)."""
+    changes: dict = {}
+    if stored["job_status"] != derived.job_status:
+        changes["job_status"] = (stored["job_status"], derived.job_status)
+    if derived.job_status == "CLOSED" and (
+            "job_status" in changes or stored["closed_reason"] != derived.closed_reason):
+        changes["closed_reason"] = (stored["closed_reason"], derived.closed_reason)
+    if stored["deadline"] != derived.deadline and not defer_deadline:
+        changes["deadline"] = (stored["deadline"], derived.deadline)
+    if stored["source_url"] != derived.source_url:
+        changes["source_url"] = (stored["source_url"], derived.source_url)
+    return changes
 
 
 def sync_job_from_listings(conn, job_id: str, *, followup_reasons=None) -> dict:
@@ -66,17 +87,8 @@ def sync_job_from_listings(conn, job_id: str, *, followup_reasons=None) -> dict:
         if derived is None:
             return {}
 
-        changes = {}
-        if stored["job_status"] != derived.job_status:
-            changes["job_status"] = (stored["job_status"], derived.job_status)
-        if derived.job_status == "CLOSED" and (
-                "job_status" in changes or stored["closed_reason"] != derived.closed_reason):
-            changes["closed_reason"] = (stored["closed_reason"], derived.closed_reason)
         defer = followup_reasons is not None and stored["job_status"] == "OPEN"
-        if stored["deadline"] != derived.deadline and not defer:
-            changes["deadline"] = (stored["deadline"], derived.deadline)
-        if stored["source_url"] != derived.source_url:
-            changes["source_url"] = (stored["source_url"], derived.source_url)
+        changes = diff_job_from_derived(stored, derived, defer_deadline=defer)
         if not changes:
             return {}
 

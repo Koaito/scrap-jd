@@ -110,6 +110,12 @@ def _job(conn, company_id, title, *, level="Junior", url=None, status="OPEN", de
         cur.execute("UPDATE job_postings SET updated_at = %s, job_status = %s, deadline = %s, "
                     "ss_team_notes = %s, updated_by = %s WHERE job_id = %s",
                     (PAST, status, deadline, notes, updated_by, job_id))
+        # C3c: listing của job theo kịp trạng thái/hạn vừa đặt (như dữ liệu thật sau backfill C1); nếu không,
+        # luật suy ra sẽ thấy listing OPEN không hạn dưới một job "CLOSED" và gộp ra kết quả khác ý test.
+        cur.execute("UPDATE job_sources_log SET listing_status = %s, deadline = %s, "
+                    "closed_reason = CASE WHEN %s = 'CLOSED' THEN 'unknown' END, "
+                    "closed_at = CASE WHEN %s = 'CLOSED' THEN now() END WHERE job_id = %s",
+                    (status, deadline, status, status, job_id))
     conn.commit()
     return job_id
 
@@ -219,8 +225,9 @@ def test_build_plans_on_real_rows_revives_and_drops_duplicate_children(pg_conn):
     assert vanished == [] and len(plans) == 1
     p = plans[0]
     assert p.keeper_id == old and p.donor_ids == [new] and p.revives
-    assert p.changes["deadline"]["new"].isoformat() == "2026-11-01"
-    assert p.changes["source_url"]["new"] == "https://www.topcv.vn/new"
+    assert p.derived_changes["deadline"]["new"].isoformat() == "2026-11-01"
+    assert p.derived_changes["source_url"]["new"] == "https://www.topcv.vn/new"
+    assert p.derived_changes["job_status"] == {"old": "CLOSED", "new": "OPEN"} and p.listing_actions == {}
     assert len(p.child.saved_drop) == 1 and p.child.saved_move == []     # cùng người dùng lưu cả hai
     assert len(p.child.logs_move) == 1 and p.child.logs_drop == []       # log URL mới sẽ chuyển sang job giữ
 

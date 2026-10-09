@@ -182,10 +182,16 @@ Mặc định chỉ xét nhóm độ chắc "cao", không khác tỉnh, và khô
 liệu cần bảo vệ. Nhóm "cần xem", "thấp", khác tỉnh hoặc cần chọn tay chỉ được gộp khi bạn duyệt
 qua `--only` (CSV từ `report-duplicates --csv`: xoá dòng của nhóm không duyệt, cột `de_xuat_giu`
 = `x` là job giữ; nhóm khác tỉnh bắt buộc tự đánh dấu `x`). Kế hoạch cho mỗi nhóm: job giữ theo luật v0,
-hợp nhất lương / hạn nộp / trạng thái (kể cả "hồi sinh" job giữ đang CLOSED) / level / ghi chú lên job giữ
-mà không ghi đè trường job giữ đã có (bản lệch được ghi nhận là xung đột), và chuyển
-`job_sources_log`, `saved_jobs`, `job_applications`, `job_contact_links` sang job giữ (vướng UNIQUE thì giữ
-bản của job giữ; hai liên kết cùng một liên hệ thì dồn lịch sử trao đổi vào liên kết của job giữ).
+hợp nhất lương / level / ghi chú lên job giữ mà không ghi đè trường job giữ đã có (bản lệch được ghi nhận là
+xung đột), và chuyển `job_sources_log`, `saved_jobs`, `job_applications`, `job_contact_links` sang job giữ (vướng
+UNIQUE thì giữ bản của job giữ; hai liên kết cùng một liên hệ thì dồn lịch sử trao đổi vào liên kết của job giữ).
+**Trạng thái, hạn nộp, `source_url` của job giữ theo luật suy ra từ các listing sau gộp** (C3c; cùng luật với
+`check-listing-derivation`): OPEN nếu còn listing OPEN hoặc UNKNOWN (job giữ đang CLOSED mà job phụ còn listing sống thì
+"hồi sinh"), hạn = hạn muộn nhất trong listing OPEN, `source_url` = URL listing OPEN mới nhất. Lúc gộp thật, kết quả
+ghi vào job được đối chiếu với kế hoạch; lệch thì rollback nhóm đó. **Ngoại lệ job giữ nhập tay** (mọi listing là
+`manual://`): luật suy ra không đè trạng thái, hạn, `source_url` của nó; hạn có sẵn được ghi vào mọi listing OPEN để giữ
+lâu dài, job giữ đang CLOSED thì listing còn sống của job phụ đóng theo job, hạn trống thì điền hạn suy ra. Riêng
+`source_url` của job nhập tay không giữ được lâu dài (không có cột đánh dấu): lần đồng bộ kế tiếp suy ra lại.
 Chi tiết xem docstring `merge_duplicates.py`.
 
 **Trước khi chạy `--apply`:**
@@ -486,7 +492,7 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   URL của listing OPEN mới nhất (nên `check_expired_source_jobs` kiểm tra URL đó); nhân viên sửa hoặc xoá hạn thì hạn
   được ghi vào mọi listing OPEN của job, nên hạn job đúng bằng những gì nhân viên gõ. Hai hàm cũ `extend_job_deadline`
   và `reopen_job_for_repost` còn chạy, tạm thời, tới C4. Migration `0044` gỡ `uq_job_source`; chạy SAU khi code này
-  Live. `merge-duplicates` chưa đồng bộ (thuộc C3).
+  Live. `merge-duplicates` đồng bộ job giữ theo listing từ C3c (xem mục `merge-duplicates` ở trên).
 - **VietnamWorks: nhận ra tin bị sửa tiêu đề theo mã job.** Nhà tuyển dụng sửa
   tiêu đề thì URL đổi (phần chữ) còn mã số cuối URL (`...-<mã>-jv`) giữ
   nguyên. Gặp URL chưa có trong DB, pipeline tìm job VietnamWorks còn `OPEN`

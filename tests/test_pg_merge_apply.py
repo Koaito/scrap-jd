@@ -142,6 +142,12 @@ def _job(conn, company_id, title, *, level="Junior", url=None, status="OPEN", de
         cur.execute("SELECT set_config('app.skip_updated_at', 'on', true)")
         cur.execute("UPDATE job_postings SET updated_at = %s, job_status = %s, deadline = %s, "
                     "ss_team_notes = %s WHERE job_id = %s", (PAST, status, deadline, notes, job_id))
+        # C3c: listing của job theo kịp trạng thái/hạn vừa đặt (như dữ liệu thật sau backfill C1); nếu không,
+        # luật suy ra sẽ thấy listing OPEN không hạn dưới một job "CLOSED" và gộp ra kết quả khác ý test.
+        cur.execute("UPDATE job_sources_log SET listing_status = %s, deadline = %s, "
+                    "closed_reason = CASE WHEN %s = 'CLOSED' THEN 'unknown' END, "
+                    "closed_at = CASE WHEN %s = 'CLOSED' THEN now() END WHERE job_id = %s",
+                    (status, deadline, status, status, job_id))
         if level_source == "manual":
             cur.execute("UPDATE job_postings SET level_source = 'manual', level_rule_version = NULL, "
                         "level_signals = %s::jsonb WHERE job_id = %s",
@@ -193,7 +199,7 @@ def _merge(conn, plan, **kw):
     res = db.merge_job_group(
         conn, keeper_id=plan.keeper_id, donor_ids=plan.donor_ids, expected=plan.expected,
         changes=plan.changes, child=dataclasses.asdict(plan.child), conflicts=plan.conflicts,
-        notes=plan.notes, **kw)
+        notes=plan.notes, derived_changes=plan.derived_changes, listing_actions=plan.listing_actions, **kw)
     conn.commit()
     return res
 
@@ -300,10 +306,12 @@ def test_merge_group_moves_children_merges_fields_and_writes_snapshots(pg_conn):
     assert res["status"] == "merged" and res["donors_deleted"] == 2
     assert [r[0] for r in _all(pg_conn, "SELECT job_id::text FROM job_postings")] == [keeper]
 
-    # --- job giữ: hồi sinh + hạn + source_url của bản OPEN xếp hạng cao nhất; lương giữ nguyên; updated_at KHÔNG nhảy
+    # --- job giữ: hồi sinh; hạn = muộn nhất trong listing OPEN (11-01 của d1); source_url = listing OPEN MỚI NHẤT
+    # (d2, tạo sau d1, dù hạn sớm hơn: luật suy ra C3c, khác luật cũ lấy URL của job có hạn muộn hơn); lương giữ
+    # nguyên; updated_at KHÔNG nhảy
     row = _one(pg_conn, "SELECT job_status::text, deadline::text, source_url, salary_min, salary_max, updated_at::text "
                         "FROM job_postings WHERE job_id = %s", (keeper,))
-    assert row[0] == "OPEN" and row[1] == "2026-11-01" and row[2] == "https://www.topcv.vn/new"
+    assert row[0] == "OPEN" and row[1] == "2026-11-01" and row[2] == "https://www.topcv.vn/new-2"
     assert (row[3], row[4]) == (20_000_000, 30_000_000)
     assert row[5][:19] == PAST   # [:19] bỏ hậu tố múi giờ nếu cột là TIMESTAMPTZ (D3)
 
@@ -466,7 +474,8 @@ def test_failure_while_writing_audit_rolls_back_the_whole_group(pg_conn, monkeyp
     monkeypatch.setattr(jm, "log_action", flaky)
     with pytest.raises(RuntimeError, match="ghi audit lỗi"):
         db.merge_job_group(pg_conn, keeper_id=plan.keeper_id, donor_ids=plan.donor_ids, expected=plan.expected,
-                           changes=plan.changes, child=dataclasses.asdict(plan.child))
+                           changes=plan.changes, child=dataclasses.asdict(plan.child),
+                           derived_changes=plan.derived_changes, listing_actions=plan.listing_actions)
     pg_conn.rollback()
     assert len(calls) == 2
     assert _state(pg_conn) == before                         # job phụ còn, dòng con còn nguyên chỗ, không audit, updated_at y nguyên
@@ -480,7 +489,8 @@ def test_plan_that_does_not_cover_children_is_refused_and_leaves_nothing(pg_conn
     before = _state(pg_conn)
     with pytest.raises(db.MergeIntegrityError, match="saved_jobs"):
         db.merge_job_group(pg_conn, keeper_id=plan.keeper_id, donor_ids=plan.donor_ids, expected=plan.expected,
-                           changes=plan.changes, child=child)
+                           changes=plan.changes, child=child,
+                           derived_changes=plan.derived_changes, listing_actions=plan.listing_actions)
     pg_conn.rollback()
     assert _state(pg_conn) == before
 
@@ -490,7 +500,8 @@ def test_unknown_column_in_changes_is_refused(pg_conn):
     plan = _plan_for(pg_conn, [keeper, donor], keeper)
     with pytest.raises(db.MergeIntegrityError, match="không được phép"):
         db.merge_job_group(pg_conn, keeper_id=keeper, donor_ids=[donor], expected=plan.expected,
-                           changes={"company_id": {"old": "x", "new": "y"}}, child=dataclasses.asdict(plan.child))
+                           changes={"company_id": {"old": "x", "new": "y"}}, child=dataclasses.asdict(plan.child),
+                           derived_changes={})
     pg_conn.rollback()
     assert _count(pg_conn, "job_postings") == 2
 
@@ -515,7 +526,8 @@ def test_group_changed_after_planning_is_stale_and_untouched(pg_conn, mutate):
     before = _state(pg_conn)
     with pytest.raises(db.MergeStaleError):
         db.merge_job_group(pg_conn, keeper_id=keeper, donor_ids=[donor], expected=plan.expected,
-                           changes=plan.changes, child=dataclasses.asdict(plan.child))
+                           changes=plan.changes, child=dataclasses.asdict(plan.child),
+                           derived_changes=plan.derived_changes, listing_actions=plan.listing_actions)
     pg_conn.rollback()
     assert _state(pg_conn) == before
 
@@ -530,7 +542,9 @@ def test_row_lock_held_by_another_transaction_times_out_and_rolls_back(pg_conn):
         before = _state(pg_conn)
         with pytest.raises(psycopg2.errors.LockNotAvailable):
             db.merge_job_group(pg_conn, keeper_id=keeper, donor_ids=[donor], expected=plan.expected,
-                               changes=plan.changes, child=dataclasses.asdict(plan.child), lock_timeout_ms=200)
+                               changes=plan.changes, child=dataclasses.asdict(plan.child),
+                               derived_changes=plan.derived_changes, listing_actions=plan.listing_actions,
+                               lock_timeout_ms=200)
         pg_conn.rollback()
         assert _state(pg_conn) == before
     finally:
@@ -733,3 +747,174 @@ def test_run_apply_with_only_file_merges_a_hand_approved_review_group(pg_conn):
     only = md.OnlySpec(job_ids={a, b}, keepers={b})
     assert _run(pg_conn, only=only) == md.EXIT_OK
     assert [r[0] for r in _all(pg_conn, "SELECT job_id::text FROM job_postings")] == [b]
+
+
+# ------------------------------------------------------------------ C3c: job giữ theo luật suy ra
+# Từ C3c, trạng thái / lý do đóng / hạn / source_url của job giữ là giá trị SUY RA từ listing sau gộp
+# (db.job_sync), ghi trong cùng transaction với việc chuyển listing và đối chiếu với dự đoán của kế hoạch.
+# Ngoại lệ (bạn chốt 09/10, phương án a): job giữ NHẬP TAY (mọi listing là manual://) không bị luật suy ra đè.
+def _manual_url():
+    return f"manual://{uuid.uuid4()}"
+
+
+def _job_row(conn, job_id):
+    return _one(conn, "SELECT job_status::text, closed_reason, deadline::text, source_url, updated_at::text "
+                      "FROM job_postings WHERE job_id = %s", (job_id,))
+
+
+def _listings(conn, job_id):
+    """[(source_url, listing_status, closed_reason, deadline)] của job, sắp theo URL."""
+    return _all(conn, "SELECT source_url, listing_status, closed_reason, deadline::text FROM job_sources_log "
+                      "WHERE job_id = %s ORDER BY source_url", (job_id,))
+
+
+def _mismatches(conn, job_id):
+    import check_listing_derivation as cld
+    report = cld.build_report(db.list_jobs_with_listings(conn))
+    return [(m.field, m.stored, m.derived) for m in report.mismatches if m.job_id == job_id]
+
+
+def _keeper_audit(conn, keeper):
+    return next(x for x in _audit(conn) if x["entity_id"] == keeper and "merged_from" in x["changes"])["changes"]
+
+
+def test_merged_keeper_equals_derivation_of_its_listings_afterwards(pg_conn):
+    g = _rich_group(pg_conn)
+    plan = _plan_for(pg_conn, [g["keeper"], g["d1"], g["d2"]], g["keeper"])
+    assert not plan.protected_manual and plan.derived_changes["job_status"] == {"old": "CLOSED", "new": "OPEN"}
+    res = _merge(pg_conn, plan)
+    assert res["derived_changes"] == sorted(plan.derived_changes) and res["listing_actions"] == {}
+    assert _mismatches(pg_conn, g["keeper"]) == []                  # lệnh so lệch: job giữ khớp luật suy ra
+    kc = _keeper_audit(pg_conn, g["keeper"])                        # audit ghi cả giá trị suy ra (old/new)
+    assert kc["source_url"] == {"old": "https://www.topcv.vn/old", "new": "https://www.topcv.vn/new-2"}
+
+
+def test_plan_mismatching_real_derivation_is_refused_and_leaves_nothing(pg_conn):
+    g = _rich_group(pg_conn)
+    plan = _plan_for(pg_conn, [g["keeper"], g["d1"], g["d2"]], g["keeper"])
+    before = _state(pg_conn)
+    with pytest.raises(db.MergeIntegrityError, match="đồng bộ job giữ"):
+        db.merge_job_group(pg_conn, keeper_id=plan.keeper_id, donor_ids=plan.donor_ids, expected=plan.expected,
+                           changes=plan.changes, child=dataclasses.asdict(plan.child),
+                           derived_changes={})                      # kế hoạch "quên" việc hồi sinh
+    pg_conn.rollback()
+    assert _state(pg_conn) == before
+
+
+def test_merge_job_group_requires_an_explicit_derived_changes_decision(pg_conn):
+    _, keeper, donor = _simple_group(pg_conn)
+    plan = _plan_for(pg_conn, [keeper, donor], keeper)
+    with pytest.raises(TypeError):
+        db.merge_job_group(pg_conn, keeper_id=keeper, donor_ids=[donor], expected=plan.expected,
+                           changes=plan.changes, child=dataclasses.asdict(plan.child))
+    pg_conn.rollback()
+    with pytest.raises(db.MergeIntegrityError, match="không được phép"):
+        db.merge_job_group(pg_conn, keeper_id=keeper, donor_ids=[donor], expected=plan.expected,
+                           changes={}, child=dataclasses.asdict(plan.child),
+                           derived_changes={"salary_min": {"old": 1, "new": 2}})
+    pg_conn.rollback()
+    with pytest.raises(db.MergeIntegrityError, match="hành động listing"):
+        db.merge_job_group(pg_conn, keeper_id=keeper, donor_ids=[donor], expected=plan.expected,
+                           changes={}, child=dataclasses.asdict(plan.child), derived_changes={},
+                           listing_actions={"xoá_hết": 1})
+    pg_conn.rollback()
+    assert _count(pg_conn, "job_postings") == 2
+
+
+def test_manual_open_keeper_keeps_status_deadline_and_url_and_stamps_deadline_into_open_listings(pg_conn):
+    c = _company(pg_conn)
+    manual_url, donor_url = _manual_url(), "https://www.topcv.vn/crawl"
+    keeper = _job(pg_conn, c, "Kế toán trưởng", url=manual_url, deadline="2026-10-15")
+    donor = _job(pg_conn, c, "Kế toán trưởng", url=donor_url, deadline="2026-12-01")
+    plan = _plan_for(pg_conn, [keeper, donor], keeper)
+    assert plan.protected_manual and plan.derived_changes is None
+    assert plan.changes == {} and plan.listing_actions == {"stamp_deadline": plan.expected[keeper]["deadline"]}
+    res = _merge(pg_conn, plan)
+
+    assert res["listing_actions"] == {"deadline_stamped_listings": 2} and res["derived_changes"] == []
+    row = _job_row(pg_conn, keeper)
+    assert row[:4] == ("OPEN", None, "2026-10-15", manual_url)         # hạn crawl 12-01 KHÔNG đè hạn nhập tay
+    assert row[4][:19] == PAST                                          # updated_at không nhảy
+    assert _listings(pg_conn, keeper) == sorted([(manual_url, "OPEN", None, "2026-10-15"),
+                                                 (donor_url, "OPEN", None, "2026-10-15")])
+    assert _keeper_audit(pg_conn, keeper)["listing_actions"] == {"deadline_stamped_listings": 2}
+
+    # Hạn và trạng thái được giữ LÂU DÀI (listing đã khớp nên các lần đồng bộ sau suy ra đúng chúng); riêng
+    # source_url không có chỗ đánh dấu nên lần đồng bộ kế tiếp suy ra lại theo listing OPEN mới nhất.
+    assert set(_mismatches(pg_conn, keeper)) == {("source_url", manual_url, donor_url)}
+    changed = db.sync_job_from_listings(pg_conn, keeper)
+    pg_conn.commit()
+    assert changed == {"source_url": (manual_url, donor_url)}
+
+
+def test_manual_keeper_that_staff_closed_stays_closed_and_the_donor_listing_closes_with_it(pg_conn):
+    c = _company(pg_conn)
+    manual_url, donor_url = _manual_url(), "https://www.topcv.vn/crawl"
+    keeper = _job(pg_conn, c, "Kế toán trưởng", url=manual_url, status="CLOSED", deadline="2026-10-15")
+    donor = _job(pg_conn, c, "Kế toán trưởng", url=donor_url, deadline="2026-12-01")
+    plan = _plan_for(pg_conn, [keeper, donor], keeper)
+    assert plan.protected_manual and not plan.revives and plan.listing_actions["close_listings"] == 1
+    res = _merge(pg_conn, plan)
+
+    assert res["listing_actions"] == {"closed_listings": 1, "deadline_stamped_listings": 2}
+    row = _job_row(pg_conn, keeper)
+    assert row[0] == "CLOSED" and row[1] == "unknown" and row[2] == "2026-10-15"     # không hồi sinh
+    states = {u: (st, reason) for u, st, reason, _ in _listings(pg_conn, keeper)}
+    assert states == {manual_url: ("CLOSED", "unknown"), donor_url: ("CLOSED", "unknown")}
+    # bất biến C1: job CLOSED thì không còn listing OPEN hoặc UNKNOWN
+    assert _one(pg_conn, "SELECT count(*) FROM job_sources_log WHERE job_id = %s "
+                         "AND listing_status <> 'CLOSED'", (keeper,))[0] == 0
+    assert "job_status" not in {f for f, _, _ in _mismatches(pg_conn, keeper)}
+
+
+def test_manual_keeper_without_deadline_gets_the_derived_deadline_filled(pg_conn):
+    c = _company(pg_conn)
+    manual_url = _manual_url()
+    keeper = _job(pg_conn, c, "Kế toán trưởng", url=manual_url, deadline=None)
+    donor = _job(pg_conn, c, "Kế toán trưởng", url="https://www.topcv.vn/crawl", deadline="2026-12-01")
+    plan = _plan_for(pg_conn, [keeper, donor], keeper)
+    assert plan.protected_manual and plan.changes["deadline"]["old"] is None and plan.listing_actions == {}
+    res = _merge(pg_conn, plan)
+    assert res["listing_actions"] == {}
+    row = _job_row(pg_conn, keeper)
+    assert row[:4] == ("OPEN", None, "2026-12-01", manual_url)
+    assert ("deadline", None, None) not in _mismatches(pg_conn, keeper)
+    assert [f for f, _, _ in _mismatches(pg_conn, keeper)] == ["source_url"]
+
+
+def test_manual_donor_is_not_protected_and_its_listing_joins_the_derivation(pg_conn):
+    c = _company(pg_conn)
+    keeper = _job(pg_conn, c, "Kế toán trưởng", url="https://www.topcv.vn/crawl", deadline="2026-10-15")
+    donor = _job(pg_conn, c, "Kế toán trưởng", url=_manual_url(), deadline="2026-12-01")
+    plan = _plan_for(pg_conn, [keeper, donor], keeper)
+    assert not plan.protected_manual and plan.derived_changes["deadline"]["new"].isoformat() == "2026-12-01"
+    _merge(pg_conn, plan)
+    assert _job_row(pg_conn, keeper)[2] == "2026-12-01"
+    assert _mismatches(pg_conn, keeper) == []
+
+
+def test_wrong_close_count_for_manual_keeper_is_refused_and_leaves_nothing(pg_conn):
+    c = _company(pg_conn)
+    keeper = _job(pg_conn, c, "Kế toán trưởng", url=_manual_url(), status="CLOSED", deadline="2026-10-15")
+    donor = _job(pg_conn, c, "Kế toán trưởng", url="https://www.topcv.vn/crawl", deadline="2026-12-01")
+    plan = _plan_for(pg_conn, [keeper, donor], keeper)
+    before = _state(pg_conn)
+    with pytest.raises(db.MergeIntegrityError, match="đóng listing"):
+        db.merge_job_group(pg_conn, keeper_id=keeper, donor_ids=[donor], expected=plan.expected,
+                           changes=plan.changes, child=dataclasses.asdict(plan.child), derived_changes=None,
+                           listing_actions={"close_listings": 5})
+    pg_conn.rollback()
+    assert _state(pg_conn) == before
+
+
+def test_run_apply_end_to_end_with_manual_keeper_through_the_only_file(pg_conn, capsys):
+    c = _company(pg_conn)
+    manual_url = _manual_url()
+    keeper = _job(pg_conn, c, "Kế toán trưởng", url=manual_url, deadline="2026-10-15")
+    donor = _job(pg_conn, c, "Kế toán trưởng", url="https://www.topcv.vn/crawl", deadline="2026-12-01")
+    only = md.OnlySpec(job_ids={keeper, donor}, keepers={keeper})
+    assert _run(pg_conn, only=only) == md.EXIT_OK
+    out = capsys.readouterr().out
+    assert "job giữ nhập tay (luật suy ra không đè)" in out and "đã gộp" in out
+    assert _job_row(pg_conn, keeper)[2] == "2026-10-15"
+    assert [r[0] for r in _all(pg_conn, "SELECT job_id::text FROM job_postings")] == [keeper]

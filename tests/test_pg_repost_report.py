@@ -122,7 +122,8 @@ def _merge(conn, ids, keeper):
     plan = plans[0]
     res = db.merge_job_group(
         conn, keeper_id=plan.keeper_id, donor_ids=plan.donor_ids, expected=plan.expected,
-        changes=plan.changes, child=dataclasses.asdict(plan.child), conflicts=plan.conflicts, notes=plan.notes)
+        changes=plan.changes, child=dataclasses.asdict(plan.child), conflicts=plan.conflicts, notes=plan.notes,
+        derived_changes=plan.derived_changes, listing_actions=plan.listing_actions)
     conn.commit()
     return res
 
