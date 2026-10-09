@@ -107,10 +107,11 @@ def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: Pipe
             new_deadline = normalize.normalize_deadline(detail.get("deadline_text", ""))
             new_parsed_content, _ = _build_parsed_content_and_raw(detail)
 
+            # Hạn đọc được KHÔNG ghi thẳng vào job (C4 phần 2/3): mark_source_detail_checked ghi nó vào listing
+            # rồi đồng bộ job, nên hạn job luôn là giá trị suy ra từ các listing.
             db.update_job_fields(
                 conn, existing_job_id,
                 work_type=new_work_type,
-                deadline=new_deadline,
                 parsed_content=new_parsed_content,
             )
             # Ghi dấu "đã fetch chi tiết": nếu nguồn thật sự không có field
@@ -251,8 +252,9 @@ def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
     URL đi nhánh "job đã có" và không tốn request nếu job cũ đã đủ field.
 
     Xử lý theo trạng thái job cũ:
-      - OPEN: dời deadline ra sau nếu hạn mới muộn hơn (db.extend_job_deadline, không bao
-        giờ rút ngắn); job đã quá hạn được đăng lại sẽ sống lại.
+      - OPEN: hạn của job theo listing mới (C4 phần 2/3): db.link_repost_source ghi listing mang hạn của tin
+        mới rồi đồng bộ job, nên hạn muộn hơn thì dời hạn job ra sau (RepostLink.deadline_extended, đếm
+        repost_deadline_extended); job đã quá hạn được đăng lại sẽ sống lại.
       - CLOSED với closed_reason='expired_auto' (do check_expired_source_jobs tự đóng): MỞ LẠI. Việc đó do
         db.link_repost_source làm (C4 phần 1/3): listing của URL mới sinh ra OPEN kèm hạn mới (luật 1 của
         db.listing_state), job suy ra OPEN từ listing đó (hạn và source_url theo listing, nên
@@ -284,7 +286,7 @@ def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
                 action = ", giữ nguyên CLOSED (hạn mới đã qua hoặc job đã đổi)"
             else:
                 action = f", giữ nguyên CLOSED (closed_reason={reason})"
-    elif db.extend_job_deadline(conn, duplicate_job_id, deadline):
+    elif link.deadline_extended:
         stats.repost_deadline_extended += 1
         action = f", dời deadline sang {deadline}"
     conn.commit()
@@ -376,8 +378,9 @@ def _update_job_by_job_code(conn, raw, match, *, level_code: str, level_source: 
 
     Job đã có người sửa tay (updated_by khác rỗng) thì chỉ dừng ở bước ghi URL.
     Còn lại cập nhật: tiêu đề; level; mô tả/yêu cầu (parsed_content); lương; hình
-    thức làm việc; và dời hạn nộp ra sau (extend_job_deadline, không bao giờ rút
-    ngắn). KHÔNG đụng công ty, tỉnh, ngành.
+    thức làm việc. KHÔNG đụng công ty, tỉnh, ngành. Hạn nộp KHÔNG vá trực tiếp: link_repost_source ghi listing
+    mới mang hạn của chính nó rồi đồng bộ job, nên hạn job là hạn muộn nhất trong các listing OPEN, kể cả job
+    đã có người sửa tay (C4 phần 2/3, bạn chọn 09/10).
 
     Hai chỗ chủ động làm ít hơn để không làm dữ liệu tệ đi:
       - lương chỉ ghi khi nguồn thật sự có chuỗi lương (chuỗi rỗng nghĩa là ẩn
@@ -417,8 +420,6 @@ def _update_job_by_job_code(conn, raw, match, *, level_code: str, level_source: 
             parsed_content=parsed_content if content_reliable else None,
             salary=asdict(salary) if (raw.salary_text or "").strip() else None,
         )
-        if updated:
-            db.extend_job_deadline(conn, job_id, deadline)
     conn.commit()
     if updated:
         stats.updated_by_job_code += 1

@@ -135,9 +135,6 @@ class FakeDB:
     def link_repost_source(self, conn, *a, **k):
         return self._write("link_repost_source", conn, RepostLink(inserted=True))
 
-    def extend_job_deadline(self, conn, *a, **k):
-        return self._write("extend_job_deadline", conn, True)
-
     def insert_job(self, conn, **k):
         return self._write("insert_job", conn)
 
@@ -315,7 +312,6 @@ def test_company_page_not_fetched_no_extra_rollback(monkeypatch):
     ("lock_job_dedup_key", None, "old-job"),       # A4: như trên, nhánh sẽ là tin đăng lại
     ("insert_job", None, None),
     ("link_repost_source", None, "old-job"),
-    ("extend_job_deadline", None, "old-job"),
     ("link_repost_source", None, {"job_id": "old-job", "job_status": "CLOSED", "level_id": None,
                                   "deadline": None, "closed_reason": "expired_auto"}),   # tin đăng lại của job đóng
     ("update_job_fields", NEEDS_PATCH_PROBE, None),
@@ -332,8 +328,7 @@ def test_error_in_any_write_rolls_back_everything_uncommitted(monkeypatch, fail_
     assert pending == 0
 
 
-@pytest.mark.parametrize("fail_on", ["link_repost_source", "update_job_from_recrawl",
-                                     "extend_job_deadline"])
+@pytest.mark.parametrize("fail_on", ["link_repost_source", "update_job_from_recrawl"])
 def test_error_in_job_code_update_rolls_back_everything_uncommitted(monkeypatch, fail_on):
     conn, stats, pending = _run(
         monkeypatch, CodeAdapter(_raw()),

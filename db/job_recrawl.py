@@ -1,7 +1,7 @@
 """
 db.job_recrawl — ghi job do pipeline crawl lại (tách từ db/jobs.py, 10/2026):
-ghi nhận nguồn phụ cho tin đăng lại (kèm việc job đóng vì hết hạn tự mở lại, 3c), tìm job để coi là tin đăng lại,
-dời hạn nộp, tìm job theo mã job trong URL, và cập nhật job đã có bằng dữ liệu vừa crawl. Tên hàm giữ nguyên và vẫn gọi
+ghi nhận nguồn phụ cho tin đăng lại (kèm việc job đóng vì hết hạn tự mở lại và hạn của job dời theo tin mới, 3c),
+tìm job để coi là tin đăng lại, tìm job theo mã job trong URL, và cập nhật job đã có bằng dữ liệu vừa crawl. Tên hàm giữ nguyên và vẫn gọi
 được qua `db.update_job_from_recrawl`, `db.link_repost_source`...
 """
 
@@ -22,10 +22,13 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class RepostLink:
     """Kết quả link_repost_source. `inserted`: URL mới vừa được ghi làm listing. `reopened`: listing đó làm job đang
-    CLOSED vì expired_auto sống lại (audit REOPEN_JOB đã ghi cùng transaction). bool(kết quả) = inserted, nên mã cũ
-    dùng `if link_repost_source(...)` vẫn đúng nghĩa \"có thêm dòng mới\"."""
+    CLOSED vì expired_auto sống lại (audit REOPEN_JOB đã ghi cùng transaction). `deadline_extended`: job đang OPEN
+    mà hạn của nó vừa dời ra sau (hoặc được điền khi đang trống) theo hạn của listing mới; không bao giờ True cùng
+    `reopened`, và không True khi job đang CLOSED. bool(kết quả) = inserted, nên mã cũ dùng
+    `if link_repost_source(...)` vẫn đúng nghĩa \"có thêm dòng mới\"."""
     inserted: bool
     reopened: bool = False
+    deadline_extended: bool = False
 
     def __bool__(self) -> bool:
         return self.inserted
@@ -64,12 +67,15 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
     listing OPEN thì MỞ LẠI (OPEN, hạn và source_url suy ra từ listing; closed_reason/closed_at do trigger xoá;
     updated_at nhảy như một lần mở lại thật) và ghi audit REOPEN_JOB (actor NULL, changes = giá trị cũ/mới của
     job_status, deadline, source_url, closed_reason) CÙNG transaction, nên không có lần mở lại nào thiếu log. Job
-    OPEN thì hạn của nó chưa đụng (defer_deadline, extend_job_deadline làm tiếp). Việc loại job do nhân viên chủ
-    động đóng nằm ở luật 1, không còn ở nơi gọi.
+    OPEN thì hạn, source_url của nó theo listing mới (C4 phần 2/3, không còn extend_job_deadline): hạn job là hạn
+    muộn nhất trong các listing OPEN, kể cả job do nhân viên đã sửa tay (bạn chọn 09/10), nên hạn của tin mới muộn
+    hơn thì kéo hạn job ra sau. Việc loại job do nhân viên chủ động đóng nằm ở luật 1, không còn ở nơi gọi.
 
     Không tự commit (đúng quy ước của lớp db: nơi gọi chịu trách nhiệm).
     Trả RepostLink: inserted True nếu vừa thêm dòng mới, False nếu source_url đã có; reopened True nếu job vừa
-    sống lại nhờ listing này.
+    sống lại nhờ listing này; deadline_extended True nếu hạn của job OPEN vừa dời ra sau (pipeline dùng để đếm
+    repost_deadline_extended). Chỉ tính là \"dời\" khi hạn mới khác trống và muộn hơn hạn cũ (hoặc hạn cũ trống);
+    giá trị job vẫn theo listing kể cả khi suy ra sớm hơn (job chỉ có listing UNKNOWN nhận listing OPEN đầu tiên).
 
     Một URL chỉ thuộc một job (UNIQUE (source_url), D2, sql/0041_unique_source_url_job_sources_log.sql)
     nên ON CONFLICT nhắm vào source_url chứ không còn (job_id, source_url). Pipeline đã tra URL đã biết
@@ -90,14 +96,17 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
         salary_raw_text=salary_raw_text, raw_jd_content=raw_jd_content,
         detail_fetched=True, deadline=deadline, on_conflict=CONFLICT_URL, today=today,
     )
-    reopened = False
+    reopened = deadline_extended = False
     if inserted:
         # C2: job theo kịp listing mới (job OPEN nhận tin đăng lại thì source_url và hạn suy ra đổi theo; job đóng
         # expired_auto nhận listing OPEN thì mở lại).
-        changes = sync_job_from_listings(conn, job_id, defer_deadline=True)
+        changes = sync_job_from_listings(conn, job_id)
         reopened = changes.get("job_status") == ("CLOSED", "OPEN")
         if reopened:
             _log_reopen_for_repost(conn, job_id, before, changes)
+        elif before[0] == "OPEN" and "deadline" in changes:
+            old_deadline, new_deadline = changes["deadline"]
+            deadline_extended = new_deadline is not None and (old_deadline is None or new_deadline > old_deadline)
     with conn.cursor() as cur:
         if not inserted:
             cur.execute("SELECT job_id FROM job_sources_log WHERE source_url = %s", (source_url,))
@@ -107,7 +116,7 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
                     "URL %s đã thuộc job %s, không ghi thêm làm nguồn phụ của job %s.",
                     source_url, row[0], job_id,
                 )
-    return RepostLink(inserted=inserted, reopened=reopened)
+    return RepostLink(inserted=inserted, reopened=reopened, deadline_extended=deadline_extended)
 
 
 def _log_reopen_for_repost(conn, job_id: str, before: tuple, changes: dict) -> None:
@@ -127,32 +136,6 @@ def _log_reopen_for_repost(conn, job_id: str, before: tuple, changes: dict) -> N
             "closed_reason": {"old": old_reason, "new": None},
         },
     )
-
-
-def extend_job_deadline(conn, job_id: str, new_deadline) -> bool:
-    """Dời deadline của job OPEN ra SAU (hoặc điền khi đang NULL), không bao
-    giờ rút ngắn. Dùng khi pipeline nhận ra tin đăng lại có hạn nộp mới hơn:
-    job cũ đã quá hạn (deadline < hôm nay nhưng vẫn OPEN, đang nằm trong danh
-    sách "job hết hạn" của tab tình trạng dữ liệu) sẽ sống lại đúng với thực
-    tế là nhà tuyển dụng vừa đăng lại.
-
-    Một câu UPDATE có điều kiện nên không cần đọc deadline cũ trước và không
-    có race giữa đọc-rồi-ghi. Job CLOSED không bị đụng (người dùng đã chủ động
-    đóng). Không tự commit. Trả True nếu có dòng được cập nhật."""
-    if new_deadline is None:
-        return False
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE job_postings
-               SET deadline = %s
-             WHERE job_id = %s
-               AND job_status = 'OPEN'
-               AND (deadline IS NULL OR deadline < %s)
-            """,
-            (new_deadline, job_id, new_deadline),
-        )
-        return cur.rowcount > 0
 
 
 def find_repost_candidate(conn, *, company_id: str, job_title: str, province_id: Optional[int],
@@ -250,8 +233,8 @@ def update_job_from_recrawl(conn, job_id: str, *, job_title: str,
       - salary: dict {currency, salary_min, salary_max, salary_type,
         salary_period}, ghi NGUYÊN BỘ khi truyền (salary_min/max None là NULL
         thật); None = giữ nguyên lương cũ.
-    KHÔNG đụng công ty, tỉnh, ngành, deadline (deadline có extend_job_deadline
-    riêng, không bao giờ rút ngắn).
+    KHÔNG đụng công ty, tỉnh, ngành, deadline (hạn của job theo listing, do
+    link_repost_source và sync_job_from_listings ghi).
 
     Chốt chặn nằm ngay trong câu UPDATE: chỉ ghi khi job còn OPEN và chưa có ai
     sửa tay (updated_by IS NULL), nên nếu trong lúc pipeline xử lý có người vừa

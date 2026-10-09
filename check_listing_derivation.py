@@ -10,7 +10,7 @@ So bốn trường: job_status, closed_reason (chỉ khi cả hai bên CLOSED), 
 được tách tiếp theo loại để đọc ra nguyên nhân:
   - job_status:    \"job OPEN nhưng mọi listing CLOSED\" / \"job CLOSED nhưng có listing OPEN hoặc UNKNOWN\";
   - deadline:      job không hạn mà listing có / job có hạn mà listing không / cả hai có hạn, job muộn hơn /
-                   sớm hơn (job muộn hơn là dấu của extend_job_deadline, vốn không ghi hạn vào listing);
+                   sớm hơn (job muộn hơn từng là dấu của extend_job_deadline, đã gỡ ở C4 phần 2/3);
   - source_url:    URL của job là một listing khác của job / URL của job không có listing nào.
 Job chưa có listing nào được đếm riêng (\"không suy ra được\"), không tính là lệch.
 

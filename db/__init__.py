@@ -82,7 +82,6 @@ from db.job_dedup_lock import (
 from db.job_recrawl import (
     link_repost_source,
     RepostLink,
-    extend_job_deadline,
     find_repost_candidate,
     AUTO_REOPEN_REASONS,
     find_jobs_by_source_url_regex,
@@ -343,7 +342,6 @@ __all__ = [
     "insert_job",
     "link_repost_source",
     "RepostLink",
-    "extend_job_deadline",
     "find_repost_candidate",
     "AUTO_REOPEN_REASONS",
     "mark_listing_seen",

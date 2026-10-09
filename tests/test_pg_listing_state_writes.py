@@ -301,8 +301,6 @@ def test_repost_of_open_job_keeps_old_listing_and_adds_open_one(pg_conn):
     old_url = _url()
     job = _new_job(pg_conn, url=old_url, deadline=FUTURE)
     new_url = _link(pg_conn, job, deadline=FUTURE2)
-    assert db.extend_job_deadline(pg_conn, job, FUTURE2) is True
-    pg_conn.commit()
     assert _status(pg_conn, old_url) == ("OPEN", None) and _status(pg_conn, new_url) == ("OPEN", None)
     # dời hạn của job không ghi đè hạn của listing cũ: mỗi listing giữ hạn của chính nó
     assert _listing(pg_conn, old_url)["deadline"] == FUTURE

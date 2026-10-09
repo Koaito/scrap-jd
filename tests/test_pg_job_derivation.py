@@ -124,11 +124,9 @@ def test_job_reopened_by_repost_matches_derivation_on_all_four_fields(pg_conn):
 
 def test_repost_on_open_job_matches_derivation_on_all_four_fields(pg_conn):
     """Ca khó nhất, từng lệch ở C2 nửa 1/2: job OPEN nhận tin đăng lại. Từ nửa 2/2 link_repost_source đồng bộ
-    source_url của job sang URL listing mới nhất; hạn do extend_job_deadline dời (cùng hạn của listing mới)."""
+    source_url và hạn của job sang listing mới nhất (C4 phần 2/3: không còn extend_job_deadline)."""
     job = _job(pg_conn)
     new = _link(pg_conn, job, deadline=FUTURE2)
-    assert db.extend_job_deadline(pg_conn, job, FUTURE2)
-    pg_conn.commit()
     assert _report(pg_conn).mismatches == []
     with pg_conn.cursor() as cur:
         cur.execute("SELECT source_url FROM job_postings WHERE job_id = %s", (job,))

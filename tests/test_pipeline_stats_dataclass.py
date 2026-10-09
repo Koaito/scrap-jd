@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pipeline
 from adapters.base import CrawlBlockedError
+from db.job_recrawl import RepostLink
 from pipeline_stats import PipelineStats
 from test_pipeline_blocked_degraded import BLANK_DETAIL, GOOD_DETAIL, ScriptedAdapter, _raw
 
@@ -106,7 +107,7 @@ def scenario_db(pipeline_db):
                             "deadline": None, "closed_reason": None}
         if kw["job_title"] == "Job 4" else None
     )
-    pipeline_db.extend_job_deadline.return_value = True
+    pipeline_db.link_repost_source.return_value = RepostLink(inserted=True, deadline_extended=True)
 
     def _insert(*args, **kwargs):
         if kwargs["job_title"] == "Job 6":

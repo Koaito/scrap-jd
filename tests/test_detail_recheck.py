@@ -140,8 +140,8 @@ def test_existing_job_detail_deadline_is_passed_to_listing_stamp(pipeline_db):
     _run(adapter)
 
     kwargs = pipeline_db.mark_source_detail_checked.call_args.kwargs
-    assert kwargs == {"deadline": date(2026, 9, 5)}                # cùng hạn với update_job_fields
-    assert pipeline_db.update_job_fields.call_args.kwargs["deadline"] == date(2026, 9, 5)
+    assert kwargs == {"deadline": date(2026, 9, 5)}                # hạn đi vào listing, rồi job suy ra từ listing
+    assert "deadline" not in pipeline_db.update_job_fields.call_args.kwargs   # C4 phần 2/3: không ghi thẳng vào job
 
 
 def test_failed_fetch_is_not_stamped_so_it_retries_next_crawl(pipeline_db):

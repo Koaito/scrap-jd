@@ -318,7 +318,9 @@ def test_hand_edited_job_only_gets_the_new_url_linked(pg_conn):
     assert "updated_by_job_code" not in s2
     assert _one(pg_conn, "SELECT job_title, salary_min, deadline, "
                          "parsed_content->>'job_description' FROM job_postings WHERE job_id = %s",
-                (job_id,)) == ("Data Engineer", 15_000_000, date(2026, 9, 5), "mô tả v1")
+                (job_id,)) == ("Data Engineer", 15_000_000, date(2026, 10, 10), "mô tả v1")
+    # Tiêu đề, lương, nội dung giữ nguyên (nhân viên đã sửa), riêng HẠN theo listing mới (C4 phần 2/3, bạn chọn
+    # phương án a 09/10): hạn job là hạn muộn nhất trong các listing OPEN, trước đây job sửa tay không bị kéo hạn.
     assert _one(pg_conn, "SELECT count(*) FROM job_sources_log WHERE job_id = %s", (job_id,)) == (2,)
 
     # Đã ghi nhận URL mới: lượt sau không fetch lại.

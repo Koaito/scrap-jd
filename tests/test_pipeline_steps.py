@@ -19,6 +19,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import normalize
 import pipeline
 from adapters.base import BaseAdapter, CrawlBlockedError
+from db.job_recrawl import RepostLink
 from field_stats import EmptyFieldCounter
 from models import RawJobRecord
 from pipeline_fakes import DEFAULT_LEVEL_ID, DEFAULT_PROVINCE_ID
@@ -139,7 +140,7 @@ def test_new_job_is_inserted_then_committed_once(pipeline_db):
 
 def test_repost_links_source_and_commits_without_insert(pipeline_db):
     pipeline_db.find_repost_candidate.return_value = _candidate("old-job")
-    pipeline_db.extend_job_deadline.return_value = True
+    pipeline_db.link_repost_source.return_value = RepostLink(inserted=True, deadline_extended=True)
     conn = MagicMock()
 
     stats = _run_step(StubAdapter(), conn)
@@ -155,7 +156,6 @@ def test_repost_links_source_and_commits_without_insert(pipeline_db):
 
 def test_repost_without_later_deadline_does_not_count_extension(pipeline_db):
     pipeline_db.find_repost_candidate.return_value = _candidate("old-job")
-    pipeline_db.extend_job_deadline.return_value = False
 
     stats = _run_step(StubAdapter(), MagicMock())
 

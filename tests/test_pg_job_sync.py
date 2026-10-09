@@ -234,24 +234,36 @@ def test_status_change_is_logged_at_info(pg_conn, caplog):
     assert job in caplog.text and "CLOSED -> OPEN" in caplog.text
 
 
-# ============================================================ link_repost_source (hoãn có chủ đích)
-def test_link_on_open_job_moves_source_url_but_leaves_deadline_to_extend(pg_conn):
+# ============================================================ link_repost_source (job theo listing mới)
+def test_link_on_open_job_moves_source_url_and_deadline_to_the_new_listing(pg_conn):
+    """C4 phần 2/3: không còn hoãn hạn và không còn extend_job_deadline; hạn và URL của job OPEN theo listing mới."""
     job = _job(pg_conn, deadline=FUTURE)
-    new = _link(pg_conn, job, deadline=FUTURE2)
+    new = _url()
+    link = db.link_repost_source(pg_conn, job, source_name="Fake", source_url=new, deadline=FUTURE2)
+    pg_conn.commit()
     row = _job_row(pg_conn, job)
-    assert row[3] == new and row[2] == FUTURE                       # URL theo listing, hạn chờ extend_job_deadline
-    assert db.extend_job_deadline(pg_conn, job, FUTURE2) is True    # nên extend vẫn dời được và đếm được
-    pg_conn.commit()
-    assert _job_row(pg_conn, job)[2] == FUTURE2
+    assert row[3] == new and row[2] == FUTURE2
+    assert link.inserted and link.deadline_extended and not link.reopened
 
 
-def test_link_does_not_pull_deadline_of_a_hand_edited_open_job(pg_conn):
-    """Job nhân viên đã sửa tay: pipeline không gọi extend cho nó, nên tin đăng lại không kéo hạn của họ."""
+def test_link_pulls_the_deadline_of_a_hand_edited_open_job_when_the_new_one_is_later(pg_conn):
+    """Bạn chọn (a) 09/10: job nhân viên đã sửa tay vẫn theo suy ra, nên hạn muộn hơn của tin đăng lại kéo hạn job."""
     job = _job(pg_conn, deadline=FUTURE)
-    db.update_job(pg_conn, job, deadline=date(2095, 1, 1))
+    db.update_job(pg_conn, job, deadline=date(2095, 1, 1))     # ghi hạn tay vào mọi listing OPEN
     pg_conn.commit()
-    _link(pg_conn, job, deadline=FUTURE2)
     assert _job_row(pg_conn, job)[2] == date(2095, 1, 1)
+    link = db.link_repost_source(pg_conn, job, source_name="Fake", source_url=_url(), deadline=FUTURE2)
+    pg_conn.commit()
+    assert _job_row(pg_conn, job)[2] == FUTURE2 and link.deadline_extended
+
+
+def test_link_keeps_a_later_hand_typed_deadline_when_the_new_one_is_earlier(pg_conn):
+    job = _job(pg_conn, deadline=FUTURE)
+    db.update_job(pg_conn, job, deadline=FUTURE2)
+    pg_conn.commit()
+    link = db.link_repost_source(pg_conn, job, source_name="Fake", source_url=_url(), deadline=FUTURE)
+    pg_conn.commit()
+    assert _job_row(pg_conn, job)[2] == FUTURE2 and not link.deadline_extended
 
 
 def test_link_on_auto_closed_job_reopens_it_following_the_new_listing(pg_conn):

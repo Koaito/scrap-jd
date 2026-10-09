@@ -252,7 +252,9 @@ không phân biệt hoa/thường, gộp khoảng trắng) + tỉnh, **không x�
 chọn OPEN, rồi cùng level, rồi tạo gần nhất. `find_manual_job_duplicate` (dùng cho `POST /jobs` nhập tay) giữ nguyên.
 Xử lý theo trạng thái job cũ (`pipeline._import_repost`), mọi trường hợp đều ghi URL mới làm nguồn phụ:
 
-- Job OPEN: dời hạn nộp ra sau nếu hạn mới muộn hơn (như trước).
+- Job OPEN: hạn nộp theo listing mới (C4 phần 2/3): hạn job là hạn muộn nhất trong các listing OPEN nên hạn mới muộn hơn
+  thì dời hạn ra sau, hạn sớm hơn thì giữ nguyên, kể cả job nhân viên đã sửa tay. Không còn hàm dời hạn riêng; số liệu
+  `repost_deadline_extended` đếm theo kết quả đồng bộ (`RepostLink.deadline_extended`).
 - Job CLOSED vì `expired_auto` (do `check_expired_source_jobs` tự đóng): **mở lại** (C4 phần 1/3). `db.link_repost_source`
   ghi listing của URL mới ở trạng thái OPEN kèm hạn của tin mới (luật 1 ở `db/listing_state.py`), job suy ra OPEN từ
   listing đó nên `deadline` và `source_url` theo listing (để URL cũ đã chết thì `check_expired_source_jobs` đóng lại
@@ -491,9 +493,9 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   nhảy `updated_at`). Gọi từ `link_repost_source`, `update_job` (đóng, mở lại, sửa hạn),
   `mark_source_detail_checked`, `mark_listing_seen`. Hệ quả cần biết: job OPEN nhận tin đăng lại có `source_url` là
   URL của listing OPEN mới nhất (nên `check_expired_source_jobs` kiểm tra URL đó); nhân viên sửa hoặc xoá hạn thì hạn
-  được ghi vào mọi listing OPEN của job, nên hạn job đúng bằng những gì nhân viên gõ. Hàm cũ `extend_job_deadline`
-  còn chạy, tạm thời, tới C4 phần 2/3 (`reopen_job_for_repost` đã gỡ ở C4 phần 1/3: tin đăng lại của job đóng
-  `expired_auto` sinh listing OPEN và job tự mở lại nhờ đồng bộ). Migration `0044` gỡ `uq_job_source`; chạy SAU khi code này
+  được ghi vào mọi listing OPEN của job, nên hạn job đúng bằng những gì nhân viên gõ. Hai ca đặc biệt cũ đã gỡ ở C4:
+  `reopen_job_for_repost` (phần 1/3: tin đăng lại của job đóng `expired_auto` sinh listing OPEN và job tự mở lại nhờ
+  đồng bộ) và `extend_job_deadline` (phần 2/3: tin đăng lại mang hạn của chính nó ở listing mới, job theo listing). Migration `0044` gỡ `uq_job_source`; chạy SAU khi code này
   Live. `merge-duplicates` đồng bộ job giữ theo listing từ C3c (xem mục `merge-duplicates` ở trên).
 - **VietnamWorks: nhận ra tin bị sửa tiêu đề theo mã job.** Nhà tuyển dụng sửa
   tiêu đề thì URL đổi (phần chữ) còn mã số cuối URL (`...-<mã>-jv`) giữ
@@ -501,11 +503,11 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   cùng mã (dùng JD đã tải, không thêm request):
   - tiêu đề còn gần giống (trùng từ ≥ 0,5, `normalize.titles_similar`): **cập
     nhật job cũ**, không tạo job mới. Ghi tiêu đề, level, mô tả/yêu cầu, lương,
-    hình thức làm việc, dời hạn nộp ra sau (không bao giờ rút ngắn), và ghi
-    URL mới làm nguồn phụ. Không đụng công ty, tỉnh, ngành. Lương chỉ ghi khi
+    hình thức làm việc, và ghi URL mới làm nguồn phụ (hạn nộp của job theo
+    listing mới, hạn muộn nhất thắng, xem mục tin đăng lại). Không đụng công ty, tỉnh, ngành. Lương chỉ ghi khi
     nguồn có chuỗi lương; JD bị cắt ("...") thì giữ JD và level cũ;
   - job cũ đã có người sửa tay (`updated_by` khác rỗng): chỉ ghi URL mới làm
-    nguồn phụ;
+    nguồn phụ (nội dung giữ nguyên; hạn nộp vẫn theo listing mới như mọi job OPEN);
   - tiêu đề khác hẳn (nhà tuyển dụng đổi sang vị trí khác) hoặc job cũ đã
     `CLOSED`: không đụng job cũ, tạo job mới như trước. Trường hợp tiêu đề khác
     hẳn có log WARNING kèm cả hai tiêu đề để xem tay.

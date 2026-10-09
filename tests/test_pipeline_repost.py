@@ -105,19 +105,20 @@ def test_repost_extends_deadline_of_existing_job(pipeline_db):
     from datetime import date
 
     pipeline_db.find_repost_candidate.return_value = _candidate("job-orig")
-    pipeline_db.extend_job_deadline.return_value = True
+    pipeline_db.link_repost_source.return_value = RepostLink(inserted=True, deadline_extended=True)
     conn = MagicMock()
 
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), conn, "data-analyst", 1)
 
-    pipeline_db.extend_job_deadline.assert_called_once_with(conn, "job-orig", date(2026, 9, 5))
+    # C4 phần 2/3: hạn dời ngay trong link_repost_source (listing mới mang hạn 05/09/2026), pipeline chỉ đếm
+    assert pipeline_db.link_repost_source.call_args.kwargs["deadline"] == date(2026, 9, 5)
     assert stats["repost_deadline_extended"] == 1
     assert stats["skipped_duplicate_repost"] == 1
 
 
 def test_repost_deadline_not_counted_when_db_keeps_later_deadline(pipeline_db):
     pipeline_db.find_repost_candidate.return_value = _candidate("job-orig")
-    pipeline_db.extend_job_deadline.return_value = False  # job cũ đã có hạn muộn hơn
+    # mặc định link_repost_source trả deadline_extended=False: job cũ đã có hạn muộn hơn
 
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), MagicMock(), "data-analyst", 1)
 
@@ -155,10 +156,10 @@ def test_repost_of_closed_job_reopens_it_with_new_url_and_deadline(pipeline_db):
     args, kwargs = pipeline_db.link_repost_source.call_args
     assert args == (conn, "job-orig")
     assert kwargs["source_url"] == "https://x/new-url" and kwargs["deadline"] == date(2026, 9, 5)
-    pipeline_db.extend_job_deadline.assert_not_called()             # job CLOSED không đi nhánh dời hạn
     pipeline_db.insert_job.assert_not_called()
     assert stats["repost_reopened"] == 1 and stats["skipped_duplicate_repost"] == 1
     assert "repost_kept_closed" not in stats
+    assert stats["repost_deadline_extended"] == 0                      # job CLOSED không đếm dời hạn
     conn.commit.assert_called()
 
 
@@ -189,7 +190,6 @@ def test_repost_of_open_job_is_never_counted_as_reopened(pipeline_db):
 
     stats = pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), MagicMock(), "data-analyst", 1)
 
-    pipeline_db.extend_job_deadline.assert_called_once()
     assert "repost_reopened" not in stats and "repost_kept_closed" not in stats
 
 

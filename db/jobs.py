@@ -206,19 +206,17 @@ def mark_source_detail_checked(conn, source_url: str, *, deadline=None) -> None:
 
 
 def update_job_fields(conn, job_id: str, *, work_type: Optional[str] = None,
-                       deadline=None, parsed_content: Optional[dict] = None) -> None:
-    """Vá thêm work_type/deadline/parsed_content cho 1 job ĐÃ TỒN TẠI (chỉ
+                       parsed_content: Optional[dict] = None) -> None:
+    """Vá thêm work_type/parsed_content cho 1 job ĐÃ TỒN TẠI (chỉ
     ghi đè field nào có giá trị mới, không xóa dữ liệu cũ nếu lần crawl
     sau không lấy được field đó) — dùng cho job cũ crawl từ trước khi có
-    các cột này."""
+    các cột này. KHÔNG nhận deadline (C4 phần 2/3): hạn của job là giá trị suy ra từ các listing, hạn đọc được
+    từ trang chi tiết đi qua mark_source_detail_checked (ghi vào listing rồi đồng bộ job)."""
     updates = []
     values = []
     if work_type:
         updates.append("work_type = %s")
         values.append(work_type)
-    if deadline:
-        updates.append("deadline = %s")
-        values.append(deadline)
     if parsed_content:
         updates.append("parsed_content = %s")
         values.append(json.dumps(parsed_content, ensure_ascii=False))

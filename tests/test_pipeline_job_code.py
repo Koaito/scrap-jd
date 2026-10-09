@@ -110,8 +110,7 @@ def test_similar_title_updates_the_old_job_instead_of_inserting(pipeline_db):
     assert kw["parsed_content"]["job_description"] == "mô tả đầy đủ"
     assert kw["salary"] == asdict(normalize.normalize_salary("15 - 25 triệu"))
 
-    pipeline_db.extend_job_deadline.assert_called_once_with(
-        conn, "old-1", normalize.normalize_deadline("05/09/2026"))
+    # C4 phần 2/3: không còn bước dời hạn riêng, hạn job theo listing mới ngay trong link_repost_source
     conn.commit.assert_called_once()
     assert stats.updated_by_job_code == 1
     assert stats.linked_by_job_code_only == 0 and stats.job_code_title_mismatch == 0
@@ -144,7 +143,6 @@ def test_truncated_jd_does_not_overwrite_jd_or_level(pipeline_db):
     pipeline_db.get_level_id.assert_not_called()
     assert kw["job_title"] == "Data Engineer (Senior)"
     assert kw["salary"] is not None and kw["work_type"] is not None
-    pipeline_db.extend_job_deadline.assert_called_once()
     assert stats.updated_by_job_code == 1
 
 
@@ -155,7 +153,6 @@ def test_manually_edited_job_only_gets_the_new_url_linked(pipeline_db):
 
     pipeline_db.link_repost_source.assert_called_once()
     pipeline_db.update_job_from_recrawl.assert_not_called()
-    pipeline_db.extend_job_deadline.assert_not_called()
     pipeline_db.insert_job.assert_not_called()
     conn.commit.assert_called_once()
     assert stats.linked_by_job_code_only == 1 and stats.updated_by_job_code == 0
@@ -163,13 +160,12 @@ def test_manually_edited_job_only_gets_the_new_url_linked(pipeline_db):
 
 def test_job_changed_during_processing_counts_as_link_only(pipeline_db):
     """update_job_from_recrawl trả False khi job vừa bị sửa tay/đóng giữa lúc đọc và
-    ghi: không đếm là đã cập nhật, không dời hạn nộp."""
+    ghi: không đếm là đã cập nhật."""
     pipeline_db.find_jobs_by_source_url_regex.return_value = [_row()]
     pipeline_db.update_job_from_recrawl.return_value = False
 
     conn, stats = _run(CodeAdapter())
 
-    pipeline_db.extend_job_deadline.assert_not_called()
     conn.commit.assert_called_once()
     assert stats.linked_by_job_code_only == 1 and stats.updated_by_job_code == 0
 

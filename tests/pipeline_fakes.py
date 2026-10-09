@@ -38,7 +38,6 @@ def make_pipeline_db(**returns):
         "get_or_create_company_by_profile": DEFAULT_COMPANY_ID,
         "insert_job": DEFAULT_NEW_JOB_ID,
         "link_repost_source": RepostLink(inserted=True),
-        "extend_job_deadline": False,
         "update_job_from_recrawl": True,
     }
     unknown = set(returns) - set(dir(PipelineDB))

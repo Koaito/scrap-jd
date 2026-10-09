@@ -193,37 +193,72 @@ def _set_deadline(conn, job_id, d):
     conn.commit()
 
 
-def test_extend_job_deadline_only_moves_forward(pg_conn):
+def _set_all_deadlines(conn, job_id, d):
+    """Đặt hạn ở CẢ job lẫn mọi listing của nó (job là giá trị suy ra từ listing, nên hai bên phải khớp)."""
+    with conn.cursor() as cur:
+        cur.execute("UPDATE job_postings SET deadline = %s WHERE job_id = %s", (d, job_id))
+        cur.execute("UPDATE job_sources_log SET deadline = %s WHERE job_id = %s", (d, job_id))
+    conn.commit()
+
+
+def _link_new(conn, job_id, deadline):
+    link = db.link_repost_source(conn, job_id, source_name="TopCV", source_url=f"https://topcv/{uuid.uuid4()}",
+                                 deadline=deadline)
+    conn.commit()
+    return link
+
+
+def test_repost_deadline_only_moves_forward(pg_conn):
+    """Thay cho test của extend_job_deadline (C4 phần 2/3): hạn job = hạn muộn nhất trong listing OPEN, nên tin đăng
+    lại chỉ kéo hạn ra sau; hạn sớm hơn hoặc bằng thì không đổi và không được đếm là đã dời."""
     job_id = _make_job(pg_conn, "https://topcv/d1")
-    _set_deadline(pg_conn, job_id, date(2026, 8, 1))
+    _set_all_deadlines(pg_conn, job_id, date(2026, 8, 1))
 
-    assert db.extend_job_deadline(pg_conn, job_id, date(2026, 10, 30)) is True
+    assert _link_new(pg_conn, job_id, date(2026, 10, 30)).deadline_extended is True
     assert _deadline(pg_conn, job_id) == date(2026, 10, 30)
 
-    # Hạn sớm hơn / bằng hạn hiện tại: không rút ngắn, không báo là đã đổi.
-    assert db.extend_job_deadline(pg_conn, job_id, date(2026, 9, 1)) is False
-    assert db.extend_job_deadline(pg_conn, job_id, date(2026, 10, 30)) is False
+    assert _link_new(pg_conn, job_id, date(2026, 9, 1)).deadline_extended is False      # sớm hơn: không rút ngắn
+    assert _link_new(pg_conn, job_id, date(2026, 10, 30)).deadline_extended is False    # bằng: không đổi
     assert _deadline(pg_conn, job_id) == date(2026, 10, 30)
 
 
-def test_extend_job_deadline_fills_null_and_ignores_none(pg_conn):
+def test_repost_deadline_fills_null_and_ignores_none(pg_conn):
     job_id = _make_job(pg_conn, "https://topcv/d2")
     assert _deadline(pg_conn, job_id) is None
 
-    assert db.extend_job_deadline(pg_conn, job_id, None) is False
-    assert db.extend_job_deadline(pg_conn, job_id, date(2026, 10, 30)) is True
+    assert _link_new(pg_conn, job_id, None).deadline_extended is False                  # tin mới không hạn
+    assert _deadline(pg_conn, job_id) is None
+    assert _link_new(pg_conn, job_id, date(2026, 10, 30)).deadline_extended is True     # điền khi đang trống
     assert _deadline(pg_conn, job_id) == date(2026, 10, 30)
 
 
-def test_extend_job_deadline_does_not_touch_closed_job(pg_conn):
+def test_repost_does_not_count_a_deadline_change_of_a_closed_job(pg_conn):
+    """Job đóng (staff) nhận tin đăng lại: hạn job vẫn theo listing (C2) nhưng không phải 'dời hạn job OPEN'."""
     job_id = _make_job(pg_conn, "https://topcv/d3")
-    _set_deadline(pg_conn, job_id, date(2026, 8, 1))
-    with pg_conn.cursor() as cur:
-        cur.execute("UPDATE job_postings SET job_status = 'CLOSED' WHERE job_id = %s", (job_id,))
+    _set_all_deadlines(pg_conn, job_id, date(2026, 8, 1))
+    assert db.update_job(pg_conn, job_id, job_status="CLOSED")
     pg_conn.commit()
 
-    assert db.extend_job_deadline(pg_conn, job_id, date(2026, 10, 30)) is False
-    assert _deadline(pg_conn, job_id) == date(2026, 8, 1)
+    link = _link_new(pg_conn, job_id, date(2026, 10, 30))
+    assert link.inserted and not link.deadline_extended and not link.reopened
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT job_status::text FROM job_postings WHERE job_id = %s", (job_id,))
+        assert cur.fetchone()[0] == "CLOSED"
+    pg_conn.rollback()
+
+
+def test_repost_does_not_count_an_earlier_derived_deadline(pg_conn):
+    """Job chỉ có listing UNKNOWN (hạn muộn) nhận listing OPEN đầu tiên có hạn sớm hơn: job suy ra theo listing
+    OPEN nên hạn có thể lùi, nhưng đó không phải 'dời hạn ra sau' nên không được đếm."""
+    job_id = _make_job(pg_conn, "https://topcv/d4")
+    _set_all_deadlines(pg_conn, job_id, date(2026, 12, 1))
+    with pg_conn.cursor() as cur:
+        cur.execute("UPDATE job_sources_log SET listing_status = 'UNKNOWN' WHERE job_id = %s", (job_id,))
+    pg_conn.commit()
+
+    link = _link_new(pg_conn, job_id, date(2026, 9, 1))
+    assert link.inserted and not link.deadline_extended
+    assert _deadline(pg_conn, job_id) == date(2026, 9, 1)
 
 
 def test_repost_revives_expired_job_through_real_pipeline(pg_conn):
