@@ -28,6 +28,8 @@ một chỗ cần giữ đúng.
 import logging
 from typing import Optional
 
+from db.job_sync import sync_job_from_listings
+
 logger = logging.getLogger(__name__)
 
 LISTING_OPEN = "OPEN"
@@ -63,14 +65,16 @@ def insert_listing(conn, *, job_id: str, source_name: str, source_url: str,
     first_seen_at). detail_fetched=True ghi luôn detail_checked_at = now(): fetch trang chi tiết vừa thành
     công thì tin chắc chắn còn ở nguồn.
 
-    Đọc job bằng FOR SHARE rồi mới chèn: nếu nhân viên đang đóng job trong một transaction khác thì lệnh
-    đọc chờ tới khi họ commit, nên đọc ra đúng trạng thái đã đóng; ngược lại thao tác đóng job (update_job)
-    chờ listing vừa chèn commit xong rồi mới đóng nốt nó. Không có kẽ hở \"job CLOSED mà listing mới OPEN\"."""
+    Đọc job bằng FOR NO KEY UPDATE rồi mới chèn: nếu nhân viên đang đóng job trong một transaction khác thì
+    lệnh đọc chờ tới khi họ commit, nên đọc ra đúng trạng thái đã đóng; ngược lại thao tác đóng job
+    (update_job) chờ listing vừa chèn commit xong rồi mới đóng nốt nó. Không có kẽ hở \"job CLOSED mà listing
+    mới OPEN\". Cùng mức khoá với sync_job_from_listings và UPDATE job thường nên không có chuyện nâng khoá
+    giữa hai transaction (deadlock)."""
     if on_conflict not in _CONFLICT_SQL:
         raise ValueError(f"on_conflict không hợp lệ: {on_conflict!r}")
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT job_status::text, closed_reason FROM job_postings WHERE job_id = %s FOR SHARE",
+            "SELECT job_status::text, closed_reason FROM job_postings WHERE job_id = %s FOR NO KEY UPDATE",
             (job_id,),
         )
         row = cur.fetchone()
@@ -105,9 +109,13 @@ def mark_listing_detail_checked(conn, source_url: str, *, deadline=None) -> None
                    last_seen_at = GREATEST(last_seen_at, now()),
                    deadline = COALESCE(%s, deadline)
              WHERE source_url = %s
+            RETURNING job_id
             """,
             (deadline, source_url),
         )
+        row = cur.fetchone()
+    if row is not None:
+        sync_job_from_listings(conn, str(row[0]))      # hạn listing đổi thì hạn job suy ra có thể đổi theo
 
 
 def mark_listing_seen(conn, source_url: str) -> bool:
@@ -115,10 +123,15 @@ def mark_listing_seen(conn, source_url: str) -> bool:
     check_expired_source_jobs). Không đổi listing_status. Trả True nếu có dòng được ghi."""
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE job_sources_log SET last_seen_at = GREATEST(last_seen_at, now()) WHERE source_url = %s",
+            "UPDATE job_sources_log SET last_seen_at = GREATEST(last_seen_at, now()) WHERE source_url = %s "
+            "RETURNING job_id",
             (source_url,),
         )
-        return cur.rowcount > 0
+        row = cur.fetchone()
+    if row is None:
+        return False
+    sync_job_from_listings(conn, str(row[0]))          # job chưa có listing OPEN thì URL suy ra theo last_seen_at
+    return True
 
 
 def close_job_listings(conn, job_id: str) -> int:
@@ -143,7 +156,8 @@ def close_job_listings(conn, job_id: str) -> int:
 def reopen_job_listings(conn, job_id: str) -> int:
     """Luật 3. Gọi SAU khi nhân viên mở lại job (job đã được ghi OPEN trong cùng transaction): các listing
     chưa OPEN mà đóng vì 'staff', cùng listing hiện hành (URL trùng job_postings.source_url), về OPEN và
-    xoá closed_reason/closed_at. Job không OPEN thì không làm gì. Idempotent. Trả số listing vừa mở."""
+    xoá closed_reason/closed_at; nếu vậy mà job vẫn không có listing nào OPEN hoặc UNKNOWN thì mở listing
+    thấy gần nhất. Job không OPEN thì không làm gì. Idempotent. Trả số listing vừa mở."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -156,7 +170,23 @@ def reopen_job_listings(conn, job_id: str) -> int:
             """,
             (job_id,),
         )
-        return cur.rowcount
+        opened = cur.rowcount
+        # Dữ liệu cũ có thể không còn listing nào trùng job.source_url (vd URL đã đổi): nhân viên đã quyết định
+        # mở job thì phải có ít nhất một listing còn sống, nếu không job suy ra sẽ bị đóng lại ngay. Mở listing
+        # thấy gần nhất.
+        cur.execute(
+            """
+            UPDATE job_sources_log SET listing_status = 'OPEN', closed_reason = NULL, closed_at = NULL
+             WHERE log_id = (SELECT l.log_id FROM job_sources_log l
+                              WHERE l.job_id = %s ORDER BY l.last_seen_at DESC, l.source_url LIMIT 1)
+               AND listing_status = 'CLOSED'
+               AND EXISTS (SELECT 1 FROM job_postings WHERE job_id = %s AND job_status = 'OPEN')
+               AND NOT EXISTS (SELECT 1 FROM job_sources_log
+                                WHERE job_id = %s AND listing_status IN ('OPEN', 'UNKNOWN'))
+            """,
+            (job_id, job_id, job_id),
+        )
+        return opened + cur.rowcount
 
 
 def reopen_listing_for_repost(conn, job_id: str, source_url: str, deadline) -> bool:
@@ -179,42 +209,49 @@ def reopen_listing_for_repost(conn, job_id: str, source_url: str, deadline) -> b
     return found
 
 
-def set_current_listing_deadline(conn, job_id: str, deadline) -> int:
-    """Nhân viên sửa hoặc xoá hạn của job (PATCH, import): ghi cùng hạn đó vào listing hiện hành (URL trùng
-    job_postings.source_url), vì job.deadline vốn là hạn của URL hiện hành. Deadline NULL = xoá hạn. Chỉ ghi
-    một listing, không đụng listing khác. Trả số dòng ghi (0 nếu job không có listing hiện hành)."""
+def set_job_listings_deadline(conn, job_id: str, deadline) -> int:
+    """Nhân viên sửa hoặc xoá hạn của job (PATCH, import): ghi cùng hạn đó vào MỌI listing OPEN của job (bạn
+    duyệt 08/10: nhân viên gõ hạn nào thì hạn job đúng là hạn đó, kể cả khi job có nhiều listing OPEN hạn khác
+    nhau). Job không có listing OPEN thì ghi vào mọi listing, đúng \"vùng\" mà derive_job_from_listings lấy
+    hạn khi không có OPEN. Deadline None = xoá hạn. Trả số dòng ghi."""
     with conn.cursor() as cur:
         cur.execute(
             """
-            UPDATE job_sources_log l SET deadline = %s
-              FROM job_postings j
-             WHERE j.job_id = l.job_id AND l.job_id = %s AND l.source_url = j.source_url
+            UPDATE job_sources_log SET deadline = %s
+             WHERE job_id = %s
+               AND (listing_status = 'OPEN'
+                    OR NOT EXISTS (SELECT 1 FROM job_sources_log o
+                                    WHERE o.job_id = %s AND o.listing_status = 'OPEN'))
             """,
-            (deadline, job_id),
+            (deadline, job_id, job_id),
         )
         return cur.rowcount
 
 
 def job_is_closed_locked(conn, job_id: str) -> bool:
-    """Job đang CLOSED? Khoá dòng job (FOR UPDATE) để trạng thái đọc ra không đổi tới hết transaction.
+    """Job đang CLOSED? Khoá dòng job (FOR NO KEY UPDATE) để trạng thái đọc ra không đổi tới hết transaction.
     update_job gọi trước khi ghi job_status = 'OPEN' để biết đây có phải lần MỞ LẠI (CLOSED -> OPEN) hay
     chỉ là form gửi lại OPEN: chỉ lần mở lại mới mở listing (luật 3). Job không tồn tại thì False."""
     with conn.cursor() as cur:
-        cur.execute("SELECT job_status::text FROM job_postings WHERE job_id = %s FOR UPDATE", (job_id,))
+        cur.execute("SELECT job_status::text FROM job_postings WHERE job_id = %s FOR NO KEY UPDATE", (job_id,))
         row = cur.fetchone()
     return row is not None and row[0] == "CLOSED"
 
 
 def sync_listings_after_job_update(conn, job_id: str, *, job_status: Optional[str], was_closed: bool,
                                    deadline_changed: bool, deadline=None) -> None:
-    """Đưa listing theo kịp một lần db.update_job() vừa ghi job (nhân viên sửa tay, import,
+    """Đưa listing rồi job theo kịp một lần db.update_job() vừa ghi job (nhân viên sửa tay, import,
     check_expired_source_jobs). Gọi SAU câu UPDATE job_postings, cùng transaction.
       - job_status = 'CLOSED': đóng mọi listing (luật 2);
       - job_status = 'OPEN' và was_closed (đúng lần mở lại): luật 3;
-      - hạn được sửa hoặc xoá (`deadline` None khi xoá): ghi cùng hạn vào listing hiện hành."""
+      - hạn được sửa hoặc xoá (`deadline` None khi xoá): ghi vào mọi listing OPEN (set_job_listings_deadline);
+      - cuối cùng đồng bộ job theo listing (C2): giá trị job thành giá trị suy ra. Không có thay đổi trạng
+        thái hay hạn thì không đụng gì (sửa tên, lương... không tốn thêm câu nào)."""
     if job_status == "CLOSED":
         close_job_listings(conn, job_id)
     elif job_status == "OPEN" and was_closed:
         reopen_job_listings(conn, job_id)
     if deadline_changed:
-        set_current_listing_deadline(conn, job_id, deadline)
+        set_job_listings_deadline(conn, job_id, deadline)
+    if job_status is not None or deadline_changed:
+        sync_job_from_listings(conn, job_id)

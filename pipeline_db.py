@@ -79,6 +79,8 @@ class PipelineDB(Protocol):
 
     def reopen_job_for_repost(self, conn, job_id: str, *, source_url: str, deadline, today=None) -> bool: ...
 
+    def sync_job_from_listings(self, conn, job_id: str, *, followup_reasons=None) -> dict: ...
+
     def update_job_from_recrawl(
         self, conn, job_id: str, *, job_title: str, level_id: Optional[int] = None,
         work_type: Optional[str] = None, parsed_content: Optional[dict] = None,
@@ -110,7 +112,7 @@ PIPELINE_DB_WRITES = frozenset({
     "update_job_fields", "mark_source_detail_checked", "get_or_create_province",
     "get_or_create_company_by_profile", "update_company_profile",
     "link_repost_source", "extend_job_deadline", "reopen_job_for_repost", "insert_job",
-    "update_job_from_recrawl",
+    "update_job_from_recrawl", "sync_job_from_listings",
     # Giành khoá advisory cấp transaction (A4): không ghi dữ liệu nhưng giữ transaction mở tới
     # commit/rollback của nhánh, nên coi như ghi.
     "lock_job_dedup_key",

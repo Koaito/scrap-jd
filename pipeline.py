@@ -283,6 +283,8 @@ def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
         else:
             stats.repost_kept_closed += 1
             if reason in AUTO_REOPEN_REASONS:
+                # link_repost_source đã hoãn đồng bộ job này để chờ mở lại; không mở được thì đồng bộ ngay (C2).
+                db.sync_job_from_listings(conn, duplicate_job_id)
                 action = ", giữ nguyên CLOSED (hạn mới đã qua hoặc job đã đổi)"
             else:
                 action = f", giữ nguyên CLOSED (closed_reason={reason})"

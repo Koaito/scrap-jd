@@ -134,9 +134,12 @@ def _seed_closed_job(conn, company, url="https://x/old", reason="expired_auto", 
     stats = _crawl(conn, FakeAdapter([url], company=company, **adapter_kw))
     assert stats["inserted"] == 1
     job_id = _only_job(conn, company)[0]
+    # Đóng bằng db.update_job (như nhân viên / check_expired_source_jobs): từ C1, đóng job đóng luôn listing.
+    # Đóng bằng SQL thô sẽ để listing OPEN, và từ C2 job suy ra OPEN từ listing đó nên bị mở lại ngầm.
+    assert db.update_job(conn, job_id, job_status="CLOSED", closed_reason=reason)
     with conn.cursor() as cur:
-        cur.execute("UPDATE job_postings SET job_status = 'CLOSED', closed_reason = %s, "
-                    "deadline = '2020-01-01' WHERE job_id = %s", (reason, job_id))
+        cur.execute("UPDATE job_postings SET deadline = '2020-01-01' WHERE job_id = %s", (job_id,))
+        cur.execute("UPDATE job_sources_log SET deadline = '2020-01-01' WHERE job_id = %s", (job_id,))
     conn.commit()
     return job_id
 
@@ -187,7 +190,9 @@ def test_job_not_closed_by_expiry_stays_closed_and_only_gets_the_new_url(pg_conn
     assert stats["inserted"] == 0 and stats["skipped_duplicate_repost"] == 1
     assert stats["repost_kept_closed"] == 1 and "repost_reopened" not in stats
     jid, status, deadline, source_url, _ = _only_job(pg_conn, company)
-    assert (jid, status, deadline, source_url) == (job_id, "CLOSED", date(2020, 1, 1), "https://x/old")
+    # Job vẫn CLOSED, không audit mở lại. Từ C2 job là giá trị tổng hợp từ listing: không còn listing OPEN nên
+    # source_url là listing thấy gần nhất (URL mới) và hạn là hạn muộn nhất trong các listing (tin mới: 2099).
+    assert (jid, status, deadline, source_url) == (job_id, "CLOSED", date(2099, 12, 31), "https://x/new")
     assert str(db.get_job_probe_by_source_url(pg_conn, "https://x/new")[0]) == job_id   # URL mới đã được ghi nhận
     assert _scalar(pg_conn, "SELECT count(*) FROM audit_logs WHERE action_type = 'REOPEN_JOB'") == 0
     pg_conn.rollback()
@@ -227,7 +232,8 @@ def test_repost_whose_deadline_already_passed_does_not_reopen(pg_conn, company):
     assert stats["inserted"] == 0 and stats["skipped_duplicate_repost"] == 1
     assert stats["repost_kept_closed"] == 1 and "repost_reopened" not in stats
     jid, status, _, source_url, _ = _only_job(pg_conn, company)
-    assert (jid, status, source_url) == (job_id, "CLOSED", "https://x/old")
+    # Không mở lại được (hạn tin mới đã qua), job vẫn CLOSED; source_url suy ra từ listing thấy gần nhất (C2).
+    assert (jid, status, source_url) == (job_id, "CLOSED", "https://x/new")
 
 
 def test_open_job_repost_extends_deadline_as_before(pg_conn, company):
@@ -236,7 +242,8 @@ def test_open_job_repost_extends_deadline_as_before(pg_conn, company):
     assert stats["inserted"] == 0 and stats["skipped_duplicate_repost"] == 1
     assert stats["repost_deadline_extended"] == 1 and "repost_reopened" not in stats
     jid, status, deadline, source_url, _ = _only_job(pg_conn, company)
-    assert (jid, status, deadline, source_url) == (job_id, "OPEN", date(2099, 12, 31), "https://x/old")
+    # C2: job OPEN nhận tin đăng lại có source_url = URL listing OPEN mới nhất.
+    assert (jid, status, deadline, source_url) == (job_id, "OPEN", date(2099, 12, 31), "https://x/new")
 
 
 def _crawl_one_open(conn, company, deadline):

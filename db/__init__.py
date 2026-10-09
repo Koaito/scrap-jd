@@ -91,6 +91,7 @@ from db.job_recrawl import (
 from db.listing_state import (
     mark_listing_seen,
 )
+from db.job_sync import sync_job_from_listings
 from db.job_derivation import (
     derive_job_from_listings,
     list_jobs_with_listings,
@@ -344,6 +345,7 @@ __all__ = [
     "AUTO_REOPEN_REASONS",
     "mark_listing_seen",
     "derive_job_from_listings",
+    "sync_job_from_listings",
     "list_jobs_with_listings",
     "find_jobs_by_source_url_regex",
     "update_job_from_recrawl",

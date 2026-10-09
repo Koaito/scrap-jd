@@ -168,6 +168,7 @@ def test_repost_of_job_not_closed_by_expiry_is_not_reopened(pipeline_db, reason)
 
     pipeline_db.reopen_job_for_repost.assert_not_called()
     pipeline_db.link_repost_source.assert_called_once()              # vẫn ghi URL mới làm nguồn phụ
+    pipeline_db.sync_job_from_listings.assert_not_called()           # link_repost_source đã tự đồng bộ job này (C2)
     assert stats["repost_kept_closed"] == 1 and stats["skipped_duplicate_repost"] == 1
     assert "repost_reopened" not in stats
 
@@ -180,6 +181,15 @@ def test_repost_not_reopened_by_db_counts_as_kept_closed(pipeline_db):
 
     assert stats["repost_kept_closed"] == 1 and "repost_reopened" not in stats
     assert stats["skipped_duplicate_repost"] == 1
+    # link_repost_source hoãn đồng bộ job đóng expired_auto để chờ mở lại; không mở được thì pipeline đồng bộ ngay (C2)
+    pipeline_db.sync_job_from_listings.assert_called_once()
+    assert pipeline_db.sync_job_from_listings.call_args.args[1] == "job-orig"
+
+
+def test_repost_reopened_does_not_call_sync_itself(pipeline_db):
+    pipeline_db.find_repost_candidate.return_value = _candidate("job-orig", status="CLOSED")
+    pipeline.run_pipeline(FakeAdapter(["https://x/new-url"]), MagicMock(), "data-analyst", 1)
+    pipeline_db.sync_job_from_listings.assert_not_called()           # reopen_job_for_repost tự đồng bộ khi mở được
 
 
 def test_repost_of_open_job_never_tries_to_reopen(pipeline_db):

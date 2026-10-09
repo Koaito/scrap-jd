@@ -12,6 +12,7 @@ from typing import Optional
 
 from db.audit_logs import log_action
 from db.job_levels import _derived_level_assignments
+from db.job_sync import sync_job_from_listings
 from db.listing_state import CONFLICT_URL, insert_listing, reopen_listing_for_repost
 
 logger = logging.getLogger(__name__)
@@ -62,6 +63,9 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
         salary_raw_text=salary_raw_text, raw_jd_content=raw_jd_content,
         detail_fetched=True, deadline=deadline, on_conflict=CONFLICT_URL,
     )
+    if inserted:
+        # C2: job theo kịp listing mới (job OPEN nhận tin đăng lại thì source_url và hạn suy ra đổi theo).
+        sync_job_from_listings(conn, job_id, followup_reasons=AUTO_REOPEN_REASONS)
     with conn.cursor() as cur:
         if not inserted:
             cur.execute("SELECT job_id FROM job_sources_log WHERE source_url = %s", (source_url,))
@@ -194,7 +198,8 @@ def reopen_job_for_repost(conn, job_id: str, *, source_url: str, deadline,
         return False
     title, company_id, old_deadline, old_url, old_reason = row
     # Listing của URL mới (pipeline vừa ghi nó CLOSED theo job) về OPEN kèm hạn mới (C1, luật 4).
-    reopen_listing_for_repost(conn, job_id, source_url, deadline)
+    if reopen_listing_for_repost(conn, job_id, source_url, deadline):
+        sync_job_from_listings(conn, job_id)       # C2: no-op nếu job đã khớp listing vừa mở
     log_action(
         conn, actor_id=None, action_type="REOPEN_JOB", entity_type="JOB", entity_id=job_id,
         entity_label=title, company_id=str(company_id),

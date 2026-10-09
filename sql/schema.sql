@@ -373,10 +373,9 @@ CREATE TABLE IF NOT EXISTS job_sources_log (
     closed_reason     VARCHAR(20),
     closed_at         TIMESTAMPTZ,
 
-    CONSTRAINT uq_job_source UNIQUE (job_id, source_url),
     -- Một URL nguồn chỉ thuộc một job, đồng thời là index cho các câu tra theo riêng source_url
-    -- (D2, sql/0041_unique_source_url_job_sources_log.sql). uq_job_source giờ thừa về ràng buộc
-    -- nhưng còn được insert_job dùng làm đích ON CONFLICT; gỡ ở đợt C.
+    -- (D2, sql/0041_unique_source_url_job_sources_log.sql). Ràng buộc UNIQUE (job_id, source_url) cũ
+    -- (uq_job_source) đã gỡ ở C2, sql/0044_drop_uq_job_source.sql: UNIQUE (source_url) đã bao nó.
     CONSTRAINT uq_job_sources_log_source_url UNIQUE (source_url),
     CONSTRAINT chk_job_sources_log_listing_status CHECK (
         listing_status IN ('OPEN', 'CLOSED', 'UNKNOWN')

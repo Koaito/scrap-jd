@@ -39,6 +39,7 @@ def make_pipeline_db(**returns):
         "link_repost_source": True,
         "extend_job_deadline": False,
         "reopen_job_for_repost": True,
+        "sync_job_from_listings": {},
         "update_job_from_recrawl": True,
     }
     unknown = set(returns) - set(dir(PipelineDB))

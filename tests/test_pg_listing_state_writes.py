@@ -364,26 +364,31 @@ def test_reopen_of_auto_closed_job_opens_current_listing_only(pg_conn):
     """Job đóng vì expired_auto rồi nhân viên mở lại: listing hiện hành về OPEN (không để job OPEN mà 0
     listing OPEN); listing khác đóng vì expired_auto giữ nguyên."""
     job = _new_job(pg_conn)
-    cur_url = _job_url(pg_conn, job)
-    other = _link(pg_conn, job)
+    first = _job_url(pg_conn, job)
+    newest = _link(pg_conn, job)              # từ C2, source_url của job đi theo listing mới nhất
+    assert _job_url(pg_conn, job) == newest
     _close(pg_conn, job, "expired_auto")
     assert db.update_job(pg_conn, job, job_status="OPEN") is True
     pg_conn.commit()
-    assert _status(pg_conn, cur_url) == ("OPEN", None)
-    assert _status(pg_conn, other) == ("CLOSED", "expired_auto")
-
+    assert _status(pg_conn, newest) == ("OPEN", None)                    # listing hiện hành
+    assert _status(pg_conn, first) == ("CLOSED", "expired_auto")
+    assert _job_url(pg_conn, job) == newest                              # job khớp: OPEN, URL là listing OPEN
 
 def test_reopen_leaves_merged_reason_listing_closed(pg_conn):
     job = _new_job(pg_conn)
+    current = _job_url(pg_conn, job)
     other = _link(pg_conn, job)
-    with pg_conn.cursor() as cur:
-        cur.execute("UPDATE job_postings SET job_status = 'CLOSED', closed_reason = 'merged' WHERE job_id = %s",
-                    (job,))
-        cur.execute("UPDATE job_sources_log SET listing_status = 'CLOSED', closed_reason = 'merged' "
-                    "WHERE source_url = %s", (other,))
+    with pg_conn.cursor() as cur:        # dựng dữ liệu: listing `other` đóng vì merged và không phải listing hiện hành
+        cur.execute("UPDATE job_postings SET job_status = 'CLOSED', closed_reason = 'merged', source_url = %s "
+                    "WHERE job_id = %s", (current, job))
+        cur.execute("UPDATE job_sources_log SET listing_status = 'CLOSED', closed_reason = 'merged', "
+                    "closed_at = now() WHERE source_url = %s", (other,))
+        cur.execute("UPDATE job_sources_log SET listing_status = 'CLOSED', closed_reason = 'merged', "
+                    "closed_at = now() WHERE source_url = %s", (current,))
     pg_conn.commit()
     db.update_job(pg_conn, job, job_status="OPEN")
     pg_conn.commit()
+    assert _status(pg_conn, current) == ("OPEN", None)                   # listing hiện hành luôn được mở
     assert _status(pg_conn, other) == ("CLOSED", "merged")
 
 
@@ -416,22 +421,50 @@ def test_reopen_with_new_deadline_in_same_patch_writes_deadline_to_current_listi
 
 
 # ============================================================ hạn do nhân viên sửa / xoá
-def test_staff_deadline_edit_goes_to_current_listing_only(pg_conn):
+def test_staff_deadline_edit_goes_to_every_open_listing_and_job_keeps_what_staff_typed(pg_conn):
+    """Bạn duyệt 08/10: nhân viên gõ hạn nào thì hạn job đúng là hạn đó, kể cả khi job có nhiều listing OPEN hạn
+    khác nhau (hạn muộn nhất của listing khác không đè lại được)."""
     job = _new_job(pg_conn, deadline=FUTURE)
-    cur_url = _job_url(pg_conn, job)
-    other = _link(pg_conn, job, deadline=FUTURE)
+    first = _job_url(pg_conn, job)
+    second = _link(pg_conn, job, deadline=FUTURE2)
+    closed = _link(pg_conn, job, deadline=FUTURE2)
+    with pg_conn.cursor() as cur:
+        cur.execute("UPDATE job_sources_log SET listing_status = 'CLOSED', closed_reason = 'expired_auto', "
+                    "closed_at = now() WHERE source_url = %s", (closed,))
+    pg_conn.commit()
+    earlier = date(2090, 1, 1)
+    db.update_job(pg_conn, job, deadline=earlier)                      # hạ hạn xuống dưới hạn của listing khác
+    pg_conn.commit()
+    assert _listing(pg_conn, first)["deadline"] == earlier
+    assert _listing(pg_conn, second)["deadline"] == earlier
+    assert _listing(pg_conn, closed)["deadline"] == FUTURE2             # listing đã đóng không bị đụng
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT deadline FROM job_postings WHERE job_id = %s", (job,))
+        assert cur.fetchone()[0] == earlier
+    pg_conn.rollback()
+
+
+def test_staff_deadline_edit_on_closed_job_writes_to_all_its_listings(pg_conn):
+    job = _new_job(pg_conn, deadline=FUTURE)
+    a = _job_url(pg_conn, job)
+    b = _link(pg_conn, job)
+    _close(pg_conn, job)
     db.update_job(pg_conn, job, deadline=FUTURE2)
     pg_conn.commit()
-    assert _listing(pg_conn, cur_url)["deadline"] == FUTURE2
-    assert _listing(pg_conn, other)["deadline"] == FUTURE
+    assert _listing(pg_conn, a)["deadline"] == FUTURE2 and _listing(pg_conn, b)["deadline"] == FUTURE2
 
 
-def test_staff_clearing_deadline_clears_current_listing_deadline(pg_conn):
+def test_staff_clearing_deadline_clears_every_open_listing_and_the_job(pg_conn):
     job = _new_job(pg_conn, deadline=FUTURE)
-    url = _job_url(pg_conn, job)
+    first = _job_url(pg_conn, job)
+    second = _link(pg_conn, job, deadline=FUTURE2)
     db.update_job(pg_conn, job, clear_fields={"deadline"})
     pg_conn.commit()
-    assert _listing(pg_conn, url)["deadline"] is None
+    assert _listing(pg_conn, first)["deadline"] is None and _listing(pg_conn, second)["deadline"] is None
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT deadline FROM job_postings WHERE job_id = %s", (job,))
+        assert cur.fetchone()[0] is None
+    pg_conn.rollback()
 
 
 def test_update_without_deadline_leaves_listing_deadline(pg_conn):
@@ -472,19 +505,23 @@ def test_mark_source_detail_checked_without_deadline_keeps_old_deadline(pg_conn)
     assert _listing(pg_conn, url)["deadline"] == FUTURE
 
 
-def test_mark_source_detail_checked_does_not_touch_job_postings(pg_conn):
+def test_mark_source_detail_checked_syncs_job_deadline_without_bumping_updated_at(pg_conn):
+    """Hạn đọc được từ trang đi vào listing và job theo kịp (C2), nhưng việc giữ cho khớp không phải người sửa
+    job nên updated_at đứng yên."""
     url = _url()
     job = _new_job(pg_conn, url=url, deadline=None)
     with pg_conn.cursor() as cur:
         cur.execute("SELECT updated_at, deadline FROM job_postings WHERE job_id = %s", (job,))
         before = cur.fetchone()
     pg_conn.rollback()
+    assert before[1] is None
     db.mark_source_detail_checked(pg_conn, url, deadline=FUTURE)
     pg_conn.commit()
     with pg_conn.cursor() as cur:
         cur.execute("SELECT updated_at, deadline FROM job_postings WHERE job_id = %s", (job,))
-        assert cur.fetchone() == before
+        after = cur.fetchone()
     pg_conn.rollback()
+    assert after == (before[0], FUTURE)
 
 
 def test_mark_listing_seen_moves_last_seen_forward_only(pg_conn):

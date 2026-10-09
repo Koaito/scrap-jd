@@ -260,8 +260,9 @@ def test_title_edit_updates_the_job_through_the_real_pipeline(pg_conn):
                "jp.job_status FROM job_postings jp LEFT JOIN levels l USING (level_id) "
                "WHERE jp.job_id = %s", (job_id,))
     assert row == ("Data Engineer (Senior)", "Senior", "PART_TIME", 30_000_000, 40_000_000,
-                   "mô tả v2", date(2026, 10, 10), None, a1.url, "OPEN")
-    # Công ty và tỉnh không bị đụng; URL mới được ghi làm nguồn phụ, URL gốc giữ nguyên.
+                   "mô tả v2", date(2026, 10, 10), None, a2.url, "OPEN")
+    # Công ty và tỉnh không bị đụng; URL mới được ghi làm listing mới, và từ C2 source_url của job là URL đó
+    # (listing OPEN mới nhất); URL gốc vẫn còn trong job_sources_log.
     assert _one(pg_conn, "SELECT province_id, company_id FROM job_postings WHERE job_id = %s",
                 (job_id,)) == province_before
     assert _one(pg_conn, "SELECT count(*) FROM job_sources_log WHERE job_id = %s", (job_id,)) == (2,)

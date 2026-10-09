@@ -115,7 +115,8 @@ def test_link_repost_source_adds_row_once_without_new_job(pg_conn):
     assert _count(pg_conn, "SELECT count(*) FROM job_sources_log WHERE job_id = %s", (job_id,)) == 2
     with pg_conn.cursor() as cur:
         cur.execute("SELECT source_url FROM job_postings WHERE job_id = %s", (job_id,))
-        assert cur.fetchone()[0] == "https://topcv/a"  # link_repost_source không đụng job_postings.source_url
+        # C2: job là giá trị tổng hợp từ listing, nên source_url của job OPEN nhận tin đăng lại là URL listing mới nhất.
+        assert cur.fetchone()[0] == "https://topcv/a-repost"
         cur.execute("SELECT raw_jd_content FROM job_sources_log WHERE source_url = %s",
                     ("https://topcv/a-repost",))
         assert cur.fetchone()[0] == "đăng lại"

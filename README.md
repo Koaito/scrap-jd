@@ -478,7 +478,15 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   hạn và `source_url` của từng job từ các listing của nó (luật ở `db/job_derivation.py`: OPEN nếu có listing
   OPEN hoặc UNKNOWN; hạn muộn nhất trong các listing OPEN; URL của listing OPEN mới nhất) rồi so với giá trị
   đang lưu trong `job_postings`, in số liệu lệch theo từng trường và loại lệch. `--csv FILE` xuất từng trường
-  lệch, `--show N` đổi số ví dụ, `--strict` thoát mã 2 nếu còn lệch. Chưa có chỗ ghi nào dùng phép suy ra này.
+  lệch, `--show N` đổi số ví dụ, `--strict` thoát mã 2 nếu còn lệch.
+- **Job theo kịp listing** (C2 nửa 2/2, `db/job_sync.py`): sau mỗi lần ghi listing, `sync_job_from_listings` ghi lại
+  `job_status`, `closed_reason`, `deadline`, `source_url` của job cho bằng giá trị suy ra (chỉ cột lệch; không làm
+  nhảy `updated_at`). Gọi từ `link_repost_source`, `reopen_job_for_repost`, `update_job` (đóng, mở lại, sửa hạn),
+  `mark_source_detail_checked`, `mark_listing_seen`. Hệ quả cần biết: job OPEN nhận tin đăng lại có `source_url` là
+  URL của listing OPEN mới nhất (nên `check_expired_source_jobs` kiểm tra URL đó); nhân viên sửa hoặc xoá hạn thì hạn
+  được ghi vào mọi listing OPEN của job, nên hạn job đúng bằng những gì nhân viên gõ. Hai hàm cũ `extend_job_deadline`
+  và `reopen_job_for_repost` còn chạy, tạm thời, tới C4. Migration `0044` gỡ `uq_job_source`; chạy SAU khi code này
+  Live. `merge-duplicates` chưa đồng bộ (thuộc C3).
 - **VietnamWorks: nhận ra tin bị sửa tiêu đề theo mã job.** Nhà tuyển dụng sửa
   tiêu đề thì URL đổi (phần chữ) còn mã số cuối URL (`...-<mã>-jv`) giữ
   nguyên. Gặp URL chưa có trong DB, pipeline tìm job VietnamWorks còn `OPEN`

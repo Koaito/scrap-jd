@@ -140,6 +140,9 @@ class FakeDB:
     def reopen_job_for_repost(self, conn, *a, **k):
         return self._write("reopen_job_for_repost", conn, True)
 
+    def sync_job_from_listings(self, conn, *a, **k):
+        return self._write("sync_job_from_listings", conn, {})
+
     def insert_job(self, conn, **k):
         return self._write("insert_job", conn)
 
