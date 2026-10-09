@@ -19,10 +19,10 @@ Script làm gì, với mỗi job chọn được:
 Mỗi job là một transaction riêng, chạy lại an toàn.
 
 CHẠY THỬ TRƯỚC (mặc định, KHÔNG ghi DB, vẫn tải trang nên tốn request):
-    python backfill_vnw_detail.py --limit 20
+    python -m scripts.backfill.backfill_vnw_detail --limit 20
 Xem bảng "level cũ -> mới", rồi mới ghi thật:
-    python backfill_vnw_detail.py --limit 20 --apply
-    python backfill_vnw_detail.py --apply            # chạy hết, có thể ngắt giữa chừng
+    python -m scripts.backfill.backfill_vnw_detail --limit 20 --apply
+    python -m scripts.backfill.backfill_vnw_detail --apply            # chạy hết, có thể ngắt giữa chừng
 
 Chọn job nào (mặc định): job VietnamWorks chưa đóng, chưa ai sửa tay
 (updated_by IS NULL), và (JD bị cắt HOẶC level đang là Junior).

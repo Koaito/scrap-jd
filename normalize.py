@@ -718,7 +718,7 @@ def normalize_company_size(company_size_text: Optional[str]) -> str:
 # vẫn giữ mã job (dữ liệu thật: mã 2110157 từng là "Account Manager", nay là
 # "Sales Assistant"; mã 2109152 từng là "BACK-END DEVELOPER", nay là "Kỹ Sư An
 # Toàn Thông Tin"). Gộp hai tin như vậy vào một dòng sẽ làm dòng đó sai, nên cả
-# backfill_vnw_detail.py lẫn pipeline crawl chỉ coi là cùng một job khi tiêu đề
+# scripts/backfill/backfill_vnw_detail.py lẫn pipeline crawl chỉ coi là cùng một job khi tiêu đề
 # còn "gần giống". Đặt ở đây (không phải trong script) vì pipeline.py không được
 # import từ script.
 MIN_TITLE_OVERLAP = 0.5

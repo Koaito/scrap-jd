@@ -16,8 +16,8 @@ AN TOÀN: mặc định DRY-RUN — chỉ in ra sẽ đổi gì, KHÔNG ghi DB. 
 --apply mới thực sự UPDATE + commit.
 
 Cách chạy:
-    python fix_company_size_format.py            # xem trước sẽ đổi gì
-    python fix_company_size_format.py --apply     # ghi thật vào DB
+    python -m scripts.oneoff.fix_company_size_format            # xem trước sẽ đổi gì
+    python -m scripts.oneoff.fix_company_size_format --apply     # ghi thật vào DB
 """
 
 import argparse
@@ -96,7 +96,7 @@ def main():
     print(f"Không cần đổi                : {stats['unchanged']}")
     if not args.apply and stats["changed"] > 0:
         print("\n-> Đây là DRY-RUN, DB CHƯA bị đổi gì. Chạy lại kèm --apply để ghi thật:")
-        print("   python fix_company_size_format.py --apply")
+        print("   python -m scripts.oneoff.fix_company_size_format --apply")
 
 
 if __name__ == "__main__":

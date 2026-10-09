@@ -300,7 +300,7 @@ def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
 
 def _jd_looks_truncated(parsed_content) -> bool:
     """True nếu mô tả/yêu cầu kết thúc bằng "..." — dấu hiệu bản JD bị API search
-    của VietnamWorks cắt ngắn (đúng tiêu chí backfill_vnw_detail.py dùng để tìm
+    của VietnamWorks cắt ngắn (đúng tiêu chí scripts/backfill/backfill_vnw_detail.py dùng để tìm
     JD cắt). Xảy ra khi trang chi tiết không giải mã được và adapter phải dùng
     dữ liệu search. Bản như vậy không được đè lên JD đầy đủ đã lưu."""
     if not parsed_content:

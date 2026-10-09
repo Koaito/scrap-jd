@@ -2,7 +2,7 @@
 normalize.titles_similar / title_overlap — so khớp tiêu đề để biết hai tin cùng
 mã job VietnamWorks còn là một vị trí hay đã bị đổi sang vị trí khác.
 
-Dùng chung bởi backfill_vnw_detail.py và pipeline crawl. Không cần DB.
+Dùng chung bởi scripts/backfill/backfill_vnw_detail.py và pipeline crawl. Không cần DB.
 """
 import os
 import sys

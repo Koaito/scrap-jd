@@ -717,7 +717,7 @@ class TopCVAdapter(BaseAdapter):
         return result
 
     # ------------------------------------------------------------------
-    # Đọc lại nhãn "Kinh nghiệm" của job ĐÃ LƯU (dùng bởi backfill_topcv_level.py)
+    # Đọc lại nhãn "Kinh nghiệm" của job ĐÃ LƯU (dùng bởi scripts/backfill/backfill_topcv_level.py)
     # ------------------------------------------------------------------
     REFRESH_OK = "ok"
     REFRESH_UNAVAILABLE = "unavailable"  # 404/410/lỗi mạng: không có trang để đọc

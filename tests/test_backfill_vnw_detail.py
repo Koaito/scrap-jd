@@ -1,5 +1,5 @@
 """
-Test backfill_vnw_detail.py (vá job VietnamWorks đã lưu) và
+Test scripts/backfill/backfill_vnw_detail.py (vá job VietnamWorks đã lưu) và
 VietnamWorksAdapter.fetch_refreshed_job() — KHÔNG cần database, KHÔNG cần internet.
 """
 
@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import backfill_vnw_detail as bf
+from scripts.backfill import backfill_vnw_detail as bf
 from adapters.base import CrawlBlockedError
 from adapters.vietnamworks import VietnamWorksAdapter
 from vnw_page_builder import build_detail_html

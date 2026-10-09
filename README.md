@@ -378,8 +378,11 @@ enrich_company_profile_from_website.py   <- vá industry/products_services qua w
 enrich_company_web_info.py               <- vá website/tax_id qua Tavily + Gemini
 get_company_fb_linkedin_link.py          <- vá fanpage/LinkedIn qua website
 check_expired_source_jobs.py             <- re-check job OPEN còn sống ở nguồn không
-backfill_vnw_detail.py                   <- vá JD đầy đủ + level cho job VietnamWorks đã lưu
-backfill_topcv_level.py                  <- vá level Senior -> Lead cho job TopCV nhãn "Trên 5 năm" đã lưu
+
+scripts/                                 <- script chạy tay, KHÔNG do API gọi. Chạy từ GỐC repo: python -m scripts.<nhóm>.<tên>
+  backfill/backfill_vnw_detail.py        <- vá JD đầy đủ + level cho job VietnamWorks đã lưu (python -m scripts.backfill.backfill_vnw_detail --limit 20)
+  backfill/backfill_topcv_level.py       <- vá level Senior -> Lead cho job TopCV nhãn "Trên 5 năm" đã lưu (python -m scripts.backfill.backfill_topcv_level --limit 20)
+  oneoff/fix_company_size_format.py      <- chạy MỘT LẦN: bỏ hậu tố "nhân viên" của company_size cũ (mặc định dry-run, thêm --apply để ghi)
 
 api/                       <- lớp API FastAPI (chi tiết xem API_README.md)
   app.py                   <- entry point: xác thực, CORS, router, lifespan

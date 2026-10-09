@@ -1,5 +1,5 @@
 """
-Test backfill_topcv_level.py (vá level Senior -> Lead cho job TopCV nhãn
+Test scripts/backfill/backfill_topcv_level.py (vá level Senior -> Lead cho job TopCV nhãn
 "Trên 5 năm"), normalize.level_from_title / infer_level_from_requirements và
 TopCVAdapter.parse_experience_label() — KHÔNG cần database, KHÔNG cần internet.
 """
@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import backfill_topcv_level as bf
+from scripts.backfill import backfill_topcv_level as bf
 import normalize
 from adapters.base import CrawlBlockedError
 from adapters.topcv import TopCVAdapter

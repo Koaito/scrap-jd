@@ -603,7 +603,7 @@ class VietnamWorksAdapter(BaseAdapter):
         return cached
 
     # ------------------------------------------------------------------
-    # Tải lại trang chi tiết cho job ĐÃ LƯU (dùng bởi backfill_vnw_detail.py)
+    # Tải lại trang chi tiết cho job ĐÃ LƯU (dùng bởi scripts/backfill/backfill_vnw_detail.py)
     # ------------------------------------------------------------------
     REFRESH_OK = "ok"
     REFRESH_UNAVAILABLE = "unavailable"

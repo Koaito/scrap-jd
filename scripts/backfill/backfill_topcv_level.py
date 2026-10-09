@@ -22,11 +22,11 @@ Báo cáo tách riêng số job đổi theo "nhãn trang" và theo "suy từ ch�
 biết phần nào chắc chắn. --no-fetch chỉ chạy mức 1 (không tốn request).
 
 CHẠY THỬ TRƯỚC (mặc định, KHÔNG ghi DB, vẫn tải trang nên tốn request):
-    python backfill_topcv_level.py --limit 20
+    python -m scripts.backfill.backfill_topcv_level --limit 20
 Rồi ghi thật:
-    python backfill_topcv_level.py --apply
+    python -m scripts.backfill.backfill_topcv_level --apply
 Chỉ suy từ chữ, không tải trang:
-    python backfill_topcv_level.py --no-fetch --apply
+    python -m scripts.backfill.backfill_topcv_level --no-fetch --apply
 
 Chọn job nào: job TopCV đang Senior, chưa đóng, chưa ai sửa tay
 (updated_by IS NULL). --include-closed gồm cả job CLOSED, --created-before
