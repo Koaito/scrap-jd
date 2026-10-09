@@ -27,7 +27,7 @@ from scrapjd.adapters.vietnamworks import (
     _level_hint_from_job_level,
 )
 from scrapjd.adapters.vietnamworks_detail import is_gone_page, job_id_from_url, parse_detail_page, redirect_target
-from snapshots import SnapshotRecorder
+from scrapjd.snapshots import SnapshotRecorder
 from vnw_page_builder import build_detail_html
 
 HERE = os.path.dirname(__file__)

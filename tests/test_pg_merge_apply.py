@@ -28,8 +28,8 @@ import psycopg2.extras
 import pytest
 
 from scrapjd import db
-import duplicate_report as dr
-import merge_duplicates as md
+from scrapjd.cli import duplicate_report as dr
+from scrapjd.cli import merge_duplicates as md
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
@@ -769,7 +769,7 @@ def _listings(conn, job_id):
 
 
 def _mismatches(conn, job_id):
-    import check_listing_derivation as cld
+    from scrapjd.cli import check_listing_derivation as cld
     report = cld.build_report(db.list_jobs_with_listings(conn))
     return [(m.field, m.stored, m.derived) for m in report.mismatches if m.job_id == job_id]
 

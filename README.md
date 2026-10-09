@@ -306,14 +306,14 @@ python main.py crawl --source careerviet --category business-analyst --pages 3
 
 # 2. Vá hồ sơ công ty còn thiếu field: chạy SAU crawl, đúng thứ tự dưới
 #    (script sau chỉ xử lý công ty mà script trước không vá được)
-python backfill_company_profiles.py
-python enrich_company_profile_from_website.py
-python enrich_company_web_info.py
-python get_company_fb_linkedin_link.py
+python -m scrapjd.maintenance.backfill_company_profiles
+python -m scrapjd.maintenance.enrich_company_profile_from_website
+python -m scrapjd.maintenance.enrich_company_web_info
+python -m scrapjd.maintenance.get_company_fb_linkedin_link
 
 # 3. Dọn job hết hạn: chạy định kỳ (cron hằng ngày là hợp lý)
-python check_expired_source_jobs.py --dry-run   # xem thử
-python check_expired_source_jobs.py             # chạy thật
+python -m scrapjd.maintenance.check_expired_source_jobs --dry-run   # xem thử
+python -m scrapjd.maintenance.check_expired_source_jobs             # chạy thật
 ```
 
 Bước 1 và 2 độc lập về mặt kỹ thuật, nhưng chạy bước 2 sau bước 1 hiệu quả
@@ -364,22 +364,26 @@ scrapjd/                   <- package code lõi (đang dời dần từ thư m�
     job_duplicates.py      <- SQL (chỉ đọc) của `report-duplicates`: job nằm trong nhóm nghi trùng + dữ liệu con
     job_merge.py           <- SQL của `merge-duplicates`: đọc chi tiết job + dữ liệu con, gộp một nhóm trong transaction (merge_job_group), kiểm tra enum MERGE_JOB / crawl đang chạy
     __init__.py            <- re-export toàn bộ tên, dùng qua `from scrapjd import db`
-pipeline.py                <- nối adapter -> normalize -> db; xử lý từng job theo các bước nhỏ
+  pipeline_db.py           <- PipelineDB (Protocol): những hàm db mà pipeline.py gọi, kèm phân loại đọc/ghi (B2)
+  pipeline.py              <- nối adapter -> normalize -> db; xử lý từng job theo các bước nhỏ
                               (_process_job -> _import_new_job -> _import_repost / _insert_new_job)
-pipeline_stats.py          <- PipelineStats: bộ đếm của một lượt crawl (dataclass, gõ sai tên báo lỗi
+  pipeline_stats.py        <- PipelineStats: bộ đếm của một lượt crawl (dataclass, gõ sai tên báo lỗi
                               ngay); run_pipeline() vẫn trả dict qua to_dict()
-field_stats.py             <- đếm tỷ lệ field rỗng, quyết định lượt crawl có "degraded" không
-snapshots.py               <- SnapshotRecorder: giữ mẫu HTML/JSON gốc của mỗi lượt crawl
+  field_stats.py           <- đếm tỷ lệ field rỗng, quyết định lượt crawl có "degraded" không
+  snapshots.py             <- SnapshotRecorder: giữ mẫu HTML/JSON gốc của mỗi lượt crawl
+  cli/                     <- logic của các lệnh con `main.py` (main.py chỉ phân lệnh và gọi vào đây)
+    recompute_levels.py    <- logic lệnh `recompute-levels`: tính lại level từ tiêu đề + level_signals (chạy thử / --apply)
+    duplicate_report.py    <- logic lệnh `report-duplicates`: phân loại nhóm job nghi trùng + đề xuất job giữ (chỉ đọc)
+    merge_duplicates.py    <- lệnh `merge-duplicates` (3b): chọn nhóm, job giữ, hợp nhất trường, kế hoạch chuyển dữ liệu con (thuần) + điều phối --apply (xác nhận, kiểm tra crawl, gộp từng nhóm, báo cáo)
+    repost_report.py       <- logic lệnh `report-reposts`: ước lượng tỷ lệ gộp nhóm job (chỉ đọc)
+    check_listing_derivation.py  <- logic lệnh `check-listing-derivation`: so giá trị job suy ra từ listing với giá trị đang lưu (chỉ đọc)
+  maintenance/             <- vá/dọn dữ liệu: API gọi qua api/maintenance_runner.py; chạy tay từ GỐC repo: python -m scrapjd.maintenance.<tên>
+    backfill_company_profiles.py            <- vá profile công ty qua source_profile_url đã lưu
+    enrich_company_profile_from_website.py  <- vá industry/products_services qua website + Gemini
+    enrich_company_web_info.py              <- vá website/tax_id qua Tavily + Gemini
+    get_company_fb_linkedin_link.py         <- vá fanpage/LinkedIn qua website
+    check_expired_source_jobs.py            <- re-check job OPEN còn sống ở nguồn không
 main.py                    <- CLI: init-db, migrate, crawl, stats, snapshots, snapshot-export, create-admin, recompute-levels, report-duplicates, merge-duplicates
-recompute_levels.py        <- logic lệnh `recompute-levels`: tính lại level từ tiêu đề + level_signals (chạy thử / --apply)
-duplicate_report.py        <- logic lệnh `report-duplicates`: phân loại nhóm job nghi trùng + đề xuất job giữ (chỉ đọc)
-merge_duplicates.py        <- lệnh `merge-duplicates` (3b): chọn nhóm, job giữ, hợp nhất trường, kế hoạch chuyển dữ liệu con (thuần) + điều phối --apply (xác nhận, kiểm tra crawl, gộp từng nhóm, báo cáo)
-
-backfill_company_profiles.py             <- vá profile công ty qua source_profile_url đã lưu
-enrich_company_profile_from_website.py   <- vá industry/products_services qua website + Gemini
-enrich_company_web_info.py               <- vá website/tax_id qua Tavily + Gemini
-get_company_fb_linkedin_link.py          <- vá fanpage/LinkedIn qua website
-check_expired_source_jobs.py             <- re-check job OPEN còn sống ở nguồn không
 
 scripts/                                 <- script chạy tay, KHÔNG do API gọi. Chạy từ GỐC repo: python -m scripts.<nhóm>.<tên>
   backfill/backfill_vnw_detail.py        <- vá JD đầy đủ + level cho job VietnamWorks đã lưu (python -m scripts.backfill.backfill_vnw_detail --limit 20)
@@ -595,14 +599,15 @@ Snapshot có thể chứa email, số điện thoại của nhà tuyển dụng:
 
 ## 2. Vá hồ sơ công ty
 
-Bốn script độc lập, không nằm trong pipeline crawl chính, chạy khi cần.
+Bốn script độc lập, không nằm trong pipeline crawl chính, chạy khi cần. Chạy từ GỐC repo bằng
+`python -m scrapjd.maintenance.<tên>` (chạy `python x.py` thì import hỏng).
 So sánh nhanh ở bảng trong [Quy trình đầu-cuối](#quy-trình-đầu-cuối).
 
 ### `backfill_company_profiles.py`
 
 ```bash
-python backfill_company_profiles.py --limit 10   # thử ít công ty
-python backfill_company_profiles.py              # chạy đầy đủ
+python -m scrapjd.maintenance.backfill_company_profiles --limit 10   # thử ít công ty
+python -m scrapjd.maintenance.backfill_company_profiles              # chạy đầy đủ
 ```
 
 Vá `industry`, `company_size`, `address`, `website` (nhặt kèm
@@ -615,8 +620,8 @@ thẳng trang gốc, không qua search và LLM suy luận).
 ### `enrich_company_profile_from_website.py`
 
 ```bash
-python enrich_company_profile_from_website.py --limit 50
-python enrich_company_profile_from_website.py
+python -m scrapjd.maintenance.enrich_company_profile_from_website --limit 50
+python -m scrapjd.maintenance.enrich_company_profile_from_website
 ```
 
 Vá `industry` và `products_services` cho công ty **đã có `website`** nhưng
@@ -629,8 +634,8 @@ là OR: thiếu `industry` HOẶC thiếu `products_services` đều được ch
 ### `enrich_company_web_info.py`
 
 ```bash
-python enrich_company_web_info.py --limit 10
-python enrich_company_web_info.py
+python -m scrapjd.maintenance.enrich_company_web_info --limit 10
+python -m scrapjd.maintenance.enrich_company_web_info
 ```
 
 Vá `website` và `tax_id` cho công ty còn thiếu, bằng Tavily search (2 query
@@ -648,8 +653,8 @@ hoặc crawl từ nguồn không hỗ trợ `fetch_company_profile`). Cần
 ### `get_company_fb_linkedin_link.py`
 
 ```bash
-python get_company_fb_linkedin_link.py --limit 10
-python get_company_fb_linkedin_link.py
+python -m scrapjd.maintenance.get_company_fb_linkedin_link --limit 10
+python -m scrapjd.maintenance.get_company_fb_linkedin_link
 ```
 
 Vá `fanpage_url` và `linkedin_url` cho công ty **đã có `website`**, bằng
@@ -665,15 +670,15 @@ link có thật khi mở bằng trình duyệt.
 
 ## 3. Dọn job hết hạn
 
-**`check_expired_source_jobs.py`**: nên chạy sau mỗi đợt crawl hoặc định kỳ
+**`check_expired_source_jobs.py`** (`scrapjd/maintenance/`, chạy từ GỐC repo bằng `-m` như các lệnh dưới): nên chạy sau mỗi đợt crawl hoặc định kỳ
 (cron hằng ngày). JD trên nguồn bị nhà tuyển dụng xoá sau một thời gian
 nhưng DB không tự biết, nên job vẫn hiện `OPEN` dù link nguồn đã chết.
 
 ```bash
-python check_expired_source_jobs.py --dry-run          # xem thử, KHÔNG ghi DB
-python check_expired_source_jobs.py                    # chạy thật
-python check_expired_source_jobs.py --check-deadline   # chỉ check deadline, không fetch mạng, nhanh hơn
-python check_expired_source_jobs.py --limit 20         # giới hạn số job xử lý, để thử
+python -m scrapjd.maintenance.check_expired_source_jobs --dry-run          # xem thử, KHÔNG ghi DB
+python -m scrapjd.maintenance.check_expired_source_jobs                    # chạy thật
+python -m scrapjd.maintenance.check_expired_source_jobs --check-deadline   # chỉ check deadline, không fetch mạng, nhanh hơn
+python -m scrapjd.maintenance.check_expired_source_jobs --limit 20         # giới hạn số job xử lý, để thử
 ```
 
 **Nguyên tắc "thà thiếu còn hơn sai"**: chỉ tự chuyển `EXPIRED` khi tín hiệu

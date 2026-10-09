@@ -58,11 +58,11 @@ MƠ HỒ:
   Từ C3b cũng chạy trên listing (xem dưới).
 
 CHẠY:
-    python check_expired_source_jobs.py                # check tất cả job OPEN có source_url
-    python check_expired_source_jobs.py --limit 20      # test thử trước khi chạy full
-    python check_expired_source_jobs.py --check-deadline  # CHỈ check deadline quá hạn, không fetch mạng
-    python check_expired_source_jobs.py --dry-run       # chỉ in ra job sẽ bị đóng, KHÔNG ghi DB
-    python check_expired_source_jobs.py --skip-cv-cleanup  # bỏ qua bước dọn CV (xem mục DỌN CV bên dưới)
+    python -m scrapjd.maintenance.check_expired_source_jobs                # check tất cả job OPEN có source_url
+    python -m scrapjd.maintenance.check_expired_source_jobs --limit 20      # test thử trước khi chạy full
+    python -m scrapjd.maintenance.check_expired_source_jobs --check-deadline  # CHỈ check deadline quá hạn, không fetch mạng
+    python -m scrapjd.maintenance.check_expired_source_jobs --dry-run       # chỉ in ra job sẽ bị đóng, KHÔNG ghi DB
+    python -m scrapjd.maintenance.check_expired_source_jobs --skip-cv-cleanup  # bỏ qua bước dọn CV (xem mục DỌN CV bên dưới)
 
 NÊN CHẠY ĐỊNH KỲ — hiện CHƯA CÓ cron tự động (hạ tầng máy chủ hiện tại
 chưa đáp ứng được lịch chạy tự động, xem thảo luận 08/2026), tạm thời

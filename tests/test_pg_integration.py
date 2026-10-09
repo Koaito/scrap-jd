@@ -417,7 +417,7 @@ def test_get_recent_blocked_run_only_matches_blocked_errors_in_window(pg_conn, c
 
 
 def test_snapshot_roundtrip_retention_and_cascade(pg_conn, clean_crawl_snapshots):
-    from snapshots import SnapshotRecorder
+    from scrapjd.snapshots import SnapshotRecorder
 
     run_id = _insert_run(pg_conn, "snap_src", "running", started_min_ago=1, last_update=0)
     rec = SnapshotRecorder()

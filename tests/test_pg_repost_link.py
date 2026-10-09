@@ -17,7 +17,7 @@ import psycopg2
 import pytest
 
 from scrapjd import db
-import pipeline
+from scrapjd import pipeline
 from scrapjd.adapters.base import BaseAdapter
 from scrapjd.models import RawJobRecord
 

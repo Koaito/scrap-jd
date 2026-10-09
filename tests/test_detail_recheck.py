@@ -17,7 +17,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scrapjd import db
-import pipeline
+from scrapjd import pipeline
 from scrapjd.adapters.base import BaseAdapter
 from scrapjd.models import RawJobRecord
 

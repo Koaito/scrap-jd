@@ -20,7 +20,7 @@ from scrapjd.adapters.careerviet import CareerVietAdapter
 from scrapjd.adapters.topcv import TopCVAdapter
 from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from scrapjd.db.crawl_snapshots import save_snapshots
-from snapshots import MAX_PER_ANOMALY, SnapshotRecorder
+from scrapjd.snapshots import MAX_PER_ANOMALY, SnapshotRecorder
 from vnw_page_builder import build_detail_html
 
 HERE = os.path.dirname(__file__)

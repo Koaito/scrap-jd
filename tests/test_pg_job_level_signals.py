@@ -22,7 +22,7 @@ import pytest
 
 from scrapjd import db
 from scrapjd import normalize
-import pipeline
+from scrapjd import pipeline
 from scrapjd.adapters.base import BaseAdapter
 from scrapjd.models import RawJobRecord
 

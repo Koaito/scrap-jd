@@ -85,7 +85,7 @@ from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 from scrapjd import db
-import duplicate_report as dr
+from scrapjd.cli import duplicate_report as dr
 from scrapjd.db.job_derivation import derive_job_from_listings
 from scrapjd.db.job_sync import diff_job_from_derived
 

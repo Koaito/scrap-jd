@@ -49,8 +49,8 @@ dù đã vá hết những gì vá được (vì industry vẫn rỗng) — khô
 chỉ là chi phí chạy lại 1 request vô ích mỗi lần, chấp nhận được.
 
 Cách chạy:
-    python backfill_company_profiles.py
-    python backfill_company_profiles.py --limit 50   # test thử ít công ty trước
+    python -m scrapjd.maintenance.backfill_company_profiles
+    python -m scrapjd.maintenance.backfill_company_profiles --limit 50   # test thử ít công ty trước
 """
 
 import argparse

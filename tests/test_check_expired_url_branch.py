@@ -8,7 +8,7 @@ Chạy: pytest tests/test_check_expired_url_branch.py -v
 from datetime import date, timedelta
 from unittest.mock import patch
 
-import check_expired_source_jobs as script
+from scrapjd.maintenance import check_expired_source_jobs as script
 
 TODAY = date.today()
 FUTURE = TODAY + timedelta(days=30)

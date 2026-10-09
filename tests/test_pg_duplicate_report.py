@@ -21,7 +21,7 @@ import psycopg2
 import pytest
 
 from scrapjd import db
-import duplicate_report as dr
+from scrapjd.cli import duplicate_report as dr
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 

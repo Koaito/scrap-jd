@@ -19,13 +19,13 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scrapjd import db as real_db
-import pipeline
+from scrapjd import pipeline
 from scrapjd.adapters.base import BaseAdapter, CrawlBlockedError
 from scrapjd.db.job_recrawl import RepostLink
-from field_stats import EmptyFieldCounter
+from scrapjd.field_stats import EmptyFieldCounter
 from scrapjd.models import RawJobRecord
-from pipeline_db import PIPELINE_DB_READS, PIPELINE_DB_WRITES
-from pipeline_stats import PipelineStats
+from scrapjd.pipeline_db import PIPELINE_DB_READS, PIPELINE_DB_WRITES
+from scrapjd.pipeline_stats import PipelineStats
 
 # Phân loại MỌI hàm db.* mà pipeline.py gọi. Thêm lời gọi db.* mới vào
 # pipeline.py thì phải thêm vào 1 trong 2 tập này (test_every_db_call_is_classified
@@ -146,7 +146,7 @@ def test_fakedb_has_exactly_the_pipelinedb_functions():
     """FakeDB tự viết tay (có trạng thái, test kế thừa và ghi đè từng hàm) nên không được Fake dùng
     chung ở pipeline_fakes.py kiểm chữ ký; ít nhất khoá nó phủ đúng tập hàm của PipelineDB, và mọi hàm
     GHI đều đi qua _write (hàm đọc thì không), để không thể quên đánh dấu transaction bẩn."""
-    from pipeline_db import PipelineDB
+    from scrapjd.pipeline_db import PipelineDB
 
     methods = {name for name in vars(FakeDB) if not name.startswith("_") and callable(vars(FakeDB)[name])}
     assert methods == {name for name in vars(PipelineDB) if not name.startswith("_")}

@@ -13,8 +13,8 @@ from scrapjd import db
 from scrapjd.db.job_recrawl import AUTO_REOPEN_REASONS
 from scrapjd import normalize
 from scrapjd.config import DEGRADED_EMPTY_RATE
-from field_stats import WARN_MIN_SAMPLES, EmptyFieldCounter, degraded_reasons
-from pipeline_stats import PipelineStats
+from scrapjd.field_stats import WARN_MIN_SAMPLES, EmptyFieldCounter, degraded_reasons
+from scrapjd.pipeline_stats import PipelineStats
 
 logger = logging.getLogger(__name__)
 

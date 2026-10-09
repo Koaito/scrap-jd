@@ -26,8 +26,8 @@ import psycopg2
 import pytest
 
 from scrapjd import db
-import duplicate_report as dr
-import merge_duplicates as md
+from scrapjd.cli import duplicate_report as dr
+from scrapjd.cli import merge_duplicates as md
 from scrapjd.db import listing_state
 from scrapjd.db.listing_state import CONFLICT_NONE, initial_listing_state, insert_listing
 

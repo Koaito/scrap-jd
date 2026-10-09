@@ -7,7 +7,7 @@ from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import check_listing_derivation as cld
+from scrapjd.cli import check_listing_derivation as cld
 
 T0 = datetime(2026, 10, 1, tzinfo=timezone.utc)
 

@@ -13,7 +13,7 @@ CÁCH HOẠT ĐỘNG — y hệt crawl_runner.py:
   2. FastAPI BackgroundTasks chạy execute() sau khi response đã trả —
      execute() tự mở connection DB riêng, đổi status -> 'running', gọi
      thẳng hàm run(**params) của script tương ứng (_JOB_RUNNERS bên
-     dưới) y hệt CLI (python backfill_company_profiles.py --limit N)
+     dưới) y hệt CLI (python -m scrapjd.maintenance.backfill_company_profiles --limit N)
      đang làm, rồi đổi status -> 'done'/'error'.
   3. Client gọi GET /maintenance/{run_id} để poll tiến độ + GET
      /maintenance/{run_id}/logs để xem log live — đọc thẳng từ
@@ -69,11 +69,11 @@ from scrapjd import db as db_module
 from api.concurrency import GLOBAL_JOB_SEMAPHORE
 from api.run_log import capture_run_logs
 
-import backfill_company_profiles
-import enrich_company_profile_from_website
-import enrich_company_web_info
-import get_company_fb_linkedin_link
-import check_expired_source_jobs
+from scrapjd.maintenance import backfill_company_profiles
+from scrapjd.maintenance import enrich_company_profile_from_website
+from scrapjd.maintenance import enrich_company_web_info
+from scrapjd.maintenance import get_company_fb_linkedin_link
+from scrapjd.maintenance import check_expired_source_jobs
 
 logger = logging.getLogger(__name__)
 

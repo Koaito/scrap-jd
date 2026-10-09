@@ -51,8 +51,8 @@ get_company_fb_linkedin_link.py — nhưng KHÔNG import chéo từ file đó
 cần cho MỤC ĐÍCH KHÁC (lấy text mô tả, không phải tìm link social).
 
 Cách chạy:
-    python enrich_company_profile_from_website.py
-    python enrich_company_profile_from_website.py --limit 50   # test thử ít công ty trước
+    python -m scrapjd.maintenance.enrich_company_profile_from_website
+    python -m scrapjd.maintenance.enrich_company_profile_from_website --limit 50   # test thử ít công ty trước
 """
 
 import argparse

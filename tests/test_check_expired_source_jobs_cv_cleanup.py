@@ -13,7 +13,7 @@ Chạy: pytest tests/test_check_expired_source_jobs_cv_cleanup.py -v
 """
 from unittest.mock import patch
 
-import check_expired_source_jobs as script
+from scrapjd.maintenance import check_expired_source_jobs as script
 
 
 def _fake_applications(n):

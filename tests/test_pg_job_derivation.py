@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 import psycopg2
 import pytest
 
-import check_listing_derivation as cld
+from scrapjd.cli import check_listing_derivation as cld
 from scrapjd import db
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")

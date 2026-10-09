@@ -15,9 +15,9 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scrapjd import db as real_db
-import pipeline
-import pipeline_db
-from pipeline_db import PIPELINE_DB_READS, PIPELINE_DB_WRITES, PipelineDB
+from scrapjd import pipeline
+from scrapjd import pipeline_db
+from scrapjd.pipeline_db import PIPELINE_DB_READS, PIPELINE_DB_WRITES, PipelineDB
 from pipeline_fakes import make_pipeline_db
 
 

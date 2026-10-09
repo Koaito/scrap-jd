@@ -105,8 +105,8 @@ from typing import Optional
 
 from scrapjd import db as db_module
 from scrapjd.adapters.base import CrawlBlockedError
-from pipeline import run_pipeline
-from snapshots import SnapshotRecorder
+from scrapjd.pipeline import run_pipeline
+from scrapjd.snapshots import SnapshotRecorder
 from scrapjd.config import DEFAULT_MAX_PAGES, CRAWL_BLOCK_COOLDOWN_MINUTES
 from api.concurrency import GLOBAL_JOB_SEMAPHORE
 from api.run_log import capture_run_logs

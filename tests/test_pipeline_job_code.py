@@ -17,11 +17,11 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scrapjd import normalize
-import pipeline
+from scrapjd import pipeline
 from scrapjd.adapters.base import BaseAdapter
-from field_stats import EmptyFieldCounter
+from scrapjd.field_stats import EmptyFieldCounter
 from scrapjd.models import RawJobRecord
-from pipeline_stats import PipelineStats
+from scrapjd.pipeline_stats import PipelineStats
 
 NEW_URL = "https://www.vietnamworks.com/data-engineer-senior-7-jv"
 
@@ -175,7 +175,7 @@ def test_job_changed_during_processing_counts_as_link_only(pipeline_db):
 def test_very_different_title_creates_a_new_job_and_warns(pipeline_db, caplog):
     pipeline_db.find_jobs_by_source_url_regex.return_value = [_row(title="Account Manager")]
 
-    with caplog.at_level(logging.WARNING, logger="pipeline"):
+    with caplog.at_level(logging.WARNING, logger="scrapjd.pipeline"):
         conn, stats = _run(CodeAdapter(), _raw(title="Sales Assistant"))
 
     pipeline_db.update_job_from_recrawl.assert_not_called()

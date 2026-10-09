@@ -493,9 +493,9 @@ Kích thước pool cấu hình qua `DB_POOL_MIN`/`DB_POOL_MAX` trong `.env`
 (mặc định 2/20) — nên đặt `DB_POOL_MAX` thấp hơn giới hạn connection
 Postgres phía Render/Supabase cho phép.
 
-`main.py` (CLI) và các script độc lập (`backfill_company_profiles.py`,
-`enrich_company_profile_from_website.py`, `enrich_company_web_info.py`,
-`get_company_fb_linkedin_link.py`, `check_expired_source_jobs.py`,
+`main.py` (CLI) và các script độc lập (`scrapjd/maintenance/backfill_company_profiles.py`,
+`scrapjd/maintenance/enrich_company_profile_from_website.py`, `scrapjd/maintenance/enrich_company_web_info.py`,
+`scrapjd/maintenance/get_company_fb_linkedin_link.py`, `scrapjd/maintenance/check_expired_source_jobs.py`,
 `api/crawl_runner.py`) vẫn dùng `db.get_connection()` mở/đóng connection
 trực tiếp như cũ — KHÔNG qua pool, vì tần suất chạy thấp (1 lần/script).
 

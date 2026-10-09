@@ -35,12 +35,12 @@ import sys
 
 from scrapjd import db
 from scrapjd.adapters.base import CrawlBlockedError
-from pipeline import run_pipeline
-import check_listing_derivation
-import duplicate_report
-import merge_duplicates
-import recompute_levels
-import repost_report
+from scrapjd.pipeline import run_pipeline
+from scrapjd.cli import check_listing_derivation
+from scrapjd.cli import duplicate_report
+from scrapjd.cli import merge_duplicates
+from scrapjd.cli import recompute_levels
+from scrapjd.cli import repost_report
 from scrapjd.config import (
     TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
 )

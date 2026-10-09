@@ -19,12 +19,12 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import pipeline
+from scrapjd import pipeline
 from scrapjd.adapters.base import BaseAdapter
-from field_stats import EmptyFieldCounter
+from scrapjd.field_stats import EmptyFieldCounter
 from scrapjd.models import RawJobRecord
 from pipeline_fakes import called_names
-from pipeline_stats import PipelineStats
+from scrapjd.pipeline_stats import PipelineStats
 
 URL = "https://www.vietnamworks.com/data-engineer-senior-7-jv"
 DETAIL = {

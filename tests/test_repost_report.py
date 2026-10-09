@@ -8,7 +8,7 @@ from argparse import Namespace
 
 import pytest
 
-import repost_report as rr
+from scrapjd.cli import repost_report as rr
 
 BODY_A = ("quản lý chiến dịch quảng cáo trên facebook và google phân tích dữ liệu hiệu quả "
           "lập báo cáo hằng tuần cho trưởng phòng marketing phối hợp với đội thiết kế nội dung")

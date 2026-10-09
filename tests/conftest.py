@@ -49,7 +49,7 @@ def pipeline_db(monkeypatch):
     """Fake dùng chung thay module `db` mà pipeline.py gọi (B2, xem tests/pipeline_fakes.py và
     pipeline_db.py). Đã gắn vào pipeline.db, tự khôi phục sau test. Mặc định là tình huống bình
     thường không trùng gì; test ghi đè return_value/side_effect đúng chỗ cần khác."""
-    import pipeline
+    from scrapjd import pipeline
     from pipeline_fakes import make_pipeline_db
 
     fake = make_pipeline_db()

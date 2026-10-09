@@ -21,7 +21,7 @@ from scrapjd.adapters.base import CrawlBlockedError
 from scrapjd.adapters.careerviet import CareerVietAdapter
 from scrapjd.adapters.topcv import TopCVAdapter
 from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
-from pipeline import run_pipeline
+from scrapjd.pipeline import run_pipeline
 
 # (lớp adapter, tên method HTTP cần giả lập thất bại)
 ADAPTER_CASES = [

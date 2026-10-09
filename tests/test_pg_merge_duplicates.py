@@ -20,7 +20,7 @@ import psycopg2
 import pytest
 
 from scrapjd import db
-import merge_duplicates as md
+from scrapjd.cli import merge_duplicates as md
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
@@ -213,7 +213,7 @@ def test_build_plans_on_real_rows_revives_and_drops_duplicate_children(pg_conn):
         cur.execute("INSERT INTO saved_jobs (ss_user_id, job_id) VALUES (%s, %s), (%s, %s)", (u, old, u, new))
     pg_conn.commit()
 
-    import duplicate_report as dr
+    from scrapjd.cli import duplicate_report as dr
     groups = dr.build_groups(db.list_duplicate_job_rows(pg_conn))
     # Cả hai job đều có dữ liệu cần bảo vệ -> mặc định KHÔNG tự gộp, phải duyệt tay và đánh dấu job giữ.
     selected, skipped, _, _ = md.select_groups(groups)

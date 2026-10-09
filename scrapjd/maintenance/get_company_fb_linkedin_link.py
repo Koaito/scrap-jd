@@ -86,8 +86,8 @@ cao hơn nhiều so với crawl TopCV) — không nên làm chậm/rủi ro lu�
 job chính. Chạy độc lập, khi nào cần vá thì chạy lại.
 
 Cách chạy:
-    python get_company_fb_linkedin_link.py
-    python get_company_fb_linkedin_link.py --limit 50   # test thử ít công ty trước
+    python -m scrapjd.maintenance.get_company_fb_linkedin_link
+    python -m scrapjd.maintenance.get_company_fb_linkedin_link --limit 50   # test thử ít công ty trước
 """
 
 import argparse

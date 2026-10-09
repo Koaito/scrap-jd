@@ -16,10 +16,10 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import pipeline
+from scrapjd import pipeline
 from scrapjd.adapters.base import CrawlBlockedError
 from scrapjd.db.job_recrawl import RepostLink
-from pipeline_stats import PipelineStats
+from scrapjd.pipeline_stats import PipelineStats
 from test_pipeline_blocked_degraded import BLANK_DETAIL, GOOD_DETAIL, ScriptedAdapter, _raw
 
 # Tập khoá của stats dict TRƯỚC khi có PipelineStats. Thêm counter mới thì phải

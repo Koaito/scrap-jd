@@ -80,8 +80,8 @@ có thể đang đúng, đúng tinh thần "thà thiếu còn hơn sai" nhưng k
 đánh đổi bằng việc xoá nhầm dữ liệu tốt.
 
 Cách chạy:
-    python enrich_company_web_info.py
-    python enrich_company_web_info.py --limit 50   # test thử ít công ty trước
+    python -m scrapjd.maintenance.enrich_company_web_info
+    python -m scrapjd.maintenance.enrich_company_web_info --limit 50   # test thử ít công ty trước
 """
 
 import argparse

@@ -15,7 +15,7 @@ from unittest.mock import create_autospec
 
 from scrapjd import db as real_db
 from scrapjd.db.job_recrawl import RepostLink
-from pipeline_db import PipelineDB
+from scrapjd.pipeline_db import PipelineDB
 
 DEFAULT_COMPANY_ID = "company-1"
 DEFAULT_PROVINCE_ID = 7

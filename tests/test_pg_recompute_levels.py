@@ -23,7 +23,7 @@ import pytest
 
 from scrapjd import db
 from scrapjd import normalize
-import recompute_levels as rl
+from scrapjd.cli import recompute_levels as rl
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 

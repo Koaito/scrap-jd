@@ -17,13 +17,13 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scrapjd import normalize
-import pipeline
+from scrapjd import pipeline
 from scrapjd.adapters.base import BaseAdapter, CrawlBlockedError
 from scrapjd.db.job_recrawl import RepostLink
-from field_stats import EmptyFieldCounter
+from scrapjd.field_stats import EmptyFieldCounter
 from scrapjd.models import RawJobRecord
 from pipeline_fakes import DEFAULT_LEVEL_ID, DEFAULT_PROVINCE_ID
-from pipeline_stats import PipelineStats
+from scrapjd.pipeline_stats import PipelineStats
 
 DETAIL = {
     "work_type": "Toàn thời gian", "deadline_text": "05/09/2026",

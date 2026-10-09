@@ -19,8 +19,8 @@ from pathlib import Path
 import pytest
 
 from scrapjd import db
-import duplicate_report as dr
-import merge_duplicates as md
+from scrapjd.cli import duplicate_report as dr
+from scrapjd.cli import merge_duplicates as md
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -686,7 +686,7 @@ def _code_only(name):
 
 def test_merge_duplicates_has_no_raw_sql():
     # Logic + điều phối không chứa SQL: mọi câu SQL (đọc lẫn ghi) nằm ở db/job_merge.py.
-    code = _code_only("merge_duplicates.py")
+    code = _code_only("scrapjd/cli/merge_duplicates.py")
     for forbidden in ("INSERT INTO", "UPDATE ", "DELETE FROM", "TRUNCATE", "ALTER ", ".cursor(", ".execute("):
         assert forbidden not in code, f"merge_duplicates.py chứa '{forbidden}'"
 

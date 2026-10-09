@@ -9,8 +9,8 @@ import re
 from datetime import date, datetime
 from pathlib import Path
 
-import duplicate_report as dr
-from duplicate_report import CONF_HIGH, CONF_LOW, CONF_REVIEW, TIER_LEVEL, TIER_PROVINCE, TIER_STRICT
+from scrapjd.cli import duplicate_report as dr
+from scrapjd.cli.duplicate_report import CONF_HIGH, CONF_LOW, CONF_REVIEW, TIER_LEVEL, TIER_PROVINCE, TIER_STRICT
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -296,7 +296,7 @@ def test_run_cli_rejects_negative_show(capsys):
 def test_report_code_is_read_only():
     """Báo cáo 3a không được chứa câu ghi hay commit: đây là lệnh chỉ đọc."""
     write_sql = re.compile(r"\b(INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP|CREATE)\b")
-    for rel in ("duplicate_report.py", "scrapjd/db/job_duplicates.py"):
+    for rel in ("scrapjd/cli/duplicate_report.py", "scrapjd/db/job_duplicates.py"):
         text = (ROOT / rel).read_text(encoding="utf-8")
         code = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
         assert not write_sql.search(code), f"{rel} có câu SQL ghi"

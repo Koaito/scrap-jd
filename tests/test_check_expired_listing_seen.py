@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-import check_expired_source_jobs as script
+from scrapjd.maintenance import check_expired_source_jobs as script
 
 URL = "https://x/job-1"
 FUTURE = date.today() + timedelta(days=30)

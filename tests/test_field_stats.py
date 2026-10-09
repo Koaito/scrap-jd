@@ -11,7 +11,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from field_stats import (
+from scrapjd.field_stats import (
     DETAIL_FIELDS,
     LISTING_FIELDS,
     WARN_MIN_SAMPLES,
@@ -105,14 +105,14 @@ def test_log_summary_warns_only_with_enough_samples(caplog):
     c = EmptyFieldCounter()
     for _ in range(WARN_MIN_SAMPLES - 1):  # chưa đủ mẫu -> không WARNING
         c.record_listing(_raw(salary_text=""))
-    with caplog.at_level(logging.INFO, logger="field_stats"):
+    with caplog.at_level(logging.INFO, logger="scrapjd.field_stats"):
         c.log_summary()
     assert not [r for r in caplog.records if r.levelno == logging.WARNING]
     assert any("Trường rỗng (listing" in r.getMessage() for r in caplog.records)
 
     caplog.clear()
     c.record_listing(_raw(salary_text=""))  # đủ mẫu, salary_text rỗng 100%
-    with caplog.at_level(logging.INFO, logger="field_stats"):
+    with caplog.at_level(logging.INFO, logger="scrapjd.field_stats"):
         c.log_summary()
     warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
     assert any("salary_text" in w for w in warnings)
