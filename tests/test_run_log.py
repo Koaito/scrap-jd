@@ -13,9 +13,9 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import api.crawl_runner as crawl_runner
-import api.maintenance_runner as maintenance_runner
-from api.run_log import capture_run_logs
+import scrapjd.api.crawl_runner as crawl_runner
+import scrapjd.api.maintenance_runner as maintenance_runner
+from scrapjd.api.run_log import capture_run_logs
 
 log = logging.getLogger("tests.run_log")
 

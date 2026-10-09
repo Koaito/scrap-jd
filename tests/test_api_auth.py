@@ -27,9 +27,9 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 
-from api import error_codes, security
-from api.routers.auth_session import refresh
-from api.schemas import RefreshRequest
+from scrapjd.api import error_codes, security
+from scrapjd.api.routers.auth_session import refresh
+from scrapjd.api.schemas import RefreshRequest
 
 
 def make_user_record(ss_user_id: str, **overrides) -> dict:
@@ -95,7 +95,7 @@ class TestRefreshGracePeriodAllowed:
         )
         token_b = make_token_record(token_b_id, user_id, revoked_at=None)
 
-        with patch("api.routers.auth_session.db_module") as mock_db:
+        with patch("scrapjd.api.routers.auth_session.db_module") as mock_db:
             mock_db.get_refresh_token_by_hash.return_value = token_a
             mock_db.get_refresh_token_by_id.return_value = token_b
             mock_db.get_user_by_id.return_value = user
@@ -132,7 +132,7 @@ class TestRefreshGracePeriodAllowed:
         )
         token_b = make_token_record(token_b_id, user_id, revoked_at=None)
 
-        with patch("api.routers.auth_session.db_module") as mock_db:
+        with patch("scrapjd.api.routers.auth_session.db_module") as mock_db:
             mock_db.get_refresh_token_by_hash.return_value = token_a
             mock_db.get_refresh_token_by_id.return_value = token_b
             mock_db.get_user_by_id.return_value = user
@@ -165,7 +165,7 @@ class TestRefreshGracePeriodBlocked:
             revoked_at=datetime.now(timezone.utc) - timedelta(seconds=1),  # đã bị revoke
         )
 
-        with patch("api.routers.auth_session.db_module") as mock_db:
+        with patch("scrapjd.api.routers.auth_session.db_module") as mock_db:
             mock_db.get_refresh_token_by_hash.return_value = token_a
             mock_db.get_refresh_token_by_id.return_value = token_b
             mock_db.revoke_all_refresh_tokens_for_user.return_value = 2
@@ -199,7 +199,7 @@ class TestRefreshGracePeriodBlocked:
             revoked_at=datetime.now(timezone.utc) - timedelta(seconds=2),
         )
 
-        with patch("api.routers.auth_session.db_module") as mock_db:
+        with patch("scrapjd.api.routers.auth_session.db_module") as mock_db:
             mock_db.get_refresh_token_by_hash.return_value = token_a
             mock_db.get_refresh_token_by_id.return_value = token_b
             mock_db.revoke_all_refresh_tokens_for_user.return_value = 1
@@ -225,7 +225,7 @@ class TestRefreshGracePeriodBlocked:
             replaced_by_token_id=None,
         )
 
-        with patch("api.routers.auth_session.db_module") as mock_db:
+        with patch("scrapjd.api.routers.auth_session.db_module") as mock_db:
             mock_db.get_refresh_token_by_hash.return_value = token_a
             mock_db.revoke_all_refresh_tokens_for_user.return_value = 1
 
@@ -253,7 +253,7 @@ class TestRefreshGracePeriodBlocked:
             replaced_by_token_id=token_b_id,
         )
 
-        with patch("api.routers.auth_session.db_module") as mock_db:
+        with patch("scrapjd.api.routers.auth_session.db_module") as mock_db:
             mock_db.get_refresh_token_by_hash.return_value = token_a
             mock_db.revoke_all_refresh_tokens_for_user.return_value = 1
 
@@ -278,7 +278,7 @@ class TestRefreshGracePeriodBlocked:
             replaced_by_token_id=token_b_id,
         )
 
-        with patch("api.routers.auth_session.db_module") as mock_db:
+        with patch("scrapjd.api.routers.auth_session.db_module") as mock_db:
             mock_db.get_refresh_token_by_hash.return_value = token_a
             mock_db.get_refresh_token_by_id.return_value = None
             mock_db.revoke_all_refresh_tokens_for_user.return_value = 1
@@ -307,7 +307,7 @@ class TestRefreshGracePeriodEdgeCases:
         )
         token_b = make_token_record(token_b_id, user_id, revoked_at=None)
 
-        with patch("api.routers.auth_session.db_module") as mock_db:
+        with patch("scrapjd.api.routers.auth_session.db_module") as mock_db:
             mock_db.get_refresh_token_by_hash.return_value = token_a
             mock_db.get_refresh_token_by_id.return_value = token_b
             mock_db.get_user_by_id.return_value = user
@@ -336,7 +336,7 @@ class TestRefreshGracePeriodEdgeCases:
         )
         token_b = make_token_record(token_b_id, user_id, revoked_at=None)
 
-        with patch("api.routers.auth_session.db_module") as mock_db:
+        with patch("scrapjd.api.routers.auth_session.db_module") as mock_db:
             mock_db.get_refresh_token_by_hash.return_value = token_a
             mock_db.get_refresh_token_by_id.return_value = token_b
             mock_db.get_user_by_id.return_value = user
@@ -363,7 +363,7 @@ class TestRefreshNormalFlowUnaffected:
         token_a = make_token_record(token_a_id, user_id, revoked_at=None)
         new_token_row = make_token_record(new_token_id, user_id, revoked_at=None)
 
-        with patch("api.routers.auth_session.db_module") as mock_db:
+        with patch("scrapjd.api.routers.auth_session.db_module") as mock_db:
             mock_db.get_refresh_token_by_hash.side_effect = [token_a, new_token_row]
             mock_db.get_user_by_id.return_value = user
 

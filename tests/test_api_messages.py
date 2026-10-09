@@ -29,7 +29,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 
-from api.schemas import ConversationOut, MessageCreate
+from scrapjd.api.schemas import ConversationOut, MessageCreate
 
 
 @pytest.fixture(autouse=True)
@@ -45,7 +45,7 @@ def _reset_rate_limiter():
     như POST /messages sẽ tự bắn 429 giả từ TEST THỨ 2 trở đi, che mất
     lỗi logic thật (đã xảy ra thật khi chưa có fixture này — 13/32
     test fail vì RateLimitExceeded chứ không phải vì logic sai)."""
-    from api.rate_limit import limiter
+    from scrapjd.api.rate_limit import limiter
     limiter.reset()
     yield
     limiter.reset()
@@ -107,10 +107,10 @@ def another_ss_user():
 
 def test_student_to_student_blocked_403(mock_conn, student_user, fake_request):
     other_student = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(other_student, "user")
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=other_student, content="chào bạn")
         with pytest.raises(HTTPException) as exc_info:
@@ -123,8 +123,8 @@ def test_student_to_student_blocked_403(mock_conn, student_user, fake_request):
 
 
 def test_self_message_rejected_400(mock_conn, student_user, fake_request):
-    with patch("api.routers.messages.db_module"):
-        from api.routers.messages import send_message
+    with patch("scrapjd.api.routers.messages.db_module"):
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=student_user["sub"], content="chào chính mình")
         with pytest.raises(HTTPException) as exc_info:
@@ -133,9 +133,9 @@ def test_self_message_rejected_400(mock_conn, student_user, fake_request):
 
 
 def test_receiver_not_found_404(mock_conn, student_user, fake_request):
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = None
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=str(uuid.uuid4()), content="xin chào")
         with pytest.raises(HTTPException) as exc_info:
@@ -151,14 +151,14 @@ def test_receiver_not_found_404(mock_conn, student_user, fake_request):
 def test_student_first_message_creates_pending_202(mock_conn, student_user, fake_request):
     """Chưa từng có quan hệ -> tạo pending, KHÔNG gửi tin kèm, trả 202."""
     ss_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(ss_id, "ss_team")
         mock_db.get_relationship.return_value = None
         mock_db.count_pending_for_student.return_value = 0
         mock_db.MAX_PENDING_PER_STUDENT = 3
         mock_db.create_pending_request.return_value = str(uuid.uuid4())
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=ss_id, content="Em muốn hỏi về việc làm ạ")
         result = send_message(request=fake_request, payload=payload, user=student_user, conn=mock_conn)
@@ -173,11 +173,11 @@ def test_student_first_message_creates_pending_202(mock_conn, student_user, fake
 def test_student_message_while_pending_409(mock_conn, student_user, fake_request):
     ss_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(ss_id, "ss_team")
         mock_db.get_relationship.return_value = make_relationship_row(rel_id, student_user["sub"], ss_id, "pending")
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=ss_id, content="còn ai không")
         with pytest.raises(HTTPException) as exc_info:
@@ -189,11 +189,11 @@ def test_student_message_while_pending_409(mock_conn, student_user, fake_request
 def test_student_message_while_blocked_403(mock_conn, student_user, fake_request):
     ss_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(ss_id, "ss_team")
         mock_db.get_relationship.return_value = make_relationship_row(rel_id, student_user["sub"], ss_id, "blocked")
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=ss_id, content="cho em hỏi")
         with pytest.raises(HTTPException) as exc_info:
@@ -207,13 +207,13 @@ def test_student_message_while_declined_cooldown_active_403(mock_conn, student_u
     trả None -> 403 (khác 409 của case pending)."""
     ss_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(ss_id, "ss_team")
         mock_db.get_relationship.return_value = make_relationship_row(rel_id, student_user["sub"], ss_id, "declined")
         mock_db.reset_declined_to_pending.return_value = None
         mock_db.DECLINE_COOLDOWN_DAYS = 7
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=ss_id, content="thử lại nhé")
         with pytest.raises(HTTPException) as exc_info:
@@ -227,12 +227,12 @@ def test_student_message_declined_cooldown_expired_resets_202(mock_conn, student
     gửi tin kèm, giống first-time request)."""
     ss_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(ss_id, "ss_team")
         mock_db.get_relationship.return_value = make_relationship_row(rel_id, student_user["sub"], ss_id, "declined")
         mock_db.reset_declined_to_pending.return_value = rel_id
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=ss_id, content="thử lại nhé")
         result = send_message(request=fake_request, payload=payload, user=student_user, conn=mock_conn)
@@ -245,13 +245,13 @@ def test_student_message_while_accepted_sends_201(mock_conn, student_user, fake_
     ss_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
     msg_id = 42
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(ss_id, "ss_team")
         mock_db.get_relationship.return_value = make_relationship_row(rel_id, student_user["sub"], ss_id, "accepted")
         mock_db.insert_message.return_value = msg_id
         mock_db.get_message_by_id.return_value = make_message_row(msg_id, student_user["sub"], ss_id, "cảm ơn ạ")
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=ss_id, content="cảm ơn ạ")
         result = send_message(request=fake_request, payload=payload, user=student_user, conn=mock_conn)
@@ -268,13 +268,13 @@ def test_student_message_while_accepted_sends_201(mock_conn, student_user, fake_
 
 def test_student_exceeds_max_pending_429(mock_conn, student_user, fake_request):
     ss_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(ss_id, "ss_team")
         mock_db.get_relationship.return_value = None
         mock_db.count_pending_for_student.return_value = 3
         mock_db.MAX_PENDING_PER_STUDENT = 3
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=ss_id, content="SS thứ 4")
         with pytest.raises(HTTPException) as exc_info:
@@ -286,14 +286,14 @@ def test_student_exceeds_max_pending_429(mock_conn, student_user, fake_request):
 def test_student_under_max_pending_still_allowed_202(mock_conn, student_user, fake_request):
     """2/3 pending -> vẫn được tạo request thứ 3."""
     ss_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(ss_id, "ss_team")
         mock_db.get_relationship.return_value = None
         mock_db.count_pending_for_student.return_value = 2
         mock_db.MAX_PENDING_PER_STUDENT = 3
         mock_db.create_pending_request.return_value = str(uuid.uuid4())
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=ss_id, content="SS thứ 3")
         result = send_message(request=fake_request, payload=payload, user=student_user, conn=mock_conn)
@@ -308,14 +308,14 @@ def test_ss_message_to_student_auto_accepts_and_sends_201(mock_conn, ss_user, fa
     student_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
     msg_id = 7
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(student_id, "user")
         mock_db.ensure_accepted_by_ss.return_value = None
         mock_db.get_relationship.return_value = make_relationship_row(rel_id, student_id, ss_user["sub"], "accepted")
         mock_db.insert_message.return_value = msg_id
         mock_db.get_message_by_id.return_value = make_message_row(msg_id, ss_user["sub"], student_id, "chào em")
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=student_id, content="chào em")
         result = send_message(request=fake_request, payload=payload, user=ss_user, conn=mock_conn)
@@ -330,12 +330,12 @@ def test_ss_message_to_blocked_student_still_403(mock_conn, ss_user, fake_reques
     block' — xem db.ensure_accepted_by_ss docstring)."""
     student_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(student_id, "user")
         mock_db.ensure_accepted_by_ss.return_value = None
         mock_db.get_relationship.return_value = make_relationship_row(rel_id, student_id, ss_user["sub"], "blocked")
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=student_id, content="chào em")
         with pytest.raises(HTTPException) as exc_info:
@@ -350,12 +350,12 @@ def test_ss_message_to_blocked_student_still_403(mock_conn, ss_user, fake_reques
 
 def test_ss_to_ss_sends_directly_no_state_machine(mock_conn, ss_user, another_ss_user, fake_request):
     msg_id = 99
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(another_ss_user["sub"], "ss_team")
         mock_db.insert_message.return_value = msg_id
         mock_db.get_message_by_id.return_value = make_message_row(msg_id, ss_user["sub"], another_ss_user["sub"])
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=another_ss_user["sub"], content="chào đồng nghiệp")
         result = send_message(request=fake_request, payload=payload, user=ss_user, conn=mock_conn)
@@ -376,10 +376,10 @@ def test_accept_by_wrong_ss_returns_409(mock_conn, another_ss_user, fake_request
     (do UPDATE ... WHERE ss_id = %s không tìm thấy dòng nào) -> router
     phải trả 409, không phải lỗi khác."""
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.accept_relationship.return_value = False
 
-        from api.routers.messages import accept_request
+        from scrapjd.api.routers.messages import accept_request
 
         with pytest.raises(HTTPException) as exc_info:
             accept_request(request=fake_request, relationship_id=rel_id, user=another_ss_user, conn=mock_conn)
@@ -391,8 +391,8 @@ def test_accept_by_student_403(mock_conn, student_user, fake_request):
     """Học viên không có quyền accept (kể cả accept request của chính
     mình) — role check chặn TRƯỚC khi gọi DB."""
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
-        from api.routers.messages import accept_request
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
+        from scrapjd.api.routers.messages import accept_request
 
         with pytest.raises(HTTPException) as exc_info:
             accept_request(request=fake_request, relationship_id=rel_id, user=student_user, conn=mock_conn)
@@ -402,9 +402,9 @@ def test_accept_by_student_403(mock_conn, student_user, fake_request):
 
 def test_decline_by_wrong_ss_returns_409(mock_conn, another_ss_user, fake_request):
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.decline_relationship.return_value = False
-        from api.routers.messages import decline_request
+        from scrapjd.api.routers.messages import decline_request
 
         with pytest.raises(HTTPException) as exc_info:
             decline_request(request=fake_request, relationship_id=rel_id, user=another_ss_user, conn=mock_conn)
@@ -413,8 +413,8 @@ def test_decline_by_wrong_ss_returns_409(mock_conn, another_ss_user, fake_reques
 
 def test_block_by_student_403(mock_conn, student_user, fake_request):
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
-        from api.routers.messages import block_by_relationship
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
+        from scrapjd.api.routers.messages import block_by_relationship
 
         with pytest.raises(HTTPException) as exc_info:
             block_by_relationship(request=fake_request, relationship_id=rel_id, user=student_user, conn=mock_conn)
@@ -424,9 +424,9 @@ def test_block_by_student_403(mock_conn, student_user, fake_request):
 
 def test_unblock_not_owner_returns_409(mock_conn, another_ss_user, fake_request):
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.unblock_relationship.return_value = False
-        from api.routers.messages import unblock_request
+        from scrapjd.api.routers.messages import unblock_request
 
         with pytest.raises(HTTPException) as exc_info:
             unblock_request(request=fake_request, relationship_id=rel_id, user=another_ss_user, conn=mock_conn)
@@ -443,9 +443,9 @@ def test_get_history_scoped_to_current_user(mock_conn, student_user, fake_reques
     và partner_id — không có cách nào truyền user A/B tuỳ ý mà bỏ qua
     current_user, nên IDOR tự nhiên được chặn ở tầng tham số hàm."""
     partner_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_messages_between.return_value = []
-        from api.routers.messages import get_history
+        from scrapjd.api.routers.messages import get_history
 
         get_history(request=fake_request, partner_id=partner_id, before_id=None, limit=50,
                     user=student_user, conn=mock_conn)
@@ -455,8 +455,8 @@ def test_get_history_scoped_to_current_user(mock_conn, student_user, fake_reques
 
 
 def test_get_history_self_partner_400(mock_conn, student_user, fake_request):
-    with patch("api.routers.messages.db_module"):
-        from api.routers.messages import get_history
+    with patch("scrapjd.api.routers.messages.db_module"):
+        from scrapjd.api.routers.messages import get_history
 
         with pytest.raises(HTTPException) as exc_info:
             get_history(request=fake_request, partner_id=student_user["sub"], before_id=None, limit=50,
@@ -466,9 +466,9 @@ def test_get_history_self_partner_400(mock_conn, student_user, fake_request):
 
 def test_mark_read_scoped_to_current_user(mock_conn, student_user, fake_request):
     partner_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.mark_read.return_value = 3
-        from api.routers.messages import mark_read
+        from scrapjd.api.routers.messages import mark_read
 
         result = mark_read(request=fake_request, partner_id=partner_id, user=student_user, conn=mock_conn)
         mock_db.mark_read.assert_called_once_with(mock_conn, student_user["sub"], partner_id)
@@ -482,11 +482,11 @@ def test_mark_read_scoped_to_current_user(mock_conn, student_user, fake_request)
 # ==================================================================
 
 def test_search_people_calls_with_requester_role(mock_conn, student_user, fake_request):
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.search_people.return_value = [
             {"id": str(uuid.uuid4()), "full_name": "Chị SS A", "role": "ss_team"},
         ]
-        from api.routers.messages import search_people
+        from scrapjd.api.routers.messages import search_people
 
         result = search_people(request=fake_request, q="ss", user=student_user, conn=mock_conn)
         mock_db.search_people.assert_called_once_with(mock_conn, "ss", requester_role="user")
@@ -504,9 +504,9 @@ def test_search_people_calls_with_requester_role(mock_conn, student_user, fake_r
 
 def test_block_student_not_found_404(mock_conn, ss_user, fake_request):
     student_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = None
-        from api.routers.messages import block_student
+        from scrapjd.api.routers.messages import block_student
 
         with pytest.raises(HTTPException) as exc_info:
             block_student(request=fake_request, student_id=student_id, user=ss_user, conn=mock_conn)
@@ -517,9 +517,9 @@ def test_block_student_wrong_role_target_404(mock_conn, ss_user, fake_request):
     """target không phải role 'user' (vd lỡ truyền id của 1 SS khác) ->
     404, không cho 'block' 1 tài khoản không phải học viên qua route này."""
     target_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(target_id, "ss_team")
-        from api.routers.messages import block_student
+        from scrapjd.api.routers.messages import block_student
 
         with pytest.raises(HTTPException) as exc_info:
             block_student(request=fake_request, student_id=target_id, user=ss_user, conn=mock_conn)
@@ -529,10 +529,10 @@ def test_block_student_wrong_role_target_404(mock_conn, ss_user, fake_request):
 def test_block_student_success(mock_conn, ss_user, fake_request):
     student_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(student_id, "user")
         mock_db.get_relationship.return_value = make_relationship_row(rel_id, student_id, ss_user["sub"], "blocked")
-        from api.routers.messages import block_student
+        from scrapjd.api.routers.messages import block_student
 
         result = block_student(request=fake_request, student_id=student_id, user=ss_user, conn=mock_conn)
         mock_db.block_student_by_ss.assert_called_once_with(mock_conn, student_id, ss_user["sub"])
@@ -570,8 +570,8 @@ def test_message_content_empty_rejected():
 # ==================================================================
 
 def test_pending_requests_forbidden_for_student(mock_conn, student_user, fake_request):
-    with patch("api.routers.messages.db_module") as mock_db:
-        from api.routers.messages import list_pending_requests
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
+        from scrapjd.api.routers.messages import list_pending_requests
 
         with pytest.raises(HTTPException) as exc_info:
             list_pending_requests(request=fake_request, user=student_user, conn=mock_conn)
@@ -580,9 +580,9 @@ def test_pending_requests_forbidden_for_student(mock_conn, student_user, fake_re
 
 
 def test_pending_requests_allowed_for_ss(mock_conn, ss_user, fake_request):
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.list_pending_requests_for_ss.return_value = []
-        from api.routers.messages import list_pending_requests
+        from scrapjd.api.routers.messages import list_pending_requests
 
         list_pending_requests(request=fake_request, user=ss_user, conn=mock_conn)
         mock_db.list_pending_requests_for_ss.assert_called_once_with(mock_conn, ss_user["sub"])
@@ -613,9 +613,9 @@ def test_list_conversations_includes_relationship_id(mock_conn, ss_user, fake_re
         "relationship_status": "blocked",
         "relationship_id": rel_id,
     }
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.list_conversations.return_value = [row]
-        from api.routers.messages import list_conversations
+        from scrapjd.api.routers.messages import list_conversations
 
         result = list_conversations(request=fake_request, user=ss_user, conn=mock_conn)
 
@@ -639,9 +639,9 @@ def test_list_conversations_relationship_id_none_for_ss_pair(mock_conn, ss_user,
         "relationship_status": None,
         "relationship_id": None,
     }
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.list_conversations.return_value = [row]
-        from api.routers.messages import list_conversations
+        from scrapjd.api.routers.messages import list_conversations
 
         result = list_conversations(request=fake_request, user=ss_user, conn=mock_conn)
 
@@ -660,13 +660,13 @@ def test_cancel_pending_success(mock_conn, student_user, fake_request):
     relationship cũ để FE hiện xác nhận."""
     ss_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_relationship.return_value = make_relationship_row(
             rel_id, student_user["sub"], ss_id, "pending", initiated_by=student_user["sub"]
         )
         mock_db.cancel_pending_request.return_value = True
 
-        from api.routers.messages import cancel_my_pending_request
+        from scrapjd.api.routers.messages import cancel_my_pending_request
 
         result = cancel_my_pending_request(request=fake_request, ss_id=ss_id, user=student_user, conn=mock_conn)
         mock_db.cancel_pending_request.assert_called_once_with(mock_conn, student_user["sub"], ss_id)
@@ -678,8 +678,8 @@ def test_cancel_by_ss_forbidden_403(mock_conn, ss_user, fake_request):
     """SS không được gọi route này (SS dùng decline/block, không phải
     cancel) -> 403 ngay từ role check, không chạm DB."""
     student_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
-        from api.routers.messages import cancel_my_pending_request
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
+        from scrapjd.api.routers.messages import cancel_my_pending_request
 
         with pytest.raises(HTTPException) as exc_info:
             cancel_my_pending_request(request=fake_request, ss_id=student_id, user=ss_user, conn=mock_conn)
@@ -690,9 +690,9 @@ def test_cancel_by_ss_forbidden_403(mock_conn, ss_user, fake_request):
 
 def test_cancel_nonexistent_relationship_404(mock_conn, student_user, fake_request):
     ss_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_relationship.return_value = None
-        from api.routers.messages import cancel_my_pending_request
+        from scrapjd.api.routers.messages import cancel_my_pending_request
 
         with pytest.raises(HTTPException) as exc_info:
             cancel_my_pending_request(request=fake_request, ss_id=ss_id, user=student_user, conn=mock_conn)
@@ -705,11 +705,11 @@ def test_cancel_not_pending_status_404(mock_conn, student_user, fake_request):
     404, không cho 'huỷ' cái không còn là request đang chờ."""
     ss_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_relationship.return_value = make_relationship_row(
             rel_id, student_user["sub"], ss_id, "accepted", initiated_by=student_user["sub"]
         )
-        from api.routers.messages import cancel_my_pending_request
+        from scrapjd.api.routers.messages import cancel_my_pending_request
 
         with pytest.raises(HTTPException) as exc_info:
             cancel_my_pending_request(request=fake_request, ss_id=ss_id, user=student_user, conn=mock_conn)
@@ -723,11 +723,11 @@ def test_cancel_not_initiator_404(mock_conn, student_user, fake_request):
     không thể huỷ hộ request không phải do mình khởi tạo."""
     ss_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_relationship.return_value = make_relationship_row(
             rel_id, student_user["sub"], ss_id, "pending", initiated_by=ss_id
         )
-        from api.routers.messages import cancel_my_pending_request
+        from scrapjd.api.routers.messages import cancel_my_pending_request
 
         with pytest.raises(HTTPException) as exc_info:
             cancel_my_pending_request(request=fake_request, ss_id=ss_id, user=student_user, conn=mock_conn)
@@ -741,12 +741,12 @@ def test_cancel_race_condition_returns_409(mock_conn, student_user, fake_request
     với case chưa từng tồn tại)."""
     ss_id = str(uuid.uuid4())
     rel_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_relationship.return_value = make_relationship_row(
             rel_id, student_user["sub"], ss_id, "pending", initiated_by=student_user["sub"]
         )
         mock_db.cancel_pending_request.return_value = False
-        from api.routers.messages import cancel_my_pending_request
+        from scrapjd.api.routers.messages import cancel_my_pending_request
 
         with pytest.raises(HTTPException) as exc_info:
             cancel_my_pending_request(request=fake_request, ss_id=ss_id, user=student_user, conn=mock_conn)
@@ -760,14 +760,14 @@ def test_cancel_then_resend_no_cooldown(mock_conn, student_user, fake_request):
     cancel_pending_request() xoá hẳn row, get_relationship() sau đó
     trả về None y như chưa từng nhắn."""
     ss_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.get_user_by_id.return_value = make_user_row(ss_id, "ss_team")
         mock_db.get_relationship.return_value = None  # đã bị xoá hẳn bởi cancel trước đó
         mock_db.count_pending_for_student.return_value = 0
         mock_db.MAX_PENDING_PER_STUDENT = 3
         mock_db.create_pending_request.return_value = str(uuid.uuid4())
 
-        from api.routers.messages import send_message
+        from scrapjd.api.routers.messages import send_message
 
         payload = MessageCreate(receiver_id=ss_id, content="Em xin lỗi, gửi lại yêu cầu ạ")
         result = send_message(request=fake_request, payload=payload, user=student_user, conn=mock_conn)
@@ -811,14 +811,14 @@ def test_cancel_then_resend_no_cooldown(mock_conn, student_user, fake_request):
 # ==================================================================
 
 def test_get_conversation_partner_not_found_404(mock_conn, student_user, fake_request):
-    from api import error_codes
+    from scrapjd.api import error_codes
 
     partner_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         mock_db.get_conversation_with.return_value = None
 
-        from api.routers.messages import get_conversation
+        from scrapjd.api.routers.messages import get_conversation
 
         with pytest.raises(HTTPException) as exc_info:
             get_conversation(request=fake_request, partner_id=partner_id, user=student_user, conn=mock_conn)
@@ -841,11 +841,11 @@ def test_get_conversation_existing_partner_200(mock_conn, ss_user, fake_request)
         "relationship_status": None,
         "relationship_id": None,
     }
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         mock_db.get_conversation_with.return_value = row
 
-        from api.routers.messages import get_conversation
+        from scrapjd.api.routers.messages import get_conversation
 
         result = get_conversation(request=fake_request, partner_id=partner_id, user=ss_user, conn=mock_conn)
 
@@ -854,12 +854,12 @@ def test_get_conversation_existing_partner_200(mock_conn, ss_user, fake_request)
 
 
 def test_get_conversation_invalid_uuid_400(mock_conn, student_user, fake_request):
-    from api import error_codes
+    from scrapjd.api import error_codes
 
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = False
 
-        from api.routers.messages import get_conversation
+        from scrapjd.api.routers.messages import get_conversation
 
         with pytest.raises(HTTPException) as exc_info:
             get_conversation(request=fake_request, partner_id="abc", user=student_user, conn=mock_conn)
@@ -876,8 +876,8 @@ def test_every_error_code_used_by_messages_router_is_defined():
     import inspect
     import re
 
-    from api import error_codes
-    from api.routers import messages as messages_router
+    from scrapjd.api import error_codes
+    from scrapjd.api.routers import messages as messages_router
 
     used = set(re.findall(r"error_codes\.([A-Z0-9_]+)", inspect.getsource(messages_router)))
     assert used, "không tìm thấy error_codes nào trong router — regex hỏng?"
@@ -893,7 +893,7 @@ def test_every_error_code_used_by_messages_router_is_defined():
 
 def _call_with_invalid_id(route_name, user, conn, request):
     """Gọi route `route_name` với id sai dạng; trả (hàm db đã bị gọi?)."""
-    import api.routers.messages as m
+    import scrapjd.api.routers.messages as m
 
     bad = "abc"
     if route_name == "send_message":
@@ -932,10 +932,10 @@ _INVALID_UUID_ROUTES = [
 def test_invalid_uuid_returns_400_before_touching_db(
     route_name, user_fixture, forbidden_db_calls, mock_conn, fake_request, request
 ):
-    from api import error_codes
+    from scrapjd.api import error_codes
 
     user = request.getfixturevalue(user_fixture)
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = False
 
         with pytest.raises(HTTPException) as exc_info:
@@ -952,11 +952,11 @@ def test_valid_uuid_still_reaches_db(mock_conn, student_user, fake_request):
     """Đối chứng: id đúng dạng thì validate không cản đường — route vẫn
     chạy xuống tầng DB như cũ."""
     partner_id = str(uuid.uuid4())
-    with patch("api.routers.messages.db_module") as mock_db:
+    with patch("scrapjd.api.routers.messages.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         mock_db.mark_read.return_value = 2
 
-        from api.routers.messages import mark_read
+        from scrapjd.api.routers.messages import mark_read
 
         result = mark_read(request=fake_request, partner_id=partner_id, user=student_user, conn=mock_conn)
 
@@ -971,20 +971,20 @@ def test_valid_uuid_still_reaches_db(mock_conn, student_user, fake_request):
 # ==================================================================
 
 def _route_limit_strings(route_fn) -> list[str]:
-    from api.rate_limit import limiter
+    from scrapjd.api.rate_limit import limiter
 
     key = f"{route_fn.__module__}.{route_fn.__name__}"
     return [str(item.limit) for item in limiter._route_limits[key]]
 
 
 def test_unread_count_rate_limit_is_15_per_minute():
-    from api.routers.messages import unread_count
+    from scrapjd.api.routers.messages import unread_count
 
     assert _route_limit_strings(unread_count) == ["15 per 1 minute"]
 
 
 def test_since_rate_limit_is_60_per_minute():
-    from api.routers.messages import get_new_messages
+    from scrapjd.api.routers.messages import get_new_messages
 
     assert _route_limit_strings(get_new_messages) == ["60 per 1 minute"]
 
@@ -992,7 +992,7 @@ def test_since_rate_limit_is_60_per_minute():
 def test_polling_limits_cover_frontend_poll_rate_for_5_tabs():
     """Ràng buộc gốc của con số: poll 20s (badge) và 5s (khung chat) x 5 tab
     phải nằm trong hạn mức. Đổi nhịp poll ở frontend thì phải xem lại đây."""
-    from api.routers.messages import get_new_messages, unread_count
+    from scrapjd.api.routers.messages import get_new_messages, unread_count
 
     def per_minute(route_fn) -> int:
         return int(_route_limit_strings(route_fn)[0].split()[0])
@@ -1008,7 +1008,7 @@ def test_message_id_query_params_are_bounded_to_bigint():
     import inspect
 
     from scrapjd import db
-    from api.routers.messages import get_history, get_new_messages
+    from scrapjd.api.routers.messages import get_history, get_new_messages
 
     assert db.MAX_MESSAGE_ID == 2**63 - 1
 
@@ -1026,8 +1026,8 @@ def test_message_id_query_params_rejected_by_fastapi_over_bigint():
     from fastapi.testclient import TestClient
 
     from scrapjd import db
-    from api.deps import get_current_user, get_db
-    from api.routers.messages import router
+    from scrapjd.api.deps import get_current_user, get_db
+    from scrapjd.api.routers.messages import router
 
     app = FastAPI()
     app.include_router(router)
@@ -1036,9 +1036,9 @@ def test_message_id_query_params_rejected_by_fastapi_over_bigint():
     client = TestClient(app, raise_server_exceptions=False)
     partner = str(uuid.uuid4())
 
-    with patch("api.routers.messages.db_module.get_messages_since", return_value=[]), \
-         patch("api.routers.messages.db_module.get_messages_between", return_value=[]):
-        from api.rate_limit import limiter
+    with patch("scrapjd.api.routers.messages.db_module.get_messages_since", return_value=[]), \
+         patch("scrapjd.api.routers.messages.db_module.get_messages_between", return_value=[]):
+        from scrapjd.api.rate_limit import limiter
         limiter.reset()
 
         too_big = db.MAX_MESSAGE_ID + 1

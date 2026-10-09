@@ -55,7 +55,7 @@ File `.env.example` chia thành các nhóm và ghi chú từng biến. Bạn ch�
 | Bạn muốn làm gì | Biến cần điền |
 | --- | --- |
 | Crawl, `migrate`, `stats`, mọi lệnh `python main.py ...` | Nhóm PostgreSQL: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGSSLMODE` |
-| Chạy API local (`uvicorn api.app:app`) | Thêm `API_KEY`, `JWT_SECRET_KEY`, `ALLOWED_ORIGINS` |
+| Chạy API local (`uvicorn scrapjd.api.app:app`) | Thêm `API_KEY`, `JWT_SECRET_KEY`, `ALLOWED_ORIGINS` |
 | Gửi email xác thực / quên mật khẩu, upload CV | `RESEND_API_KEY`, `EMAIL_FROM`, `API_BASE_URL`, `FRONTEND_BASE_URL`; `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
 | Chạy script `enrich_*` | `GEMINI_API_KEY`; riêng `enrich_company_web_info.py` thêm `TAVILY_API_KEY` |
 
@@ -276,7 +276,7 @@ python -m pytest -q
 ```
 
 Test không cần internet và không chạm DB thật, nhưng cần biến `JWT_SECRET_KEY`
-(module `api/security.py` báo lỗi ngay khi import nếu thiếu). Nếu `.env` đã
+(module `scrapjd/api/security.py` báo lỗi ngay khi import nếu thiếu). Nếu `.env` đã
 có biến này thì không cần làm gì thêm; nếu chưa, đặt một giá trị tạm:
 
 ```bash
@@ -339,7 +339,7 @@ lại nhiều lần an toàn và không tốn thêm gì cho công ty đã đủ 
 ## Kiến trúc
 
 ```
-scrapjd/                   <- package code lõi (đang dời dần từ thư mục gốc vào đây, xem kế hoạch B4b)
+scrapjd/                   <- package code lõi (toàn bộ code backend, trừ main.py và scripts/)
   config.py                <- ngành/category (JOB_CATEGORIES), độ trễ request, ngưỡng ngắt mạch,
                               snapshot, model AI... (đọc từ biến môi trường, xem .env.example)
   constants.py             <- hằng số dùng chung (enum, tỉnh...)
@@ -347,7 +347,7 @@ scrapjd/                   <- package code lõi (đang dời dần từ thư m�
   normalize.py             <- dùng chung: parse lương, suy luận level, deadline, work_type
   province_alias.py        <- quy đổi tên tỉnh cũ/mới
   sources_registry.py      <- nguồn sự thật DUY NHẤT để đăng ký nguồn crawl (SOURCES);
-                              main.py và toàn bộ api/ import từ đây
+                              main.py và toàn bộ scrapjd/api/ import từ đây
   adapters/                <- base.py (BaseAdapter: session curl_cffi, _throttle(), _fetch_html()
                               với retry/backoff, ngắt mạch, ghi snapshot) + topcv.py,
                               vietnamworks.py, careerviet.py (mỗi adapter chỉ chứa logic parse riêng)
@@ -377,31 +377,30 @@ scrapjd/                   <- package code lõi (đang dời dần từ thư m�
     merge_duplicates.py    <- lệnh `merge-duplicates` (3b): chọn nhóm, job giữ, hợp nhất trường, kế hoạch chuyển dữ liệu con (thuần) + điều phối --apply (xác nhận, kiểm tra crawl, gộp từng nhóm, báo cáo)
     repost_report.py       <- logic lệnh `report-reposts`: ước lượng tỷ lệ gộp nhóm job (chỉ đọc)
     check_listing_derivation.py  <- logic lệnh `check-listing-derivation`: so giá trị job suy ra từ listing với giá trị đang lưu (chỉ đọc)
-  maintenance/             <- vá/dọn dữ liệu: API gọi qua api/maintenance_runner.py; chạy tay từ GỐC repo: python -m scrapjd.maintenance.<tên>
+  maintenance/             <- vá/dọn dữ liệu: API gọi qua scrapjd/api/maintenance_runner.py; chạy tay từ GỐC repo: python -m scrapjd.maintenance.<tên>
     backfill_company_profiles.py            <- vá profile công ty qua source_profile_url đã lưu
     enrich_company_profile_from_website.py  <- vá industry/products_services qua website + Gemini
     enrich_company_web_info.py              <- vá website/tax_id qua Tavily + Gemini
     get_company_fb_linkedin_link.py         <- vá fanpage/LinkedIn qua website
     check_expired_source_jobs.py            <- re-check job OPEN còn sống ở nguồn không
+  api/                       <- lớp API FastAPI (chi tiết xem API_README.md)
+    app.py                   <- entry point: xác thực, CORS, router, lifespan
+    auth.py, security.py     <- API key tĩnh; băm mật khẩu, ký/verify JWT
+    email_service.py         <- gửi email xác thực và quên mật khẩu qua Resend
+    deps.py                  <- get_db(), get_current_user(), require_role()
+    schemas/                 <- Pydantic models (request/response), tách theo domain
+    crawl_runner.py          <- chạy pipeline crawl, theo dõi qua run_id (dùng chung cho nút Crawl
+                                trên web và `python main.py crawl`)
+    run_log.py               <- ghi log live của từng lượt chạy xuống DB, tách riêng theo lượt
+    routers/                 <- jobs, companies, contacts, crawl, meta, auth, me
+    services/                <- entity_specs, validation_engine, preview_manager, import_executor,
+                                conflict_detector, company_resolver (luồng import CSV/XLSX), watchdog
 main.py                    <- CLI: init-db, migrate, crawl, stats, snapshots, snapshot-export, create-admin, recompute-levels, report-duplicates, merge-duplicates
 
 scripts/                                 <- script chạy tay, KHÔNG do API gọi. Chạy từ GỐC repo: python -m scripts.<nhóm>.<tên>
   backfill/backfill_vnw_detail.py        <- vá JD đầy đủ + level cho job VietnamWorks đã lưu (python -m scripts.backfill.backfill_vnw_detail --limit 20)
   backfill/backfill_topcv_level.py       <- vá level Senior -> Lead cho job TopCV nhãn "Trên 5 năm" đã lưu (python -m scripts.backfill.backfill_topcv_level --limit 20)
   oneoff/fix_company_size_format.py      <- chạy MỘT LẦN: bỏ hậu tố "nhân viên" của company_size cũ (mặc định dry-run, thêm --apply để ghi)
-
-api/                       <- lớp API FastAPI (chi tiết xem API_README.md)
-  app.py                   <- entry point: xác thực, CORS, router, lifespan
-  auth.py, security.py     <- API key tĩnh; băm mật khẩu, ký/verify JWT
-  email_service.py         <- gửi email xác thực và quên mật khẩu qua Resend
-  deps.py                  <- get_db(), get_current_user(), require_role()
-  schemas/                 <- Pydantic models (request/response), tách theo domain
-  crawl_runner.py          <- chạy pipeline crawl, theo dõi qua run_id (dùng chung cho nút Crawl
-                              trên web và `python main.py crawl`)
-  run_log.py               <- ghi log live của từng lượt chạy xuống DB, tách riêng theo lượt
-  routers/                 <- jobs, companies, contacts, crawl, meta, auth, me
-  services/                <- entity_specs, validation_engine, preview_manager, import_executor,
-                              conflict_detector, company_resolver (luồng import CSV/XLSX), watchdog
 
 sql/schema.sql             <- schema PostgreSQL đầy đủ, mới nhất (dựng DB mới)
 sql/migration_*.sql        <- 36 migration cũ, đã đóng băng (baseline)
@@ -418,7 +417,7 @@ Các quy ước dưới đây được test canh giữ; vi phạm thì `pytest` 
   `pipeline.py` quyết định. Mỗi nhánh có ghi DB commit đúng một lần ở cuối
   nhánh thành công, mọi lỗi rollback phần chưa commit của job đó. Thêm nhánh
   mới có ghi DB thì phải tự commit ở cuối nhánh (`tests/test_pipeline_transactions.py`).
-- **`api/routers/` không chứa SQL thô.** SQL nằm ở `scrapjd/db/` (`tests/test_layering.py`).
+- **`scrapjd/api/routers/` không chứa SQL thô.** SQL nằm ở `scrapjd/db/` (`tests/test_layering.py`).
 - **Chỉ dùng một thư viện HTTP: `curl_cffi`.** Không import `requests`
   (`tests/test_http_library.py`).
 - **Migration tạo bảng mới thì `schema.sql` cũng phải có bảng đó**
@@ -530,7 +529,7 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
 ### Lịch sử lượt chạy
 
 `python main.py crawl` chạy qua cùng đường với nút *Crawl* trên web
-(`api/crawl_runner.py`), nên mỗi lượt chạy trên máy cũng có một dòng trong
+(`scrapjd/api/crawl_runner.py`), nên mỗi lượt chạy trên máy cũng có một dòng trong
 bảng `crawl_runs` (hiện ở trang `/crawl` của dashboard, cột người chạy để
 trống), kèm log, snapshot và các cờ cảnh báo bên dưới. Mỗi nguồn chỉ chạy
 **một lượt tại một thời điểm**, tính cả lượt bấm trên web. Bấm `Ctrl+C` thì
@@ -803,7 +802,7 @@ Việc đăng ký nguồn nằm trong **một module duy nhất**: `scrapjd/sour
    "itviec": {"adapter_cls": ITViecAdapter, "categories": ITVIEC_CATEGORIES},
    ```
 
-Xong: `main.py` và toàn bộ `api/` (crawl runner, router `/crawl`, router
+Xong: `main.py` và toàn bộ `scrapjd/api/` (crawl runner, router `/crawl`, router
 `/sources`) tự thấy nguồn mới; không cần sửa `scrapjd/normalize.py`, `scrapjd/db/`,
 `pipeline.py`. Ngoại lệ duy nhất (vì là hai repo tách biệt): frontend
 `mindx-jobs` cần tự thêm nhãn hiển thị ở `blueprints/crawl.py::_SOURCE_LABELS`.
@@ -884,7 +883,7 @@ Chi tiết danh sách biến môi trường và endpoint xem `API_README.md`.
 - **Log live chỉ gắn đúng lượt chạy với code chạy cùng luồng.** Code chạy
   trong thread con do chính job tạo ra không thừa kế dấu này nên log của
   nó không vào log của lượt (hiện crawl và bảo trì không làm vậy; xem
-  `api/run_log.py`).
+  `scrapjd/api/run_log.py`).
 - **Fixture VietnamWorks và CareerViet trong `tests/` là dữ liệu tổng hợp**,
   nên test parser chưa chứng minh selector còn đúng với site thật. Thay
   bằng HTML thật qua `snapshot-export`.

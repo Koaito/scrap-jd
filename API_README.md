@@ -44,7 +44,7 @@ pip install -r requirements.txt   # đã có fastapi + uvicorn
 ## Chạy
 
 ```bash
-uvicorn api.app:app --reload --port 8000
+uvicorn scrapjd.api.app:app --reload --port 8000
 ```
 
 Swagger UI (`/docs`) **mặc định TẮT** (xem mục Bảo mật). Set
@@ -62,7 +62,7 @@ Mọi endpoint (kể cả `/health`) yêu cầu header `X-API-Key` đúng giá t
 `API_KEY` trong `.env`. Fail-closed: quên cấu hình `API_KEY` → server tự
 chặn hết, không âm thầm mở toang. Khoá "máy gọi máy" dùng chung cho cả
 team, xác nhận "client này là frontend của mình" — KHÔNG phân biệt được
-người dùng cụ thể nào đang gọi. Chi tiết: `api/auth.py`.
+người dùng cụ thể nào đang gọi. Chi tiết: `scrapjd/api/auth.py`.
 
 **Header `X-Client-IP` (rate limit theo IP người dùng cuối).** Frontend là
 server-to-server proxy nên backend chỉ thấy IP của server frontend. Để
@@ -70,13 +70,13 @@ rate limit theo IP (`GET /jobs`, `GET /companies`, `/auth/login`,
 `/auth/register`...) đếm đúng từng người dùng, frontend gửi kèm IP thật
 qua header `X-Client-IP`. Backend CHỈ tin header này khi request có
 `X-API-Key` hợp lệ và giá trị là IP hợp lệ; ngược lại dùng IP kết nối
-trực tiếp như trước. Chi tiết: `api/rate_limit.py::get_client_ip()`.
+trực tiếp như trước. Chi tiết: `scrapjd/api/rate_limit.py::get_client_ip()`.
 
 ### Lớp 2 — Đăng nhập JWT từng người
 
 Xác nhận AI thật đang gọi — dùng bảng `app_users` (`password_hash`,
-`role`) và bảng `auth_refresh_tokens`. Chi tiết: `api/security.py`,
-`api/deps.py`.
+`role`) và bảng `auth_refresh_tokens`. Chi tiết: `scrapjd/api/security.py`,
+`scrapjd/api/deps.py`.
 
 Luồng:
 
@@ -91,7 +91,7 @@ Luồng:
 
 ### Lớp 3 — Phân quyền 3 cấp
 
-`ROLE_HIERARCHY`/`require_role()` trong `api/deps.py`. Mỗi tài khoản có
+`ROLE_HIERARCHY`/`require_role()` trong `scrapjd/api/deps.py`. Mỗi tài khoản có
 đúng 1 role, cấp cao thoả mọi route yêu cầu cấp thấp hơn (so sánh theo
 bậc, không so khớp đúng 1 chuỗi):
 
@@ -121,14 +121,14 @@ phẩy) mới gọi được từ trình duyệt. Để trống → không domai
 3 route duy nhất KHÔNG đi qua được lớp `API_KEY` (giới hạn kỹ thuật của
 FastAPI, route Starlette thuần). Vì vậy mặc định tắt hẳn để không lộ cấu
 trúc API ra ngoài; chỉ bật bằng `ENABLE_DOCS=true` lúc dev local. Chi
-tiết: docstring `api/app.py`.
+tiết: docstring `scrapjd/api/app.py`.
 
 ### Khoá tạm tài khoản do đăng nhập sai nhiều lần
 
 `POST /auth/login` tự đếm số lần sai mật khẩu liên tiếp
 (`failed_login_count`) — sai đủ 5 lần thì khoá tạm tài khoản đó 15 phút
 (`locked_until`, xem `FAILED_LOGIN_LOCK_THRESHOLD`/
-`FAILED_LOGIN_LOCK_MINUTES` trong `api/security.py`), trả `403`. Đăng
+`FAILED_LOGIN_LOCK_MINUTES` trong `scrapjd/api/security.py`), trả `403`. Đăng
 nhập đúng mật khẩu bất kỳ lúc nào tự reset bộ đếm về 0. Khác
 `is_active=false` (vô hiệu hoá vĩnh viễn do admin) — khoá tạm tự hết hạn
 sau 15 phút, không cần admin can thiệp.
@@ -429,7 +429,7 @@ Gửi lại 1 refresh token đã bị thu hồi thường bị coi là dấu hi�
 đó (đăng xuất mọi thiết bị, `401 auth_refresh_token_already_revoked`).
 
 Ngoại lệ (thêm khi migrate Next.js, xem
-`api.security.REFRESH_REUSE_GRACE_SECONDS`, hiện = 10 giây): nhiều
+`scrapjd.api.security.REFRESH_REUSE_GRACE_SECONDS`, hiện = 10 giây): nhiều
 tab/nhiều request có thể vô tình gọi `/auth/refresh` gần như đồng thời
 với cùng 1 refresh token cũ (ví dụ nhiều Server Component cùng render 1
 lúc). Để không đăng xuất oan người dùng hợp lệ trong tình huống này,
@@ -441,8 +441,8 @@ thế. Thiết kế "chặt": mọi lý do khác khiến token cũ bị thu hồ
 đều khiến token thay thế cũng đã bị thu hồi theo, nên tự động rơi vào
 nhánh chặn như cũ, không cần thêm điều kiện riêng cho từng tình huống.
 Chi tiết đánh đổi và các ca đã xét: xem docstring hằng số
-`REFRESH_REUSE_GRACE_SECONDS` trong `api/security.py` và docstring hàm
-`refresh()` trong `api/routers/auth_session.py`. Test:
+`REFRESH_REUSE_GRACE_SECONDS` trong `scrapjd/api/security.py` và docstring hàm
+`refresh()` trong `scrapjd/api/routers/auth_session.py`. Test:
 `tests/test_api_auth.py`.
 
 ### `PATCH /auth/users/{id}/role` / `PATCH /auth/users/{id}/active-status`
@@ -460,7 +460,7 @@ cũ (tối đa 30 phút) vẫn dùng được tới khi hết hạn tự nhiên.
 
 ## Phân quyền — role hierarchy
 
-`api/deps.py` định nghĩa `ROLE_HIERARCHY = {"user": 0, "ss_team": 1,
+`scrapjd/api/deps.py` định nghĩa `ROLE_HIERARCHY = {"user": 0, "ss_team": 1,
 "admin": 2}` — mỗi route khai báo `Depends(require_role("ss_team"))`
 (hoặc `require_admin`, alias của `require_role("admin")`) sẽ chấp nhận
 role của người gọi nếu cấp số của role đó >= cấp yêu cầu, không so khớp
@@ -484,10 +484,10 @@ trả về trong response của `GET`/`POST`/`PATCH` tương ứng.
 
 ## Connection pool
 
-`api/deps.py:get_db()` mượn/trả connection từ 1 pool đã mở sẵn
+`scrapjd/api/deps.py:get_db()` mượn/trả connection từ 1 pool đã mở sẵn
 (`psycopg2.pool.ThreadedConnectionPool`, xem `scrapjd/db/connection.py`) thay vì
 mở connection mới mỗi request. Pool khởi tạo 1 lần lúc app khởi động
-(`api/app.py`, `lifespan`), đóng lại lúc app tắt.
+(`scrapjd/api/app.py`, `lifespan`), đóng lại lúc app tắt.
 
 Kích thước pool cấu hình qua `DB_POOL_MIN`/`DB_POOL_MAX` trong `.env`
 (mặc định 2/20) — nên đặt `DB_POOL_MAX` thấp hơn giới hạn connection
@@ -496,7 +496,7 @@ Postgres phía Render/Supabase cho phép.
 `main.py` (CLI) và các script độc lập (`scrapjd/maintenance/backfill_company_profiles.py`,
 `scrapjd/maintenance/enrich_company_profile_from_website.py`, `scrapjd/maintenance/enrich_company_web_info.py`,
 `scrapjd/maintenance/get_company_fb_linkedin_link.py`, `scrapjd/maintenance/check_expired_source_jobs.py`,
-`api/crawl_runner.py`) vẫn dùng `db.get_connection()` mở/đóng connection
+`scrapjd/api/crawl_runner.py`) vẫn dùng `db.get_connection()` mở/đóng connection
 trực tiếp như cũ — KHÔNG qua pool, vì tần suất chạy thấp (1 lần/script).
 
 ---

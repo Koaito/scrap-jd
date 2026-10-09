@@ -24,9 +24,9 @@ import pytest
 from fastapi import HTTPException
 
 from scrapjd import db
-from api import error_codes
-from api.routers.jobs import create_job
-from api.schemas import JobCreate
+from scrapjd.api import error_codes
+from scrapjd.api.routers.jobs import create_job
+from scrapjd.api.schemas import JobCreate
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 

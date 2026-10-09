@@ -11,8 +11,8 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from api.services import export_query
-from api.services.export_query import _format_export_value, _format_rows
+from scrapjd.api.services import export_query
+from scrapjd.api.services.export_query import _format_export_value, _format_rows
 
 
 def test_naive_datetime_is_treated_as_utc_and_shown_in_vn_time():

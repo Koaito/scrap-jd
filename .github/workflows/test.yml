@@ -76,7 +76,7 @@ jobs:
         run: ruff check .
 
       - name: Chạy test
-        # JWT_SECRET_KEY: api/security.py raise RuntimeError ngay lúc
+        # JWT_SECRET_KEY: scrapjd/api/security.py raise RuntimeError ngay lúc
         # import nếu thiếu biến này (xem .env.example) — giá trị dưới
         # đây chỉ để test chạy được, KHÔNG phải secret thật, không dùng
         # để ký token nào ngoài phạm vi CI run này. mock_conn (xem

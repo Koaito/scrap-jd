@@ -12,7 +12,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from api.services import crawl_watchdog
+from scrapjd.api.services import crawl_watchdog
 from scrapjd.config import CRAWL_STALE_NO_PROGRESS_MINUTES, CRAWL_STALE_TIMEOUT_MINUTES
 
 

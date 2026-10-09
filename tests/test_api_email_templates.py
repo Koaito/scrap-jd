@@ -34,13 +34,13 @@ def test_template_id():
 
 
 def test_list_email_templates_success(mock_conn, ss_team_user):
-    with patch("api.routers.email_templates.db_module") as mock_db:
+    with patch("scrapjd.api.routers.email_templates.db_module") as mock_db:
         mock_db.list_email_templates.return_value = [
             make_email_template_record(str(uuid.uuid4()), title="Giới thiệu MindX"),
             make_email_template_record(str(uuid.uuid4()), title="Xin JD Intern/Fresher"),
         ]
 
-        from api.routers.email_templates import list_email_templates
+        from scrapjd.api.routers.email_templates import list_email_templates
 
         result = list_email_templates(conn=mock_conn, user=ss_team_user)
         assert len(result) == 2
@@ -48,11 +48,11 @@ def test_list_email_templates_success(mock_conn, ss_team_user):
 
 
 def test_get_email_template_not_found(mock_conn, ss_team_user, test_template_id):
-    with patch("api.routers.email_templates.db_module") as mock_db:
+    with patch("scrapjd.api.routers.email_templates.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         mock_db.get_email_template_by_id.return_value = None
 
-        from api.routers.email_templates import get_email_template
+        from scrapjd.api.routers.email_templates import get_email_template
 
         with pytest.raises(HTTPException) as exc_info:
             get_email_template(template_id=test_template_id, conn=mock_conn, user=ss_team_user)
@@ -60,10 +60,10 @@ def test_get_email_template_not_found(mock_conn, ss_team_user, test_template_id)
 
 
 def test_get_email_template_invalid_uuid(mock_conn, ss_team_user):
-    with patch("api.routers.email_templates.db_module") as mock_db:
+    with patch("scrapjd.api.routers.email_templates.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = False
 
-        from api.routers.email_templates import get_email_template
+        from scrapjd.api.routers.email_templates import get_email_template
 
         with pytest.raises(HTTPException) as exc_info:
             get_email_template(template_id="not-a-uuid", conn=mock_conn, user=ss_team_user)
@@ -72,7 +72,7 @@ def test_get_email_template_invalid_uuid(mock_conn, ss_team_user):
 
 
 def test_get_placeholder_help_returns_5_fixed_placeholders(ss_team_user):
-    from api.routers.email_templates import get_placeholder_help
+    from scrapjd.api.routers.email_templates import get_placeholder_help
 
     result = get_placeholder_help(user=ss_team_user)
     # Giữ nguyên đúng 5 placeholder cố định theo yêu cầu đã chốt —
@@ -93,13 +93,13 @@ def test_get_placeholder_help_returns_5_fixed_placeholders(ss_team_user):
 def test_create_email_template_success_note_optional(mock_conn, ss_team_user, test_template_id):
     """Tạo mẫu mới KHÔNG kèm note vẫn thành công — CREATE_EMAIL_TEMPLATE
     không thuộc nhóm bắt buộc note (khác UPDATE/DELETE)."""
-    with patch("api.routers.email_templates.db_module") as mock_db:
+    with patch("scrapjd.api.routers.email_templates.db_module") as mock_db:
         mock_db.create_email_template.return_value = test_template_id
         created = make_email_template_record(test_template_id, title="Mẫu mới")
         mock_db.get_email_template_by_id.return_value = created
 
-        from api.routers.email_templates import create_email_template
-        from api.schemas import EmailTemplateCreate
+        from scrapjd.api.routers.email_templates import create_email_template
+        from scrapjd.api.schemas import EmailTemplateCreate
 
         result = create_email_template(
             payload=EmailTemplateCreate(
@@ -118,14 +118,14 @@ def test_create_email_template_success_note_optional(mock_conn, ss_team_user, te
 
 def test_create_email_template_invalid_recommended_for():
     """recommended_for chứa giá trị ngoài 4 trạng thái hợp lệ -> lỗi validate Pydantic"""
-    from api.schemas import EmailTemplateCreate
+    from scrapjd.api.schemas import EmailTemplateCreate
 
     with pytest.raises(ValidationError):
         EmailTemplateCreate(title="X", body="Y", recommended_for=["KHONG_HOP_LE"])
 
 
 def test_create_email_template_blank_title_rejected():
-    from api.schemas import EmailTemplateCreate
+    from scrapjd.api.schemas import EmailTemplateCreate
 
     with pytest.raises(ValidationError):
         EmailTemplateCreate(title="   ", body="Nội dung")
@@ -138,14 +138,14 @@ def test_create_email_template_blank_title_rejected():
 
 def test_patch_email_template_missing_note_with_changes(mock_conn, ss_team_user, test_template_id):
     """Sửa mẫu có thay đổi field thật nhưng thiếu note -> 422"""
-    with patch("api.routers.email_templates.db_module") as mock_db:
+    with patch("scrapjd.api.routers.email_templates.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         existing = make_email_template_record(test_template_id)
         mock_db.get_email_template_by_id.return_value = existing
         mock_db.diff_changed_fields.return_value = {"title": {"old": "Cũ", "new": "Mới"}}
 
-        from api.routers.email_templates import patch_email_template
-        from api.schemas import EmailTemplateUpdate
+        from scrapjd.api.routers.email_templates import patch_email_template
+        from scrapjd.api.schemas import EmailTemplateUpdate
 
         with pytest.raises(HTTPException) as exc_info:
             patch_email_template(
@@ -160,15 +160,15 @@ def test_patch_email_template_missing_note_with_changes(mock_conn, ss_team_user,
 
 def test_patch_email_template_no_changes_no_note_required(mock_conn, ss_team_user, test_template_id):
     """Không có thay đổi thật -> không cần note, PATCH vẫn thành công"""
-    with patch("api.routers.email_templates.db_module") as mock_db:
+    with patch("scrapjd.api.routers.email_templates.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         existing = make_email_template_record(test_template_id)
         mock_db.get_email_template_by_id.return_value = existing
         mock_db.diff_changed_fields.return_value = {}
         mock_db.patch_email_template.return_value = True
 
-        from api.routers.email_templates import patch_email_template
-        from api.schemas import EmailTemplateUpdate
+        from scrapjd.api.routers.email_templates import patch_email_template
+        from scrapjd.api.schemas import EmailTemplateUpdate
 
         patch_email_template(
             template_id=test_template_id,
@@ -181,15 +181,15 @@ def test_patch_email_template_no_changes_no_note_required(mock_conn, ss_team_use
 
 def test_patch_email_template_with_note_success(mock_conn, ss_team_user, test_template_id):
     """Sửa có thay đổi + có note -> thành công, log đúng action + note"""
-    with patch("api.routers.email_templates.db_module") as mock_db:
+    with patch("scrapjd.api.routers.email_templates.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         existing = make_email_template_record(test_template_id, title="Cũ")
         mock_db.get_email_template_by_id.return_value = existing
         mock_db.diff_changed_fields.return_value = {"title": {"old": "Cũ", "new": "Mới"}}
         mock_db.patch_email_template.return_value = True
 
-        from api.routers.email_templates import patch_email_template
-        from api.schemas import EmailTemplateUpdate
+        from scrapjd.api.routers.email_templates import patch_email_template
+        from scrapjd.api.schemas import EmailTemplateUpdate
 
         patch_email_template(
             template_id=test_template_id,
@@ -204,12 +204,12 @@ def test_patch_email_template_with_note_success(mock_conn, ss_team_user, test_te
 
 
 def test_patch_email_template_not_found(mock_conn, ss_team_user, test_template_id):
-    with patch("api.routers.email_templates.db_module") as mock_db:
+    with patch("scrapjd.api.routers.email_templates.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         mock_db.get_email_template_by_id.return_value = None
 
-        from api.routers.email_templates import patch_email_template
-        from api.schemas import EmailTemplateUpdate
+        from scrapjd.api.routers.email_templates import patch_email_template
+        from scrapjd.api.schemas import EmailTemplateUpdate
 
         with pytest.raises(HTTPException) as exc_info:
             patch_email_template(
@@ -221,7 +221,7 @@ def test_patch_email_template_not_found(mock_conn, ss_team_user, test_template_i
 
 
 def test_patch_email_template_invalid_recommended_for():
-    from api.schemas import EmailTemplateUpdate
+    from scrapjd.api.schemas import EmailTemplateUpdate
 
     with pytest.raises(ValidationError):
         EmailTemplateUpdate(recommended_for=["SAI_GIA_TRI"])
@@ -236,7 +236,7 @@ def test_delete_email_template_requires_note_at_schema_level():
     """note bắt buộc ngay từ Pydantic — thiếu note -> 422 KHÔNG chạm DB
     (khác pattern UPDATE, ở đây note luôn bắt buộc, không có ngoại lệ
     'không đổi gì thì thôi' vì XOÁ luôn là 1 thay đổi thật)."""
-    from api.schemas import EmailTemplateDeleteRequest
+    from scrapjd.api.schemas import EmailTemplateDeleteRequest
 
     with pytest.raises(ValidationError):
         EmailTemplateDeleteRequest()
@@ -249,14 +249,14 @@ def test_delete_email_template_hard_deletes_and_logs(mock_conn, ss_team_user, te
     """Xoá thành công -> gọi db_module.delete_email_template() (HARD
     DELETE thật, khác soft_delete_company/soft_delete_company_contact),
     log_action() gọi TRƯỚC đó trong cùng transaction."""
-    with patch("api.routers.email_templates.db_module") as mock_db:
+    with patch("scrapjd.api.routers.email_templates.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         existing = make_email_template_record(test_template_id, title="Mẫu cần xoá")
         mock_db.get_email_template_by_id.return_value = existing
         mock_db.delete_email_template.return_value = True
 
-        from api.routers.email_templates import delete_email_template
-        from api.schemas import EmailTemplateDeleteRequest
+        from scrapjd.api.routers.email_templates import delete_email_template
+        from scrapjd.api.schemas import EmailTemplateDeleteRequest
 
         delete_email_template(
             template_id=test_template_id,
@@ -273,12 +273,12 @@ def test_delete_email_template_hard_deletes_and_logs(mock_conn, ss_team_user, te
 
 
 def test_delete_email_template_not_found(mock_conn, ss_team_user, test_template_id):
-    with patch("api.routers.email_templates.db_module") as mock_db:
+    with patch("scrapjd.api.routers.email_templates.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         mock_db.get_email_template_by_id.return_value = None
 
-        from api.routers.email_templates import delete_email_template
-        from api.schemas import EmailTemplateDeleteRequest
+        from scrapjd.api.routers.email_templates import delete_email_template
+        from scrapjd.api.schemas import EmailTemplateDeleteRequest
 
         with pytest.raises(HTTPException) as exc_info:
             delete_email_template(
@@ -291,11 +291,11 @@ def test_delete_email_template_not_found(mock_conn, ss_team_user, test_template_
 
 
 def test_delete_email_template_invalid_uuid(mock_conn, ss_team_user):
-    with patch("api.routers.email_templates.db_module") as mock_db:
+    with patch("scrapjd.api.routers.email_templates.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = False
 
-        from api.routers.email_templates import delete_email_template
-        from api.schemas import EmailTemplateDeleteRequest
+        from scrapjd.api.routers.email_templates import delete_email_template
+        from scrapjd.api.schemas import EmailTemplateDeleteRequest
 
         with pytest.raises(HTTPException) as exc_info:
             delete_email_template(

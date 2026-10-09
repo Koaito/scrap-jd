@@ -95,7 +95,7 @@ from typing import Optional
 from curl_cffi import requests
 
 from scrapjd import db
-from api import storage as cv_storage
+from scrapjd.api import storage as cv_storage
 from scrapjd.config import DEFAULT_HEADERS
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",

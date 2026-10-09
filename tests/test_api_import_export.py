@@ -13,10 +13,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi import HTTPException, UploadFile
 
-from api.routers.import_export import _check_entity_type, _VALID_ENTITY_TYPES
-from api.services.file_parser import FileTooLargeError, UnsupportedFileFormatError
-from api.services.import_executor import RowResolutionError
-from api.services.preview_manager import (
+from scrapjd.api.routers.import_export import _check_entity_type, _VALID_ENTITY_TYPES
+from scrapjd.api.services.file_parser import FileTooLargeError, UnsupportedFileFormatError
+from scrapjd.api.services.import_executor import RowResolutionError
+from scrapjd.api.services.preview_manager import (
     PreviewExpiredError,
     PreviewNotFoundError,
     PreviewOwnershipError,
@@ -52,7 +52,7 @@ def test_check_entity_type_invalid():
 
 def test_export_entity_invalid_type(mock_conn, ss_team_user):
     """Export với entity_type không hợp lệ -> 400"""
-    from api.routers.import_export import export_entity
+    from scrapjd.api.routers.import_export import export_entity
 
     with pytest.raises(HTTPException) as exc_info:
         export_entity(
@@ -66,9 +66,9 @@ def test_export_entity_invalid_type(mock_conn, ss_team_user):
 
 def test_export_entity_success_csv(mock_conn, ss_team_user):
     """Export CSV thành công"""
-    with patch("api.routers.import_export.export_query") as mock_export_query:
-        with patch("api.routers.import_export.file_parser") as mock_file_parser:
-            with patch("api.routers.import_export.get_spec") as mock_get_spec:
+    with patch("scrapjd.api.routers.import_export.export_query") as mock_export_query:
+        with patch("scrapjd.api.routers.import_export.file_parser") as mock_file_parser:
+            with patch("scrapjd.api.routers.import_export.get_spec") as mock_get_spec:
                 # Setup mocks
                 mock_export_query.QUERY_FUNCS = {
                     "job": MagicMock(return_value=[{"job_id": "1", "job_title": "Test"}])
@@ -81,7 +81,7 @@ def test_export_entity_success_csv(mock_conn, ss_team_user):
                 )
                 mock_file_parser.content_type_for_format.return_value = "text/csv"
 
-                from api.routers.import_export import export_entity
+                from scrapjd.api.routers.import_export import export_entity
 
                 response = export_entity(
                     entity_type="job",
@@ -109,9 +109,9 @@ def test_export_entity_success_csv(mock_conn, ss_team_user):
 
 def test_export_entity_success_xlsx(mock_conn, ss_team_user):
     """Export XLSX thành công"""
-    with patch("api.routers.import_export.export_query") as mock_export_query:
-        with patch("api.routers.import_export.file_parser") as mock_file_parser:
-            with patch("api.routers.import_export.get_spec") as mock_get_spec:
+    with patch("scrapjd.api.routers.import_export.export_query") as mock_export_query:
+        with patch("scrapjd.api.routers.import_export.file_parser") as mock_file_parser:
+            with patch("scrapjd.api.routers.import_export.get_spec") as mock_get_spec:
                 mock_export_query.QUERY_FUNCS = {
                     "contact": MagicMock(return_value=[])
                 }
@@ -121,7 +121,7 @@ def test_export_entity_success_xlsx(mock_conn, ss_team_user):
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 )
 
-                from api.routers.import_export import export_entity
+                from scrapjd.api.routers.import_export import export_entity
 
                 response = export_entity(
                     entity_type="contact",
@@ -145,7 +145,7 @@ def test_export_entity_success_xlsx(mock_conn, ss_team_user):
 @pytest.mark.asyncio
 async def test_import_preview_invalid_entity_type(mock_conn, ss_team_user, fake_request):
     """Import preview với entity_type không hợp lệ -> 400"""
-    from api.routers.import_export import import_preview
+    from scrapjd.api.routers.import_export import import_preview
 
     mock_file = UploadFile(filename="test.csv", file=io.BytesIO(b"test"))
 
@@ -163,7 +163,7 @@ async def test_import_preview_invalid_entity_type(mock_conn, ss_team_user, fake_
 @pytest.mark.asyncio
 async def test_import_preview_unsupported_file_format(mock_conn, ss_team_user, fake_request):
     """Import file không hỗ trợ (không phải CSV/XLSX) -> 400"""
-    with patch("api.routers.import_export.file_parser") as mock_file_parser:
+    with patch("scrapjd.api.routers.import_export.file_parser") as mock_file_parser:
         # Gán class exception THẬT (không phải mock_file_parser.Xxx tự
         # sinh) — xem giải thích chi tiết ở test_hard_delete_contact_has_links
         # (test_api_contacts.py): patch cả module thì .side_effect gán
@@ -173,7 +173,7 @@ async def test_import_preview_unsupported_file_format(mock_conn, ss_team_user, f
         mock_file_parser.UnsupportedFileFormatError = UnsupportedFileFormatError
         mock_file_parser.parse_file.side_effect = UnsupportedFileFormatError()
 
-        from api.routers.import_export import import_preview
+        from scrapjd.api.routers.import_export import import_preview
 
         mock_file = UploadFile(filename="test.txt", file=io.BytesIO(b"test"))
 
@@ -192,7 +192,7 @@ async def test_import_preview_unsupported_file_format(mock_conn, ss_team_user, f
 @pytest.mark.asyncio
 async def test_import_preview_file_too_large(mock_conn, ss_team_user, fake_request):
     """Import file quá 5000 dòng -> 400"""
-    with patch("api.routers.import_export.file_parser") as mock_file_parser:
+    with patch("scrapjd.api.routers.import_export.file_parser") as mock_file_parser:
         # UnsupportedFileFormatError CŨNG phải gán thật dù test này
         # không raise nó, vì router có except UnsupportedFileFormatError
         # đứng TRƯỚC except FileTooLargeError — Python cần cả 2 là
@@ -203,7 +203,7 @@ async def test_import_preview_file_too_large(mock_conn, ss_team_user, fake_reque
         mock_file_parser.FileTooLargeError = FileTooLargeError
         mock_file_parser.parse_file.side_effect = FileTooLargeError(row_count=5001)
 
-        from api.routers.import_export import import_preview
+        from scrapjd.api.routers.import_export import import_preview
 
         mock_file = UploadFile(filename="test.csv", file=io.BytesIO(b"test"))
 
@@ -222,9 +222,9 @@ async def test_import_preview_file_too_large(mock_conn, ss_team_user, fake_reque
 @pytest.mark.asyncio
 async def test_import_preview_validation_errors(mock_conn, ss_team_user, fake_request):
     """Import file có dòng không hợp lệ -> 422 với chi tiết lỗi"""
-    with patch("api.routers.import_export.file_parser") as mock_file_parser:
+    with patch("scrapjd.api.routers.import_export.file_parser") as mock_file_parser:
         with patch(
-            "api.routers.import_export.validate_dataframe"
+            "scrapjd.api.routers.import_export.validate_dataframe"
         ) as mock_validate:
             import pandas as pd
 
@@ -243,7 +243,7 @@ async def test_import_preview_validation_errors(mock_conn, ss_team_user, fake_re
             mock_validation_result.errors = [mock_error]
             mock_validate.return_value = mock_validation_result
 
-            from api.routers.import_export import import_preview
+            from scrapjd.api.routers.import_export import import_preview
 
             mock_file = UploadFile(filename="test.csv", file=io.BytesIO(b"test"))
 
@@ -262,12 +262,12 @@ async def test_import_preview_validation_errors(mock_conn, ss_team_user, fake_re
 @pytest.mark.asyncio
 async def test_import_preview_success(mock_conn, ss_team_user, test_preview_id, fake_request):
     """Import preview thành công"""
-    with patch("api.routers.import_export.file_parser") as mock_file_parser:
+    with patch("scrapjd.api.routers.import_export.file_parser") as mock_file_parser:
         with patch(
-            "api.routers.import_export.validate_dataframe"
+            "scrapjd.api.routers.import_export.validate_dataframe"
         ) as mock_validate:
             with patch(
-                "api.routers.import_export.preview_manager"
+                "scrapjd.api.routers.import_export.preview_manager"
             ) as mock_preview_mgr:
                 import pandas as pd
 
@@ -290,7 +290,7 @@ async def test_import_preview_success(mock_conn, ss_team_user, test_preview_id, 
                 mock_preview_mgr.build_preview.return_value = preview_data
                 mock_preview_mgr.save_preview.return_value = test_preview_id
 
-                from api.routers.import_export import import_preview
+                from scrapjd.api.routers.import_export import import_preview
 
                 mock_file = UploadFile(filename="test.csv", file=io.BytesIO(b"test"))
 
@@ -320,10 +320,10 @@ def test_get_import_preview_invalid_preview_id(mock_conn, ss_team_user):
     # _load_owned_preview bị thay bằng MagicMock rỗng, patch db_module
     # trở nên vô nghĩa vì code thật không bao giờ chạy tới -> test
     # không bao giờ raise được HTTPException.
-    with patch("api.routers.import_export.db_module") as mock_db:
+    with patch("scrapjd.api.routers.import_export.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = False
 
-        from api.routers.import_export import get_import_preview
+        from scrapjd.api.routers.import_export import get_import_preview
 
         with pytest.raises(HTTPException) as exc_info:
             get_import_preview(
@@ -338,9 +338,9 @@ def test_get_import_preview_invalid_preview_id(mock_conn, ss_team_user):
 def test_get_import_preview_not_found(mock_conn, ss_team_user, test_preview_id):
     """GET preview không tồn tại -> 404"""
     with patch(
-        "api.routers.import_export.preview_manager"
+        "scrapjd.api.routers.import_export.preview_manager"
     ) as mock_preview_mgr:
-        with patch("api.routers.import_export.db_module") as mock_db:
+        with patch("scrapjd.api.routers.import_export.db_module") as mock_db:
             mock_db.is_valid_uuid.return_value = True
             # xem giải thích ở test_import_preview_unsupported_file_format
             # — CẢ 3 class phải gán thật (không chỉ class đang raise):
@@ -357,7 +357,7 @@ def test_get_import_preview_not_found(mock_conn, ss_team_user, test_preview_id):
             mock_preview_mgr.PreviewExpiredError = PreviewExpiredError
             mock_preview_mgr.get_preview.side_effect = PreviewNotFoundError()
 
-            from api.routers.import_export import get_import_preview
+            from scrapjd.api.routers.import_export import get_import_preview
 
             with pytest.raises(HTTPException) as exc_info:
                 get_import_preview(
@@ -374,9 +374,9 @@ def test_get_import_preview_ownership_error(
 ):
     """GET preview của người khác -> 404 (cố ý giống not found)"""
     with patch(
-        "api.routers.import_export.preview_manager"
+        "scrapjd.api.routers.import_export.preview_manager"
     ) as mock_preview_mgr:
-        with patch("api.routers.import_export.db_module") as mock_db:
+        with patch("scrapjd.api.routers.import_export.db_module") as mock_db:
             mock_db.is_valid_uuid.return_value = True
             # xem giải thích ở test_get_import_preview_not_found — cả 3
             # class đều phải thật vì except NotFound (đứng TRƯỚC
@@ -387,7 +387,7 @@ def test_get_import_preview_ownership_error(
             mock_preview_mgr.PreviewExpiredError = PreviewExpiredError
             mock_preview_mgr.get_preview.side_effect = PreviewOwnershipError()
 
-            from api.routers.import_export import get_import_preview
+            from scrapjd.api.routers.import_export import get_import_preview
 
             with pytest.raises(HTTPException) as exc_info:
                 get_import_preview(
@@ -402,9 +402,9 @@ def test_get_import_preview_ownership_error(
 def test_get_import_preview_expired(mock_conn, ss_team_user, test_preview_id):
     """GET preview đã hết hạn -> 410"""
     with patch(
-        "api.routers.import_export.preview_manager"
+        "scrapjd.api.routers.import_export.preview_manager"
     ) as mock_preview_mgr:
-        with patch("api.routers.import_export.db_module") as mock_db:
+        with patch("scrapjd.api.routers.import_export.db_module") as mock_db:
             mock_db.is_valid_uuid.return_value = True
             # xem giải thích ở test_get_import_preview_not_found — cả 3
             # class đều phải thật vì 2 except NotFound/Ownership (đứng
@@ -415,7 +415,7 @@ def test_get_import_preview_expired(mock_conn, ss_team_user, test_preview_id):
             mock_preview_mgr.PreviewExpiredError = PreviewExpiredError
             mock_preview_mgr.get_preview.side_effect = PreviewExpiredError()
 
-            from api.routers.import_export import get_import_preview
+            from scrapjd.api.routers.import_export import get_import_preview
 
             with pytest.raises(HTTPException) as exc_info:
                 get_import_preview(
@@ -431,10 +431,10 @@ def test_get_import_preview_success(mock_conn, ss_team_user, test_preview_id):
     """GET preview thành công"""
     preview_record = make_preview_record(test_preview_id, ss_team_user["sub"])
 
-    with patch("api.routers.import_export._load_owned_preview") as mock_load:
+    with patch("scrapjd.api.routers.import_export._load_owned_preview") as mock_load:
         mock_load.return_value = preview_record
 
-        from api.routers.import_export import get_import_preview
+        from scrapjd.api.routers.import_export import get_import_preview
 
         result = get_import_preview(
             entity_type="contact",
@@ -459,11 +459,11 @@ def test_import_confirm_entity_type_mismatch(
         test_preview_id, ss_team_user["sub"], entity_type="job"
     )
 
-    with patch("api.routers.import_export._load_owned_preview") as mock_load:
+    with patch("scrapjd.api.routers.import_export._load_owned_preview") as mock_load:
         mock_load.return_value = preview_record
 
-        from api.routers.import_export import import_confirm
-        from api.schemas import ImportConfirmRequest
+        from scrapjd.api.routers.import_export import import_confirm
+        from scrapjd.api.schemas import ImportConfirmRequest
 
         with pytest.raises(HTTPException) as exc_info:
             import_confirm(
@@ -484,17 +484,17 @@ def test_import_confirm_row_resolution_error(
     """Confirm với resolution không hợp lệ -> 422"""
     preview_record = make_preview_record(test_preview_id, ss_team_user["sub"])
 
-    with patch("api.routers.import_export._load_owned_preview") as mock_load:
+    with patch("scrapjd.api.routers.import_export._load_owned_preview") as mock_load:
         with patch(
-            "api.routers.import_export.import_executor"
+            "scrapjd.api.routers.import_export.import_executor"
         ) as mock_executor:
             mock_load.return_value = preview_record
             # xem giải thích ở test_import_preview_unsupported_file_format
             mock_executor.RowResolutionError = RowResolutionError
             mock_executor.execute_import.side_effect = RowResolutionError("Invalid resolution")
 
-            from api.routers.import_export import import_confirm
-            from api.schemas import ImportConfirmRequest
+            from scrapjd.api.routers.import_export import import_confirm
+            from scrapjd.api.schemas import ImportConfirmRequest
 
             with pytest.raises(HTTPException) as exc_info:
                 import_confirm(
@@ -513,9 +513,9 @@ def test_import_confirm_database_error(mock_conn, ss_team_user, test_preview_id)
     """Confirm gặp lỗi DB -> 500, rollback"""
     preview_record = make_preview_record(test_preview_id, ss_team_user["sub"])
 
-    with patch("api.routers.import_export._load_owned_preview") as mock_load:
+    with patch("scrapjd.api.routers.import_export._load_owned_preview") as mock_load:
         with patch(
-            "api.routers.import_export.import_executor"
+            "scrapjd.api.routers.import_export.import_executor"
         ) as mock_executor:
             mock_load.return_value = preview_record
             # RowResolutionError vẫn phải gán class THẬT dù test này
@@ -529,8 +529,8 @@ def test_import_confirm_database_error(mock_conn, ss_team_user, test_preview_id)
             mock_executor.RowResolutionError = RowResolutionError
             mock_executor.execute_import.side_effect = Exception("DB error")
 
-            from api.routers.import_export import import_confirm
-            from api.schemas import ImportConfirmRequest
+            from scrapjd.api.routers.import_export import import_confirm
+            from scrapjd.api.schemas import ImportConfirmRequest
 
             with pytest.raises(HTTPException) as exc_info:
                 import_confirm(
@@ -554,14 +554,14 @@ def test_import_confirm_success(mock_conn, ss_team_user, test_preview_id):
     """Import confirm thành công"""
     preview_record = make_preview_record(test_preview_id, ss_team_user["sub"])
 
-    with patch("api.routers.import_export._load_owned_preview") as mock_load:
+    with patch("scrapjd.api.routers.import_export._load_owned_preview") as mock_load:
         with patch(
-            "api.routers.import_export.import_executor"
+            "scrapjd.api.routers.import_export.import_executor"
         ) as mock_executor:
             with patch(
-                "api.routers.import_export.preview_manager"
+                "scrapjd.api.routers.import_export.preview_manager"
             ) as mock_preview_mgr:
-                with patch("api.routers.import_export.db_module") as mock_db:
+                with patch("scrapjd.api.routers.import_export.db_module") as mock_db:
                     mock_load.return_value = preview_record
 
                     mock_summary = MagicMock()
@@ -570,8 +570,8 @@ def test_import_confirm_success(mock_conn, ss_team_user, test_preview_id):
                     mock_summary.skipped = 0
                     mock_executor.execute_import.return_value = mock_summary
 
-                    from api.routers.import_export import import_confirm
-                    from api.schemas import ImportConfirmRequest
+                    from scrapjd.api.routers.import_export import import_confirm
+                    from scrapjd.api.schemas import ImportConfirmRequest
 
                     result = import_confirm(
                         entity_type="contact",
@@ -604,10 +604,10 @@ def test_get_company_suggestions_row_not_found(
     """GET suggestions cho row_index không tồn tại -> 404"""
     preview_record = make_preview_record(test_preview_id, ss_team_user["sub"])
 
-    with patch("api.routers.import_export._load_owned_preview") as mock_load:
+    with patch("scrapjd.api.routers.import_export._load_owned_preview") as mock_load:
         mock_load.return_value = preview_record
 
-        from api.routers.import_export import get_company_suggestions
+        from scrapjd.api.routers.import_export import get_company_suggestions
 
         with pytest.raises(HTTPException) as exc_info:
             get_company_suggestions(
@@ -626,14 +626,14 @@ def test_get_company_suggestions_success(
     """GET company suggestions thành công"""
     preview_record = make_preview_record(test_preview_id, ss_team_user["sub"])
 
-    with patch("api.routers.import_export._load_owned_preview") as mock_load:
+    with patch("scrapjd.api.routers.import_export._load_owned_preview") as mock_load:
         with patch(
-            "api.routers.import_export.company_resolver"
+            "scrapjd.api.routers.import_export.company_resolver"
         ) as mock_resolver:
             mock_load.return_value = preview_record
             mock_resolver.suggest_companies.return_value = []
 
-            from api.routers.import_export import get_company_suggestions
+            from scrapjd.api.routers.import_export import get_company_suggestions
 
             result = get_company_suggestions(
                 entity_type="contact",

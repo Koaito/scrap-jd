@@ -22,8 +22,8 @@ import pytest
 from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 
-from api import error_codes, security
-from api.deps import get_current_user, require_role
+from scrapjd.api import error_codes, security
+from scrapjd.api.deps import get_current_user, require_role
 
 
 def _make_token(user_id: str, *, role: str = "ss_team", session_id: str) -> str:
@@ -68,7 +68,7 @@ class TestGetCurrentUserInactive:
         token = _make_token(user_id, session_id=session_id)
         row = _user_row(user_id, session_id, is_active=False)
 
-        with patch("api.deps.db_module") as mock_db:
+        with patch("scrapjd.api.deps.db_module") as mock_db:
             mock_db.get_user_by_id.return_value = row
             with pytest.raises(HTTPException) as exc_info:
                 get_current_user(_creds(token), conn=MagicMock())
@@ -80,7 +80,7 @@ class TestGetCurrentUserInactive:
         token = _make_token(user_id, session_id=session_id)
         row = _user_row(user_id, session_id, is_active=True)
 
-        with patch("api.deps.db_module") as mock_db:
+        with patch("scrapjd.api.deps.db_module") as mock_db:
             mock_db.get_user_by_id.return_value = row
             result = get_current_user(_creds(token), conn=MagicMock())
 
@@ -95,7 +95,7 @@ class TestGetCurrentUserRoleFromDb:
         token = _make_token(user_id, role="admin", session_id=session_id)
         row = _user_row(user_id, session_id, role="user")
 
-        with patch("api.deps.db_module") as mock_db:
+        with patch("scrapjd.api.deps.db_module") as mock_db:
             mock_db.get_user_by_id.return_value = row
             result = get_current_user(_creds(token), conn=MagicMock())
 
@@ -111,7 +111,7 @@ class TestGetCurrentUserRoleFromDb:
         token = _make_token(user_id, role="admin", session_id=session_id)
         row = _user_row(user_id, session_id, role="ss_team")
 
-        with patch("api.deps.db_module") as mock_db:
+        with patch("scrapjd.api.deps.db_module") as mock_db:
             mock_db.get_user_by_id.return_value = row
             user = get_current_user(_creds(token), conn=MagicMock())
 
@@ -127,7 +127,7 @@ class TestGetCurrentUserRoleFromDb:
         token = _make_token(user_id, role="user", session_id=session_id)
         row = _user_row(user_id, session_id, role="ss_team")
 
-        with patch("api.deps.db_module") as mock_db:
+        with patch("scrapjd.api.deps.db_module") as mock_db:
             mock_db.get_user_by_id.return_value = row
             user = get_current_user(_creds(token), conn=MagicMock())
 
@@ -141,7 +141,7 @@ class TestGetCurrentUserSession:
         token = _make_token(user_id, session_id=session_id)
         row = _user_row(user_id, str(uuid.uuid4()))  # session khác
 
-        with patch("api.deps.db_module") as mock_db:
+        with patch("scrapjd.api.deps.db_module") as mock_db:
             mock_db.get_user_by_id.return_value = row
             with pytest.raises(HTTPException) as exc_info:
                 get_current_user(_creds(token), conn=MagicMock())
@@ -155,7 +155,7 @@ class TestGetCurrentUserSession:
         token = _make_token(user_id, session_id=session_id)
         row = _user_row(user_id, session_id, active_session_id=None)
 
-        with patch("api.deps.db_module") as mock_db:
+        with patch("scrapjd.api.deps.db_module") as mock_db:
             mock_db.get_user_by_id.return_value = row
             with pytest.raises(HTTPException) as exc_info:
                 get_current_user(_creds(token), conn=MagicMock())
@@ -166,7 +166,7 @@ class TestGetCurrentUserSession:
     def test_session_revoked_when_user_deleted(self, user_id, session_id):
         token = _make_token(user_id, session_id=session_id)
 
-        with patch("api.deps.db_module") as mock_db:
+        with patch("scrapjd.api.deps.db_module") as mock_db:
             mock_db.get_user_by_id.return_value = None
             with pytest.raises(HTTPException) as exc_info:
                 get_current_user(_creds(token), conn=MagicMock())
@@ -180,7 +180,7 @@ class TestGetCurrentUserSession:
         token = _make_token(user_id, session_id=session_id)
         row = _user_row(user_id, str(uuid.uuid4()), is_active=False)
 
-        with patch("api.deps.db_module") as mock_db:
+        with patch("scrapjd.api.deps.db_module") as mock_db:
             mock_db.get_user_by_id.return_value = row
             with pytest.raises(HTTPException) as exc_info:
                 get_current_user(_creds(token), conn=MagicMock())

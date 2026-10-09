@@ -13,7 +13,7 @@ route, mock `api.routers.jobs.db_module`, không qua HTTP/DB thật.
 import uuid
 from unittest.mock import patch
 
-from api.schemas import JobCreate, JobCreateResult, JobDetailOut, SimilarJobOut
+from scrapjd.api.schemas import JobCreate, JobCreateResult, JobDetailOut, SimilarJobOut
 
 
 def _job_row(job_id: str, company_id: str) -> dict:
@@ -30,11 +30,11 @@ def _job_row(job_id: str, company_id: str) -> dict:
 
 
 def _call_create(mock_conn, ss_team_user, *, duplicate: bool, similar=None):
-    from api.routers.jobs import create_job
+    from scrapjd.api.routers.jobs import create_job
 
     company_id = str(uuid.uuid4())
     job_id = str(uuid.uuid4())
-    with patch("api.routers.jobs.db_module") as mock_db:
+    with patch("scrapjd.api.routers.jobs.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         mock_db.get_company_by_id.return_value = {"company_id": company_id}
         mock_db.get_level_id.return_value = 3

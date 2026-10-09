@@ -22,8 +22,8 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 
-from api import security
-from api.rate_limit import get_client_ip, get_user_id_or_ip
+from scrapjd.api import security
+from scrapjd.api.rate_limit import get_client_ip, get_user_id_or_ip
 
 API_KEY = "test-api-key-not-a-real-secret"
 DIRECT_IP = "127.0.0.1"  # IP kết nối trực tiếp trong make_fake_request()
@@ -31,7 +31,7 @@ DIRECT_IP = "127.0.0.1"  # IP kết nối trực tiếp trong make_fake_request(
 
 @pytest.fixture(autouse=True)
 def _configured_api_key(monkeypatch):
-    monkeypatch.setattr("api.auth._API_KEY", API_KEY)
+    monkeypatch.setattr("scrapjd.api.auth._API_KEY", API_KEY)
 
 
 def _req(client_ip=None, api_key=API_KEY, **extra):
@@ -66,7 +66,7 @@ class TestGetClientIp:
     def test_ignores_header_when_server_has_no_api_key(self, monkeypatch):
         """API_KEY chưa cấu hình + client gửi key rỗng: không được coi
         là 'khớp'."""
-        monkeypatch.setattr("api.auth._API_KEY", "")
+        monkeypatch.setattr("scrapjd.api.auth._API_KEY", "")
         assert get_client_ip(_req("203.0.113.7", api_key="")) == DIRECT_IP
 
     @pytest.mark.parametrize(

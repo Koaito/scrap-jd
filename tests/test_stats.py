@@ -31,7 +31,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from api.schemas import EngagementStatsOut, StatsOut
+from scrapjd.api.schemas import EngagementStatsOut, StatsOut
 
 
 # ---------------------------------------------------------------------------
@@ -56,10 +56,10 @@ _FAKE_STATS = {
 def test_get_stats_delegates_to_db_module(mock_conn):
     """Route KHÔNG tự tính gì — chỉ gọi thẳng
     db_module.get_stats_summary(conn) và trả nguyên kết quả."""
-    with patch("api.routers.meta.db_module") as mock_db:
+    with patch("scrapjd.api.routers.meta.db_module") as mock_db:
         mock_db.get_stats_summary.return_value = _FAKE_STATS
 
-        from api.routers.meta import get_stats
+        from scrapjd.api.routers.meta import get_stats
 
         result = get_stats(conn=mock_conn)
 
@@ -92,7 +92,7 @@ def test_get_stats_has_no_auth_or_role_dependency():
     CHỈ có tham số `conn`, tránh ai đó lỡ thêm require_role()/user vào
     đây làm dashboard vỡ."""
     import inspect
-    from api.routers.meta import get_stats
+    from scrapjd.api.routers.meta import get_stats
 
     sig = inspect.signature(get_stats)
     assert set(sig.parameters.keys()) == {"conn"}
@@ -123,11 +123,11 @@ def test_get_engagement_stats_delegates_to_db_module(mock_conn):
     get_monthly_engagement_stats) thành 1 response — kiểm tra CẢ 2 đều
     được gọi đúng với conn, và kết quả gộp đúng đúng shape
     EngagementStatsOut mong đợi (2 key: jobs, monthly)."""
-    with patch("api.routers.meta.db_module") as mock_db:
+    with patch("scrapjd.api.routers.meta.db_module") as mock_db:
         mock_db.get_job_engagement_counts.return_value = _FAKE_ENGAGEMENT_JOBS
         mock_db.get_monthly_engagement_stats.return_value = _FAKE_MONTHLY
 
-        from api.routers.meta import get_engagement_stats
+        from scrapjd.api.routers.meta import get_engagement_stats
 
         result = get_engagement_stats(conn=mock_conn)
 
@@ -162,7 +162,7 @@ def test_get_sources_matches_categories_registry():
     được thêm sau này (đúng bug lịch sử mà docstring get_sources() nhắc
     tới: từng quên hardcode CareerViet ở đây)."""
     from scrapjd.sources_registry import CATEGORIES_BY_SOURCE
-    from api.routers.meta import get_sources
+    from scrapjd.api.routers.meta import get_sources
 
     result = get_sources()
 
@@ -176,7 +176,7 @@ def test_get_sources_has_no_parameters():
     """Route KHÔNG có tham số conn/request/user nào — hoàn toàn tính
     tĩnh từ registry, không chạm DB."""
     import inspect
-    from api.routers.meta import get_sources
+    from scrapjd.api.routers.meta import get_sources
 
     assert inspect.signature(get_sources).parameters == {}
 
@@ -195,7 +195,7 @@ def test_get_enums_matches_constants_module():
     trí nhớ (dễ lỗi thời nếu ai đó thêm/sửa enum value sau này mà quên
     đồng bộ 2 nơi)."""
     from scrapjd import constants
-    from api.routers.meta import get_enums
+    from scrapjd.api.routers.meta import get_enums
 
     result = get_enums()
 
@@ -222,7 +222,7 @@ def test_get_enums_job_status_and_level_code_needed_by_job_form():
     trực tiếp để build dropdown là job_status và level_code — phải
     luôn là list (không phải dict/None) và không rỗng, nếu không
     dropdown phía frontend sẽ render trống hoàn toàn."""
-    from api.routers.meta import get_enums
+    from scrapjd.api.routers.meta import get_enums
 
     result = get_enums()
 
@@ -237,7 +237,7 @@ def test_get_enums_has_no_parameters():
     """Route KHÔNG có tham số conn/request/user nào — hoàn toàn tính
     tĩnh từ constants.py, không chạm DB."""
     import inspect
-    from api.routers.meta import get_enums
+    from scrapjd.api.routers.meta import get_enums
 
     assert inspect.signature(get_enums).parameters == {}
 
@@ -269,7 +269,7 @@ def test_get_enums_province_name_is_valid_dropdown_source():
     không rỗng, không trùng, và luôn có 2 giá trị đặc biệt "Khác"/
     "Remote" (job không xác định được tỉnh/làm remote vẫn có giá trị
     hợp lệ để chọn)."""
-    from api.routers.meta import get_enums
+    from scrapjd.api.routers.meta import get_enums
 
     provinces = get_enums()["province_name"]
 

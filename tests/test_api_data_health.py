@@ -55,10 +55,10 @@ _FAKE_JOB_HEALTH = {
 def test_company_data_health_delegates_to_db_module(mock_conn, ss_team_user):
     """Route KHÔNG tự tính gì — chỉ gọi thẳng
     db_module.get_company_data_health(conn) và trả nguyên kết quả."""
-    with patch("api.routers.companies.db_module") as mock_db:
+    with patch("scrapjd.api.routers.companies.db_module") as mock_db:
         mock_db.get_company_data_health.return_value = _FAKE_COMPANY_HEALTH
 
-        from api.routers.companies import get_company_data_health
+        from scrapjd.api.routers.companies import get_company_data_health
 
         result = get_company_data_health(
             request=MagicMock(spec=Request), conn=mock_conn, user=ss_team_user,
@@ -75,7 +75,7 @@ def test_company_data_health_requires_ss_team_role_declared():
     require_role(...) trả về 1 callable dùng làm Depends(...), khó mock
     qua HTTP thật trong unit test không có TestClient đầy đủ."""
     import inspect
-    from api.routers.companies import get_company_data_health
+    from scrapjd.api.routers.companies import get_company_data_health
 
     sig = inspect.signature(get_company_data_health)
     user_param = sig.parameters["user"]
@@ -93,7 +93,7 @@ def test_company_data_health_route_declared_before_company_id_route():
     company_id="data-health" (rồi lỗi vì không phải UUID hợp lệ) thay vì
     khớp đúng route tĩnh này. Test bằng cách soi thứ tự route trong
     router.routes — regression test cho đúng lỗi đã né lúc viết route."""
-    from api.routers.companies import router
+    from scrapjd.api.routers.companies import router
 
     paths = [r.path for r in router.routes]
     data_health_idx = paths.index("/companies/data-health")
@@ -107,10 +107,10 @@ def test_company_data_health_route_declared_before_company_id_route():
 
 
 def test_job_data_health_delegates_to_db_module(mock_conn):
-    with patch("api.routers.jobs.db_module") as mock_db:
+    with patch("scrapjd.api.routers.jobs.db_module") as mock_db:
         mock_db.get_job_data_health.return_value = _FAKE_JOB_HEALTH
 
-        from api.routers.jobs import get_job_data_health
+        from scrapjd.api.routers.jobs import get_job_data_health
 
         result = get_job_data_health(request=MagicMock(spec=Request), conn=mock_conn)
 
@@ -124,7 +124,7 @@ def test_job_data_health_has_no_role_dependency():
     đó lỡ thêm require_role() vào đây làm frontend (crawler_client.
     get_job_data_health(), public, không gửi JWT) gọi bị 401."""
     import inspect
-    from api.routers.jobs import get_job_data_health
+    from scrapjd.api.routers.jobs import get_job_data_health
 
     sig = inspect.signature(get_job_data_health)
     assert "user" not in sig.parameters
@@ -133,7 +133,7 @@ def test_job_data_health_has_no_role_dependency():
 def test_job_data_health_route_declared_before_job_id_route():
     """Cùng lý do route ordering ở companies — /data-health phải đứng
     trước /{job_id}."""
-    from api.routers.jobs import router
+    from scrapjd.api.routers.jobs import router
 
     paths = [r.path for r in router.routes]
     data_health_idx = paths.index("/jobs/data-health")

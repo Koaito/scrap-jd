@@ -18,7 +18,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from api.schemas import JobUpdate
+from scrapjd.api.schemas import JobUpdate
 from scrapjd.db.audit_logs import diff_changed_fields
 from scrapjd.db.jobs import JOB_CLEARABLE_FIELD_TO_COLUMN, update_job
 
@@ -147,10 +147,10 @@ def _call_patch(mock_conn, ss_team_user, body: dict):
     """Gọi patch_job với body JSON THÔ (model_validate) — đúng cách FastAPI
     dựng payload từ request, nên model_fields_set phản ánh đúng field nào
     client thực sự gửi."""
-    from api.routers.jobs import patch_job
+    from scrapjd.api.routers.jobs import patch_job
 
     job_id = str(uuid.uuid4())
-    with patch("api.routers.jobs.db_module") as mock_db:
+    with patch("scrapjd.api.routers.jobs.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         mock_db.get_job_by_id.return_value = _existing_job(job_id)
         mock_db.update_job.return_value = True
@@ -224,12 +224,12 @@ def test_patch_job_clearing_is_recorded_in_audit_log(mock_conn, ss_team_user):
 
 def test_patch_job_clearing_already_empty_field_logs_nothing(mock_conn, ss_team_user):
     """Xoá 1 field vốn đã trống không phải thay đổi thật -> không ghi log."""
-    from api.routers.jobs import patch_job
+    from scrapjd.api.routers.jobs import patch_job
 
     job_id = str(uuid.uuid4())
     existing = _existing_job(job_id)
     existing["deadline"] = None
-    with patch("api.routers.jobs.db_module") as mock_db:
+    with patch("scrapjd.api.routers.jobs.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         mock_db.get_job_by_id.return_value = existing
         mock_db.update_job.return_value = True

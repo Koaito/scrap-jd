@@ -71,7 +71,7 @@ def test_diff_chi_xet_field_co_trong_payload():
 # ---------------------------------------------------------------------
 
 def test_valid_action_types_khop_action_log_rules():
-    from api.routers.audit_logs import _VALID_ACTION_TYPES
+    from scrapjd.api.routers.audit_logs import _VALID_ACTION_TYPES
     assert _VALID_ACTION_TYPES == set(db_module.ACTION_LOG_RULES)
     for action in (
         "BULK_IMPORT_JOB", "BULK_IMPORT_COMPANY", "BULK_IMPORT_CONTACT",
@@ -81,12 +81,12 @@ def test_valid_action_types_khop_action_log_rules():
 
 
 def test_valid_entity_types_co_email_template():
-    from api.routers.audit_logs import _VALID_ENTITY_TYPES
+    from scrapjd.api.routers.audit_logs import _VALID_ENTITY_TYPES
     assert "EMAIL_TEMPLATE" in _VALID_ENTITY_TYPES
 
 
 def _call_list(mock_conn, ss_team_user, **kwargs):
-    from api.routers.audit_logs import list_audit_logs
+    from scrapjd.api.routers.audit_logs import list_audit_logs
     params = dict(
         view="auto", entity_type=None, company_id=None, actor_id=None,
         action_type=None, pending_note=None, limit=50, offset=0,
@@ -102,7 +102,7 @@ def _call_list(mock_conn, ss_team_user, **kwargs):
     {"entity_type": "EMAIL_TEMPLATE"},
 ])
 def test_list_audit_logs_nhan_action_va_entity_moi(mock_conn, ss_team_user, kwargs):
-    with patch("api.routers.audit_logs.db_module") as mock_db:
+    with patch("scrapjd.api.routers.audit_logs.db_module") as mock_db:
         mock_db.ACTION_LOG_RULES = db_module.ACTION_LOG_RULES
         mock_db.list_audit_logs.return_value = ([], 0)
         result = _call_list(mock_conn, ss_team_user, **kwargs)
@@ -115,7 +115,7 @@ def test_list_audit_logs_nhan_action_va_entity_moi(mock_conn, ss_team_user, kwar
     {"entity_type": "NOT_A_REAL_ENTITY"},
 ])
 def test_list_audit_logs_van_tra_400_voi_gia_tri_la(mock_conn, ss_team_user, kwargs):
-    with patch("api.routers.audit_logs.db_module") as mock_db:
+    with patch("scrapjd.api.routers.audit_logs.db_module") as mock_db:
         mock_db.ACTION_LOG_RULES = db_module.ACTION_LOG_RULES
         with pytest.raises(HTTPException) as exc:
             _call_list(mock_conn, ss_team_user, **kwargs)

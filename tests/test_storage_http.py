@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 import pytest
 
-import api.storage as storage
+import scrapjd.api.storage as storage
 
 # Có byte không hợp lệ UTF-8 để chắc body nhị phân không bị biến dạng.
 PDF_BYTES = b"%PDF-1.4\n\xff\xfe\x00\x01binary\x80\x81" + bytes(range(256))

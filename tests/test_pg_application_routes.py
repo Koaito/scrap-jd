@@ -30,9 +30,9 @@ from fastapi import HTTPException, UploadFile
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from scrapjd import db
-from api import error_codes
-from api.routers import jobs as jobs_router
-from api.routers import me as me_router
+from scrapjd.api import error_codes
+from scrapjd.api.routers import jobs as jobs_router
+from scrapjd.api.routers import me as me_router
 
 from conftest import make_fake_request
 

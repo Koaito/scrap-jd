@@ -227,7 +227,7 @@ def cmd_create_admin(args):
     # Import ở đây (không import ở đầu file) vì api/security.py raise
     # lỗi ngay lúc import nếu thiếu JWT_SECRET_KEY — không muốn việc đó
     # chặn luôn các lệnh CLI khác (crawl/stats) vốn không cần tới auth.
-    from api import security
+    from scrapjd.api import security
 
     email = args.email
     full_name = args.name
@@ -299,7 +299,7 @@ def cmd_crawl(args):
     # (api/crawl_runner.execute) — có dòng trong crawl_runs, cờ blocked/degraded,
     # snapshot HTML gốc, log live. Trước đây CLI gọi thẳng run_pipeline() nên
     # lượt chạy trên máy không để lại dấu vết nào trong DB.
-    from api import crawl_runner
+    from scrapjd.api import crawl_runner
 
     conn = db.get_connection()
     try:

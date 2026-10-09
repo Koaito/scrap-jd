@@ -20,7 +20,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import api.crawl_runner as runner
+import scrapjd.api.crawl_runner as runner
 from scrapjd import pipeline
 from scrapjd.adapters.base import ANOMALY_LISTING_PAGE_FAILED, BaseAdapter
 from scrapjd.adapters.careerviet import CareerVietAdapter

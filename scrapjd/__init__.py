@@ -1,1 +1,1 @@
-"""Scrap JD: code lõi của backend (đang dời dần từ thư mục gốc vào package này, xem kế hoạch B4b)."""
+"""Scrap JD: package code lõi của backend (adapters, db, pipeline, cli, maintenance, api). Ở gốc repo chỉ còn main.py và scripts/."""

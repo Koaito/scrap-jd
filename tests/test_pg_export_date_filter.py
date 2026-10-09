@@ -25,7 +25,7 @@ import psycopg2
 import pytest
 
 from scrapjd import db
-from api.services.export_query import (
+from scrapjd.api.services.export_query import (
     ExportFilters,
     count_rows_for_export,
     query_companies_for_export,

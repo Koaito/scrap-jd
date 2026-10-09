@@ -31,15 +31,15 @@ from fastapi import HTTPException
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from api import error_codes
-from api.routers import dashboard as dashboard_router
-from api.routers.dashboard import (
+from scrapjd.api import error_codes
+from scrapjd.api.routers import dashboard as dashboard_router
+from scrapjd.api.routers.dashboard import (
     _pct_change,
     get_company_insights,
     get_monthly_insights,
     get_student_insights,
 )
-from api.schemas import CompanyInsightsOut, MonthlyInsightsOut, StudentInsightsOut
+from scrapjd.api.schemas import CompanyInsightsOut, MonthlyInsightsOut, StudentInsightsOut
 
 _CID = "11111111-1111-1111-1111-111111111111"
 _JID = "22222222-2222-2222-2222-222222222222"
@@ -58,7 +58,7 @@ def test_pct_change_uses_python_round_half_even():
 
 
 def test_companies_rejects_followup_days_outside_whitelist(fake_request, ss_team_user, mock_conn):
-    with patch("api.routers.dashboard.db_module"):
+    with patch("scrapjd.api.routers.dashboard.db_module"):
         with pytest.raises(HTTPException) as exc:
             get_company_insights(
                 request=fake_request, followup_days=21, user=ss_team_user, conn=mock_conn
@@ -70,7 +70,7 @@ def test_companies_rejects_followup_days_outside_whitelist(fake_request, ss_team
 
 @pytest.mark.parametrize("days", dashboard_router.FOLLOWUP_DAYS_OPTIONS)
 def test_companies_passes_followup_days_to_db(days, fake_request, ss_team_user, mock_conn):
-    with patch("api.routers.dashboard.db_module") as mock_db:
+    with patch("scrapjd.api.routers.dashboard.db_module") as mock_db:
         mock_db.get_company_job_activity.return_value = {"expanding": [], "quiet": []}
         mock_db.get_high_potential_companies_without_contact.return_value = []
         mock_db.get_contacts_needing_followup.return_value = []
@@ -82,7 +82,7 @@ def test_companies_passes_followup_days_to_db(days, fake_request, ss_team_user, 
 
 
 def test_companies_response_model_accepts_real_db_shapes(fake_request, ss_team_user, mock_conn):
-    with patch("api.routers.dashboard.db_module") as mock_db:
+    with patch("scrapjd.api.routers.dashboard.db_module") as mock_db:
         mock_db.get_company_job_activity.return_value = {
             "expanding": [{"company_id": _CID, "company_name": "A", "city": None,
                            "recent_job_count": 3, "recent_jobs": ["Dev", "QA"]}],
@@ -108,7 +108,7 @@ def test_companies_response_model_accepts_real_db_shapes(fake_request, ss_team_u
 
 
 def test_students_delegates_and_validates(fake_request, ss_team_user, mock_conn):
-    with patch("api.routers.dashboard.db_module") as mock_db:
+    with patch("scrapjd.api.routers.dashboard.db_module") as mock_db:
         mock_db.get_jobs_needing_push.return_value = [
             {"job_id": _JID, "job_title": "Dev", "company_id": _CID, "company_name": "A",
              "deadline": date(2026, 9, 30), "created_at": datetime(2026, 9, 1, 3, 0),
@@ -130,7 +130,7 @@ def test_students_delegates_and_validates(fake_request, ss_team_user, mock_conn)
 
 
 def test_monthly_merges_counts_with_engagement(fake_request, ss_team_user, mock_conn):
-    with patch("api.routers.dashboard.db_module") as mock_db:
+    with patch("scrapjd.api.routers.dashboard.db_module") as mock_db:
         mock_db.get_monthly_recap_counts.return_value = {
             "this_month_start": date(2026, 9, 1), "last_month_start": date(2026, 8, 1),
             "jobs_this": 30, "jobs_last": 20, "jobs_expired": 4,

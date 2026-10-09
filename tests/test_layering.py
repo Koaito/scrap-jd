@@ -9,7 +9,7 @@ thay vì nới danh sách này.
 import re
 from pathlib import Path
 
-ROUTERS_DIR = Path(__file__).resolve().parent.parent / "api" / "routers"
+ROUTERS_DIR = Path(__file__).resolve().parent.parent / "scrapjd" / "api" / "routers"
 
 # `conn.cursor(...)` hoặc `cur.execute(...)` / `.executemany(` trong code route
 _RAW_SQL = re.compile(r"\.cursor\(|\.execute(?:many)?\(")

@@ -18,8 +18,8 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 
-from api import error_codes
-from api.schemas import UserOut
+from scrapjd.api import error_codes
+from scrapjd.api.schemas import UserOut
 
 
 def _row(role: str = "user", **overrides) -> dict:
@@ -46,11 +46,11 @@ def staff():
 
 def test_get_user_found_returns_row(mock_conn, staff):
     row = _row()
-    with patch("api.routers.auth_users.db_module") as mock_db:
+    with patch("scrapjd.api.routers.auth_users.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         mock_db.get_user_summary_by_id.return_value = row
 
-        from api.routers.auth_users import get_user
+        from scrapjd.api.routers.auth_users import get_user
 
         result = get_user(ss_user_id=row["ss_user_id"], user=staff, conn=mock_conn)
 
@@ -59,11 +59,11 @@ def test_get_user_found_returns_row(mock_conn, staff):
 
 
 def test_get_user_not_found_404(mock_conn, staff):
-    with patch("api.routers.auth_users.db_module") as mock_db:
+    with patch("scrapjd.api.routers.auth_users.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = True
         mock_db.get_user_summary_by_id.return_value = None
 
-        from api.routers.auth_users import get_user
+        from scrapjd.api.routers.auth_users import get_user
 
         with pytest.raises(HTTPException) as exc_info:
             get_user(ss_user_id=str(uuid.uuid4()), user=staff, conn=mock_conn)
@@ -73,10 +73,10 @@ def test_get_user_not_found_404(mock_conn, staff):
 
 
 def test_get_user_invalid_uuid_400_before_touching_db(mock_conn, staff):
-    with patch("api.routers.auth_users.db_module") as mock_db:
+    with patch("scrapjd.api.routers.auth_users.db_module") as mock_db:
         mock_db.is_valid_uuid.return_value = False
 
-        from api.routers.auth_users import get_user
+        from scrapjd.api.routers.auth_users import get_user
 
         with pytest.raises(HTTPException) as exc_info:
             get_user(ss_user_id="abc", user=staff, conn=mock_conn)
@@ -90,7 +90,7 @@ def test_get_user_invalid_uuid_400_before_touching_db(mock_conn, staff):
 def test_get_user_requires_ss_team_role():
     """Soi dependency thật của tham số `user`: học viên bị 403, ss_team và
     admin đi qua — cùng quyền với GET /auth/users."""
-    from api.routers.auth_users import get_user
+    from scrapjd.api.routers.auth_users import get_user
 
     dep = inspect.signature(get_user).parameters["user"].default.dependency
 
@@ -106,7 +106,7 @@ def test_get_user_requires_ss_team_role():
 def test_get_user_response_model_is_user_out_and_never_leaks_password_hash():
     """response_model phải là UserOut (cùng shape phần tử của GET /auth/users)
     và UserOut không có field password_hash — dù db trả dư cột."""
-    from api.routers import auth_users
+    from scrapjd.api.routers import auth_users
 
     route = next(r for r in auth_users.router.routes if r.path == "/auth/users/{ss_user_id}" and "GET" in r.methods)
     assert route.response_model is UserOut

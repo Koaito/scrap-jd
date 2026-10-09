@@ -10,7 +10,7 @@ Test này không cần Postgres; phần chạy trên DB thật nằm ở tests/t
 """
 from datetime import date, datetime, timedelta, timezone
 
-from api.services.export_query import ExportFilters, _build_where, vn_day_range
+from scrapjd.api.services.export_query import ExportFilters, _build_where, vn_day_range
 
 _VN = timezone(timedelta(hours=7))
 

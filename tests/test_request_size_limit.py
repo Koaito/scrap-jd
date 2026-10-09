@@ -23,7 +23,7 @@ import pytest
 from fastapi.testclient import TestClient
 from starlette.requests import Request as StarletteRequest
 
-from api.app import app, reject_oversized_request
+from scrapjd.api.app import app, reject_oversized_request
 from scrapjd.config import MAX_REQUEST_BODY_BYTES
 
 client = TestClient(app)
