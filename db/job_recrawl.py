@@ -120,7 +120,7 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
 
 
 def _log_reopen_for_repost(conn, job_id: str, before: tuple, changes: dict) -> None:
-    """Job vừa sống lại nhờ listing của tin đăng lại: giữ hành vi của reopen_job_for_repost cũ (A2). updated_at nhảy
+    """Job vừa sống lại nhờ listing của tin đăng lại: giữ hành vi A2 (trước đây do hàm riêng làm). updated_at nhảy
     (sync_job_from_listings cố ý không làm nhảy, nhưng mở lại là thay đổi thật nên như trước vẫn nhảy) và ghi
     audit REOPEN_JOB với đủ bốn trường cũ/mới, kể cả trường không đổi."""
     _status, old_reason, old_deadline, old_url, title, company_id = before

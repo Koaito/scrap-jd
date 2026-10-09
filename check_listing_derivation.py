@@ -3,7 +3,7 @@ So giá trị job SUY RA từ listing với giá trị job ĐANG LƯU — `pytho
 (C2, nửa 1/2). CHỈ ĐỌC: không ghi DB, không đổi schema, không cần migration.
 
 MỤC ĐÍCH: nhóm C đổi job thành giá trị tổng hợp từ listing (db/job_derivation.py định nghĩa phép tổng
-hợp). Trước khi cho code GHI giá trị suy ra vào job (C2 nửa 2/2) và trước khi gỡ các ca đặc biệt (C4), cần
+hợp). Trước khi cho code GHI giá trị suy ra vào job (C2 nửa 2/2) và trước khi gỡ các ca đặc biệt (C4, đã xong), cần
 bằng chứng bằng dữ liệu thật rằng hai bên khớp, và nếu lệch thì lệch ở đâu, vì sao. Lệnh này in số liệu đó.
 
 So bốn trường: job_status, closed_reason (chỉ khi cả hai bên CLOSED), deadline, source_url. Mỗi trường lệch

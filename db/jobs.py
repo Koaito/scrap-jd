@@ -75,30 +75,6 @@ JOB_CLEARABLE_FIELD_TO_COLUMN = {
     "work_type": "work_type",
 }
 
-def get_open_jobs_with_source_url(conn):
-    """Lấy job đang OPEN và có source_url khác rỗng. LƯU Ý: job nhập tay cũng được lấy, vì
-    insert_job ghi job_postings.source_url = 'manual://<uuid>' (không phải NULL); câu truy vấn
-    dưới đây không loại các giá trị đó.
-    Dùng cho check_expired_source_jobs.py — script re-check job còn OPEN
-    trong DB có còn tồn tại thật ở nguồn (TopCV/VietnamWorks) hay không.
-
-    KHÔNG lấy job đã EXPIRED/CLOSED — không cần re-check job vốn đã
-    không còn hiệu lực từ trước.
-
-    Trả về list[(job_id, job_title, source_url, deadline)]."""
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            SELECT job_id, job_title, source_url, deadline
-            FROM job_postings
-            WHERE job_status = 'OPEN'
-              AND source_url IS NOT NULL AND source_url != ''
-            ORDER BY created_at
-            """
-        )
-        return cur.fetchall()
-
-
 def probe_needs_enrichment(probe) -> bool:
     """probe = kết quả find_company_probe() (company_id, website, industry,
     company_size, address) hoặc None. Trả True nếu nên gọi

@@ -493,9 +493,10 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   nhảy `updated_at`). Gọi từ `link_repost_source`, `update_job` (đóng, mở lại, sửa hạn),
   `mark_source_detail_checked`, `mark_listing_seen`. Hệ quả cần biết: job OPEN nhận tin đăng lại có `source_url` là
   URL của listing OPEN mới nhất (nên `check_expired_source_jobs` kiểm tra URL đó); nhân viên sửa hoặc xoá hạn thì hạn
-  được ghi vào mọi listing OPEN của job, nên hạn job đúng bằng những gì nhân viên gõ. Hai ca đặc biệt cũ đã gỡ ở C4:
-  `reopen_job_for_repost` (phần 1/3: tin đăng lại của job đóng `expired_auto` sinh listing OPEN và job tự mở lại nhờ
-  đồng bộ) và `extend_job_deadline` (phần 2/3: tin đăng lại mang hạn của chính nó ở listing mới, job theo listing). Migration `0044` gỡ `uq_job_source`; chạy SAU khi code này
+  được ghi vào mọi listing OPEN của job, nên hạn job đúng bằng những gì nhân viên gõ. Pipeline không còn
+  ghi thẳng trạng thái, hạn hay URL của job (C4 xong): tin đăng lại của job đóng `expired_auto` sinh listing OPEN và
+  job tự mở lại nhờ đồng bộ (phần 1/3); tin đăng lại mang hạn của chính nó ở listing mới và job theo listing (phần
+  2/3); `get_open_jobs_with_source_url` đã xoá, `check_expired_source_jobs` đọc qua `list_checkable_listings`. Migration `0044` gỡ `uq_job_source`; chạy SAU khi code này
   Live. `merge-duplicates` đồng bộ job giữ theo listing từ C3c (xem mục `merge-duplicates` ở trên).
 - **VietnamWorks: nhận ra tin bị sửa tiêu đề theo mã job.** Nhà tuyển dụng sửa
   tiêu đề thì URL đổi (phần chữ) còn mã số cuối URL (`...-<mã>-jv`) giữ

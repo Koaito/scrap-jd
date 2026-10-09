@@ -137,8 +137,8 @@ def list_checkable_listings(conn) -> list:
 
     Trả list[(job_id, job_title, source_url, deadline)], mỗi phần tử là MỘT listing, sắp theo job
     (created_at, job_id) rồi listing (first_seen_at, source_url) để các listing cùng job nằm liền nhau và
-    thứ tự job giống get_open_jobs_with_source_url. CHỈ ĐỌC, không commit hay rollback (như
-    get_open_jobs_with_source_url): nơi gọi tự commit từng job khi ghi."""
+    thứ tự job theo created_at như check_expired_source_jobs vẫn xử lý. CHỈ ĐỌC, không commit hay
+    rollback: nơi gọi tự commit từng job khi ghi."""
     with conn.cursor() as cur:
         cur.execute(
             """

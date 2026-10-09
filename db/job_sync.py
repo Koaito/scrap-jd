@@ -4,8 +4,8 @@ closed_reason, deadline, source_url của job cho bằng giá trị db.job_deriv
 
 Đây là chỗ \"job là giá trị tổng hợp\" thành hiện thực ở tầng ghi. Đường ghi trực tiếp vào job còn lại là
 update_job (nhân viên sửa), chạy TRƯỚC hàm này nên giá trị cuối cùng luôn là giá trị suy ra, và hàm này là no-op
-khi hai bên đã khớp. Hai ca đặc biệt của pipeline đã gỡ ở C4: mở lại job vì tin đăng lại (reopen_job_for_repost,
-phần 1/3) và dời hạn (extend_job_deadline, phần 2/3). Tin đăng lại chỉ ghi listing mới mang hạn của chính nó; trạng
+khi hai bên đã khớp. Hai ca đặc biệt cũ của pipeline đã gỡ ở C4: mở lại job vì tin đăng lại (phần 1/3) và dời hạn
+(phần 2/3). Tin đăng lại chỉ ghi listing mới mang hạn của chính nó; trạng
 thái, hạn và source_url của job tự theo nhờ hàm này, kể cả job do nhân viên đã sửa tay (bạn chọn 09/10).
 
 QUY ƯỚC
