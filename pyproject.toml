@@ -1,4 +1,4 @@
-# Chỉ khai báo package để import `scrapjd` (và sau này mypy, import-linter). Thư viện phụ thuộc vẫn nằm ở
+# Khai báo package để import `scrapjd` (và sau này mypy, import-linter) cùng cấu hình coverage. Thư viện phụ thuộc vẫn nằm ở
 # requirements.txt (Render build bằng `pip install -r requirements.txt`, không đọc file này). Cấu hình ruff ở ruff.toml.
 [project]
 name = "scrapjd"
@@ -8,3 +8,23 @@ requires-python = ">=3.12"
 
 [tool.setuptools.packages.find]
 include = ["scrapjd*"]
+
+# Coverage (đo test chạy qua bao nhiêu dòng code). CHỈ ĐO, không chặn gì: chưa đặt `fail_under`, và `pytest` thường
+# không tự đo (phải thêm `--cov`, xem README mục "Chạy test"). Đo cả nhánh rẽ (branch), nên số thấp hơn đo theo dòng.
+[tool.coverage.run]
+branch = true
+# Đo từ gốc repo để file nào chưa từng được import (0%) cũng hiện trong báo cáo, thay vì biến mất khỏi số tổng.
+source = ["."]
+omit = [
+    "tests/*",  # code test không tính vào độ phủ của code chính
+    "tools/*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = [
+    'if __name__ == "__main__":',
+    "if TYPE_CHECKING:",
+]

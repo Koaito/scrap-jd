@@ -84,4 +84,11 @@ jobs:
         env:
           JWT_SECRET_KEY: ci_placeholder_jwt_secret_not_used_in_production
           TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/scrapjd_test
-        run: pytest
+        # --cov: đo độ phủ (cấu hình ở pyproject.toml, mục [tool.coverage.*]). Chỉ đo và in ra, chưa có
+        # ngưỡng chặn (fail_under), nên không làm job đỏ vì số phần trăm.
+        run: pytest --cov --cov-report=term-missing:skip-covered
+
+      - name: Ghi bảng coverage vào trang tóm tắt của lượt chạy
+        # Bảng markdown hiện ngay trên trang Actions của lượt chạy, khỏi phải mở log. Dùng lệnh có sẵn của
+        # `coverage` nên không thêm action bên thứ ba nào (repo public, xem mục 9 trong kế hoạch).
+        run: coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"

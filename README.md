@@ -292,6 +292,19 @@ DB thật:
 TEST_DATABASE_URL=postgresql://postgres:mật_khẩu@localhost:5432/scrapjd_test python -m pytest -q
 ```
 
+**Đo độ phủ (coverage).** Thêm `--cov` để biết test chạy qua bao nhiêu phần trăm code và dòng nào chưa được
+chạm tới. Cấu hình ở `pyproject.toml` (mục `[tool.coverage.*]`: đo cả nhánh rẽ, đo từ gốc repo, bỏ `tests/` và
+`tools/`). Nên chạy cùng `TEST_DATABASE_URL`, vì phần lớn test của `scrapjd/db/` và `scrapjd/cli/` cần Postgres
+thật; thiếu thì các test đó bị bỏ qua và số phần trăm thấp hơn thực tế:
+
+```bash
+python -m pytest -q --cov --cov-report=term-missing:skip-covered   # bảng trong terminal, ẩn file phủ 100%
+python -m pytest -q --cov --cov-report=html                        # báo cáo HTML ở htmlcov/index.html
+```
+
+Chỉ đo, chưa có ngưỡng chặn: `pytest` thường không đo, và CI chỉ in bảng chứ không đỏ vì số phần trăm.
+Kết quả đo (`.coverage`, `htmlcov/`, `coverage.xml`) đã nằm trong `.gitignore`.
+
 ---
 
 ## Quy trình đầu-cuối
