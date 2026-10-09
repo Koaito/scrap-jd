@@ -1,5 +1,5 @@
 """
-Test cho get_current_user() / require_role() ở api/deps.py — tập trung
+Test cho get_current_user() / require_role() ở scrapjd/api/deps.py — tập trung
 vào bản sửa Phần 1 mục 3.10 của plan migrate Next.js: role/is_active
 phải lấy từ DB (user_row) ở request hiện tại, không phải giá trị đóng
 băng trong JWT payload lúc phát hành token.
@@ -10,7 +10,7 @@ vẫn qua được dù is_active=false) tới khi access token tự hết hạn 
 đa 30 phút). Các test dưới đây chặn việc revert nhầm bản sửa đó.
 
 Gọi hàm TRỰC TIẾP (không qua TestClient), patch thẳng
-api.deps.db_module.get_user_by_id — cùng pattern với
+scrapjd.api.deps.db_module.get_user_by_id — cùng pattern với
 tests/test_api_auth.py. Token được ký THẬT bằng security.create_access_token
 (JWT_SECRET_KEY lấy từ môi trường, xem .github/workflows/test.yml) để
 đi qua đúng decode_access_token(), không mock lớp giải mã.

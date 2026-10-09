@@ -3,7 +3,7 @@ Rate limiting cho các route CÔNG KHAI (auth.public_router) — thêm
 08/2026 vì trước đó KHÔNG có giới hạn nào ở tầng API cho 4 route dễ bị
 spam nhất: POST /auth/register, /auth/resend-verification,
 /auth/forgot-password, /auth/reset-password (đều không cần X-API-Key
-lẫn JWT, ai cũng gọi được, xem docstring api/app.py).
+lẫn JWT, ai cũng gọi được, xem docstring scrapjd/api/app.py).
 
 Rủi ro nếu KHÔNG giới hạn: 1 script gọi lặp POST /auth/register có thể
 tạo hàng loạt tài khoản rác (mỗi lần gửi kèm 1 email, tốn quota Resend

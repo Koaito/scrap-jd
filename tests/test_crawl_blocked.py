@@ -3,7 +3,7 @@ Hợp đồng chung của CrawlBlockedError cho CẢ 3 adapter + pipeline — KH
 cần database, KHÔNG cần internet.
 
 Hợp đồng: trang ĐẦU TIÊN của 1 lượt crawl thất bại sau khi hết retry ->
-adapter phải raise CrawlBlockedError (để api/crawl_runner.py ghi
+adapter phải raise CrawlBlockedError (để scrapjd/api/crawl_runner.py ghi
 status='error'), KHÔNG được im lặng kết thúc như "hết job" (status='done'
 với 0 job). Test parametrize theo adapter để nguồn mới thêm sau này (chỉ
 cần thêm 1 dòng vào ADAPTER_CASES) cũng bị ép tuân thủ hợp đồng này.

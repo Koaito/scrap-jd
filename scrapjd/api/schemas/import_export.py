@@ -3,7 +3,7 @@ Import/Export — schema request/response cho luồng import CSV/XLSX
 (POST /import/{entity_type}/preview, GET .../preview/{preview_id},
 POST .../confirm, POST .../verify-field, POST .../resolve-company) +
 gợi ý công ty (suggest-companies). Tách từ api/schemas.py (08/2026) —
-xem docstring api/schemas/__init__.py.
+xem docstring scrapjd/api/schemas/__init__.py.
 """
 
 from typing import Optional
@@ -46,7 +46,7 @@ class ImportUploadResponse(BaseModel):
     summary: dict  # {"total_rows", "new_records", "conflicts", "conflicts_inactive",
                     #  "pending_company_resolution", "pending_level_resolution",
                     #  "id_field"} — xem
-                    # api/services/preview_manager.py::build_preview() cho cấu
+                    # scrapjd/api/services/preview_manager.py::build_preview() cho cấu
                     # trúc đầy đủ + comment đầu file (nguồn sự thật thật sự,
                     # dict comment ở đây chỉ để đọc lướt nhanh).
     rows: list[dict]  # Chi tiết từng dòng import
@@ -58,12 +58,12 @@ class RowResolution(BaseModel):
     Sửa 08/2026 (fix bug reactivate không hoạt động): action enum ở đây
     TRƯỚC ĐÂY là "create_new | use_existing | skip" và field
     "confirm_reactivate" hoàn toàn không tồn tại — trong khi
-    api/services/import_executor.py (nơi thực thi thật) lại đọc
+    scrapjd/api/services/import_executor.py (nơi thực thi thật) lại đọc
     action là "skip"|"create"|"update" và đọc resolution.get(
     "confirm_reactivate") cho dòng conflict_inactive (xem
     RowResolutionError docstring + dòng 121-124 file đó). Vì router
     convert RowResolution -> dict bằng .model_dump() (xem
-    api/routers/import_export.py), field lạ "confirm_reactivate" gửi
+    scrapjd/api/routers/import_export.py), field lạ "confirm_reactivate" gửi
     từ frontend bị Pydantic ÂM THẦM loại bỏ — nghĩa là flow "ghi đè +
     kích hoạt lại record inactive" không bao giờ chạy được, dù cả
     frontend lẫn import_executor.py đều đã code đúng phần của mình.
@@ -228,7 +228,7 @@ class ResolveCompanyRequest(BaseModel):
     {row_index}/resolve-company — staff chọn 1 công ty (hoặc "Tạo công ty
     mới") trong modal chọn công ty ở bước preview, cho dòng
     conflict_status="pending_company_resolution" (chỉ job/contact — xem
-    api/services/preview_manager.py::resolve_company_selection()).
+    scrapjd/api/services/preview_manager.py::resolve_company_selection()).
 
     Re-check conflict NGAY với company_id thật vừa chọn, thay vì để treo
     tới lúc confirm (xem trao đổi thiết kế "vấn đề 2 & 3", 08/2026)."""
@@ -268,7 +268,7 @@ class ImportConfirmRequest(BaseModel):
     # field này chỉ có min_length=1 — chấp nhận chuỗi toàn khoảng trắng
     # ("   ") là hợp lệ, khác 4 chỗ khác trong hệ thống (Company,
     # Contact, Mẫu email, audit-log note) đều đã chặn trường hợp này.
-    # Áp cùng 1 validator dùng chung (api/schemas/validators.py) để
+    # Áp cùng 1 validator dùng chung (scrapjd/api/schemas/validators.py) để
     # nhất quán cả 5 chỗ.
     _note_not_blank = field_validator("note")(validate_note_not_blank)
 
@@ -298,7 +298,7 @@ class ImportConfirmResult(BaseModel):
 # ------------------------------------------------------------------
 # Export — bước preview (thêm 08/2026: filter status/khoảng ngày/
 # company/limit-N-mới-nhất + xem trước trước khi tải file thật — xem
-# api/services/export_query.py::ExportFilters cho ý nghĩa từng filter,
+# scrapjd/api/services/export_query.py::ExportFilters cho ý nghĩa từng filter,
 # đây chỉ là response schema cho GET /export/{entity_type}/preview).
 # ------------------------------------------------------------------
 

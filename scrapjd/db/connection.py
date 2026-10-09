@@ -36,8 +36,8 @@ def is_valid_uuid(value: Optional[str]) -> bool:
 
 def get_connection():
     """Mở 1 connection Postgres MỚI, ĐỘC LẬP với pool bên dưới — dùng cho
-    CLI/script chạy 1 lần rồi thoát (main.py, enrich_company_web_info.py,
-    get_company_fb_linkedin_link.py, api/crawl_runner.py chạy nền). Các
+    CLI/script chạy 1 lần rồi thoát (main.py, scrapjd/maintenance/enrich_company_web_info.py,
+    scrapjd/maintenance/get_company_fb_linkedin_link.py, scrapjd/api/crawl_runner.py chạy nền). Các
     nơi này mở/đóng đúng 1 lần mỗi lần chạy, tần suất thấp -> không cần
     pool, và code gọi conn.close() trực tiếp (không phải
     release_connection()) nên KHÔNG được đổi hàm này sang lấy từ pool
@@ -57,10 +57,10 @@ _pool: Optional[psycopg2.pool.ThreadedConnectionPool] = None
 
 def init_pool(minconn: int = DB_POOL_MIN, maxconn: int = DB_POOL_MAX) -> None:
     """Khởi tạo pool 1 LẦN — gọi trong FastAPI startup event
-    (api/app.py). Gọi lại khi pool đã tồn tại là no-op (an toàn nếu lỡ
+    (scrapjd/api/app.py). Gọi lại khi pool đã tồn tại là no-op (an toàn nếu lỡ
     gọi 2 lần, vd test hoặc reload).
 
-    minconn/maxconn: đọc từ config.py (DB_POOL_MIN/DB_POOL_MAX, đọc từ
+    minconn/maxconn: đọc từ scrapjd/config.py (DB_POOL_MIN/DB_POOL_MAX, đọc từ
     env DB_POOL_MIN/DB_POOL_MAX) — CÂN NHẮC set maxconn thấp hơn giới
     hạn connection Postgres phía Render/Supabase cho phép (managed
     Postgres tier free thường giới hạn thấp, vd 20-60 connection), để
@@ -75,12 +75,12 @@ def init_pool(minconn: int = DB_POOL_MIN, maxconn: int = DB_POOL_MAX) -> None:
 
 
 def get_pooled_connection():
-    """Mượn 1 connection từ pool — dùng trong api/deps.py:get_db().
+    """Mượn 1 connection từ pool — dùng trong scrapjd/api/deps.py:get_db().
     PHẢI trả lại bằng release_connection() (KHÔNG gọi conn.close()
     trực tiếp, xem lý do trong docstring get_connection() ở trên).
 
     Raise lỗi rõ ràng nếu gọi trước khi init_pool() chạy (lỗi cấu hình
-    ở api/app.py, không nên xảy ra khi chạy qua uvicorn bình thường)
+    ở scrapjd/api/app.py, không nên xảy ra khi chạy qua uvicorn bình thường)
     thay vì để AttributeError mù mờ (None.getconn()).
 
     08/2026 (xem lịch sử trao đổi "connection pool exhausted" sau khi
@@ -129,7 +129,7 @@ def get_pooled_connection():
 
 def release_connection(conn) -> None:
     """Trả connection về pool — dùng thay cho conn.close() trong
-    api/deps.py:get_db(). An toàn gọi cả khi pool chưa init (no-op),
+    scrapjd/api/deps.py:get_db(). An toàn gọi cả khi pool chưa init (no-op),
     tránh lỗi kép nếu request lỗi ngay từ get_pooled_connection()."""
     if _pool is None:
         return
@@ -138,7 +138,7 @@ def release_connection(conn) -> None:
 
 def close_pool() -> None:
     """Đóng TOÀN BỘ connection trong pool — gọi trong FastAPI shutdown
-    event (api/app.py), tránh connection bị bỏ "treo" (leak) phía
+    event (scrapjd/api/app.py), tránh connection bị bỏ "treo" (leak) phía
     Postgres khi Render restart/deploy lại server."""
     global _pool
     if _pool is not None:

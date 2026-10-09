@@ -1,9 +1,9 @@
 """
-Chạy 1 trong 5 script bảo trì dữ liệu (backfill_company_profiles.py,
-enrich_company_profile_from_website.py, enrich_company_web_info.py,
-get_company_fb_linkedin_link.py, check_expired_source_jobs.py) ở NỀN,
+Chạy 1 trong 5 script bảo trì dữ liệu (scrapjd/maintenance/backfill_company_profiles.py,
+scrapjd/maintenance/enrich_company_profile_from_website.py, scrapjd/maintenance/enrich_company_web_info.py,
+scrapjd/maintenance/get_company_fb_linkedin_link.py, scrapjd/maintenance/check_expired_source_jobs.py) ở NỀN,
 kích hoạt từ 1 HTTP request (POST /maintenance/{job_type}) — ĐỐI XỨNG
-HOÀN TOÀN api/crawl_runner.py, cho phép admin bấm nút trên web thay vì
+HOÀN TOÀN scrapjd/api/crawl_runner.py, cho phép admin bấm nút trên web thay vì
 gõ tay CLI từ máy local (08/2026, xem lịch sử trao đổi "phương án B —
 generic runner dùng chung", sql/migration_add_maintenance_runs.sql).
 
@@ -26,13 +26,13 @@ xem lịch sử trao đổi "lỗi 500 khi chạy Tìm Facebook/LinkedIn"):
     tần suất cao (client poll status.json/logs.json/latest-log-
     runs.json mỗi 1-2 giây, nhiều tab cùng lúc) — ĐỔI sang mượn/trả
     connection từ pool chung (db.get_pooled_connection()/
-    release_connection(), xem api/deps.py:get_db()) thay vì tự mở
+    release_connection(), xem scrapjd/api/deps.py:get_db()) thay vì tự mở
     connection Postgres MỚI mỗi lần gọi. Trước đây mỗi lượt poll = 1
     connection vật lý mới, dễ vượt max_connections của Postgres
     (đặc biệt tier free) khi nhiều polling loop bắn gần như đồng
     thời -> lỗi 500 (không phải JSON, rơi thẳng qua FastAPI/Starlette
     default handler vì lỗi không được try/except ở đây).
-  - execute() + connection ghi log (api/run_log.py): CỐ Ý GIỮ NGUYÊN get_connection() độc
+  - execute() + connection ghi log (scrapjd/api/run_log.py): CỐ Ý GIỮ NGUYÊN get_connection() độc
     lập (không qua pool) — 2 hàm này giữ connection SUỐT quá trình
     chạy job nền (có thể vài phút với get_fb_linkedin/enrich_*, hàng
     trăm công ty). Nếu đổi sang pool, mỗi lượt bấm chạy job sẽ khoá
@@ -40,7 +40,7 @@ xem lịch sử trao đổi "lỗi 500 khi chạy Tìm Facebook/LinkedIn"):
     cho các request HTTP khác (dashboard, danh sách job...) đang chạy
     song song — chuyển gánh nặng maxconn sang chỗ khác thay vì giải
     quyết triệt để. Đúng use case get_connection() được thiết kế cho
-    (xem docstring db/connection.py: "CLI/script chạy 1 lần rồi
+    (xem docstring scrapjd/db/connection.py: "CLI/script chạy 1 lần rồi
     thoát... không cần pool").
 
 KHÁC crawl_runner.py:
@@ -56,7 +56,7 @@ KHÁC crawl_runner.py:
     nếu cần, không làm sớm.
 
 CHỌN ĐÚNG HÀM run() THEO job_type — _JOB_RUNNERS là nơi ĐĂNG KÝ DUY
-NHẤT, giống _SOURCE_ADAPTERS ở sources_registry.py: thêm job thứ 6 sau
+NHẤT, giống _SOURCE_ADAPTERS ở scrapjd/sources_registry.py: thêm job thứ 6 sau
 này chỉ cần thêm 1 entry vào đây + enum maintenance_job_type_enum ở
 migration + 1 entry label ở frontend, KHÔNG cần bảng/router mới.
 """
@@ -80,7 +80,7 @@ logger = logging.getLogger(__name__)
 # Nguồn sự thật duy nhất cho "job_type nào gọi hàm run() nào" — khớp
 # đúng enum maintenance_job_type_enum trong
 # sql/migration_add_maintenance_runs.sql (khác tên do đặt ngắn gọn hơn
-# tên file .py, xem api/schemas/maintenance.py để biết nhãn hiển thị).
+# tên file .py, xem scrapjd/api/schemas/maintenance.py để biết nhãn hiển thị).
 _JOB_RUNNERS = {
     "backfill_company_profiles": backfill_company_profiles.run,
     "enrich_profile_from_website": enrich_company_profile_from_website.run,
@@ -189,7 +189,7 @@ def execute(run_id: str) -> None:
     các request HTTP khác đang chạy song song. Xem docstring module ở
     đầu file để biết đầy đủ lý do (mục CONNECTION POOL).
 
-    GLOBAL_JOB_SEMAPHORE (08/2026, xem docstring api/concurrency.py) —
+    GLOBAL_JOB_SEMAPHORE (08/2026, xem docstring scrapjd/api/concurrency.py) —
     CHẶN tổng số job nền (maintenance + crawl CỘNG CHUNG) chạy đồng
     thời trên toàn hệ thống, không riêng job_type này. Trước đây chỉ có
     ActiveMaintenanceRunExistsError chặn trùng CÙNG job_type, không
@@ -224,7 +224,7 @@ def _execute_locked(run_id: str) -> None:
 
         db_module.mark_maintenance_run_running(conn, run_id)
 
-        # Log live của lượt này (xem api/run_log.py): chỉ nhận log phát ra từ
+        # Log live của lượt này (xem scrapjd/api/run_log.py): chỉ nhận log phát ra từ
         # chính lượt này, không lẫn với lượt chạy song song khác.
         with capture_run_logs(
             run_id,

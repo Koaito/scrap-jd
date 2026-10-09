@@ -1,6 +1,6 @@
 """
 main.py cmd_crawl đợt 3.5 (10/2026): CLI chạy qua cùng đường với nút Crawl
-trên web (api/crawl_runner.execute) để lượt chạy trên máy cũng có dòng
+trên web (scrapjd/api/crawl_runner.execute) để lượt chạy trên máy cũng có dòng
 crawl_runs, cờ blocked/degraded và snapshot — KHÔNG cần database/internet.
 """
 

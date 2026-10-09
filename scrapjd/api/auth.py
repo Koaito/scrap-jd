@@ -14,11 +14,11 @@ CÁCH DÙNG (client gọi API phải gửi kèm 1 trong 2 cách):
 thêm dependency riêng lẻ vào từng router.
 
 LƯU Ý QUAN TRỌNG về thứ tự nạp .env: module này tự gọi load_dotenv()
-ngay khi được import — KHÔNG dựa vào việc config.py (import gián tiếp
-qua api.routers -> db) đã chạy trước hay chưa. Lý do: app.py import
-`api.auth` TRƯỚC `api.routers`, nên nếu auth.py không tự nạp .env,
+ngay khi được import — KHÔNG dựa vào việc scrapjd/config.py (import gián tiếp
+qua scrapjd.api.routers -> db) đã chạy trước hay chưa. Lý do: app.py import
+`scrapjd.api.auth` TRƯỚC `scrapjd.api.routers`, nên nếu auth.py không tự nạp .env,
 os.getenv("API_KEY") sẽ đọc phải giá trị rỗng (chạy trước khi
-config.py kịp gọi load_dotenv()), dẫn đến lỗi "Server chưa cấu hình
+scrapjd/config.py kịp gọi load_dotenv()), dẫn đến lỗi "Server chưa cấu hình
 API_KEY" dù .env có đủ giá trị.
 
 NÂNG CẤP SAU (chỉ làm khi thật sự cần, đừng làm sớm):
@@ -51,7 +51,7 @@ _query_scheme = APIKeyQuery(name="api_key", auto_error=False)
 def has_valid_api_key_header(request) -> bool:
     """True nếu request mang header X-API-Key ĐÚNG giá trị API_KEY. Chỉ
     đọc HEADER (không đọc ?api_key= trên query string) và không raise gì
-    — dành cho api/rate_limit.py quyết định có tin header X-Client-IP hay
+    — dành cho scrapjd/api/rate_limit.py quyết định có tin header X-Client-IP hay
     không (chỉ frontend chính thức cầm API_KEY mới được khai báo IP thật
     của người dùng cuối). Thiếu API_KEY cấu hình -> luôn False."""
     if not _API_KEY:

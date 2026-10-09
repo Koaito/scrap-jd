@@ -32,7 +32,7 @@ class CrawlBlockedError(Exception):
 
     KHÔNG bị pipeline.run_pipeline() nuốt mất (nó raise ra ngoài vòng
     for, không nằm trong try/except bọc từng job) — lan thẳng lên
-    api/crawl_runner.py::execute(), nơi bắt bằng except Exception chung
+    scrapjd/api/crawl_runner.py::execute(), nơi bắt bằng except Exception chung
     và ghi status='error' + error message thay vì 'done' với stats toàn
     số 0, để UI (bảng Lịch sử crawl) phân biệt được 2 tình huống: "bị
     chặn ngay từ đầu" vs "chạy xong, đúng là 0 job mới".
@@ -58,7 +58,7 @@ DEFAULT_DEDUP_RESOLVERS = ("job_code", "repost")
 class BaseAdapter(ABC):
     """
     Mọi adapter nguồn (TopCV, ITviec, VietnamWorks, ...) phải kế thừa class
-    này và implement fetch_jobs(). Pipeline lõi (pipeline.py) chỉ gọi qua
+    này và implement fetch_jobs(). Pipeline lõi (scrapjd/pipeline.py) chỉ gọi qua
     interface này -> không cần biết chi tiết bên trong từng nguồn.
     """
 
@@ -89,7 +89,7 @@ class BaseAdapter(ABC):
         điển hình: TopCV cần delay cao hơn + jitter ngẫu nhiên do bị
         chặn theo IP reputation khi crawl từ server (xem docstring
         TOPCV_REQUEST_DELAY_SECONDS/TOPCV_REQUEST_JITTER_SECONDS ở
-        config.py), trong khi VietnamWorks/CareerViet dùng chung mức
+        scrapjd/config.py), trong khi VietnamWorks/CareerViet dùng chung mức
         delay mặc định (REQUEST_DELAY_SECONDS), không cần jitter.
 
         impersonate="chrome124" mặc định cho MỌI adapter (giả lập TLS/
@@ -130,7 +130,7 @@ class BaseAdapter(ABC):
         self._block_threshold: int = CRAWL_BLOCK_CONSECUTIVE_FAILURES
 
         # Snapshot HTML/JSON gốc để debug (đợt 3) — None = tắt (CLI, test),
-        # _snapshot() khi đó là no-op. api/crawl_runner.py gắn recorder thật.
+        # _snapshot() khi đó là no-op. scrapjd/api/crawl_runner.py gắn recorder thật.
         self.snapshot_recorder = None
         # Các bất thường adapter tự phát hiện ở TRANG LISTING ĐẦU (vd trang
         # tải được nhưng parse ra 0 job). pipeline đọc cuối lượt để đánh dấu
@@ -148,7 +148,7 @@ class BaseAdapter(ABC):
 
     def _snapshot(self, kind: str, url: str, body, reason: str = "sample") -> None:
         """Đề nghị lưu snapshot gốc. No-op nếu chưa gắn recorder; recorder
-        tự quyết định có giữ hay không (xem snapshots.py). Không bao giờ
+        tự quyết định có giữ hay không (xem scrapjd/snapshots.py). Không bao giờ
         raise — debug không được làm hỏng crawl."""
         recorder = self.snapshot_recorder
         if recorder is None:
@@ -336,7 +336,7 @@ class BaseAdapter(ABC):
         Lỗi cũ (trước khi gộp về BaseAdapter): delay chỉ được sleep()
         giữa các trang listing trong fetch_jobs() của từng adapter,
         trong khi fetch_job_full_detail()/fetch_company_profile() (gọi
-        cho MỖI job / MỖI công ty mới trong pipeline.py) gọi thẳng
+        cho MỖI job / MỖI công ty mới trong scrapjd/pipeline.py) gọi thẳng
         _fetch_html() không qua throttle -> bắn hàng chục request liên
         tiếp không nghỉ dù config đã tăng delay lên."""
         self._throttle()

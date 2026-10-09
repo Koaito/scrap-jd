@@ -1,6 +1,6 @@
 """
 db.company_analytics — tín hiệu "Tiềm năng hợp tác" và thống kê "tình trạng
-dữ liệu" của công ty (tách từ db/companies.py, 10/2026). Chỉ SELECT.
+dữ liệu" của công ty (tách từ scrapjd/db/companies.py, 10/2026). Chỉ SELECT.
 """
 
 from typing import Optional

@@ -1,5 +1,5 @@
 """
-api/run_log.capture_run_logs(): log live tách riêng theo từng lượt chạy
+scrapjd/api/run_log.capture_run_logs(): log live tách riêng theo từng lượt chạy
 (trước đây handler gắn vào root logger nhận mọi record nên 2 lượt chạy song
 song ghi lẫn log của nhau) — KHÔNG cần database, KHÔNG cần internet.
 """

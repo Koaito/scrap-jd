@@ -44,7 +44,7 @@ def list_companies(
     conn=Depends(get_db),
 ):
     """Rate limit 60/minute theo IP (thêm 08/2026) — cùng lý do với
-    GET /jobs (xem api/routers/jobs.py::list_jobs)."""
+    GET /jobs (xem scrapjd/api/routers/jobs.py::list_jobs)."""
     if created_by is not None and not db_module.is_valid_uuid(created_by):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.COMPANY_CREATED_BY_INVALID_UUID, "message": f"created_by '{created_by}' không đúng định dạng UUID.", "params": {"value": created_by}})
     rows, total = db_module.list_companies(

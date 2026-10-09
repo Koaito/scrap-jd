@@ -7,7 +7,7 @@ CHƯA có domain riêng verify với Resend (xem lịch sử trao đổi trướ
 code phần này). Đổi sang domain riêng sau này CHỈ cần đổi biến môi
 trường EMAIL_FROM, KHÔNG cần sửa code ở đây.
 
-Route gọi module này (api/routers/auth.py) KHÔNG await/raise nếu gửi
+Route gọi module này (scrapjd/api/routers/auth.py) KHÔNG await/raise nếu gửi
 lỗi — xem docstring send_verification_email() bên dưới để hiểu lý do."""
 
 import html
@@ -45,7 +45,7 @@ def send_verification_email(*, to_email: str, full_name: str, verify_token: str)
 
     Trả True/False thay vì raise — LỖI GỬI EMAIL KHÔNG ĐƯỢC LÀM HỎNG
     LUỒNG ĐĂNG KÝ: tài khoản vẫn đã tạo thành công trong DB (transaction
-    đăng ký đã commit trước khi gọi hàm này, xem api/routers/auth.py),
+    đăng ký đã commit trước khi gọi hàm này, xem scrapjd/api/routers/auth.py),
     chỉ là email báo có thể chưa tới tay người dùng. Route sẽ log lỗi
     và người dùng có thể tự gọi lại POST /auth/resend-verification sau,
     KHÔNG cần đăng ký lại từ đầu nếu email bị thất lạc/gửi lỗi tạm thời
@@ -90,7 +90,7 @@ def send_password_reset_email(*, to_email: str, full_name: str, reset_token: str
     """Gửi email chứa link đặt lại mật khẩu, trỏ về FRONTEND (khác
     send_verification_email() ở trên trỏ về chính backend) — xem
     docstring FRONTEND_BASE_URL phía trên để hiểu lý do. Link hết hạn
-    sau PASSWORD_RESET_EXPIRE_HOURS (xem api/routers/auth.py, 1 giờ —
+    sau PASSWORD_RESET_EXPIRE_HOURS (xem scrapjd/api/routers/auth.py, 1 giờ —
     ngắn hơn hẳn link xác thực email 24h vì reset mật khẩu nhạy cảm
     hơn).
 

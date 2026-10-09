@@ -1,6 +1,6 @@
 """
 db.job_health — thống kê "tình trạng dữ liệu" của job cho tab Tình trạng
-dữ liệu (tách từ db/jobs.py, 10/2026). Chỉ SELECT, không ghi.
+dữ liệu (tách từ scrapjd/db/jobs.py, 10/2026). Chỉ SELECT, không ghi.
 """
 
 import psycopg2.extras

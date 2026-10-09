@@ -1,6 +1,6 @@
 """
 Stats — schema response cho GET /stats, GET /stats/engagement.
-Tách từ api/schemas.py (08/2026) — xem docstring api/schemas/__init__.py.
+Tách từ api/schemas.py (08/2026) — xem docstring scrapjd/api/schemas/__init__.py.
 """
 
 from datetime import date, datetime

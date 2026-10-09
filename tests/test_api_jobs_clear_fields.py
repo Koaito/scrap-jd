@@ -9,7 +9,7 @@ db.jobs.JOB_CLEARABLE_FIELD_TO_COLUMN):
   import_executor, vốn truyền None với nghĩa "bỏ qua") KHÔNG bị ảnh hưởng.
 
 Cùng convention với tests/test_api_contacts.py: gọi thẳng hàm route, mock
-`api.routers.jobs.db_module`, không qua HTTP/DB thật.
+`scrapjd.api.routers.jobs.db_module`, không qua HTTP/DB thật.
 """
 import re
 import uuid
@@ -126,7 +126,7 @@ def test_clearable_columns_are_nullable_in_schema():
 
 
 # ------------------------------------------------------------------
-# PATCH /jobs/{id} (api.routers.jobs.patch_job)
+# PATCH /jobs/{id} (scrapjd.api.routers.jobs.patch_job)
 # ------------------------------------------------------------------
 
 

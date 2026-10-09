@@ -11,12 +11,12 @@ TÁCH THÀNH PACKAGE (08/2026): file gốc api/schemas.py đã phình tới 1165
 dòng/65 class (đúng như cảnh báo lúc review kiến trúc lần trước) — trộn
 9 domain không liên quan (job, company, stats, crawl, auth, contact, job
 application/saved job, audit log, import/export) trong 1 file. Tách theo
-domain, MIRROR đúng cách đã tách db.py -> db/ package trước đó (cùng tên
+domain, MIRROR đúng cách đã tách db.py -> scrapjd/db/ package trước đó (cùng tên
 domain: jobs/companies/contacts/auth/audit_logs/applications/stats, cộng
 thêm crawl.py + import_export.py chỉ có ở schemas vì đây là 2 domain
-riêng của API layer, không có tương ứng bên db/).
+riêng của API layer, không có tương ứng bên scrapjd/db/).
 
-File này re-export TOÀN BỘ 65 tên cũ — `from api.schemas import X` ở mọi
+File này re-export TOÀN BỘ 65 tên cũ — `from scrapjd.api.schemas import X` ở mọi
 router/test KHÔNG cần sửa gì, hoạt động y hệt trước khi tách (import ngầm
 qua package thay vì module đơn). Thêm/sửa schema mới CHỈ cần sửa đúng 1
 submodule domain tương ứng — không phải kéo cả 1165 dòng vào context như

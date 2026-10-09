@@ -1,5 +1,5 @@
 """
-Logic THUẦN của báo cáo job nghi trùng (duplicate_report.py, Phần 3a) — không cần DB. Phần
+Logic THUẦN của báo cáo job nghi trùng (scrapjd/cli/duplicate_report.py, Phần 3a) — không cần DB. Phần
 chạy SQL thật nằm ở tests/test_pg_duplicate_report.py. Các nhóm mẫu dựa trên dữ liệu thật đã
 xem khi thiết kế (đăng lại cùng nguồn, chéo nguồn TopCV/VietnamWorks, nhóm khác tỉnh).
 """

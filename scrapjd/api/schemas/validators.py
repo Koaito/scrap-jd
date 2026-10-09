@@ -2,9 +2,9 @@
 
 Tách ra (migrate Next.js, Phần 1 mục 3.2 của plan) — trước đây
 `_note_not_blank` bị định nghĩa LẶP LẠI y hệt nhau ở 4 nơi
-(api/schemas/audit_logs.py, email_templates.py, contacts.py,
+(scrapjd/api/schemas/audit_logs.py, email_templates.py, contacts.py,
 companies.py), và `ImportConfirmRequest.note`
-(api/schemas/import_export.py) lại KHÔNG có validator này — chỉ dùng
+(scrapjd/api/schemas/import_export.py) lại KHÔNG có validator này — chỉ dùng
 `min_length=1` nên chấp nhận chuỗi toàn khoảng trắng (`"   "`) là hợp
 lệ, khác 4 chỗ kia. Gom về 1 hàm gốc duy nhất ở đây để dùng lại đúng 1
 lần, tránh lệch nhau khi có chỗ quên sửa theo trong tương lai.
@@ -21,7 +21,7 @@ def validate_note_not_blank(v: str) -> str:
     hàm ở từng model):
 
         from pydantic import field_validator
-        from api.schemas.validators import validate_note_not_blank
+        from scrapjd.api.schemas.validators import validate_note_not_blank
 
         class FooRequest(BaseModel):
             note: str = Field(..., min_length=1)

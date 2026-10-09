@@ -1,6 +1,6 @@
 """
 Companies — schema request/response cho POST/PATCH/DELETE/GET /companies.
-Tách từ api/schemas.py (08/2026) — xem docstring api/schemas/__init__.py.
+Tách từ api/schemas.py (08/2026) — xem docstring scrapjd/api/schemas/__init__.py.
 """
 
 from datetime import datetime
@@ -66,7 +66,7 @@ class CompanyDetailOut(CompanyOut):
 # chung (GET /companies list/detail cũng dùng CompanyOut/CompanyDetailOut,
 # field này chỉ có ý nghĩa đúng 1 lần tại thời điểm tạo, đưa vào schema
 # chung sẽ để lại 1 field vô nghĩa "was_existing: null" ở mọi response
-# GET). create_company() (api/routers/companies.py) tự tính được biến
+# GET). create_company() (scrapjd/api/routers/companies.py) tự tính được biến
 # was_existing ngay trong hàm (dùng để quyết định có ghi audit log
 # CREATE_COMPANY hay không — công ty "vá thêm thông tin" do trùng
 # tax_id/tên thì không log tạo mới) nhưng TRƯỚC ĐÂY biến này bị bỏ đi,
@@ -200,7 +200,7 @@ class CompanyDeleteRequest(BaseModel):
                     "thông tin nhập nhầm...).",
     )
 
-    # Validator dùng CHUNG (api/schemas/validators.py) — xem docstring
+    # Validator dùng CHUNG (scrapjd/api/schemas/validators.py) — xem docstring
     # ở đó để biết lý do tách ra thay vì định nghĩa lặp ở từng schema.
     _note_not_blank = field_validator("note")(validate_note_not_blank)
 

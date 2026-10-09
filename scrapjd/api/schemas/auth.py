@@ -1,7 +1,7 @@
 """
 Auth — schema request/response cho đăng nhập/đăng ký/đổi mật khẩu/quản
-lý user qua JWT (thêm 08/2026, xem api/routers/auth.py). Tách từ
-api/schemas.py (08/2026) — xem docstring api/schemas/__init__.py.
+lý user qua JWT (thêm 08/2026, xem scrapjd/api/routers/auth.py). Tách từ
+api/schemas.py (08/2026) — xem docstring scrapjd/api/schemas/__init__.py.
 """
 
 import re
@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 #
 # KHÁC API_KEY tĩnh (không có schema riêng, chỉ 1 header cố định) — nhóm
 # schema dưới đây phục vụ luồng login/refresh/đổi mật khẩu/admin tạo
-# user cho frontend, xem api/routers/auth.py.
+# user cho frontend, xem scrapjd/api/routers/auth.py.
 # ------------------------------------------------------------------
 
 class LoginRequest(BaseModel):
@@ -50,7 +50,7 @@ class ChangePasswordRequest(BaseModel):
     # Optional: KHÔNG bắt buộc khi must_change_password=True (tài khoản
     # mới tạo/vừa bị admin reset — người dùng chưa từng có mật khẩu
     # "thật" của riêng họ để xác nhận, chỉ có mật khẩu tạm admin đưa).
-    # Route (api/routers/auth.py) tự quyết định có bắt buộc field này
+    # Route (scrapjd/api/routers/auth.py) tự quyết định có bắt buộc field này
     # hay không dựa theo must_change_password hiện tại của user.
     old_password: Optional[str] = None
     new_password: str = Field(..., min_length=8)
@@ -76,7 +76,7 @@ class UserProfileUpdate(BaseModel):
 
     full_name: str = Field(..., min_length=1, max_length=255)
     # Optional + có thể gửi "" để XOÁ giá trị cũ (route chuẩn hoá ""
-    # thành None trước khi ghi DB — xem api/routers/auth_session.py).
+    # thành None trước khi ghi DB — xem scrapjd/api/routers/auth_session.py).
     # Không dùng Optional[str] = None làm nghĩa "giữ nguyên" vì PATCH
     # ở đây luôn ghi đè toàn bộ 3 field (không phải partial update kiểu
     # "field nào có mặt mới đổi") — đơn giản hơn cho phía frontend: form
@@ -159,7 +159,7 @@ class UserActiveStatusUpdate(BaseModel):
 
 # ------------------------------------------------------------------
 # Đăng ký công khai + xác thực email (thêm 08/2026, xem
-# sql/migration_add_email_verification.sql, api/email_service.py) —
+# sql/migration_add_email_verification.sql, scrapjd/api/email_service.py) —
 # KHÁC UserCreateByAdmin (admin tạo hộ) ở chỗ AI CŨNG gọi được (không
 # cần JWT), tự chọn mật khẩu (không có must_change_password), luôn cố
 # định role='user' — route (KHÔNG phải schema) tự gán cứng role, người
@@ -192,7 +192,7 @@ class RegisterRequest(BaseModel):
 
 class RegisterOut(BaseModel):
     """KHÔNG trả access_token/refresh_token — đăng ký xong PHẢI xác
-    thực email trước mới login được (xem api/routers/auth.py login()),
+    thực email trước mới login được (xem scrapjd/api/routers/auth.py login()),
     nên trả về thông báo hướng dẫn thay vì token."""
     ss_user_id: str
     email: str

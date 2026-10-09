@@ -4,7 +4,7 @@ phải trả về. Pipeline lõi chỉ biết làm việc với RawJobRecord, kh
 tâm dữ liệu đến từ nguồn nào.
 
 Thêm nguồn crawl mới trong tương lai = viết thêm 1 adapter mới trả về
-list[RawJobRecord], KHÔNG cần sửa gì ở normalize.py / db.py / pipeline.py.
+list[RawJobRecord], KHÔNG cần sửa gì ở scrapjd/normalize.py / db.py / scrapjd/pipeline.py.
 """
 
 from dataclasses import dataclass, field
@@ -18,7 +18,7 @@ class RawJobRecord:
     source_url: str          # link JD gốc, dùng làm khóa chống trùng theo nguồn
     source_name: str         # "TopCV", "ITviec", ...
 
-    # --- Optional, text thô chưa parse (normalize.py sẽ xử lý) ---
+    # --- Optional, text thô chưa parse (scrapjd/normalize.py sẽ xử lý) ---
     salary_text: str = ""        # "15 - 30 triệu", "Thoả thuận", "Tới 3,000 USD"
     province_text: str = ""      # "Hà Nội", "Hồ Chí Minh (mới)"
     experience_text: str = ""    # "2 năm", "Không yêu cầu", "Dưới 1 năm"

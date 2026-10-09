@@ -1,6 +1,6 @@
 """
 Module bảo mật cho lớp đăng nhập TỪNG NGƯỜI (JWT + refresh token xoay
-vòng) — KHÁC api/auth.py (API_KEY tĩnh dùng chung cho mọi client).
+vòng) — KHÁC scrapjd/api/auth.py (API_KEY tĩnh dùng chung cho mọi client).
 
 3 việc chính:
   1. Hash/verify mật khẩu bằng Argon2id (argon2-cffi) — thuật toán được
@@ -25,7 +25,7 @@ khi cần đổi runtime):
   REFRESH_TOKEN_EXPIRE_DAYS — refresh token sống 30 ngày.
   FAILED_LOGIN_LOCK_THRESHOLD / FAILED_LOGIN_LOCK_MINUTES — số lần sai
     liên tiếp trước khi khoá tạm + khoá bao lâu (dùng bởi
-    db.record_failed_login(), xem api/routers/auth.py).
+    db.record_failed_login(), xem scrapjd/api/routers/auth.py).
 """
 
 import os
@@ -47,7 +47,7 @@ except ImportError:
 
 # Fail-closed: thiếu JWT_SECRET_KEY -> lỗi ngay lúc import module, không
 # để tới lúc verify token mới phát hiện thiếu cấu hình (giống nguyên tắc
-# API_KEY ở api/auth.py, nhưng ở đây raise ngay thay vì đợi tới request
+# API_KEY ở scrapjd/api/auth.py, nhưng ở đây raise ngay thay vì đợi tới request
 # đầu tiên, vì JWT_SECRET_KEY không đổi được runtime nên phát hiện sớm
 # càng tốt — sập lúc khởi động server còn hơn sập lúc user đang dùng).
 _JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "")
@@ -63,11 +63,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 30
 
 # Grace period tái sử dụng refresh token VỪA xoay vòng (thêm khi migrate
-# Next.js — refresh() ở api/routers/auth_session.py). Chỉ áp dụng cho
+# Next.js — refresh() ở scrapjd/api/routers/auth_session.py). Chỉ áp dụng cho
 # ĐÚNG 1 tình huống: 2 request POST /auth/refresh gửi cùng 1 token cũ A
 # gần như đồng thời (race THẬT giữa nhiều tab/nhiều request song song,
 # không phải giả định — xem docstring get_refresh_token_by_hash() ở
-# db/auth.py) — request thắng cuộc xoay A -> B, request thua cuộc đọc
+# scrapjd/db/auth.py) — request thắng cuộc xoay A -> B, request thua cuộc đọc
 # lại thấy A đã revoked. Nếu B (replaced_by_token_id) VẪN CÒN SỐNG và
 # việc revoke A xảy ra trong ĐÚNG khung giờ này, coi đây là race hợp lệ
 # thay vì "bị đánh cắp" — cấp THÊM 1 cặp token mới cho request thua
@@ -157,7 +157,7 @@ def create_access_token(*, ss_user_id: str, role: str, email: str, session_id: s
     session_id (claim "sid", thêm 08/2026 cho cơ chế single-session —
     xem sql/migration_add_single_session.sql): KHÔNG đổi mỗi lần refresh
     (chỉ login() sinh session_id mới), dùng để get_current_user()
-    (api/deps.py) so khớp với app_users.active_session_id — nếu 1 login
+    (scrapjd/api/deps.py) so khớp với app_users.active_session_id — nếu 1 login
     MỚI diễn ra (session_id khác được ghi vào DB), access token đang
     cầm bởi phiên CŨ sẽ bị từ chối ngay ở lần gọi kế tiếp, không cần đợi
     tự hết hạn."""
@@ -178,7 +178,7 @@ def decode_access_token(token: str) -> Optional[dict]:
     """Trả payload (dict) nếu token hợp lệ + chưa hết hạn + đúng
     type='access' (chặn nhầm lẫn nếu ai đó lỡ đưa refresh token vào chỗ
     này). Trả None cho MỌI lỗi (hết hạn, sai chữ ký, sai định dạng...) —
-    route (api/deps.py) tự quyết định raise 401 với thông báo phù hợp,
+    route (scrapjd/api/deps.py) tự quyết định raise 401 với thông báo phù hợp,
     hàm này không raise gì cả để nơi gọi xử lý thống nhất 1 chỗ."""
     try:
         payload = jwt.decode(token, _JWT_SECRET_KEY, algorithms=[_JWT_ALGORITHM])
@@ -232,7 +232,7 @@ def hash_verification_token(token: str) -> str:
     """SHA-256 hex — CÙNG cơ chế hash_refresh_token() ở trên (deterministic,
     không salt: cần tra ngược lại đúng bằng token thô người dùng gửi lên
     từ link email, và token nguồn đã đủ ngẫu nhiên — 32 byte urlsafe, xem
-    _generate_verify_token() trong api/routers/auth.py — nên không cần
+    _generate_verify_token() trong scrapjd/api/routers/auth.py — nên không cần
     salt để chống rainbow table). Tách hàm riêng (thay vì gọi thẳng
     hash_refresh_token()) để giữ đúng tinh thần "khác khái niệm, khác
     tên hàm dù cùng cách sinh" đã áp dụng nhất quán trong file này (xem

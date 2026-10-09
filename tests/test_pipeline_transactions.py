@@ -27,10 +27,10 @@ from scrapjd.models import RawJobRecord
 from scrapjd.pipeline_db import PIPELINE_DB_READS, PIPELINE_DB_WRITES
 from scrapjd.pipeline_stats import PipelineStats
 
-# Phân loại MỌI hàm db.* mà pipeline.py gọi. Thêm lời gọi db.* mới vào
-# pipeline.py thì phải thêm vào 1 trong 2 tập này (test_every_db_call_is_classified
+# Phân loại MỌI hàm db.* mà scrapjd/pipeline.py gọi. Thêm lời gọi db.* mới vào
+# scrapjd/pipeline.py thì phải thêm vào 1 trong 2 tập này (test_every_db_call_is_classified
 # sẽ báo đỏ nếu quên) — đó là lúc phải nghĩ "hàm này có ghi không, ai commit?".
-# Nguồn duy nhất của phân loại này là pipeline_db.py (B2); giữ tên cũ cho phần test bên dưới.
+# Nguồn duy nhất của phân loại này là scrapjd/pipeline_db.py (B2); giữ tên cũ cho phần test bên dưới.
 READ_FUNCS = set(PIPELINE_DB_READS)
 WRITE_FUNCS = set(PIPELINE_DB_WRITES)
 

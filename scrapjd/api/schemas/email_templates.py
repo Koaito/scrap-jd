@@ -1,8 +1,8 @@
 """
 Email templates — schema request/response cho GET/POST/PATCH/DELETE
 /email-templates (thêm 08/2026, xem sql/migration_add_email_templates.sql
-+ db/email_templates.py). Tách theo domain, cùng pattern các submodule
-khác trong package này (xem docstring api/schemas/__init__.py).
++ scrapjd/db/email_templates.py). Tách theo domain, cùng pattern các submodule
+khác trong package này (xem docstring scrapjd/api/schemas/__init__.py).
 """
 
 from datetime import datetime
@@ -13,8 +13,8 @@ from scrapjd.api.schemas.validators import validate_note_not_blank
 
 # 5 placeholder cố định — GIỮ NGUYÊN theo đúng yêu cầu đã chốt (không tự
 # do thêm placeholder mới), chỉ hiển thị cho staff xem cách điền đúng khi
-# soạn/sửa mẫu. Any/PLACEHOLDER_HELP nằm ở đây (không phải constants.py)
-# vì chỉ email_templates dùng, tránh làm phình constants.py dùng chung
+# soạn/sửa mẫu. Any/PLACEHOLDER_HELP nằm ở đây (không phải scrapjd/constants.py)
+# vì chỉ email_templates dùng, tránh làm phình scrapjd/constants.py dùng chung
 # toàn repo cho 1 tính năng hẹp.
 PLACEHOLDER_HELP: dict[str, str] = {
     "{{LOI_CHAO}}": "Câu chào đầu thư — tự động ghép 'Kính gửi <tên người liên hệ>' "
@@ -53,7 +53,7 @@ class PlaceholderHelpOut(BaseModel):
 
 class EmailTemplateCreate(BaseModel):
     """Tạo mẫu mới — note KHÔNG bắt buộc (giống CREATE_CONTACT/CREATE_JOB),
-    xem ACTION_LOG_RULES trong db/audit_logs.py."""
+    xem ACTION_LOG_RULES trong scrapjd/db/audit_logs.py."""
     model_config = ConfigDict(extra="forbid")
 
     title: str = Field(..., min_length=1, max_length=255)
@@ -138,6 +138,6 @@ class EmailTemplateDeleteRequest(BaseModel):
                     "vì sao (vd: không còn phù hợp, trùng nội dung mẫu khác...).",
     )
 
-    # Validator dùng CHUNG (api/schemas/validators.py) — xem docstring
+    # Validator dùng CHUNG (scrapjd/api/schemas/validators.py) — xem docstring
     # ở đó để biết lý do tách ra thay vì định nghĩa lặp ở từng schema.
     _note_not_blank = field_validator("note")(validate_note_not_blank)

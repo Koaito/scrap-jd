@@ -2,8 +2,8 @@
 Facade gộp lại router auth — file auth.py gốc (08/2026) từng gộp 738
 dòng/14 endpoint của 4 concern khác nhau (session, quản trị user, đăng
 ký công khai) trong 1 file, khó theo dõi mỗi khi sửa. Đã tách theo
-domain thành 3 file, giống pattern re-export của db/__init__.py sau
-khi tách db.py 2619 dòng — code cũ gọi `from api.routers import auth`
+domain thành 3 file, giống pattern re-export của scrapjd/db/__init__.py sau
+khi tách db.py 2619 dòng — code cũ gọi `from scrapjd.api.routers import auth`
 rồi dùng `auth.router` / `auth.public_router` (app.py, xem
 app.include_router) KHÔNG cần đổi gì:
 

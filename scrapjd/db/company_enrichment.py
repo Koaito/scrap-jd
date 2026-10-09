@@ -1,7 +1,7 @@
 """
 db.company_enrichment — truy vấn chọn công ty cần bổ sung thông tin
 (website/ngành/social link) cho các script enrich_*/backfill_* (tách từ
-db/companies.py, 10/2026).
+scrapjd/db/companies.py, 10/2026).
 """
 
 
@@ -11,10 +11,10 @@ def get_companies_needing_profile_from_website(conn):
     products_services — tập company mà enrich_company_profile_from_
     website.py (script mới, 08/2026) có thể vá được bằng cách đọc trang
     chủ/giới thiệu của chính website đó + Gemini phân loại, KHÔNG cần
-    Tavily (rẻ hơn enrich_company_web_info.py).
+    Tavily (rẻ hơn scrapjd/maintenance/enrich_company_web_info.py).
 
     Chủ yếu nhắm tới công ty nguồn CareerViet (CareerVietAdapter cố ý
-    không lấy industry, xem adapters/careerviet.py), nhưng KHÔNG giới hạn
+    không lấy industry, xem scrapjd/adapters/careerviet.py), nhưng KHÔNG giới hạn
     riêng nguồn nào — bất kỳ công ty nào đã có website mà vẫn thiếu
     industry hoặc products_services đều thuộc tập này (kể cả công ty tạo
     tay qua POST /companies có điền website nhưng bỏ trống 1 trong 2).
@@ -44,7 +44,7 @@ def get_companies_needing_profile_from_website(conn):
 
 def get_companies_needing_social_links(conn):
     """Lấy các công ty ĐÃ CÓ website nhưng còn thiếu fanpage_url hoặc
-    linkedin_url — đây là tập company mà get_company_fb_linkedin_link.py
+    linkedin_url — đây là tập company mà scrapjd/maintenance/get_company_fb_linkedin_link.py
     có thể enrich được (script đó cần website làm điểm bắt đầu để tìm
     link social trong footer/header trang công ty, không tự đoán mò).
 
@@ -89,7 +89,7 @@ def update_company_social_links(conn, company_id: str, *,
 
 def get_companies_needing_web_lookup(conn):
     """Lấy các công ty còn thiếu website HOẶC tax_id — tập company mà
-    enrich_company_web_info.py (script RIÊNG, tra cứu qua Tavily search +
+    scrapjd/maintenance/enrich_company_web_info.py (script RIÊNG, tra cứu qua Tavily search +
     Gemini trích xuất) có thể thử vá thêm.
 
     Chỉ cần thiếu 1 trong 2 field là đủ điều kiện — vì 1 lần gọi search
@@ -115,17 +115,17 @@ def get_companies_needing_profile_backfill(conn):
     """Lấy công ty ĐÃ CÓ source_profile_url (xem
     sql/migration_add_source_profile_url.sql) nhưng vẫn còn thiếu ít
     nhất 1 trong 4 field industry/company_size/address/website — tập
-    company mà backfill_company_profiles.py (script RIÊNG, gọi thẳng lại
+    company mà scrapjd/maintenance/backfill_company_profiles.py (script RIÊNG, gọi thẳng lại
     fetch_company_profile() trên URL đã lưu, KHÔNG qua Tavily/Gemini) có
     thể vá lại.
 
     KHÁC get_companies_needing_web_lookup() ở trên (dùng cho
-    enrich_company_web_info.py, nguồn Tavily/Gemini, chỉ vá website/
+    scrapjd/maintenance/enrich_company_web_info.py, nguồn Tavily/Gemini, chỉ vá website/
     tax_id): hàm này ưu tiên dùng TRƯỚC vì chính xác hơn hẳn (đọc thẳng
     trang gốc, không qua search+LLM suy luận) và vá được CẢ 4 field —
     chỉ những công ty KHÔNG có source_profile_url (vd tạo tay, hoặc
     crawl từ nguồn không hỗ trợ fetch_company_profile) mới cần tới
-    enrich_company_web_info.py.
+    scrapjd/maintenance/enrich_company_web_info.py.
 
     Trả về list[(company_id, company_name, source_profile_url)]."""
     with conn.cursor() as cur:

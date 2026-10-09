@@ -75,7 +75,7 @@ def _build_parsed_content_and_raw(job_detail: dict):
 def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: PipelineStats,
                           field_counter: "EmptyFieldCounter | None" = None) -> None:
     """Xử lý job ĐÃ TỪNG crawl trước đó (source_url trùng) — tách ra từ
-    run_pipeline() (08/2026, xem lịch sử trao đổi refactor pipeline.py)
+    run_pipeline() (08/2026, xem lịch sử trao đổi refactor scrapjd/pipeline.py)
     thuần vì lý do đọc/test dễ hơn, KHÔNG đổi hành vi: bản gốc đây là
     bước (1) trong 1 hàm ~250 dòng làm hết mọi việc.
 
@@ -761,7 +761,7 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             _process_job(adapter, conn, raw, stats, field_counter)
 
         except CrawlBlockedError:
-            # Ngắt mạch (adapters/base.py::_note_fetch_failure) raise ngay
+            # Ngắt mạch (scrapjd/adapters/base.py::_note_fetch_failure) raise ngay
             # TRONG fetch_job_full_detail()/fetch_company_profile() ở giữa 1
             # job — nằm trong try của từng job nên except Exception bên dưới
             # sẽ NUỐT mất, và vòng lặp lại tiếp tục đập vào site đang chặn.
@@ -807,7 +807,7 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
     main.py CLI, không cần heartbeat).
 
     Cách dừng: adapter.fetch_jobs() là generator sinh job THEO TỪNG TRANG
-    (xem adapters/topcv.py, adapters/vietnamworks.py) — dừng vòng lặp
+    (xem scrapjd/adapters/topcv.py, scrapjd/adapters/vietnamworks.py) — dừng vòng lặp
     for ở đây (break) trước khi gọi next() lần nữa sẽ tự động khiến
     adapter KHÔNG fetch thêm trang mới nữa, không tốn request thừa ra
     ngoài internet. Không cần sửa gì trong adapter.
@@ -818,7 +818,7 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
       bỏ qua kiểu này KHÔNG tới được vòng lặp dưới nên không tính vào
       stats.fetched/max_jobs; số lượng nằm ở stats.skipped_known_url.
     - stats.field_empty: tỷ lệ trường rỗng của dữ liệu adapter trả về,
-      xem field_stats.py. Chỉ có khi đã ghi nhận ít nhất 1 record.
+      xem scrapjd/field_stats.py. Chỉ có khi đã ghi nhận ít nhất 1 record.
 
     Đợt 3 (10/2026):
     - Bị chặn (CrawlBlockedError: trang đầu thất bại, hoặc ngắt mạch giữa
@@ -830,7 +830,7 @@ def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
       lý do; xem _finalize_stats().
 
     Đợt B1 (10/2026): bên trong pipeline thống kê nằm trong PipelineStats
-    (pipeline_stats.py); run_pipeline() vẫn TRẢ VỀ dict (to_dict()), cùng tập
+    (scrapjd/pipeline_stats.py); run_pipeline() vẫn TRẢ VỀ dict (to_dict()), cùng tập
     khoá như trước — các chú thích stats.xxx ở trên là tên khoá của dict đó."""
     _resolvers_for(adapter)  # cấu hình chống trùng sai thì báo ngay, trước khi crawl
     stats = PipelineStats()

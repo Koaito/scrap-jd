@@ -3,11 +3,11 @@ Adapter RIÊNG cho CareerViet.vn.
 
 =======================================================================
 TRẠNG THÁI (cập nhật 10/2026): adapter ĐÃ được đăng ký trong
-sources_registry.py (main.py/API/crawl_runner dùng chung), README đã nhắc
+scrapjd/sources_registry.py (main.py/API/crawl_runner dùng chung), README đã nhắc
 tới CareerViet, và đã có test trong tests/ (test_adapter_careerviet.py,
-test_crawl_blocked.py). Việc sửa thẳng normalize.py để nhận ISO/số tháng
+test_crawl_blocked.py). Việc sửa thẳng scrapjd/normalize.py để nhận ISO/số tháng
 vẫn CHƯA làm — file này vẫn viết SAO CHO CHẠY ĐƯỢC ĐỘC LẬP với
-normalize.py hiện tại, KHÔNG cần sửa gì ở đó (xem phần "Tương thích
+scrapjd/normalize.py hiện tại, KHÔNG cần sửa gì ở đó (xem phần "Tương thích
 ngược" bên dưới).
 
 Lưu ý về fixture test: tests/fixture_careerviet_listing.html và
@@ -49,7 +49,7 @@ job_id=35C82AC4, fetch 08/2026):
    diện listing), rồi fetch NGAY trang chi tiết của từng job để lấy dữ
    liệu chất lượng cao (JSON-LD + section.job-detail-content) cho toàn
    bộ RawJobRecord. Đánh đổi: tốn 1 request/job ngay trong fetch_jobs()
-   thay vì để dành cho fetch_job_full_detail() sau — nhưng pipeline.py
+   thay vì để dành cho fetch_job_full_detail() sau — nhưng scrapjd/pipeline.py
    VỐN DĨ đã gọi fetch_job_full_detail() cho MỌI job mới, nên tổng số
    request KHÔNG đổi, chỉ đổi THỨ TỰ (fetch sớm hơn + cache lại, xem
    _detail_cache bên dưới, giống pattern VietnamWorksAdapter đã dùng).
@@ -86,18 +86,18 @@ job_id=35C82AC4, fetch 08/2026):
    - Category "ui-ux-design": tự kiểm tra thật bằng
      https://careerviet.vn/viec-lam/ui-ux-design-k-vi.html -> keyword
      KHÔNG tồn tại trên CareerViet (không phải ra job linh tinh, mà
-     không có kết quả). ĐÃ XOÁ khỏi CAREERVIET_CATEGORIES (config.py) —
+     không có kết quả). ĐÃ XOÁ khỏi CAREERVIET_CATEGORIES (scrapjd/config.py) —
      CareerViet chỉ còn 5/6 category so với TopCV/VietnamWorks.
    - "Lĩnh vực hoạt động"/"Mã số thuế" không hiện trên trang công ty
      CareerViet (đã xác nhận, không phải do thiếu mẫu) -> KHÔNG PHẢI
      thiếu sót của fetch_company_profile(). Có script backend riêng
-     (enrich_company_web_info.py, chạy sau pipeline, không thuộc file
+     (scrapjd/maintenance/enrich_company_web_info.py, chạy sau pipeline, không thuộc file
      này) lo việc tra cứu/vá thêm tax_id qua web search + Gemini, nên
      2 field "" ở đây là ĐÚNG Ý ĐỒ, không cần adapter tự đoán mò.
 
    ĐÃ XÁC NHẬN THÊM: "data-scientist" và "software-engineer" — tự kiểm
    tra thật, ra đúng job theo ngành. Vậy TOÀN BỘ 5/5 category còn lại
-   trong CAREERVIET_CATEGORIES (config.py) đã xác nhận đúng, không còn
+   trong CAREERVIET_CATEGORIES (scrapjd/config.py) đã xác nhận đúng, không còn
    category nào ở trạng thái suy đoán.
 
    CÒN LẠI, CHƯA XÁC NHẬN (để nguyên TODO):
@@ -106,7 +106,7 @@ job_id=35C82AC4, fetch 08/2026):
      an toàn (để rỗng "" nếu thiếu) nên không crash, nhưng độ đầy đủ
      dữ liệu thật cần audit thêm sau khi chạy crawl thật vài trăm job.
 
-Tương thích ngược (KHÔNG cần sửa normalize.py — Phần 3 để sau):
+Tương thích ngược (KHÔNG cần sửa scrapjd/normalize.py — Phần 3 để sau):
    - normalize_deadline() hiện chỉ parse "DD/MM/YYYY". CareerViet có 2
      nguồn hạn nộp: HTML "Hết hạn nộp" ĐÃ SẴN đúng định dạng này (dùng
      trực tiếp), JSON-LD "validThrough" là ISO datetime (khác định
@@ -122,9 +122,9 @@ Tương thích ngược (KHÔNG cần sửa normalize.py — Phần 3 để sau)
      "X năm" (_months_to_year_text()) khi HTML không có sẵn field
      "Kinh nghiệm" (trường hợp bình thường thì HTML đã có sẵn dạng text
      này rồi, không cần convert).
-   Nhờ 3 điểm trên, CareerViet chạy được ngay với normalize.py hiện tại,
+   Nhờ 3 điểm trên, CareerViet chạy được ngay với scrapjd/normalize.py hiện tại,
    không mất dữ liệu deadline/work_type/experience như lo ngại ban đầu.
-   Khi làm Phần 3 sau này (sửa thẳng normalize.py để nhận cả ISO/số
+   Khi làm Phần 3 sau này (sửa thẳng scrapjd/normalize.py để nhận cả ISO/số
    tháng), có thể bỏ bớt 3 lớp convert này trong adapter, không bắt
    buộc phải giữ mãi.
 
@@ -217,7 +217,7 @@ class CareerVietAdapter(BaseAdapter):
 
     def __init__(self, session: Optional["requests.Session"] = None):
         # Session curl_cffi + throttle/retry dùng chung giờ nằm ở
-        # BaseAdapter.__init__() (xem adapters/base.py) — impersonate=
+        # BaseAdapter.__init__() (xem scrapjd/adapters/base.py) — impersonate=
         # "chrome124" vẫn dùng lại y hệt TopCV như quyết định đã chốt
         # trước đây (chưa có bằng chứng CareerViet cần TLS fingerprint
         # giả lập, nhưng không mất gì khi bật). CareerViet dùng đúng
@@ -262,7 +262,7 @@ class CareerVietAdapter(BaseAdapter):
                     # Trang ĐẦU TIÊN thất bại sau khi hết retry -> rất có
                     # thể bị CareerViet chặn (403/429/lỗi kết nối liên
                     # tục), KHÔNG PHẢI "hết job". Raise thay vì chỉ
-                    # break để api/crawl_runner.py::execute() ghi
+                    # break để scrapjd/api/crawl_runner.py::execute() ghi
                     # status='error' thay vì 'done' với 0 job — đồng bộ
                     # với topcv.py/vietnamworks.py, xem docstring
                     # CrawlBlockedError. Trang sau (page >= 2) thất bại
@@ -386,7 +386,7 @@ class CareerVietAdapter(BaseAdapter):
         field tương ứng.
 
         "industry"/"tax_id" rỗng "" ở đây là ĐÚNG Ý ĐỒ, không phải bug:
-        script backend riêng enrich_company_web_info.py (không thuộc
+        script backend riêng scrapjd/maintenance/enrich_company_web_info.py (không thuộc
         file này, chạy sau pipeline) đã lo việc tra cứu/vá thêm tax_id
         qua web search + Gemini cho MỌI nguồn (TopCV/VNW/CareerViet như
         nhau), không cần adapter tự đoán mò trên trang JD.
@@ -455,7 +455,7 @@ class CareerVietAdapter(BaseAdapter):
         return result
 
     # _fetch_html()/_throttle() giờ dùng chung từ BaseAdapter (xem
-    # adapters/base.py) — bug "lỗi kết nối không status code trước đây
+    # scrapjd/adapters/base.py) — bug "lỗi kết nối không status code trước đây
     # bỏ cuộc ngay không thử lại" đã được sửa Ở ĐÚNG 1 CHỖ đó, áp dụng
     # tự động cho cả CareerViet lẫn TopCV/VietnamWorks, không cần vá lại
     # thủ công lần nữa như trước (xem docstring BaseAdapter.__init__()).
@@ -475,7 +475,7 @@ class CareerVietAdapter(BaseAdapter):
         giữ nguyên base_url cho page 1 (đã test thật, không cần đổi).
         CareerViet nhận keyword thường hay hoa cũng ra job giống nhau
         (đã thấy path viết hoa "Business-Analyst" trên UI thật nhưng
-        cat['keyword'] trong config.py để thường "business-analyst") —
+        cat['keyword'] trong scrapjd/config.py để thường "business-analyst") —
         web server không phân biệt hoa/thường ở path này, chưa gặp lỗi
         nào do casing, không cần .title()/.capitalize() gì thêm.
         CHƯA re-test lại job thực tế trang 2/3 có KHÁC trang 1 hay

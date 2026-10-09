@@ -11,12 +11,12 @@ from scrapjd.api.schemas import (
     CrawlAccepted, CrawlBatchAccepted, CrawlBatchRequest, CrawlBatchStatusOut,
     CrawlLogsOut, CrawlRequest, CrawlStatusOut, PaginatedCrawlBatches, PaginatedCrawlRuns,
 )
-# _CATEGORIES_BY_SOURCE giờ import từ sources_registry.py (nguồn sự
+# _CATEGORIES_BY_SOURCE giờ import từ scrapjd/sources_registry.py (nguồn sự
 # thật duy nhất) thay vì tự khai báo lặp lại — route bên dưới validate
 # category theo ĐÚNG dict của từng source (khác dict -> khác tập
 # category hợp lệ, tự nhiên đúng, kể cả CareerViet chỉ có 5/6 category
-# vì thiếu "ui-ux-design", xem comment trong config.py). Xem docstring
-# sources_registry.py để biết cách thêm nguồn crawl mới sau này.
+# vì thiếu "ui-ux-design", xem comment trong scrapjd/config.py). Xem docstring
+# scrapjd/sources_registry.py để biết cách thêm nguồn crawl mới sau này.
 from scrapjd.sources_registry import CATEGORIES_BY_SOURCE as _CATEGORIES_BY_SOURCE
 
 router = APIRouter(prefix="/crawl", tags=["crawl"])
@@ -42,7 +42,7 @@ def trigger_crawl(
     trước; bỏ trống cả 2 -> dùng DEFAULT_MAX_PAGES như trước giờ.
 
     BẮT BUỘC đăng nhập VÀ role='admin' (Depends(require_admin), nay là
-    alias của require_role("admin") — xem api/deps.py) — chặt hơn POST
+    alias của require_role("admin") — xem scrapjd/api/deps.py) — chặt hơn POST
     /jobs, POST /companies (chỉ cần role 'ss_team' trở lên), vì kích
     hoạt crawl tốn tài nguyên server thật (network + CPU parse trong vài
     phút) nên hạn chế ai cũng bấm được, tránh spam nhiều lượt crawl chạy
@@ -102,7 +102,7 @@ def trigger_crawl_batch(
     Chỉ tạo + kích hoạt CATEGORY ĐẦU TIÊN ngay trong request này (giống
     hệt POST /crawl đơn lẻ) — các category còn lại tự động được tạo +
     chạy nối tiếp bởi CHÍNH background task đó (xem
-    api/crawl_runner.py::execute()), KHÔNG cần request/background task
+    scrapjd/api/crawl_runner.py::execute()), KHÔNG cần request/background task
     nào khác cho các category sau.
 
     CÙNG mức quyền 'admin' như POST /crawl đơn lẻ (kích hoạt crawl tốn

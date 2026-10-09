@@ -1,7 +1,7 @@
 """
 db.job_duplicates — phần chạy SQL (CHỈ ĐỌC) của báo cáo job nghi trùng
-(`python main.py report-duplicates`, xem duplicate_report.py, Phần 3a). Logic phân
-loại/đề xuất là hàm THUẦN ở duplicate_report.py; ở đây chỉ lấy dữ liệu.
+(`python main.py report-duplicates`, xem scrapjd/cli/duplicate_report.py, Phần 3a). Logic phân
+loại/đề xuất là hàm THUẦN ở scrapjd/cli/duplicate_report.py; ở đây chỉ lấy dữ liệu.
 
 Khác v_duplicate_job_candidates (gom theo dedup_key = công ty + tiêu đề chuẩn hoá + tỉnh): ở
 đây gom rộng hơn, theo (company_id, tiêu đề chuẩn hoá), để thấy thêm các cặp khác tỉnh (nhiều

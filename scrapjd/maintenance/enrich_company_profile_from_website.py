@@ -6,33 +6,33 @@ Gemini phân loại ngành nghề.
 
 THÊM 08/2026: cùng lần gọi Gemini đó, vá LUÔN products_services (sản
 phẩm/dịch vụ chính) nếu model tự tin — "nhặt kèm" giống đúng tinh thần
-backfill_company_profiles.py. Điều kiện chọn company để chạy
+scrapjd/maintenance/backfill_company_profiles.py. Điều kiện chọn company để chạy
 (get_companies_needing_profile_from_website(), xem db.py) xét OR: company
 thiếu industy HOẶC thiếu products_services đều được chọn lại — không cần
 phân biệt "chạy thường" và "chạy backfill" nữa, cứ thiếu field nào thì
 company đó được vá lại field đó ở lần chạy kế tiếp.
 
 TẠI SAO CẦN SCRIPT NÀY (khác 2 script chị em industry-liên-quan đã có):
-  - backfill_company_profiles.py đọc lại source_profile_url (TopCV/
+  - scrapjd/maintenance/backfill_company_profiles.py đọc lại source_profile_url (TopCV/
     VietnamWorks/CareerViet) — nhưng CareerVietAdapter CỐ Ý không lấy
     industry (trang công ty CareerViet không hiển thị field này, xem
-    adapters/careerviet.py) -> company nguồn CareerViet KHÔNG BAO GIỜ
-    được vá industry qua backfill_company_profiles.py, dù company_size/
+    scrapjd/adapters/careerviet.py) -> company nguồn CareerViet KHÔNG BAO GIỜ
+    được vá industry qua scrapjd/maintenance/backfill_company_profiles.py, dù company_size/
     address/website vẫn vá bình thường.
-  - enrich_company_web_info.py (Tavily+Gemini) chỉ vá website/tax_id,
+  - scrapjd/maintenance/enrich_company_web_info.py (Tavily+Gemini) chỉ vá website/tax_id,
     KHÔNG đụng tới industry.
   -> industry của công ty nguồn CareerViet là khoảng trống thật sự,
      không script nào trong 2 script trên lấp được.
 
 CÁCH RẺ HƠN Tavily: KHÔNG search web — công ty đã có sẵn companies.website
-(tự điền, hoặc vừa được backfill_company_profiles.py vá) rồi, chỉ cần đọc
+(tự điền, hoặc vừa được scrapjd/maintenance/backfill_company_profiles.py vá) rồi, chỉ cần đọc
 THẲNG trang đó là đủ để suy ra ngành nghề (About/Giới thiệu thường tự mô
 tả rõ công ty làm gì) — không tốn Tavily credit, chỉ tốn 1 lần gọi Gemini/
-công ty (đọc text, không grounding), rẻ hơn hẳn enrich_company_web_info.py.
+công ty (đọc text, không grounding), rẻ hơn hẳn scrapjd/maintenance/enrich_company_web_info.py.
 
 INDUSTRY LÀ FREE TEXT, KHÔNG CÓ ENUM CỐ ĐỊNH: companies.industry hiện tại
 lấy trực tiếp từ label "Lĩnh vực" của TopCV/VietnamWorks (xem
-adapters/topcv.py, adapters/vietnamworks.py) — không có danh sách ngành cố
+scrapjd/adapters/topcv.py, scrapjd/adapters/vietnamworks.py) — không có danh sách ngành cố
 định nào trong hệ thống để đối chiếu. Prompt Gemini vì vậy chỉ yêu cầu trả
 NHÃN NGẮN GỌN tiếng Việt kiểu cùng phong cách với dữ liệu đã crawl được
 (vd "Phần Mềm CNTT/Dịch vụ Phần mềm", "Bảo hiểm", "Bán lẻ", "Ngân hàng"),
@@ -46,7 +46,7 @@ rõ ràng để kiểm — rủi ro sai cao hơn 1 chút so với 2 field kia, c
 
 FETCH HTML: dùng LẠI đúng pattern (curl_cffi impersonate + throttle +
 retry 429/403, thử thêm URL con nếu trang chủ không đủ nội dung) như
-get_company_fb_linkedin_link.py — nhưng KHÔNG import chéo từ file đó
+scrapjd/maintenance/get_company_fb_linkedin_link.py — nhưng KHÔNG import chéo từ file đó
 (mỗi script tự chứa, đúng cấu trúc hiện tại), viết lại phần tối thiểu
 cần cho MỤC ĐÍCH KHÁC (lấy text mô tả, không phải tìm link social).
 
@@ -78,13 +78,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-REQUEST_TIMEOUT_SECONDS = 10  # ngắn, giống get_company_fb_linkedin_link.py — hàng trăm
+REQUEST_TIMEOUT_SECONDS = 10  # ngắn, giống scrapjd/maintenance/get_company_fb_linkedin_link.py — hàng trăm
                                # domain lạ, không đáng chờ lâu cho 1 field không bắt buộc.
 REQUEST_DELAY_SECONDS = 2.0
 
 # Trang chủ đôi khi chỉ có banner/menu, không đủ mô tả ngành nghề — thử
 # thêm URL con TRƯỚC KHI kết luận không đủ dữ liệu, cùng danh sách/giới
-# hạn số lần thử như get_company_fb_linkedin_link.py để nhất quán.
+# hạn số lần thử như scrapjd/maintenance/get_company_fb_linkedin_link.py để nhất quán.
 _FALLBACK_SUBPATHS = ("/gioi-thieu", "/about", "/about-us", "/ve-chung-toi")
 _MAX_SUBPAGE_TRIES = 2
 
@@ -159,7 +159,7 @@ def _extract_visible_text(html: str) -> str:
 
 class _PageFetcher:
     """Fetch HTML từ website công ty — cùng pattern throttle/retry như
-    get_company_fb_linkedin_link.py.SocialLinkFetcher, viết lại riêng ở
+    scrapjd/maintenance/get_company_fb_linkedin_link.py.SocialLinkFetcher, viết lại riêng ở
     đây để giữ script này tự chứa (xem docstring đầu file)."""
 
     def __init__(self):
@@ -192,7 +192,7 @@ class _PageFetcher:
 
 def _get_page_text(fetcher: _PageFetcher, website: str) -> str:
     """Lấy text trang chủ; nếu quá ngắn (<200 ký tự, cùng ngưỡng heuristic
-    SPA-rỗng như get_company_fb_linkedin_link.py) thử thêm tối đa
+    SPA-rỗng như scrapjd/maintenance/get_company_fb_linkedin_link.py) thử thêm tối đa
     _MAX_SUBPAGE_TRIES URL con trước khi bỏ cuộc."""
     html = fetcher.fetch(website)
     if html and not _is_challenge_page(html):
@@ -231,7 +231,7 @@ _GEMINI_MAX_RETRIES = 2
 
 def _call_gemini_with_retry(gemini_client, prompt: str, company_name: str):
     """Giống hệt pattern _call_gemini_with_retry() trong
-    enrich_company_web_info.py — tự thử lại khi Gemini trả 429 thoáng qua."""
+    scrapjd/maintenance/enrich_company_web_info.py — tự thử lại khi Gemini trả 429 thoáng qua."""
     for attempt in range(_GEMINI_MAX_RETRIES + 1):
         try:
             return gemini_client.models.generate_content(

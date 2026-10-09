@@ -1,19 +1,19 @@
 """
-Những gì pipeline.py cần từ tầng DB — một interface mỏng (B2, kế hoạch backend).
+Những gì scrapjd/pipeline.py cần từ tầng DB — một interface mỏng (B2, kế hoạch backend).
 
-pipeline.py gọi `db.xxx(...)` trên module `db`. Trước B2 không có chỗ nào ghi lại "pipeline cần
+scrapjd/pipeline.py gọi `db.xxx(...)` trên module `db`. Trước B2 không có chỗ nào ghi lại "pipeline cần
 đúng những hàm nào"; mỗi file test tự dựng một MagicMock rỗng nên: (1) test gọi sai tên/sai
 tham số vẫn xanh, (2) thêm một lời gọi db mới vào pipeline không buộc ai cập nhật gì ngoài
 một test phân loại đọc/ghi, (3) mỗi file test lặp lại cùng đống giá trị mặc định.
 
 Giờ có ba thứ khớp nhau và được test khoá lại (tests/test_pipeline_db_contract.py):
-  - PipelineDB: Protocol liệt kê đúng các hàm db mà pipeline.py gọi, kèm chữ ký.
+  - PipelineDB: Protocol liệt kê đúng các hàm db mà scrapjd/pipeline.py gọi, kèm chữ ký.
   - PIPELINE_DB_READS / PIPELINE_DB_WRITES: phân loại đọc/ghi của từng hàm (nguồn duy nhất,
     tests/test_pipeline_transactions.py dùng lại).
   - tests/pipeline_fakes.py: Fake dựng từ PipelineDB, dùng chung qua fixture `pipeline_db` ở
     tests/conftest.py. Fake chỉ có đúng các hàm này, gọi sai tham số là TypeError.
 
-Thêm lời gọi db mới vào pipeline.py thì phải: thêm hàm vào PipelineDB (chữ ký khớp hàm thật),
+Thêm lời gọi db mới vào scrapjd/pipeline.py thì phải: thêm hàm vào PipelineDB (chữ ký khớp hàm thật),
 xếp nó vào READS hoặc WRITES, và cho Fake một giá trị mặc định ở pipeline_fakes.py. Test hợp đồng
 báo đỏ cho từng bước nếu quên.
 

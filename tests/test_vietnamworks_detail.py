@@ -1,7 +1,7 @@
 """
 Test trang chi tiết VietnamWorks (đợt B/VNW, 10/2026) — KHÔNG cần database,
 KHÔNG cần internet:
-  - adapters/vietnamworks_detail.parse_detail_page() (giải mã luồng Next.js),
+  - scrapjd/adapters/vietnamworks_detail.parse_detail_page() (giải mã luồng Next.js),
   - luồng tải chi tiết của VietnamWorksAdapter.fetch_jobs() (level, JD đầy đủ,
     lỗi tải, không giải mã được, job đã biết).
 

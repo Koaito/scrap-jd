@@ -39,7 +39,7 @@ def create_user(conn, *, full_name: str, email: str, password_hash: str,
     định role='user' ở tầng route, không cho tự chọn.
 
     role: 1 trong 3 giá trị 'user' < 'ss_team' < 'admin' (xem
-    api.deps.ROLE_HIERARCHY, sql/migration_add_role_hierarchy.sql) —
+    scrapjd.api.deps.ROLE_HIERARCHY, sql/migration_add_role_hierarchy.sql) —
     mặc định 'user' (thấp nhất, chỉ xem), KHÔNG tự cấp quyền CRUD như
     hành vi cũ (trước đây mặc định 'member' = toàn quyền CRUD)."""
     with conn.cursor() as cur:
@@ -146,7 +146,7 @@ def get_refresh_token_by_hash(conn, token_hash: str, for_update: bool = False):
 
     BUG FIX (migrate Next.js, Phần 1 mục 3.11 của plan): `for_update`
     (mặc định False, GIỮ NGUYÊN hành vi cũ cho mọi lời gọi khác) — chỉ
-    refresh() (api/routers/auth_session.py) truyền for_update=True.
+    refresh() (scrapjd/api/routers/auth_session.py) truyền for_update=True.
     Trước đây route này SELECT thường (không khoá dòng) rồi mới
     revoke — nếu 2 request POST /auth/refresh cùng gửi lên đúng 1
     refresh token cũ chạy gần như đồng thời (2 tab/2 request auth song
@@ -178,7 +178,7 @@ def get_refresh_token_by_id(conn, refresh_token_id: str):
     id (đọc từ cột replaced_by_token_id của 1 dòng khác), cần kiểm tra
     trạng thái hiện tại của token ĐÓ.
 
-    Dùng bởi refresh() (api/routers/auth_session.py) cho grace period
+    Dùng bởi refresh() (scrapjd/api/routers/auth_session.py) cho grace period
     tái sử dụng refresh token vừa xoay vòng (xem
     security.REFRESH_REUSE_GRACE_SECONDS): khi token A gửi lên đã bị
     revoke, cần biết token THAY THẾ nó (B) còn sống hay không để phân
@@ -272,7 +272,7 @@ def update_user_profile(conn, ss_user_id: str, *, full_name: str,
     thêm 08/2026) — KHÁC update_user_role/update_user_active_status ở
     trên (2 hàm đó admin-only, đổi role/khoá tài khoản NGƯỜI KHÁC). Hàm
     này chỉ đổi 3 field hồ sơ cá nhân, KHÔNG đụng role/is_active/email/
-    password — route (api/routers/auth_session.py) đã tự giới hạn field
+    password — route (scrapjd/api/routers/auth_session.py) đã tự giới hạn field
     nào truyền vào được qua schema UserProfileUpdate, hàm ở đây chỉ
     thực thi UPDATE thuần.
 
@@ -292,7 +292,7 @@ def update_user_profile(conn, ss_user_id: str, *, full_name: str,
 def update_user_role(conn, ss_user_id: str, new_role: str) -> bool:
     """Đổi role của 1 user — CHỈ gọi từ route admin-only (PATCH
     /auth/users/{id}/role). Route tự chặn admin đổi role CHÍNH MÌNH
-    TRƯỚC KHI gọi hàm này (xem api/routers/auth.py) — hàm ở đây không tự
+    TRƯỚC KHI gọi hàm này (xem scrapjd/api/routers/auth.py) — hàm ở đây không tự
     biết "ai đang gọi", chỉ thực thi UPDATE thuần, tránh trộn logic
     nghiệp vụ vào tầng DB. Trả False nếu ss_user_id không tồn tại."""
     with conn.cursor() as cur:
@@ -310,7 +310,7 @@ def update_user_active_status(conn, ss_user_id: str, is_active: bool) -> bool:
     update_user_role() ở trên. Trả False nếu ss_user_id không tồn tại.
 
     Hiệu lực NGAY ở request kế tiếp của người bị khoá (không còn độ trễ
-    tối đa 30 phút như trước): get_current_user() (api/deps.py) query
+    tối đa 30 phút như trước): get_current_user() (scrapjd/api/deps.py) query
     app_users MỖI request và trả 403 AUTH_ACCOUNT_INACTIVE nếu
     is_active=false, nên access token còn hạn cũng bị chặn ngay (sửa
     theo Phần 1 mục 3.10 của plan migrate Next.js). login()/refresh()

@@ -1,9 +1,9 @@
 """
-Đợt B1: PipelineStats (pipeline_stats.py) thay dict `stats` trong pipeline.py.
+Đợt B1: PipelineStats (scrapjd/pipeline_stats.py) thay dict `stats` trong scrapjd/pipeline.py.
 
 Mục tiêu chính là CHỨNG MINH KHÔNG ĐỔI HÀNH VI: dict run_pipeline() trả về và
 exc.stats vẫn đúng tập khoá/giá trị như bản dùng dict (giá trị mong đợi bên
-dưới lấy bằng cách chạy bản pipeline.py cũ trên cùng kịch bản). Không cần DB,
+dưới lấy bằng cách chạy bản scrapjd/pipeline.py cũ trên cùng kịch bản). Không cần DB,
 không cần internet.
 """
 

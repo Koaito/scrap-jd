@@ -1,5 +1,5 @@
 """
-Tests cho api/routers/email_templates.py — router CRUD mẫu email liên
+Tests cho scrapjd/api/routers/email_templates.py — router CRUD mẫu email liên
 hệ doanh nghiệp (thêm 08/2026, xem sql/migration_add_email_templates.sql
 + lịch sử trao đổi "chia phần danh sách contact thành 2 phần").
 
@@ -307,7 +307,7 @@ def test_delete_email_template_invalid_uuid(mock_conn, ss_team_user):
 
 
 # ------------------------------------------------------------------
-# db/audit_logs.py — ACTION_LOG_RULES cho 3 action mới
+# scrapjd/db/audit_logs.py — ACTION_LOG_RULES cho 3 action mới
 # ------------------------------------------------------------------
 
 

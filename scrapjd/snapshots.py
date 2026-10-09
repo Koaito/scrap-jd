@@ -10,9 +10,9 @@ bằng fixture thật (xem tests/fixture_*.html ghi rõ là dữ liệu dựng t
 Cách hoạt động:
   - Adapter gọi BaseAdapter._snapshot(kind, url, body, reason) tại các điểm
     đáng giữ. Nếu không có recorder (CLI main.py, test) thì lệnh đó là no-op.
-  - api/crawl_runner.py::_execute_one() gắn 1 SnapshotRecorder vào adapter
+  - scrapjd/api/crawl_runner.py::_execute_one() gắn 1 SnapshotRecorder vào adapter
     trước khi chạy, và SAU KHI chạy xong (thành công hay lỗi) lưu các mục
-    đã giữ xuống bảng crawl_snapshots (db/crawl_snapshots.py).
+    đã giữ xuống bảng crawl_snapshots (scrapjd/db/crawl_snapshots.py).
   - Recorder chỉ giữ trong RAM nên không thêm round-trip DB nào trong lúc
     crawl; đổi lại nếu process bị kill cứng thì snapshot của lượt đó mất.
 

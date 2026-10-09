@@ -1,5 +1,5 @@
 """
-Fake dùng chung cho test pipeline (B2): thay module `db` mà pipeline.py gọi.
+Fake dùng chung cho test pipeline (B2): thay module `db` mà scrapjd/pipeline.py gọi.
 
 Dựng từ pipeline_db.PipelineDB bằng create_autospec(spec_set=True), nên:
   - chỉ có đúng các hàm pipeline cần (truy cập/gán tên khác là AttributeError);

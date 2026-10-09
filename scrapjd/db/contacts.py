@@ -159,7 +159,7 @@ def assign_company_contact(conn, contact_id: str, *, assigned_ss_user: Optional[
                             updated_by: str) -> bool:
     """Gán (hoặc BỎ gán, khi assigned_ss_user=None) người phụ trách 1
     contact — tách route riêng khỏi update_company_contact() (xem
-    api/routers/contacts.py::assign_contact) vì pattern "chỉ field !=
+    scrapjd/api/routers/contacts.py::assign_contact) vì pattern "chỉ field !=
     None mới ghi đè" của update_company_contact() không phân biệt được
     "không gửi field" với "cố ý set về NULL để bỏ gán" — ở đây
     assigned_ss_user LUÔN được ghi (kể cả None), không có nhánh bỏ qua.

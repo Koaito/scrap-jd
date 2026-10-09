@@ -1,8 +1,8 @@
 """
-Kiểm tra ranh giới lớp: api/routers/ chỉ điều phối HTTP, KHÔNG chứa SQL thô.
-SQL phải nằm ở db/ (nơi có test riêng và gom được theo domain).
+Kiểm tra ranh giới lớp: scrapjd/api/routers/ chỉ điều phối HTTP, KHÔNG chứa SQL thô.
+SQL phải nằm ở scrapjd/db/ (nơi có test riêng và gom được theo domain).
 
-Test này đọc mã nguồn, không cần DB. Nếu cần ngoại lệ, đưa SQL xuống db/
+Test này đọc mã nguồn, không cần DB. Nếu cần ngoại lệ, đưa SQL xuống scrapjd/db/
 thay vì nới danh sách này.
 """
 

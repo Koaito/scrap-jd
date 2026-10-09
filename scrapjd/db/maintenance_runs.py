@@ -1,13 +1,13 @@
 """
 db.maintenance_runs — lưu bền trạng thái + lịch sử từng lượt chạy 1
-trong 5 job bảo trì dữ liệu (backfill_company_profiles.py,
-enrich_company_profile_from_website.py, enrich_company_web_info.py,
-get_company_fb_linkedin_link.py, check_expired_source_jobs.py) vào bảng
+trong 5 job bảo trì dữ liệu (scrapjd/maintenance/backfill_company_profiles.py,
+scrapjd/maintenance/enrich_company_profile_from_website.py, scrapjd/maintenance/enrich_company_web_info.py,
+scrapjd/maintenance/get_company_fb_linkedin_link.py, scrapjd/maintenance/check_expired_source_jobs.py) vào bảng
 maintenance_runs (08/2026, xem sql/migration_add_maintenance_runs.sql).
 
-ĐỐI XỨNG db/crawl_runs.py — cùng pattern tự commit() ngay trong từng
+ĐỐI XỨNG scrapjd/db/crawl_runs.py — cùng pattern tự commit() ngay trong từng
 hàm (không có 1 request/response bao quanh để router commit hộ, vì
-api/maintenance_runner.py::execute() chạy NỀN qua BackgroundTasks).
+scrapjd/api/maintenance_runner.py::execute() chạy NỀN qua BackgroundTasks).
 KHÁC crawl_runs.py ở chỗ khoá theo job_type (không phải source) và dùng
 params/stats JSONB thay cho cột riêng — xem docstring migration để biết
 lý do.
@@ -26,11 +26,11 @@ logger = logging.getLogger(__name__)
 class ActiveMaintenanceRunExistsError(Exception):
     """job_type này đang có 1 lượt 'queued'/'running' chưa xong — raise
     ở create_run() TRƯỚC KHI insert, để router trả 409 rõ ràng, đối
-    xứng ActiveCrawlExistsError ở db/crawl_runs.py.
+    xứng ActiveCrawlExistsError ở scrapjd/db/crawl_runs.py.
 
     LỚP CHẶN CHÍNH; UNIQUE INDEX ở DB là LỚP CHẶN THỨ 2 (phòng race
     condition 2 request cùng job_type gần như đồng thời) — router cần
-    bắt CẢ 2 loại lỗi (xem api/routers/maintenance.py)."""
+    bắt CẢ 2 loại lỗi (xem scrapjd/api/routers/maintenance.py)."""
 
 
 def create_run(conn, *, job_type: str, params: dict,
@@ -71,7 +71,7 @@ def create_run(conn, *, job_type: str, params: dict,
 
 def append_log(conn, run_id: str, level: str, message: str) -> None:
     """Thêm 1 dòng log live cho run_id — gọi từ logging.Handler gắn tạm
-    thời trong execute() (xem api/run_log.py::capture_run_logs),
+    thời trong execute() (xem scrapjd/api/run_log.py::capture_run_logs),
     đối xứng db.crawl_runs.append_log()."""
     with conn.cursor() as cur:
         cur.execute(
@@ -291,7 +291,7 @@ def has_active_run(conn, job_type: str) -> bool:
 
 def reconcile_orphaned_runs(conn) -> int:
     """Đánh dấu 'error' MỌI dòng đang 'queued'/'running' — gọi ĐÚNG 1
-    LẦN lúc app khởi động (api/app.py::lifespan, TRƯỚC khi nhận request
+    LẦN lúc app khởi động (scrapjd/api/app.py::lifespan, TRƯỚC khi nhận request
     nào), đối xứng db.crawl_runs.reconcile_orphaned_runs() — cùng lý do
     an toàn (1 process, BackgroundTasks không sống sót qua restart)."""
     with conn.cursor() as cur:
@@ -313,7 +313,7 @@ def reconcile_orphaned_runs(conn) -> int:
 def reconcile_stale_runs(conn, timeout_minutes: int) -> int:
     """Đánh dấu 'error' các dòng 'queued'/'running' đã quá
     `timeout_minutes` kể từ started_at mà chưa đổi trạng thái — gọi
-    ĐỊNH KỲ qua APScheduler (api/services/maintenance_watchdog.py), đối
+    ĐỊNH KỲ qua APScheduler (scrapjd/api/services/maintenance_watchdog.py), đối
     xứng db.crawl_runs.reconcile_stale_runs()."""
     with conn.cursor() as cur:
         cur.execute(

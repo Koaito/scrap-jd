@@ -1,9 +1,9 @@
 """
 Router đăng ký công khai + xác thực email + quên mật khẩu — xem
-docstring api/security.py và sql/migration_add_auth.sql để hiểu toàn
+docstring scrapjd/api/security.py và sql/migration_add_auth.sql để hiểu toàn
 bộ thiết kế trước khi đọc file này.
 
-Tách ra từ api/routers/auth.py (08/2026) — xem docstring auth.py
+Tách ra từ scrapjd/api/routers/auth.py (08/2026) — xem docstring auth.py
 (facade) và auth_session.py để biết lý do tách 738 dòng/14 endpoint
 thành 3 file theo domain. File này chứa TOÀN BỘ route công khai (ai
 cũng gọi được, không cần biết API_KEY nội bộ của team):
@@ -64,11 +64,11 @@ def _generate_verify_token() -> str:
 
 @public_router.post("/register", response_model=RegisterOut, status_code=201)
 # 5 lần/giờ/IP — đủ cho người dùng thật đăng ký lại nếu gõ sai vài lần,
-# chặn được script tạo tài khoản rác hàng loạt (xem api/rate_limit.py).
+# chặn được script tạo tài khoản rác hàng loạt (xem scrapjd/api/rate_limit.py).
 @limiter.limit("5/hour")
 def register(payload: RegisterRequest, request: Request, conn=Depends(get_db)):
     """Tự đăng ký — luôn tạo role='user' (thấp nhất, xem
-    api.deps.ROLE_HIERARCHY), KHÔNG cho tự chọn role qua request (khác
+    scrapjd.api.deps.ROLE_HIERARCHY), KHÔNG cho tự chọn role qua request (khác
     POST /auth/users admin-only có thể chọn role). Muốn lên 'ss_team'
     phải nhờ admin nâng cấp qua PATCH /auth/users/{id}/role SAU KHI đã
     đăng ký + xác thực email (đúng luồng đã thống nhất — xem lịch sử
@@ -79,7 +79,7 @@ def register(payload: RegisterRequest, request: Request, conn=Depends(get_db)):
     Nếu gửi email lỗi (Resend down/rate-limit...), tài khoản VẪN đã tạo
     thành công — người dùng tự gọi POST /auth/resend-verification sau,
     KHÔNG mất dữ liệu đã nhập, không cần đăng ký lại (xem
-    api/email_service.py để hiểu lý do không raise khi gửi lỗi)."""
+    scrapjd/api/email_service.py để hiểu lý do không raise khi gửi lỗi)."""
     existing = db_module.get_user_by_email(conn, payload.email)
     if existing is not None:
         raise HTTPException(status_code=409, detail={"error_code": error_codes.AUTH_EMAIL_ALREADY_REGISTERED, "message": "Email này đã có tài khoản."})
@@ -124,10 +124,10 @@ def register(payload: RegisterRequest, request: Request, conn=Depends(get_db)):
 @limiter.limit("30/hour")
 def verify_email(token: str, request: Request, conn=Depends(get_db)):
     """Endpoint người dùng BẤM TỪ EMAIL (không phải gọi qua code/frontend
-    — xem api/email_service.py dựng link này). Route này KHÔNG tự vẽ
+    — xem scrapjd/api/email_service.py dựng link này). Route này KHÔNG tự vẽ
     giao diện — chỉ xử lý token rồi redirect(302) NGAY về trang
     /verify-email của FRONTEND (mindx-jobs, xem FRONTEND_BASE_URL trong
-    api/email_service.py — dùng chung biến với link reset mật khẩu) kèm
+    scrapjd/api/email_service.py — dùng chung biến với link reset mật khẩu) kèm
     ?status=success|expired|invalid, để frontend tự hiển thị đúng theme
     của site (trước đây trả HTML tĩnh viết tay ở chính route này — bỏ
     từ lúc frontend đã có trang riêng, xem lịch sử trao đổi 08/2026).
@@ -241,7 +241,7 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request, conn=Depen
 @public_router.post("/reset-password", response_model=MessageOut)
 # 10 lần/giờ/IP — cao hơn 2 route trên vì không gửi email, chỉ là lớp
 # phòng thủ thêm chống dò token (token 32 byte urlsafe gần như không
-# thể đoán được trong phạm vi 10 lần, xem docstring api/rate_limit.py).
+# thể đoán được trong phạm vi 10 lần, xem docstring scrapjd/api/rate_limit.py).
 @limiter.limit("10/hour")
 def reset_password(payload: ResetPasswordRequest, request: Request, conn=Depends(get_db)):
     """Đặt mật khẩu mới bằng token nhận từ email — token dùng ĐÚNG 1 LẦN

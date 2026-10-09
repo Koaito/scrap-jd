@@ -2,7 +2,7 @@
 Ngắt mạch khi bị chặn GIỮA CHỪNG (đợt 3, 10/2026) — KHÔNG cần database, KHÔNG
 cần internet.
 
-Hợp đồng (adapters/base.py::BaseAdapter._note_fetch_failure):
+Hợp đồng (scrapjd/adapters/base.py::BaseAdapter._note_fetch_failure):
   - Mỗi lần fetch THẤT BẠI sau khi hết retry (403/429/lỗi kết nối) tăng bộ đếm;
     1 request thành công đặt lại về 0.
   - Đủ CRAWL_BLOCK_CONSECUTIVE_FAILURES lần LIÊN TIẾP -> raise CrawlBlockedError.

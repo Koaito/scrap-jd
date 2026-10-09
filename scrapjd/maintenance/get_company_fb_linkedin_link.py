@@ -80,7 +80,7 @@ CHƯA VÁ (để dành cho quyết định sau, xem README/chat log):
     -> vẫn nằm trong stats["likely_js_rendered"], chỉ headless browser
     (Playwright) mới giải quyết được, CHƯA triển khai trong đợt này.
 
-Tách thành script riêng, KHÔNG gộp vào pipeline.py, vì đây là nguồn dữ
+Tách thành script riêng, KHÔNG gộp vào scrapjd/pipeline.py, vì đây là nguồn dữ
 liệu khác hẳn TopCV (mỗi website công ty một kiểu HTML, tỷ lệ lỗi/timeout
 cao hơn nhiều so với crawl TopCV) — không nên làm chậm/rủi ro luồng crawl
 job chính. Chạy độc lập, khi nào cần vá thì chạy lại.
@@ -452,7 +452,7 @@ def _try_fallback_subpages(fetcher: SocialLinkFetcher, website: str):
 
 def _handle_website_is_social_domain(website: str) -> tuple:
     """Tầng 1, case #5: companies.website đã CHÍNH LÀ URL Facebook/
-    LinkedIn (lỡ lọt qua bước enrich trước đó, vd enrich_company_web_info.py
+    LinkedIn (lỡ lọt qua bước enrich trước đó, vd scrapjd/maintenance/enrich_company_web_info.py
     trích xuất nhầm 1 fanpage thành "website chính thức"). KHÔNG crawl
     domain này như 1 website công ty thông thường — gần như chắc chắn bị
     chặn (Facebook/LinkedIn chặn scraper mạnh) hoặc parse sai be bét nếu

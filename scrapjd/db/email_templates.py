@@ -1,11 +1,11 @@
 """
 db.email_templates — CRUD mẫu email liên hệ doanh nghiệp (thêm 08/2026,
 xem sql/migration_add_email_templates.sql). Cùng pattern tách theo
-domain như db/companies.py, db/contacts.py.
+domain như scrapjd/db/companies.py, scrapjd/db/contacts.py.
 
 XOÁ HẲN (hard delete) — khác company_contacts/companies, bảng này KHÔNG
 có is_active. Lịch sử ai xoá mẫu nào vẫn giữ được qua audit_logs (router
-gọi log_action() TRƯỚC khi xoá — xem api/routers/email_templates.py).
+gọi log_action() TRƯỚC khi xoá — xem scrapjd/api/routers/email_templates.py).
 """
 
 import logging

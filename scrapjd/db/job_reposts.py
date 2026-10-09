@@ -1,7 +1,7 @@
 """
 db.job_reposts — phần chạy SQL (CHỈ ĐỌC) của báo cáo đo tỷ lệ gộp nhầm
-(`python main.py report-reposts`, xem repost_report.py, A5). Logic so độ giống / phân loại là hàm
-THUẦN ở repost_report.py; ở đây chỉ lấy dữ liệu.
+(`python main.py report-reposts`, xem scrapjd/cli/repost_report.py, A5). Logic so độ giống / phân loại là hàm
+THUẦN ở scrapjd/cli/repost_report.py; ở đây chỉ lấy dữ liệu.
 
 Hai nguồn dữ liệu:
   - job_sources_log: mọi URL từng thấy của một job. Job có >= 2 dòng log là job đã nhận thêm tin

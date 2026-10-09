@@ -8,7 +8,7 @@ trả job CŨ và bỏ mọi dữ liệu vừa gửi. Trước đây client khô
 phân biệt "vừa tạo" với "trả lại job cũ" nên UI báo "đã tạo" sai sự thật.
 
 Cùng convention với tests/test_api_jobs_clear_fields.py: gọi thẳng hàm
-route, mock `api.routers.jobs.db_module`, không qua HTTP/DB thật.
+route, mock `scrapjd.api.routers.jobs.db_module`, không qua HTTP/DB thật.
 """
 import uuid
 from unittest.mock import patch

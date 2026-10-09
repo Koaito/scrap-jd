@@ -246,9 +246,9 @@ from scrapjd.db.crawl_batches import (
 # 08/2026 (xem sql/migration_add_maintenance_runs.sql) — "Bảo trì dữ
 # liệu" từ web dưới quyền admin, đối xứng db.crawl_runs ở trên nhưng
 # generic hoá theo job_type thay vì source, cho 5 script:
-# backfill_company_profiles.py, enrich_company_profile_from_website.py,
-# enrich_company_web_info.py, get_company_fb_linkedin_link.py,
-# check_expired_source_jobs.py — xem api/maintenance_runner.py.
+# scrapjd/maintenance/backfill_company_profiles.py, scrapjd/maintenance/enrich_company_profile_from_website.py,
+# scrapjd/maintenance/enrich_company_web_info.py, scrapjd/maintenance/get_company_fb_linkedin_link.py,
+# scrapjd/maintenance/check_expired_source_jobs.py — xem scrapjd/api/maintenance_runner.py.
 from scrapjd.db.maintenance_runs import (
     ActiveMaintenanceRunExistsError,
     create_run as create_maintenance_run,

@@ -39,7 +39,7 @@ ACTION_LOG_RULES: dict[str, dict] = {
     # sql/0038_add_reopen_job_audit_action.sql). Log tự động, actor_id NULL. Nhân viên mở lại bằng
     # PATCH vẫn ghi UPDATE_JOB như trước.
     "REOPEN_JOB": {"is_manual_log": False, "note_required": False},
-    # BUG FIX (08/2026): import_confirm() (api/routers/import_export.py)
+    # BUG FIX (08/2026): import_confirm() (scrapjd/api/routers/import_export.py)
     # gọi log_action(action_type="BULK_IMPORT_JOB"/"BULK_IMPORT_COMPANY"/
     # "BULK_IMPORT_CONTACT") nhưng 3 action_type này CHƯA TỪNG được đăng
     # ký ở đây -> log_action() luôn raise KeyError ngay khi tra
@@ -158,7 +158,7 @@ def log_action(conn, *, actor_id: Optional[str], action_type: str,
     Raise NoteRequiredError nếu action_type thuộc nhóm bắt buộc mà note
     rỗng/None — ĐÂY LÀ LỚP CHẶN THỨ 2 (constraint CHECK ở DB là lớp
     thứ 3), lớp CHÍNH phải nằm ở router (trả 422 TRƯỚC KHI gọi
-    UPDATE/DELETE thật trên bảng nghiệp vụ — xem api/routers/*.py) để
+    UPDATE/DELETE thật trên bảng nghiệp vụ — xem scrapjd/api/routers/*.py) để
     không lỡ chạy nửa chừng thao tác chính rồi mới phát hiện thiếu note.
 
     Trả log_id (str) của dòng vừa tạo."""

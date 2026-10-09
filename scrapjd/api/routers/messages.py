@@ -49,10 +49,10 @@ def _require_valid_uuid(value: str, label: str) -> None:
     Mọi cột id đi vào query của router này (ss_user_id, chat_relationships.id,
     messages.sender_id/receiver_id) đều là kiểu UUID trong Postgres — truyền
     chuỗi sai dạng (vd "abc") thẳng vào query làm psycopg2 raise
-    InvalidTextRepresentation, api/app.py không có handler bắt lỗi này nên
+    InvalidTextRepresentation, scrapjd/api/app.py không có handler bắt lỗi này nên
     thành 500 mù mờ. Check ở đầu route để trả 400 rõ ràng, cùng error_code
     với route GET /conversations/{partner_id} (xem is_valid_uuid ở
-    db/connection.py)."""
+    scrapjd/db/connection.py)."""
     if not db_module.is_valid_uuid(value):
         raise HTTPException(
             status_code=400,

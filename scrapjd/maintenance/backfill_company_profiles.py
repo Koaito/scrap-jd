@@ -5,13 +5,13 @@ companies.source_profile_url (xem sql/migration_add_source_profile_url.sql)
 nhưng vẫn còn thiếu ít nhất 1 trong 4 field, bằng cách gọi LẠI
 fetch_company_profile() trên đúng URL đã lưu.
 
-KHÁC enrich_company_web_info.py (script chị em, dùng Tavily search +
+KHÁC scrapjd/maintenance/enrich_company_web_info.py (script chị em, dùng Tavily search +
 Gemini): script NÀY KHÔNG gọi Tavily/Gemini, không tốn credit/token gì
 cả — chỉ crawl lại 1 URL TopCV/VietnamWorks đã biết chắc chắn đúng công
 ty (chính URL crawl gốc, không phải suy luận qua search), nên:
   - Chính xác hơn hẳn (đọc thẳng trang gốc có cấu trúc rõ, không qua
     search+LLM suy luận, không có rủi ro "nhầm pháp nhân chị em cùng
-    thương hiệu" như enrich_company_web_info.py đã từng gặp).
+    thương hiệu" như scrapjd/maintenance/enrich_company_web_info.py đã từng gặp).
   - Vá được CẢ 4 field (industry/company_size/address/website), không
     chỉ website/tax_id như bên kia.
   - KHÔNG vá products_services (đã bỏ 08/2026): adapter chỉ cắt thô
@@ -19,7 +19,7 @@ ty (chính URL crawl gốc, không phải suy luận qua search), nên:
     dòng (profile["description"]) — không tóm tắt, dễ ra chuỗi dài
     ~600 ký tự, không phù hợp mục đích của products_services (tóm tắt
     ngắn gọn sản phẩm/dịch vụ). Field này giờ CHỈ được vá bởi
-    enrich_company_profile_from_website.py, nơi Gemini được yêu cầu
+    scrapjd/maintenance/enrich_company_profile_from_website.py, nơi Gemini được yêu cầu
     tóm tắt dưới 20 từ — đúng bản chất field hơn.
   - Miễn phí, không giới hạn quota — chỉ tốn thời gian chờ (throttle
     theo REQUEST_DELAY_SECONDS của adapter, giống crawl thường).
@@ -30,19 +30,19 @@ KHI NÀO DÙNG SCRIPT NÀO:
     script NÀY trước, ưu tiên tuyệt đối vì rẻ + chính xác hơn.
   - Công ty KHÔNG CÓ source_profile_url nào (tạo tay qua POST /companies,
     hoặc crawl từ nguồn không hỗ trợ fetch_company_profile) -> mới cần
-    enrich_company_web_info.py (Tavily+Gemini, tốn credit, kém chính xác
+    scrapjd/maintenance/enrich_company_web_info.py (Tavily+Gemini, tốn credit, kém chính xác
     hơn vì phải suy luận qua search).
 
 CHỌN ĐÚNG ADAPTER THEO DOMAIN: source_profile_url có thể là URL TopCV,
 VietnamWorks, hoặc CareerViet (3 nguồn hiện có) — script tự nhận diện
 qua domain trong URL, không cần người dùng chỉ định tay.
 
-LƯU Ý RIÊNG CHO CAREERVIET (thêm 08/2026, xem adapters/careerviet.py):
+LƯU Ý RIÊNG CHO CAREERVIET (thêm 08/2026, xem scrapjd/adapters/careerviet.py):
 CareerVietAdapter.fetch_company_profile() CHỦ ĐÍCH luôn trả industry=""
 (trang công ty CareerViet không hiển thị field này) — company nguồn
 CareerViet sẽ KHÔNG BAO GIỜ được vá industry qua script này, dù
 company_size/address/website vẫn vá bình thường. Field industry của
-các công ty này chỉ có thể vá qua enrich_company_web_info.py
+các công ty này chỉ có thể vá qua scrapjd/maintenance/enrich_company_web_info.py
 (Tavily+Gemini). Hệ quả: company nguồn CareerViet có thể vẫn xuất hiện
 lại trong get_companies_needing_profile_backfill() ở các lần chạy sau
 dù đã vá hết những gì vá được (vì industry vẫn rỗng) — không phải lỗi,

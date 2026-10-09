@@ -193,7 +193,7 @@ def get_job_data_health(request: Request, conn=Depends(get_db)):
 # nằm ở GET /me/applications/{application_id}/cv-url — gây hiểu nhầm là
 # hành động tự phục vụ của CHÍNH học viên (mọi route khác dưới /me đều
 # vậy, ss_user_id luôn lấy từ JWT của chính người gọi, KHÔNG nhận qua
-# path/body — xem docstring đầu api/routers/me.py). Route này thì NGƯỢC
+# path/body — xem docstring đầu scrapjd/api/routers/me.py). Route này thì NGƯỢC
 # LẠI hoàn toàn: application_id là của NGƯỜI KHÁC (học viên đã nộp đơn),
 # và require_role("ss_team") đã luôn chặn "user" thường gọi route này từ
 # trước tới giờ — bản chất đây là hành động STAFF xem hồ sơ người khác,
@@ -279,7 +279,7 @@ def create_job(
     sql/migration_add_role_hierarchy.sql) — để ghi lại
     job_postings.created_by (audit trail "ai tạo job này"), đồng thời
     chặn role 'user' (chỉ xem) không sửa được dữ liệu. Vẫn cần header
-    X-API-Key NHƯ CŨ (2 lớp xếp chồng, xem docstring api/deps.py), CỘNG
+    X-API-Key NHƯ CŨ (2 lớp xếp chồng, xem docstring scrapjd/api/deps.py), CỘNG
     THÊM header Authorization: Bearer <access_token> lấy từ POST
     /auth/login."""
     if not db_module.is_valid_uuid(payload.company_id):

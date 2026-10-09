@@ -1,5 +1,5 @@
 """
-Chạy pipeline crawl (adapters/*.py -> pipeline.run_pipeline()) ở NỀN, kích
+Chạy pipeline crawl (scrapjd/adapters/*.py -> pipeline.run_pipeline()) ở NỀN, kích
 hoạt từ 1 HTTP request (POST /crawl) nhưng không chặn request đó chờ tới
 lúc crawl xong (crawl thật có thể mất vài phút - vài chục phút tuỳ số
 trang, HTTP request giữ lâu vậy sẽ timeout ở phía client/proxy).
@@ -21,9 +21,9 @@ sql/migration_add_crawl_progress_logs.sql):
     đè liên tục (throttle 1 lần/giây) qua callback on_progress truyền
     xuống pipeline.run_pipeline() — khu "Hiện tại" ở /crawl poll cột
     này qua GET /crawl/{run_id} (đã có sẵn field "progress" trong
-    response, xem api/schemas/crawl.py::CrawlStatusOut).
+    response, xem scrapjd/api/schemas/crawl.py::CrawlStatusOut).
   - crawl_run_logs (bảng riêng): từng dòng log kiểu terminal, ghi qua
-    api/run_log.py::capture_run_logs (logging.Handler gắn tạm vào root logger
+    scrapjd/api/run_log.py::capture_run_logs (logging.Handler gắn tạm vào root logger
     trong lúc execute() chạy, chỉ nhận log của chính lượt này) — khu "Xem log live" ở /crawl poll GET
     /crawl/{run_id}/logs?after_id=N.
 
@@ -47,7 +47,7 @@ bộ; KHÔNG phù hợp nếu cần queue thật với retry/backoff):
     mark_error() trong finally. 2 lớp dự phòng xử lý: (1) lúc app khởi
     động lại, db.reconcile_orphaned_crawl_runs() đánh dấu 'error' mọi dòng
     còn 'queued'/'running'; (2) khi process KHÔNG restart mà task bị treo,
-    api/services/crawl_watchdog.py quét định kỳ — 'running' không có tiến
+    scrapjd/api/services/crawl_watchdog.py quét định kỳ — 'running' không có tiến
     độ mới (progress.last_update, ghi ở _on_progress bên dưới) quá
     CRAWL_STALE_NO_PROGRESS_MINUTES, hoặc 'queued' quá
     CRAWL_STALE_TIMEOUT_MINUTES, thì tự đổi thành 'error' để nhả khoá
@@ -57,14 +57,14 @@ bộ; KHÔNG phù hợp nếu cần queue thật với retry/backoff):
 
 ĐỢT 3 (10/2026) — bị chặn, snapshot, degraded:
   - CrawlBlockedError (trang đầu thất bại HOẶC ngắt mạch giữa chừng, xem
-    adapters/base.py::_note_fetch_failure) được bắt RIÊNG ở _execute_one():
+    scrapjd/adapters/base.py::_note_fetch_failure) được bắt RIÊNG ở _execute_one():
     status='error' như trước (cột enum giữ nguyên 4 giá trị, frontend không
     phải đổi) nhưng KÈM stats tạm (số job đã lưu...) và stats["blocked"]=True.
     Nếu run thuộc 1 batch thì DỪNG cả batch (đánh dấu batch 'error'), không
     chạy tiếp các category còn lại — cùng nguồn là cùng IP, chạy tiếp chỉ
     đập thêm vào site đang chặn.
   - Mỗi lượt gắn 1 SnapshotRecorder vào adapter; xong (thành công hay lỗi)
-    thì lưu vài mẫu HTML/JSON gốc xuống crawl_snapshots (xem snapshots.py).
+    thì lưu vài mẫu HTML/JSON gốc xuống crawl_snapshots (xem scrapjd/snapshots.py).
   - Lượt xong nhưng dữ liệu nghi hỏng có stats["degraded"] (xem
     pipeline._finalize_stats) — status vẫn 'done'.
   - Lúc bắt đầu, nếu nguồn vừa có lượt bị chặn trong
@@ -80,22 +80,22 @@ NÂNG CẤP SAU (chỉ làm khi thật sự cần, đừng làm sớm — đúng
     chỗ cho trường hợp này (xem sql/migration_add_crawl_runs.sql).
 
 CONNECTION POOL (08/2026 — đối xứng đúng thay đổi ở
-api/maintenance_runner.py, xem docstring module đó để biết đầy đủ bối
+scrapjd/api/maintenance_runner.py, xem docstring module đó để biết đầy đủ bối
 cảnh "lỗi 500 khi nhiều tab poll dồn dập"):
   - get_run()/list_runs()/get_latest_run()/get_logs()/start_crawl()/
     start_batch()/get_batch()/list_batches(): các hàm NGẮN, gọi trực
     tiếp trong request handler, tần suất cao (client poll status.json/
     logs.json mỗi 1-2 giây, nhiều tab cùng lúc) — ĐỔI sang mượn/trả
     connection từ pool chung (db.get_pooled_connection()/
-    release_connection(), xem api/deps.py:get_db()) thay vì tự mở
+    release_connection(), xem scrapjd/api/deps.py:get_db()) thay vì tự mở
     connection Postgres MỚI mỗi lần gọi.
-  - execute()/_execute_one() + connection ghi log (api/run_log.py): CỐ Ý GIỮ NGUYÊN
+  - execute()/_execute_one() + connection ghi log (scrapjd/api/run_log.py): CỐ Ý GIỮ NGUYÊN
     get_connection() độc lập (không qua pool) — giữ connection SUỐT
     quá trình crawl thật (có thể vài phút - vài chục phút). Nếu đổi
     sang pool, mỗi lượt crawl sẽ khoá cứng 1-2 slot pool trong thời
     gian dài, làm giảm connection khả dụng cho các request HTTP khác
     đang chạy song song. Đúng use case get_connection() được thiết kế
-    cho (xem docstring db/connection.py).
+    cho (xem docstring scrapjd/db/connection.py).
 """
 
 import logging
@@ -110,10 +110,10 @@ from scrapjd.snapshots import SnapshotRecorder
 from scrapjd.config import DEFAULT_MAX_PAGES, CRAWL_BLOCK_COOLDOWN_MINUTES
 from scrapjd.api.concurrency import GLOBAL_JOB_SEMAPHORE
 from scrapjd.api.run_log import capture_run_logs
-# _SOURCE_ADAPTERS giờ import từ sources_registry.py (nguồn sự thật duy
+# _SOURCE_ADAPTERS giờ import từ scrapjd/sources_registry.py (nguồn sự thật duy
 # nhất) thay vì tự khai báo lặp lại ở đây — đây CHÍNH LÀ nơi từng gây
 # bug CareerViet "crawl được qua CLI nhưng không hiện trên web" (thiếu
-# đăng ký thủ công ở đúng dict này), xem docstring sources_registry.py
+# đăng ký thủ công ở đúng dict này), xem docstring scrapjd/sources_registry.py
 # để biết đầy đủ lý do refactor + cách thêm nguồn crawl mới sau này.
 from scrapjd.sources_registry import SOURCE_ADAPTERS as _SOURCE_ADAPTERS
 
@@ -202,7 +202,7 @@ def start_crawl(source: str, category: str, pages: Optional[int],
 
     Raise db.ActiveCrawlExistsError nếu source này đang có 1 lượt
     'queued'/'running' chưa xong — router bắt lỗi này để trả 409
-    (xem api/routers/crawl.py).
+    (xem scrapjd/api/routers/crawl.py).
 
     Mượn/trả connection từ pool chung (xem docstring module ở đầu
     file, mục CONNECTION POOL) — hàm này chạy trong request handler,
@@ -305,8 +305,8 @@ def execute(run_id: str) -> None:
     Dùng 1 connection DUY NHẤT cho cả việc ghi trạng thái (mark_running/
     mark_done/mark_error) LẪN chạy run_pipeline() — run_pipeline() tự
     quản lý transaction insert job/company của riêng nó (xem
-    pipeline.py), các hàm mark_*() ở db/crawl_runs.py tự commit() ngay
-    sau mỗi lần gọi (xem docstring db/crawl_runs.py) nên không xung đột
+    scrapjd/pipeline.py), các hàm mark_*() ở scrapjd/db/crawl_runs.py tự commit() ngay
+    sau mỗi lần gọi (xem docstring scrapjd/db/crawl_runs.py) nên không xung đột
     với transaction của run_pipeline().
 
     08/2026 (xem docstring sql/migration_add_crawl_batches.sql) — nếu
@@ -321,7 +321,7 @@ def execute(run_id: str) -> None:
     vài chục category (giới hạn ở CrawlBatchRequest), không có rủi ro
     tràn stack thực tế.
 
-    GLOBAL_JOB_SEMAPHORE (08/2026, xem docstring api/concurrency.py) —
+    GLOBAL_JOB_SEMAPHORE (08/2026, xem docstring scrapjd/api/concurrency.py) —
     CHẶN tổng số job nền (crawl + maintenance CỘNG CHUNG) chạy đồng
     thời trên toàn hệ thống, không riêng source này. Giữ ĐÚNG 1 slot
     semaphore SUỐT CẢ BATCH (mọi category nối tiếp nhau tính là 1 job),
@@ -406,7 +406,7 @@ def _execute_one(run_id: str) -> Optional[str]:
         else:
             db_module.mark_crawl_run_running(conn, run_id)
 
-            # Log live của lượt này (xem api/run_log.py): chỉ nhận log phát ra
+            # Log live của lượt này (xem scrapjd/api/run_log.py): chỉ nhận log phát ra
             # từ chính lượt này, không lẫn với lượt chạy song song khác.
             with capture_run_logs(
                 run_id,
@@ -414,7 +414,7 @@ def _execute_one(run_id: str) -> Optional[str]:
                 append_log=db_module.append_crawl_run_log,
             ):
                 # Throttle ghi progress xuống DB tối đa 1 lần/giây — on_progress
-                # trong pipeline.py gọi lại SAU MỖI JOB (có thể hàng chục
+                # trong scrapjd/pipeline.py gọi lại SAU MỖI JOB (có thể hàng chục
                 # job/giây với trang ít lỗi mạng), ghi DB mỗi lần sẽ tốn round
                 # -trip vô ích và làm chậm crawl thật không cần thiết. Progress
                 # dùng để NGƯỜI XEM theo dõi bằng mắt + watchdog phát hiện

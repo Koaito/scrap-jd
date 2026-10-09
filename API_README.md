@@ -1,7 +1,7 @@
 # API Layer (FastAPI) — hướng dẫn chạy
 
 Lớp API này **bọc ngoài** codebase crawler hiện có (`scrapjd/adapters/`, `scrapjd/normalize.py`,
-`scrapjd/db/`, `pipeline.py`) — không sửa gì các file đó ngoại trừ thêm 1 nhóm
+`scrapjd/db/`, `scrapjd/pipeline.py`) — không sửa gì các file đó ngoại trừ thêm 1 nhóm
 hàm query mới riêng cho API (nằm rải theo domain trong `scrapjd/db/`, ví dụ
 `scrapjd/db/jobs.py`, `scrapjd/db/companies.py`... — trước 08/2026 gộp chung 1 file
 `db.py` duy nhất, đã tách theo domain, xem "Kiến trúc" trong

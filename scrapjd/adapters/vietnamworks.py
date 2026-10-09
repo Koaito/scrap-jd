@@ -10,7 +10,7 @@ Kết luận Discovery (xác nhận qua DevTools + cURL thật của user, 08/20
 - ĐIỂM KHÁC BIỆT LỚN so với TopCV: response của API search đã trả sẵn
   FULL job description/requirement (field "jobDescription",
   "jobRequirement") NGAY TRONG 1 LẦN GỌI -> không cần fetch riêng trang
-  chi tiết job như TopCV phải làm. Vì pipeline.py (dùng chung, không sửa
+  chi tiết job như TopCV phải làm. Vì scrapjd/pipeline.py (dùng chung, không sửa
   được) vẫn LUÔN gọi fetch_job_full_detail(source_url) cho mỗi job, adapter
   này dùng 1 cache nội bộ (_detail_cache) để trả lại dữ liệu đã có sẵn từ
   fetch_jobs() thay vì gọi thêm request nào — xem chú thích ở
@@ -45,7 +45,7 @@ Kết luận Discovery (xác nhận qua DevTools + cURL thật của user, 08/20
      0/1/3 (số cụ thể là bao nhiêu KHÔNG quan trọng, vì UI luôn hiển thị
      "Khác" cho mọi trường hợp không phải 3 loại chính) fallback về
      "Khác" (-> OTHER qua normalize._WORK_TYPE_MAP đã có sẵn key "khác",
-     không cần sửa normalize.py) thay vì để trống. Xem
+     không cần sửa scrapjd/normalize.py) thay vì để trống. Xem
      _work_type_text_from_id().
   3. expiredOn: XÁC NHẬN có giá trị thật ở toàn bộ 50/50 job (không rỗng),
      đúng định dạng ISO 8601 có timezone, vd "2026-08-13T23:59:59+07:00"
@@ -111,7 +111,7 @@ BASE_URL = "https://www.vietnamworks.com"
 
 # typeWorkingId -> nhãn tiếng Việt KHỚP ĐÚNG key trong normalize._WORK_TYPE_MAP
 # (chữ thường, không dấu câu) -> tái dùng normalize.normalize_work_type()
-# có sẵn, KHÔNG cần sửa normalize.py. Chỉ 2 số ĐÃ XÁC NHẬN chắc chắn nằm
+# có sẵn, KHÔNG cần sửa scrapjd/normalize.py. Chỉ 2 số ĐÃ XÁC NHẬN chắc chắn nằm
 # trong bảng này (1, 3). Số 0/None -> "" và mọi số khác -> "Khác" được xử
 # lý trong _work_type_text_from_id() bên dưới (xem docstring hàm đó).
 _TYPE_WORKING_ID_MAP = {
@@ -215,7 +215,7 @@ class VietnamWorksAdapter(BaseAdapter):
 
     def __init__(self, session: Optional[requests.Session] = None):
         # Session curl_cffi + throttle/retry dùng chung giờ nằm ở
-        # BaseAdapter.__init__() (xem adapters/base.py) — VietnamWorks
+        # BaseAdapter.__init__() (xem scrapjd/adapters/base.py) — VietnamWorks
         # dùng đúng delay mặc định (REQUEST_DELAY_SECONDS), không cần
         # jitter riêng như TopCV.
         super().__init__(session=session, headers=VNW_HEADERS)
@@ -337,7 +337,7 @@ class VietnamWorksAdapter(BaseAdapter):
 
     # ------------------------------------------------------------------
     # Internal — HTTP. _throttle() dùng chung từ BaseAdapter (xem
-    # adapters/base.py). _post_json() bên dưới là phần RIÊNG của
+    # scrapjd/adapters/base.py). _post_json() bên dưới là phần RIÊNG của
     # VietnamWorks (API JSON, không phải GET-HTML) nên không rút lên
     # BaseAdapter được — nhưng PHẢI giữ cùng chính sách retry/backoff với
     # BaseAdapter._fetch_html() (nếu sửa 1 bên, nhớ sửa bên kia).
@@ -406,7 +406,7 @@ class VietnamWorksAdapter(BaseAdapter):
 
     # _fetch_html() (dùng cho trang công ty SSR — GET thường, khác
     # _post_json() ở trên vốn gọi API JSON) giờ dùng chung từ
-    # BaseAdapter (xem adapters/base.py), không override riêng nữa.
+    # BaseAdapter (xem scrapjd/adapters/base.py), không override riêng nữa.
 
     # ------------------------------------------------------------------
     # Parse response search -> list job dict
@@ -570,7 +570,7 @@ class VietnamWorksAdapter(BaseAdapter):
     def job_code_url_regex(self, source_url: str) -> Optional[str]:
         """URL VietnamWorks có dạng ...-<mã job>-jv; nhà tuyển dụng sửa tiêu đề thì
         phần chữ đổi (URL mới) còn mã giữ nguyên. Regex neo cả hai đầu mã, giống
-        adapters.vietnamworks_detail.job_id_from_url."""
+        scrapjd.adapters.vietnamworks_detail.job_id_from_url."""
         code = job_id_from_url(source_url)
         return f"-{code}-jv([/?#]|$)" if code else None
 
@@ -586,7 +586,7 @@ class VietnamWorksAdapter(BaseAdapter):
         Trường hợp cache miss (source_url không nằm trong lần fetch_jobs()
         gần nhất — vd job cũ trong DB từ lần crawl trước, nay chỉ đang
         được 'vá' mà không nằm trong trang kết quả mới) -> trả None
-        (giống ngữ nghĩa 'fetch thất bại thật sự' mà pipeline.py đã định
+        (giống ngữ nghĩa 'fetch thất bại thật sự' mà scrapjd/pipeline.py đã định
         nghĩa), KHÔNG tự ý gọi lại search API để tìm đúng job đó (API
         search không có cách tra theo source_url/jobId trực tiếp trong
         những gì đã xác nhận) — đây là hạn chế đã biết, chấp nhận được vì
@@ -853,7 +853,7 @@ class VietnamWorksAdapter(BaseAdapter):
     @staticmethod
     def _format_deadline(expired_on) -> str:
         """Trả về text dạng 'dd/mm/yyyy' để tương thích thẳng với
-        normalize.normalize_deadline() có sẵn (không sửa normalize.py).
+        normalize.normalize_deadline() có sẵn (không sửa scrapjd/normalize.py).
         expiredOn ĐÃ XÁC NHẬN là chuỗi ISO 8601 có timezone, vd
         "2026-08-13T23:59:59+07:00" (xem docstring đầu file mục 3) ->
         nhánh chính là "%Y-%m-%dT%H:%M:%S" trên expired_on[:19]. Các nhánh

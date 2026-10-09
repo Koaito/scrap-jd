@@ -1,7 +1,7 @@
 """
 Company contacts (HR contact) — schema request/response cho
 POST/PATCH/DELETE /contacts (thêm 08/2026, xem db.py mục cùng tên).
-Tách từ api/schemas.py (08/2026) — xem docstring api/schemas/__init__.py.
+Tách từ api/schemas.py (08/2026) — xem docstring scrapjd/api/schemas/__init__.py.
 """
 
 from datetime import date, datetime
@@ -40,7 +40,7 @@ class CompanyContactOut(BaseModel):
 
 class CompanyContactWithCompanyOut(CompanyContactOut):
     """Giống CompanyContactOut, thêm company_name — dùng cho GET /contacts
-    (danh sách gộp mọi công ty, xem api/routers/contacts.py::list_all_contacts),
+    (danh sách gộp mọi công ty, xem scrapjd/api/routers/contacts.py::list_all_contacts),
     vì CompanyContactOut không có tên công ty (route cũ GET
     /companies/{company_id}/contacts đã biết company_id sẵn từ path nên
     không cần)."""
@@ -103,7 +103,7 @@ class CompanyContactUpdate(BaseModel):
 
 class ContactAssignUpdate(BaseModel):
     """Route riêng PATCH /contacts/{contact_id}/assign (xem
-    api/routers/contacts.py::assign_contact) — KHÔNG dùng chung
+    scrapjd/api/routers/contacts.py::assign_contact) — KHÔNG dùng chung
     CompanyContactUpdate ở trên vì pattern "field != None mới ghi đè"
     của route update thường không phân biệt được "không gửi field" với
     "cố ý set về NULL để bỏ gán". Ở đây assigned_ss_user LUÔN bắt buộc
@@ -134,7 +134,7 @@ class ContactDeleteRequest(BaseModel):
                     "vì sao (vd: nghỉ việc, sai thông tin, trùng lặp...).",
     )
 
-    # Validator dùng CHUNG (api/schemas/validators.py) — xem docstring
+    # Validator dùng CHUNG (scrapjd/api/schemas/validators.py) — xem docstring
     # ở đó để biết lý do tách ra thay vì định nghĩa lặp ở từng schema.
     _note_not_blank = field_validator("note")(validate_note_not_blank)
 

@@ -4,11 +4,11 @@ Maintenance watchdog — quét định kỳ bảng maintenance_runs, tự đánh
 để giải phóng UNIQUE INDEX idx_maintenance_runs_one_active_per_job_type,
 tránh 1 job_type bị "khoá" chạy mãi mãi (08/2026, xem
 sql/migration_add_maintenance_runs.sql) — ĐỐI XỨNG HOÀN TOÀN
-api/services/crawl_watchdog.py, xem docstring file đó để biết đầy đủ lý
+scrapjd/api/services/crawl_watchdog.py, xem docstring file đó để biết đầy đủ lý
 do (LỚP DỰ PHÒNG THỨ 2, bổ sung cho
 db.reconcile_orphaned_maintenance_runs() chạy lúc app khởi động).
 
-Đăng ký chạy qua APScheduler trong lifespan của api/app.py, DÙNG CHUNG
+Đăng ký chạy qua APScheduler trong lifespan của scrapjd/api/app.py, DÙNG CHUNG
 1 scheduler instance với cleanup import_previews + crawl watchdog —
 không tạo thêm process/thread riêng.
 """

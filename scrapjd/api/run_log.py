@@ -13,7 +13,7 @@ chỉ nhận record phát ra từ code mang đúng dấu đó, nên:
   - log của request API khác, của uvicorn hay của thư viện chạy ở thread
     khác trong lúc lượt này chạy cũng không lọt vào log của lượt.
 
-Bắt ở ROOT (không gắn vào từng logger) vì pipeline.py, adapters/*.py và các
+Bắt ở ROOT (không gắn vào từng logger) vì scrapjd/pipeline.py, scrapjd/adapters/*.py và các
 script enrich đều dùng logging.getLogger(__name__) riêng — gắn ở root là cách
 duy nhất tóm được hết mà không phải sửa từng nơi gọi logger.
 
@@ -30,8 +30,8 @@ Connection ghi log
 Handler giữ 1 connection RIÊNG (không dùng chung với connection đang chạy job):
 record log có thể tới bất kỳ lúc nào giữa các câu SQL của job, dùng chung sẽ
 làm rối transaction đang dở. Connection này CỐ Ý mở ngoài pool (sống suốt
-job, xem mục CONNECTION POOL trong docstring api/crawl_runner.py) nên được
-tính vào ngân sách kết nối ở api/concurrency.py.
+job, xem mục CONNECTION POOL trong docstring scrapjd/api/crawl_runner.py) nên được
+tính vào ngân sách kết nối ở scrapjd/api/concurrency.py.
 
 Hàm mở kết nối và hàm ghi log do nơi gọi truyền vào, không import db ở đây,
 để mỗi runner vẫn dùng module db của chính nó (và để test thay thế được).

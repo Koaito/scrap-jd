@@ -1,7 +1,7 @@
 """
 db.job_queries — truy vấn ĐỌC danh sách / chi tiết job cho API (tách từ
-db/jobs.py, 10/2026). Chỉ SELECT, không ghi. Ghi job (insert/update/
-tạo tay) nằm ở db/jobs.py; thống kê "tình trạng dữ liệu" ở db/job_health.py.
+scrapjd/db/jobs.py, 10/2026). Chỉ SELECT, không ghi. Ghi job (insert/update/
+tạo tay) nằm ở scrapjd/db/jobs.py; thống kê "tình trạng dữ liệu" ở scrapjd/db/job_health.py.
 Tên hàm giữ nguyên và vẫn gọi được qua `db.list_jobs`, `db.get_job_by_id`...
 """
 
@@ -48,7 +48,7 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
     """Trả (list[dict] job, total_count, next_cursor) — dùng cho GET
     /jobs. `next_cursor` là tuple (created_at, job_id) của dòng cuối
     cùng trong batch vừa trả, hoặc None nếu đây là dòng cuối — tầng API
-    (api/routers/jobs.py) chịu trách nhiệm encode/decode tuple này
+    (scrapjd/api/routers/jobs.py) chịu trách nhiệm encode/decode tuple này
     thành chuỗi opaque, hàm này chỉ làm việc với tuple thô.
 
     Mọi filter đều optional, bỏ qua field nào = None. `keyword` so khớp
@@ -84,7 +84,7 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
     tuple (created_at, job_id) của dòng CUỐI CÙNG client đã nhận ở lần
     gọi trước, hoặc None nếu đây là lần gọi đầu tiên. Khi có giá trị,
     HÀM NÀY BỎ QUA `offset` (tầng API phải tự đảm bảo không truyền cả
-    2 cùng lúc — xem validate ở api/routers/jobs.py, không validate lại
+    2 cùng lúc — xem validate ở scrapjd/api/routers/jobs.py, không validate lại
     ở đây để giữ hàm DB thuần, không biết về HTTP 422).
 
     Vì sao cần job_id làm khóa phụ: nếu chỉ ORDER BY created_at DESC,
@@ -104,7 +104,7 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
     thành đúng 1 query. KẾT HỢP ĐƯỢC với mọi filter khác ở trên (AND
     chung, không phải OR/thay thế) — vd `ids=...&status=OPEN` vẫn hợp
     lệ, lọc trong đúng tập id đó theo status. Không tự ép limit theo
-    len(ids) — caller (api/routers/jobs.py) tự chịu trách nhiệm truyền
+    len(ids) — caller (scrapjd/api/routers/jobs.py) tự chịu trách nhiệm truyền
     limit đủ lớn nếu muốn lấy đủ toàn bộ id đã liệt kê trong 1 lần gọi,
     hàm này giữ nguyên hành vi limit/offset/cursor như filter khác."""
     conditions = []

@@ -57,7 +57,7 @@ File `.env.example` chia thành các nhóm và ghi chú từng biến. Bạn ch�
 | Crawl, `migrate`, `stats`, mọi lệnh `python main.py ...` | Nhóm PostgreSQL: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGSSLMODE` |
 | Chạy API local (`uvicorn scrapjd.api.app:app`) | Thêm `API_KEY`, `JWT_SECRET_KEY`, `ALLOWED_ORIGINS` |
 | Gửi email xác thực / quên mật khẩu, upload CV | `RESEND_API_KEY`, `EMAIL_FROM`, `API_BASE_URL`, `FRONTEND_BASE_URL`; `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
-| Chạy script `enrich_*` | `GEMINI_API_KEY`; riêng `enrich_company_web_info.py` thêm `TAVILY_API_KEY` |
+| Chạy script `enrich_*` | `GEMINI_API_KEY`; riêng `scrapjd/maintenance/enrich_company_web_info.py` thêm `TAVILY_API_KEY` |
 
 **Lấy giá trị cho nhóm PostgreSQL.** Backend trên Render đang dùng chính
 database này, nên cách chắc chắn nhất là mở Render, vào service backend,
@@ -127,7 +127,7 @@ Chỉ chọn job chưa đóng dấu hoặc dấu cũ hơn phiên bản hiện t�
 không có `level_signals` chỉ đổi level khi tiêu đề nêu rõ cấp. Báo cáo liệt kê job rời/nhập
 nhóm cùng `content_hash` (khoá cũ, còn gồm level; nhóm trùng theo `dedup_key` không đổi khi đổi
 level; lệnh không tự gộp). Chi tiết xem docstring
-`recompute_levels.py`.
+`scrapjd/cli/recompute_levels.py`.
 
 **Báo cáo job nghi trùng** (Phần 3a, chỉ đọc: không ghi DB, không cần migration mới):
 
@@ -143,7 +143,7 @@ trùng `dedup_key` (công ty + tiêu đề + tỉnh, không level) là khoá mà
 khác tỉnh (tầng "khác tỉnh") mà view không thấy. Mỗi nhóm được phân tầng (cùng tỉnh+level / khác level / khác tỉnh), chấm độ chắc là trùng
 thật (cao / cần xem / thấp), liệt kê dữ liệu cần bảo vệ khi gộp (người sửa, ghi chú, đơn ứng
 tuyển, lượt lưu, liên hệ) và **đề xuất** job giữ theo luật v0 (chưa phải luật đã chốt). Lệnh
-không gộp, không xoá gì. Chi tiết xem docstring `duplicate_report.py`.
+không gộp, không xoá gì. Chi tiết xem docstring `scrapjd/cli/duplicate_report.py`.
 
 **Đo tỷ lệ gộp nhầm** (A5, chỉ đọc: không ghi DB, không cần migration mới):
 
@@ -162,7 +162,7 @@ mỗi job lấy cặp tin khác nhau nhất. Số liệu được tách theo c�
 `merge-duplicates` chuyển sang hay không (đọc từ `audit_logs` `MERGE_JOB`). **Các ngưỡng (0.80 / 0.50 / 0.20)
 là ước lượng ban đầu, chưa hiệu chuẩn**: xem phân bố và `--csv`, đối chiếu bằng mắt rồi chỉnh `--threshold`.
 Chỉ bắt được gộp nhầm khi nội dung khác; hai vị trí khác cấp dùng chung một JD thì không bị bắt. Chi tiết xem
-docstring `repost_report.py`.
+docstring `scrapjd/cli/repost_report.py`.
 
 **Gộp job trùng** (Phần 3b, phương án A): job phụ bị **xoá thật** sau khi chụp nguyên dòng vào
 `audit_logs`; dữ liệu con chuyển sang job giữ. Mặc định chỉ **chạy thử** (in kế hoạch, không ghi gì),
@@ -192,7 +192,7 @@ ghi vào job được đối chiếu với kế hoạch; lệch thì rollback nh
 `manual://`): luật suy ra không đè trạng thái, hạn, `source_url` của nó; hạn có sẵn được ghi vào mọi listing OPEN để giữ
 lâu dài, job giữ đang CLOSED thì listing còn sống của job phụ đóng theo job, hạn trống thì điền hạn suy ra. Riêng
 `source_url` của job nhập tay không giữ được lâu dài (không có cột đánh dấu): lần đồng bộ kế tiếp suy ra lại.
-Chi tiết xem docstring `merge_duplicates.py`.
+Chi tiết xem docstring `scrapjd/cli/merge_duplicates.py`.
 
 **Trước khi chạy `--apply`:**
 
@@ -245,7 +245,7 @@ Muốn trả cả trường đã đổi ở job giữ thì lấy giá trị `old
 xong nếu không muốn job bị gộp lại lần sau thì xử lý nguyên nhân trùng (level/tỉnh) trước.
 
 **Chặn nguồn sinh job trùng (Phần 3c).** Gộp xong mà crawler vẫn sinh trùng thì trùng sẽ mọc lại. Nguyên nhân
-(đo trên 230 job trùng thật): bước 3c của `pipeline.py` tra tin đăng lại bằng `find_manual_job_duplicate`, hàm này bỏ
+(đo trên 230 job trùng thật): bước 3c của `scrapjd/pipeline.py` tra tin đăng lại bằng `find_manual_job_duplicate`, hàm này bỏ
 qua job đã CLOSED (khoảng 88% job trùng) và dùng cả level làm khoá (khoảng 34%). Nay pipeline dùng
 `db.find_repost_candidate` (`scrapjd/db/job_recrawl.py`): khoá là công ty + tiêu đề (chuẩn hoá giống `generate_job_hash`:
 không phân biệt hoa/thường, gộp khoảng trắng) + tỉnh, **không xét level**, **xét cả job CLOSED**; nhiều job khớp thì
@@ -318,7 +318,7 @@ python -m scrapjd.maintenance.check_expired_source_jobs             # chạy th�
 
 Bước 1 và 2 độc lập về mặt kỹ thuật, nhưng chạy bước 2 sau bước 1 hiệu quả
 hơn: công ty vừa crawl luôn có `source_profile_url`, giúp
-`backfill_company_profiles.py` (rẻ nhất, đọc lại đúng trang gốc) xử lý được
+`scrapjd/maintenance/backfill_company_profiles.py` (rẻ nhất, đọc lại đúng trang gốc) xử lý được
 nhiều nhất trước khi phải dùng các script tốn tài nguyên hơn.
 
 Bước 2 gồm 4 script riêng, mỗi script nhắm một nguồn dữ liệu khác nhau và
@@ -326,10 +326,10 @@ Bước 2 gồm 4 script riêng, mỗi script nhắm một nguồn dữ liệu k
 
 | Thứ tự | Script | Vá field | Đọc từ đâu | Chi phí |
 | --- | --- | --- | --- | --- |
-| 1 | `backfill_company_profiles.py` | `industry`, `company_size`, `address`, `website` (nhặt kèm `products_services`) | `source_profile_url` đã lưu (trang TopCV/VietnamWorks/CareerViet gốc) | Miễn phí, chỉ tốn thời gian chờ |
-| 2 | `enrich_company_profile_from_website.py` | `industry`, `products_services` | `companies.website` + Gemini phân loại | Rẻ (1 lần gọi Gemini mỗi công ty, không dùng Tavily) |
-| 3 | `enrich_company_web_info.py` | `website`, `tax_id` | Tavily search (2 query mỗi công ty) + Gemini trích xuất | Tốn nhất; chỉ nên chạy cho công ty không có `source_profile_url` |
-| 4 | `get_company_fb_linkedin_link.py` | `fanpage_url`, `linkedin_url` | `companies.website` (HTML thô) | Miễn phí, hạn chế với website SPA/React |
+| 1 | `scrapjd/maintenance/backfill_company_profiles.py` | `industry`, `company_size`, `address`, `website` (nhặt kèm `products_services`) | `source_profile_url` đã lưu (trang TopCV/VietnamWorks/CareerViet gốc) | Miễn phí, chỉ tốn thời gian chờ |
+| 2 | `scrapjd/maintenance/enrich_company_profile_from_website.py` | `industry`, `products_services` | `companies.website` + Gemini phân loại | Rẻ (1 lần gọi Gemini mỗi công ty, không dùng Tavily) |
+| 3 | `scrapjd/maintenance/enrich_company_web_info.py` | `website`, `tax_id` | Tavily search (2 query mỗi công ty) + Gemini trích xuất | Tốn nhất; chỉ nên chạy cho công ty không có `source_profile_url` |
+| 4 | `scrapjd/maintenance/get_company_fb_linkedin_link.py` | `fanpage_url`, `linkedin_url` | `companies.website` (HTML thô) | Miễn phí, hạn chế với website SPA/React |
 
 Mỗi script chỉ chọn công ty **còn thiếu đúng field nó vá được**, nên chạy
 lại nhiều lần an toàn và không tốn thêm gì cho công ty đã đủ dữ liệu.
@@ -414,7 +414,7 @@ tests/                     <- test parser, logic, CLI; một số test chạy tr
 Các quy ước dưới đây được test canh giữ; vi phạm thì `pytest` báo đỏ:
 
 - **Một job = một transaction.** Các hàm `db.*` không tự commit hay rollback;
-  `pipeline.py` quyết định. Mỗi nhánh có ghi DB commit đúng một lần ở cuối
+  `scrapjd/pipeline.py` quyết định. Mỗi nhánh có ghi DB commit đúng một lần ở cuối
   nhánh thành công, mọi lỗi rollback phần chưa commit của job đó. Thêm nhánh
   mới có ghi DB thì phải tự commit ở cuối nhánh (`tests/test_pipeline_transactions.py`).
 - **`scrapjd/api/routers/` không chứa SQL thô.** SQL nằm ở `scrapjd/db/` (`tests/test_layering.py`).
@@ -602,7 +602,7 @@ Bốn script độc lập, không nằm trong pipeline crawl chính, chạy khi 
 `python -m scrapjd.maintenance.<tên>` (chạy `python x.py` thì import hỏng).
 So sánh nhanh ở bảng trong [Quy trình đầu-cuối](#quy-trình-đầu-cuối).
 
-### `backfill_company_profiles.py`
+### `scrapjd/maintenance/backfill_company_profiles.py`
 
 ```bash
 python -m scrapjd.maintenance.backfill_company_profiles --limit 10   # thử ít công ty
@@ -616,7 +616,7 @@ thiếu ít nhất một trong bốn field đầu, bằng cách gọi lại
 Tavily/Gemini; nên dùng trước các script còn lại vì chính xác hơn (đọc
 thẳng trang gốc, không qua search và LLM suy luận).
 
-### `enrich_company_profile_from_website.py`
+### `scrapjd/maintenance/enrich_company_profile_from_website.py`
 
 ```bash
 python -m scrapjd.maintenance.enrich_company_profile_from_website --limit 50
@@ -626,11 +626,11 @@ python -m scrapjd.maintenance.enrich_company_profile_from_website
 Vá `industry` và `products_services` cho công ty **đã có `website`** nhưng
 còn thiếu một trong hai, bằng cách đọc trang chủ/giới thiệu của chính
 website đó rồi nhờ Gemini phân loại. Không cần Tavily nên rẻ hơn
-`enrich_company_web_info.py`. Đặc biệt cần cho công ty nguồn CareerViet
+`scrapjd/maintenance/enrich_company_web_info.py`. Đặc biệt cần cho công ty nguồn CareerViet
 (trang công ty CareerViet không hiển thị `industry`). Điều kiện chọn công ty
 là OR: thiếu `industry` HOẶC thiếu `products_services` đều được chọn.
 
-### `enrich_company_web_info.py`
+### `scrapjd/maintenance/enrich_company_web_info.py`
 
 ```bash
 python -m scrapjd.maintenance.enrich_company_web_info --limit 10
@@ -649,7 +649,7 @@ công ty **không có** `source_profile_url` (tạo tay qua `POST /companies`,
 hoặc crawl từ nguồn không hỗ trợ `fetch_company_profile`). Cần
 `TAVILY_API_KEY` và `GEMINI_API_KEY` trong `.env`.
 
-### `get_company_fb_linkedin_link.py`
+### `scrapjd/maintenance/get_company_fb_linkedin_link.py`
 
 ```bash
 python -m scrapjd.maintenance.get_company_fb_linkedin_link --limit 10
@@ -669,7 +669,7 @@ link có thật khi mở bằng trình duyệt.
 
 ## 3. Dọn job hết hạn
 
-**`check_expired_source_jobs.py`** (`scrapjd/maintenance/`, chạy từ GỐC repo bằng `-m` như các lệnh dưới): nên chạy sau mỗi đợt crawl hoặc định kỳ
+**`scrapjd/maintenance/check_expired_source_jobs.py`** (`scrapjd/maintenance/`, chạy từ GỐC repo bằng `-m` như các lệnh dưới): nên chạy sau mỗi đợt crawl hoặc định kỳ
 (cron hằng ngày). JD trên nguồn bị nhà tuyển dụng xoá sau một thời gian
 nhưng DB không tự biết, nên job vẫn hiện `OPEN` dù link nguồn đã chết.
 
@@ -804,7 +804,7 @@ Việc đăng ký nguồn nằm trong **một module duy nhất**: `scrapjd/sour
 
 Xong: `main.py` và toàn bộ `scrapjd/api/` (crawl runner, router `/crawl`, router
 `/sources`) tự thấy nguồn mới; không cần sửa `scrapjd/normalize.py`, `scrapjd/db/`,
-`pipeline.py`. Ngoại lệ duy nhất (vì là hai repo tách biệt): frontend
+`scrapjd/pipeline.py`. Ngoại lệ duy nhất (vì là hai repo tách biệt): frontend
 `mindx-jobs` cần tự thêm nhãn hiển thị ở `blueprints/crawl.py::_SOURCE_LABELS`.
 
 ---

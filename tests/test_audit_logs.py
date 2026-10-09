@@ -1,6 +1,6 @@
 """
-Tests cho audit log — diff_changed_fields (db/audit_logs.py) và danh sách
-action/entity hợp lệ của GET /audit-logs (api/routers/audit_logs.py).
+Tests cho audit log — diff_changed_fields (scrapjd/db/audit_logs.py) và danh sách
+action/entity hợp lệ của GET /audit-logs (scrapjd/api/routers/audit_logs.py).
 
 Coverage:
 - diff_changed_fields: số so bằng GIÁ TRỊ (Decimal('10000000.00') ==

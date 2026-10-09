@@ -1,5 +1,5 @@
 """
-Luật suy ra job từ listing (db/job_derivation.py, C2 nửa 1/2). Hàm thuần, không cần DB.
+Luật suy ra job từ listing (scrapjd/db/job_derivation.py, C2 nửa 1/2). Hàm thuần, không cần DB.
 Các luật 1 đến 3 do bạn duyệt 08/10/2026; luật closed_reason (khi mọi listing CLOSED) là đề xuất của mình.
 """
 from datetime import date, datetime, timedelta, timezone

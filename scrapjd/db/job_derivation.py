@@ -1,9 +1,9 @@
 """
 db.job_derivation — SUY RA trạng thái, hạn và URL của job từ các listing của nó (C2, nửa 1/2).
 
-MÔ HÌNH (xem db/listing_state.py và KE_HOACH_BACKEND_DATABASE.md mục 4): listing (một dòng
+MÔ HÌNH (xem scrapjd/db/listing_state.py và KE_HOACH_BACKEND_DATABASE.md mục 4): listing (một dòng
 job_sources_log) giữ trạng thái, job là giá trị tổng hợp. Nửa 1/2 của C2 CHỈ ĐỊNH NGHĨA phép tổng hợp đó
-và đo độ lệch so với giá trị đang lưu trong job_postings (check_listing_derivation.py). Chưa có chỗ ghi
+và đo độ lệch so với giá trị đang lưu trong job_postings (scrapjd/cli/check_listing_derivation.py). Chưa có chỗ ghi
 nào dùng nó: nửa 2/2 mới cho pipeline và update_job ghi giá trị suy ra vào job.
 
 LUẬT (bạn duyệt 08/10/2026):

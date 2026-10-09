@@ -1,5 +1,5 @@
 """
-Logic THUẦN của lệnh tính lại level (recompute_levels.py, Phần 2b) — không cần DB.
+Logic THUẦN của lệnh tính lại level (scrapjd/cli/recompute_levels.py, Phần 2b) — không cần DB.
 Phần chạy SQL thật nằm ở tests/test_pg_recompute_levels.py.
 """
 from scrapjd import normalize

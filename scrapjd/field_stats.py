@@ -4,7 +4,7 @@ Thống kê TỶ LỆ TRƯỜNG RỖNG của dữ liệu adapter trả về (đ�
 Vì sao cần: selector/JSON-LD của từng nguồn hỏng âm thầm rất khó thấy —
 adapter vẫn trả record, pipeline vẫn insert, chỉ có 1 field (vd deadline,
 experience) bắt đầu rỗng hàng loạt sau khi site đổi giao diện. Docstring
-adapters/careerviet.py còn ghi "CHƯA XÁC NHẬN: có phải MỌI job đều có đủ
+scrapjd/adapters/careerviet.py còn ghi "CHƯA XÁC NHẬN: có phải MỌI job đều có đủ
 validThrough/monthsOfExperience" và cần "audit sau khi crawl thật vài trăm
 job" — module này cho con số đó ngay trong stats của từng lượt crawl, không
 cần chạy script audit riêng.
@@ -61,7 +61,7 @@ CRITICAL_FIELDS = {
 
 # Giá trị placeholder adapter tự điền khi không tìm thấy dữ liệu thật — tính
 # như RỖNG để thống kê không bị che. Vd TopCV điền "Chưa xác định" khi không
-# bắt được tên công ty (adapters/topcv.py), nếu không loại trừ thì
+# bắt được tên công ty (scrapjd/adapters/topcv.py), nếu không loại trừ thì
 # company_name không bao giờ hiện là rỗng dù parser đã hỏng.
 PLACEHOLDER_VALUES = frozenset({"chưa xác định"})
 

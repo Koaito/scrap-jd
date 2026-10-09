@@ -2,9 +2,9 @@
 db.crawl_batches — "crawl nhiều category liên tục" (08/2026, xem
 docstring sql/migration_add_crawl_batches.sql).
 
-Cùng pattern db/crawl_runs.py: mỗi hàm tự lo transaction riêng (commit()
+Cùng pattern scrapjd/db/crawl_runs.py: mỗi hàm tự lo transaction riêng (commit()
 ngay trong hàm) — lý do giống hệt crawl_runs.py, các hàm này đều được
-gọi từ api/crawl_runner.py::execute() (background task, không có
+gọi từ scrapjd/api/crawl_runner.py::execute() (background task, không có
 request/response bao quanh để commit hộ).
 
 MODULE NÀY KHÔNG ĐỘNG TỚI CƠ CHẾ CỦA crawl_runs.py (heartbeat/log
@@ -31,7 +31,7 @@ def create_batch(conn, *, source: str, categories: list, pages: int,
                   max_jobs: Optional[int], triggered_by: Optional[str]) -> str:
     """Tạo 1 dòng crawl_batches mới (status='running'), trả về batch_id
     (str). Gọi TRƯỚC KHI tạo run đầu tiên (xem
-    api/crawl_runner.py::start_batch()) — batch phải tồn tại trước để
+    scrapjd/api/crawl_runner.py::start_batch()) — batch phải tồn tại trước để
     run đầu có chỗ trỏ batch_id vào."""
     with conn.cursor() as cur:
         cur.execute(
@@ -52,7 +52,7 @@ def create_batch(conn, *, source: str, categories: list, pages: int,
 
 
 def advance_batch(conn, batch_id: str, finished_position: int) -> Optional[str]:
-    """Gọi từ api/crawl_runner.py::execute() NGAY SAU KHI 1 run trong
+    """Gọi từ scrapjd/api/crawl_runner.py::execute() NGAY SAU KHI 1 run trong
     batch đổi xong trạng thái 'done'/'error' (cả 2 đều tính là "category
     này đã xong", batch KHÔNG dừng lại nếu 1 category lỗi — giống vòng
     for bash chạy hết các lệnh dù 1 lệnh giữa chừng lỗi).

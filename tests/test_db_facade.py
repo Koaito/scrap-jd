@@ -1,7 +1,7 @@
 """
-Bảo vệ mặt tiền `import db` sau khi tách db/jobs.py và db/companies.py
+Bảo vệ mặt tiền `import db` sau khi tách scrapjd/db/jobs.py và scrapjd/db/companies.py
 (10/2026): mọi tên trong db.__all__ phải còn truy cập được, và không file
-db/*.py nào được phình lại thành "God module".
+scrapjd/db/*.py nào được phình lại thành "God module".
 
 Test đọc mã nguồn/import, không cần DB.
 """
@@ -14,7 +14,7 @@ from scrapjd import db
 DB_DIR = Path(__file__).resolve().parent.parent / "scrapjd" / "db"
 
 # Ngưỡng cảnh báo, không phải mục tiêu. File vượt ngưỡng nên tách theo
-# domain (xem cách db/jobs.py -> job_queries.py, job_health.py) thay vì nới số này.
+# domain (xem cách scrapjd/db/jobs.py -> job_queries.py, job_health.py) thay vì nới số này.
 MAX_LINES_PER_DB_MODULE = 700
 
 

@@ -2,7 +2,7 @@
 Test VietnamWorksAdapter — KHÔNG cần database, KHÔNG cần internet.
 
 Dùng tests/fixture_vietnamworks_search.json: fixture TỔNG HỢP dựng theo
-cấu trúc response đã xác nhận trong docstring adapters/vietnamworks.py,
+cấu trúc response đã xác nhận trong docstring scrapjd/adapters/vietnamworks.py,
 KHÔNG phải response thật lưu từ API (xem field "_note" trong file). Khi
 có 1 response search thật, thay vào để test bám sát dữ liệu thật hơn.
 """

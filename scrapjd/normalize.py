@@ -640,11 +640,11 @@ _ANONYMOUS_EMPLOYER_RE = re.compile(
 
 def is_anonymous_employer_name(company_name: str) -> bool:
     """True nếu company_name khớp 1 trong các pattern nhà tuyển dụng ẩn
-    danh (xem _ANONYMOUS_EMPLOYER_RE) — dùng ở pipeline.py để BỎ QUA
+    danh (xem _ANONYMOUS_EMPLOYER_RE) — dùng ở scrapjd/pipeline.py để BỎ QUA
     hẳn job này (không tạo company/job mới), tránh rác kiểu "Vietnamworks'
     Client" lọt vào bảng companies.
 
-    Chỉ áp dụng cho job MỚI (pipeline.py check trước khi
+    Chỉ áp dụng cho job MỚI (scrapjd/pipeline.py check trước khi
     get_or_create_company_by_profile()) — KHÔNG tự động xoá dữ liệu cũ
     đã lỡ insert từ trước, việc đó xử lý thủ công riêng."""
     return bool(_ANONYMOUS_EMPLOYER_RE.search(company_name or ""))
@@ -719,7 +719,7 @@ def normalize_company_size(company_size_text: Optional[str]) -> str:
 # "Sales Assistant"; mã 2109152 từng là "BACK-END DEVELOPER", nay là "Kỹ Sư An
 # Toàn Thông Tin"). Gộp hai tin như vậy vào một dòng sẽ làm dòng đó sai, nên cả
 # scripts/backfill/backfill_vnw_detail.py lẫn pipeline crawl chỉ coi là cùng một job khi tiêu đề
-# còn "gần giống". Đặt ở đây (không phải trong script) vì pipeline.py không được
+# còn "gần giống". Đặt ở đây (không phải trong script) vì scrapjd/pipeline.py không được
 # import từ script.
 MIN_TITLE_OVERLAP = 0.5
 

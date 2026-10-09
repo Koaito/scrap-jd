@@ -8,7 +8,7 @@ quyền admin, giống mọi thao tác CRUD job/company/contact khác trong
 codebase này).
 
 Luồng Import 2 bước (preview -> confirm) — xem docstring
-api/services/preview_manager.py để hiểu đầy đủ cấu trúc preview_data.
+scrapjd/api/services/preview_manager.py để hiểu đầy đủ cấu trúc preview_data.
 """
 
 from datetime import date, datetime, timezone

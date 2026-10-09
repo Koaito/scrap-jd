@@ -4,7 +4,7 @@ database, KHÔNG cần internet.
 
 tests/fixture_careerviet_listing.html và fixture_careerviet_job_detail.html
 là fixture TỔNG HỢP dựng theo cấu trúc đã mô tả trong docstring
-adapters/careerviet.py, KHÔNG phải HTML thật lưu từ site. Riêng
+scrapjd/adapters/careerviet.py, KHÔNG phải HTML thật lưu từ site. Riêng
 fixture_careerviet_company_profile.html là HTML thật (test ở
 test_parse_and_normalize.py). Khi có view-source thật của trang
 listing/JD, thay vào để test bám sát site thật hơn.

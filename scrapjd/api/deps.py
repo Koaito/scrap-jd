@@ -6,14 +6,14 @@ xem db.py mục "CONNECTION POOL") cho mỗi request, TRẢ LẠI pool khi
 request xong (kể cả khi lỗi, nhờ try/finally) — đổi từ mở/đóng connection
 thật mỗi request (08/2026, xem lịch sử trao đổi) sang mượn/trả connection
 đã mở sẵn, giảm round-trip TCP/TLS khi nhiều người dùng dashboard cùng
-lúc. Pool được khởi tạo 1 lần lúc app khởi động (api/app.py, startup
+lúc. Pool được khởi tạo 1 lần lúc app khởi động (scrapjd/api/app.py, startup
 event gọi db.init_pool()) — get_db() chỉ mượn/trả, không tự khởi tạo.
 
 get_current_user()/require_role()/require_admin() (require_role thêm
 08/2026, xem sql/migration_add_role_hierarchy.sql): lớp đăng nhập TỪNG
-NGƯỜI qua JWT — KHÁC api/auth.py (API_KEY tĩnh, đã đăng ký cấp app,
+NGƯỜI qua JWT — KHÁC scrapjd/api/auth.py (API_KEY tĩnh, đã đăng ký cấp app,
 chặn TRƯỚC khi request chạm tới đây). 2 lớp xếp CHỒNG lên nhau:
-  1. API_KEY (api/auth.py, dependencies=[] cấp app trong app.py) — xác
+  1. API_KEY (scrapjd/api/auth.py, dependencies=[] cấp app trong app.py) — xác
      nhận "client này là frontend của chúng ta", áp dụng MỌI request.
   2. JWT (get_current_user() dưới đây) — xác nhận "user THẬT nào đang
      gọi", chỉ áp dụng cho route nào khai báo Depends(get_current_user)
@@ -25,7 +25,7 @@ chặn TRƯỚC khi request chạm tới đây). 2 lớp xếp CHỒNG lên nhau
 thuần sang dict có thêm `error_code` (`missing_auth_header` khi không
 gửi header Authorization, `token_expired` khi có gửi nhưng token
 invalid/hết hạn) — giữ nguyên `message` = text cũ. Lý do: FE nhận
-status_code=401 y hệt nhau giữa lỗi API_KEY sai (api/auth.py) và lỗi
+status_code=401 y hệt nhau giữa lỗi API_KEY sai (scrapjd/api/auth.py) và lỗi
 JWT ở đây, không có cách phân biệt để tự quyết định retry/redirect
 đúng chỗ (API_KEY sai -> lỗi cấu hình, không tự sửa được; token hết
 hạn -> gọi POST /auth/refresh; thiếu header -> yêu cầu đăng nhập lại).
@@ -125,7 +125,7 @@ def get_current_user(
     payload trả về từ user_row (role/is_active mới nhất), và chặn ngay
     ở đây nếu is_active=false thay vì đợi refresh token hết hạn mới
     phát hiện — cùng error_code AUTH_ACCOUNT_INACTIVE đã dùng ở
-    refresh() (api/routers/auth_session.py) cho tình huống tương tự."""
+    refresh() (scrapjd/api/routers/auth_session.py) cho tình huống tương tự."""
     if credentials is None:
         raise HTTPException(
             status_code=401,

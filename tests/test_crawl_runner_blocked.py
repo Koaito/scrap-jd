@@ -1,5 +1,5 @@
 """
-api/crawl_runner._execute_one() đợt 3 (10/2026): lượt bị chặn ghi stats tạm +
+scrapjd/api/crawl_runner._execute_one() đợt 3 (10/2026): lượt bị chặn ghi stats tạm +
 cờ blocked, dừng cả batch; snapshot được lưu kể cả khi lỗi; cảnh báo nguồn vừa
 bị chặn — KHÔNG cần database (mock module db), KHÔNG cần internet.
 """

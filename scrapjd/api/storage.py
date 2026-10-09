@@ -1,5 +1,5 @@
 """
-api/storage.py — Module upload, tạo signed URL và xóa file PDF trên Supabase Storage
+scrapjd/api/storage.py — Module upload, tạo signed URL và xóa file PDF trên Supabase Storage
 Sử dụng Supabase Storage REST API qua HTTP (nhẹ, không cần cài thêm SDK).
 
 Dùng curl_cffi — cùng thư viện HTTP với các adapter crawl, nên cả repo chỉ
@@ -40,7 +40,7 @@ def upload_cv(file_bytes: bytes, user_id: str, application_id: str) -> str:
     object_path = f"{user_id}/{application_id}.pdf"
     url = f"{SUPABASE_URL}/storage/v1/object/{SUPABASE_CV_BUCKET}/{object_path}"
 
-    # Lỗi mạng/timeout phải thành RuntimeError: api/routers/me.py chỉ bắt
+    # Lỗi mạng/timeout phải thành RuntimeError: scrapjd/api/routers/me.py chỉ bắt
     # RuntimeError quanh upload_cv (trả PROFILE_CV_UPLOAD_FAILED + rollback).
     # Để exception của thư viện HTTP lọt ra thì thành 500 không có error_code.
     try:

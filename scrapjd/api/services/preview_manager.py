@@ -116,7 +116,7 @@ def build_preview(conn, entity_type: str, validation_result: ValidationResult) -
         # id_field: tên cột PK thật của entity (vd "job_id") — thêm
         # 08/2026 để FE tra tên field id đúng từ response thay vì tự
         # hardcode map entity_type -> tên cột id riêng phía client (xem
-        # EntitySpec.id_field, api/services/entity_specs.py).
+        # EntitySpec.id_field, scrapjd/api/services/entity_specs.py).
         "id_field": get_spec(entity_type).id_field,
     }
 

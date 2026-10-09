@@ -3,7 +3,7 @@
 (job_applications) và lưu job để xem lại sau (saved_jobs). Thêm 08/2026
 (xem sql/migration_add_applications_saved_jobs.sql).
 
-require_role("user") — bậc thấp nhất trong 3 role (xem api/deps.py) —
+require_role("user") — bậc thấp nhất trong 3 role (xem scrapjd/api/deps.py) —
 tức MỌI tài khoản đã đăng nhập đều gọi được (staff test thử cũng được,
 không riêng học viên). ss_user_id lấy từ chính JWT (user["sub"]),
 KHÔNG nhận qua path/body — 1 người chỉ thao tác được trên đơn/bookmark
@@ -14,7 +14,7 @@ bị chặn 400 ngay ở POST /me/applications (không chặn ở tầng saved-j
 vì lưu job đã đóng để xem lại vẫn hợp lý).
 
 Rate limit (thêm 08/2026): POST /me/applications và POST /me/saved-jobs
-dùng key_func=get_user_id_or_ip (api/rate_limit.py) — khoá theo
+dùng key_func=get_user_id_or_ip (scrapjd/api/rate_limit.py) — khoá theo
 ss_user_id trong JWT thay vì IP, vì route này luôn có người đăng nhập
 sẵn. Lý do khoá theo user thay vì IP mặc định của limiter: nhiều học
 viên dùng chung 1 mạng (KTX, wifi lớp học) sẽ có cùng 1 IP, nếu khoá
@@ -124,7 +124,7 @@ def list_my_applications(
 
 
 # Route GET /applications/{application_id}/cv-url đã DỜI sang
-# GET /jobs/applications/{application_id}/cv-url (api/routers/jobs.py) —
+# GET /jobs/applications/{application_id}/cv-url (scrapjd/api/routers/jobs.py) —
 # xem comment ở đó. Phần 5 mục 11 của plan: route này chỉ staff
 # (require_role("ss_team")) gọi được, không phải hành động tự phục vụ
 # của học viên, nên không nên nằm dưới namespace /me.

@@ -1,5 +1,5 @@
 """
-Báo cáo đo tỷ lệ gộp nhầm (A5) — phần logic THUẦN của repost_report.py, không cần DB:
+Báo cáo đo tỷ lệ gộp nhầm (A5) — phần logic THUẦN của scrapjd/cli/repost_report.py, không cần DB:
 tách phần "Mô tả/Yêu cầu" khỏi "Quyền lợi", tách từ, so độ giống, phân loại, dựng kết quả theo job,
 tổng hợp, CSV, kiểm tra tham số CLI. Phần SQL và chạy thật ở tests/test_pg_repost_report.py.
 """

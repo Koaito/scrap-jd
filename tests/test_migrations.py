@@ -1,6 +1,6 @@
 """
 Test cho cơ chế tracking migration (schema_migrations table) thêm 08/2026
-— xem docstring db/connection.py::apply_migrations() để biết bối cảnh
+— xem docstring scrapjd/db/connection.py::apply_migrations() để biết bối cảnh
 (trước đây 29 file migration_*.sql rời rạc không có cách nào biết DB
 nào đã chạy file nào).
 

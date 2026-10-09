@@ -45,10 +45,10 @@ from scrapjd.config import (
     TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, DEFAULT_CATEGORY, DEFAULT_MAX_PAGES,
 )
 # SOURCES/DEFAULT_SOURCE giờ sống ở 1 nguồn sự thật duy nhất
-# (sources_registry.py) — xem docstring file đó để biết lý do (trước
-# đây bị khai báo lặp lại thủ công ở đây + 3 nơi khác trong api/, dễ
+# (scrapjd/sources_registry.py) — xem docstring file đó để biết lý do (trước
+# đây bị khai báo lặp lại thủ công ở đây + 3 nơi khác trong scrapjd/api/, dễ
 # lệch, đã từng gây bug CareerViet "crawl được nhưng không hiện trên
-# web"). Thêm nguồn crawl mới -> sửa sources_registry.py, KHÔNG sửa
+# web"). Thêm nguồn crawl mới -> sửa scrapjd/sources_registry.py, KHÔNG sửa
 # file này.
 from scrapjd.sources_registry import SOURCES, DEFAULT_SOURCE
 
@@ -194,27 +194,27 @@ def cmd_migrate(args):
 
 def cmd_recompute_levels(args):
     """Tính lại level cho job chưa đóng dấu / dấu cũ hơn LEVEL_RULE_VERSION, hoàn toàn
-    trong DB. Mặc định chạy thử; --apply mới ghi. Xem docstring recompute_levels.py."""
+    trong DB. Mặc định chạy thử; --apply mới ghi. Xem docstring scrapjd/cli/recompute_levels.py."""
     sys.exit(recompute_levels.run_cli(args))
 
 
 def cmd_report_duplicates(args):
-    """Báo cáo job nghi trùng (Phần 3a), CHỈ ĐỌC. Xem docstring duplicate_report.py."""
+    """Báo cáo job nghi trùng (Phần 3a), CHỈ ĐỌC. Xem docstring scrapjd/cli/duplicate_report.py."""
     sys.exit(duplicate_report.run_cli(args))
 
 
 def cmd_report_reposts(args):
-    """Đo tỷ lệ gộp nhầm (A5), CHỈ ĐỌC. Xem docstring repost_report.py."""
+    """Đo tỷ lệ gộp nhầm (A5), CHỈ ĐỌC. Xem docstring scrapjd/cli/repost_report.py."""
     sys.exit(repost_report.run_cli(args))
 
 
 def cmd_check_listing_derivation(args):
-    """So job suy ra từ listing với job đang lưu (C2), CHỈ ĐỌC. Xem docstring check_listing_derivation.py."""
+    """So job suy ra từ listing với job đang lưu (C2), CHỈ ĐỌC. Xem docstring scrapjd/cli/check_listing_derivation.py."""
     sys.exit(check_listing_derivation.run_cli(args))
 
 
 def cmd_merge_duplicates(args):
-    """Gộp job trùng (Phần 3b). Mặc định chạy thử; --apply mới gộp thật. Xem docstring merge_duplicates.py."""
+    """Gộp job trùng (Phần 3b). Mặc định chạy thử; --apply mới gộp thật. Xem docstring scrapjd/cli/merge_duplicates.py."""
     sys.exit(merge_duplicates.run_cli(args))
 
 
@@ -224,7 +224,7 @@ def cmd_create_admin(args):
     yêu cầu ĐÃ CÓ admin để gọi (require_admin) — "con gà quả trứng" lúc
     khởi tạo hệ thống lần đầu. Sau khi có 1 admin, tạo user tiếp theo
     (admin hoặc member) nên làm qua POST /auth/users từ frontend."""
-    # Import ở đây (không import ở đầu file) vì api/security.py raise
+    # Import ở đây (không import ở đầu file) vì scrapjd/api/security.py raise
     # lỗi ngay lúc import nếu thiếu JWT_SECRET_KEY — không muốn việc đó
     # chặn luôn các lệnh CLI khác (crawl/stats) vốn không cần tới auth.
     from scrapjd.api import security
@@ -285,7 +285,7 @@ def cmd_crawl(args):
         # Chỉ giới hạn theo --max-jobs, không quan tâm số trang -> nới
         # --pages lên rất cao để KHÔNG PHẢI --pages là thứ chặn crawl lại
         # (--max-jobs mới là giới hạn thực sự người dùng muốn). Vẫn an
-        # toàn vì vòng lặp trong pipeline.py sẽ dừng ngay khi đủ
+        # toàn vì vòng lặp trong scrapjd/pipeline.py sẽ dừng ngay khi đủ
         # --max-jobs, không thật sự crawl tới 999 trang.
         effective_pages = 999
     else:
@@ -296,7 +296,7 @@ def cmd_crawl(args):
         return
 
     # Mặc định (đợt 3.5, 10/2026): chạy qua CÙNG đường với nút "Crawl" trên web
-    # (api/crawl_runner.execute) — có dòng trong crawl_runs, cờ blocked/degraded,
+    # (scrapjd/api/crawl_runner.execute) — có dòng trong crawl_runs, cờ blocked/degraded,
     # snapshot HTML gốc, log live. Trước đây CLI gọi thẳng run_pipeline() nên
     # lượt chạy trên máy không để lại dấu vết nào trong DB.
     from scrapjd.api import crawl_runner

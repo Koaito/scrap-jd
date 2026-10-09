@@ -664,7 +664,7 @@ def _update_row(conn, entity_type, data, existing, resolution, actor_id, *, reac
         )
         # BUG FIX (migrate Next.js, Phần 1 mục 3.3 của plan): `data` là
         # dict THUẦN dựng lúc build preview (KHÔNG qua Pydantic, không
-        # có model_fields_set như payload ở api/routers/jobs.py::
+        # có model_fields_set như payload ở scrapjd/api/routers/jobs.py::
         # patch_job()) — nên phải tự xác định "cột lương có mặt trong
         # dòng file import hay không" bằng cách kiểm tra trực tiếp
         # `"salary_min" in data`, KHÔNG dùng `data.get("salary_min")`

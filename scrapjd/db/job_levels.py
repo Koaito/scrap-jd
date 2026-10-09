@@ -1,10 +1,10 @@
 """
-db.job_levels — luật đóng dấu level của job_postings (tách từ db/jobs.py,
+db.job_levels — luật đóng dấu level của job_postings (tách từ scrapjd/db/jobs.py,
 10/2026): mỗi level_id đi kèm level_source (suy từ đâu) và level_rule_version
 (theo bộ quy tắc phiên bản nào). Xem sql/migration_add_job_level_source.sql.
 
 Ở đây chỉ có logic THUẦN + sinh mảnh câu SQL, không tự chạy SQL. Mọi nơi ghi
-level (db/jobs.py, db/job_recrawl.py, lệnh tính lại level sau này) dùng chung
+level (scrapjd/db/jobs.py, scrapjd/db/job_recrawl.py, lệnh tính lại level sau này) dùng chung
 các hàm này để luật "ghi tự động không đè level người đã sửa" chỉ nằm ở MỘT chỗ.
 """
 

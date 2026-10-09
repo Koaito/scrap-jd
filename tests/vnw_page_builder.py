@@ -1,6 +1,6 @@
 """
 Dựng trang chi tiết VietnamWorks GIẢ đúng định dạng thật (luồng React Server
-Components của Next.js, xem adapters/vietnamworks_detail.py) để test không cần
+Components của Next.js, xem scrapjd/adapters/vietnamworks_detail.py) để test không cần
 mạng. Định dạng đối chiếu với trang thật job 2109772 (tests/
 fixture_vietnamworks_detail.html), gồm các điểm dễ sai:
 

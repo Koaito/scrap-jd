@@ -23,7 +23,7 @@ PHÂN LOẠI (mỗi nhóm):
     job OPEN > hạn nộp muộn hơn > tạo sớm hơn. Nhóm khác tỉnh không có đề xuất.
 
 Logic quyết định là hàm THUẦN (không DB), có test ở tests/test_duplicate_report.py. Phần SQL
-nằm ở db/job_duplicates.py.
+nằm ở scrapjd/db/job_duplicates.py.
 """
 
 import csv
@@ -175,7 +175,7 @@ def propose_keeper(members: list) -> tuple:
 
 def rank_members(members: list) -> list:
     """Các job của một nhóm theo luật chọn giữ v0, tốt nhất (nên giữ) trước. Dùng chung với
-    merge_duplicates.py (Phần 3b) để thứ tự job giữ / job bị gộp luôn khớp báo cáo."""
+    scrapjd/cli/merge_duplicates.py (Phần 3b) để thứ tự job giữ / job bị gộp luôn khớp báo cáo."""
     return sorted(members, key=_keeper_key)
 
 

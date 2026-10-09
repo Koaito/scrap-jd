@@ -83,7 +83,7 @@ class PipelineStats:
     # Mục dưới CHỈ xuất hiện trong to_dict() khi có giá trị (giống hành vi cũ:
     # dict không có khoá này nếu không có gì để báo), để frontend phân biệt
     # "không có" với "có nhưng rỗng".
-    field_empty: dict | None = None  # tỷ lệ trường rỗng, xem field_stats.py
+    field_empty: dict | None = None  # tỷ lệ trường rỗng, xem scrapjd/field_stats.py
     degraded: dict | None = None  # {"reasons": [...]}, xem pipeline._finalize_stats
     blocked: bool = False  # bị chặn (trang đầu thất bại hoặc ngắt mạch)
 

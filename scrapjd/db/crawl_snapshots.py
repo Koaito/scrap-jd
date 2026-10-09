@@ -1,8 +1,8 @@
 """
 db.crawl_snapshots — lưu/đọc snapshot HTML/JSON gốc của lượt crawl (đợt 3,
-10/2026, xem snapshots.py + sql/migration_add_crawl_snapshots.sql).
+10/2026, xem scrapjd/snapshots.py + sql/migration_add_crawl_snapshots.sql).
 
-Cùng pattern db/crawl_runs.py: mỗi hàm tự commit() ngay vì execute() chạy nền,
+Cùng pattern scrapjd/db/crawl_runs.py: mỗi hàm tự commit() ngay vì execute() chạy nền,
 không có request/response bao quanh để commit hộ.
 """
 
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def save_snapshots(conn, run_id: str, source: str, items: Iterable,
                    retention_days: int = SNAPSHOT_RETENTION_DAYS) -> int:
-    """Lưu các Snapshot (xem snapshots.py) của 1 lượt crawl, rồi xoá bản ghi
+    """Lưu các Snapshot (xem scrapjd/snapshots.py) của 1 lượt crawl, rồi xoá bản ghi
     cũ hơn retention_days. Trả số bản ghi đã lưu.
 
     Không bao giờ raise: lưu snapshot chỉ phục vụ debug, lỗi ở đây (migration

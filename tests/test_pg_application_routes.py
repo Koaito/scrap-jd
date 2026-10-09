@@ -1,14 +1,14 @@
 """
 Test hành vi cho 3 route đụng bảng job_applications trên Postgres THẬT:
 
-  - GET    /jobs/applications/{id}/cv-url   (api.routers.jobs.get_cv_signed_url)
-  - POST   /me/applications                 (api.routers.me.apply_to_job)
-  - DELETE /me/applications/{job_id}        (api.routers.me.withdraw_application)
+  - GET    /jobs/applications/{id}/cv-url   (scrapjd.api.routers.jobs.get_cv_signed_url)
+  - POST   /me/applications                 (scrapjd.api.routers.me.apply_to_job)
+  - DELETE /me/applications/{job_id}        (scrapjd.api.routers.me.withdraw_application)
 
-Viết ra để chốt hành vi TRƯỚC khi đưa SQL thô ở các route này xuống db/
+Viết ra để chốt hành vi TRƯỚC khi đưa SQL thô ở các route này xuống scrapjd/db/
 (refactor không đổi hành vi: bộ test này chạy giống hệt trước và sau).
 Gọi thẳng hàm route (cùng convention tests/test_api_contacts.py), chỉ giả
-lập api.storage (không gọi Supabase thật).
+lập scrapjd.api.storage (không gọi Supabase thật).
 
 Cách chạy: đặt TEST_DATABASE_URL trỏ tới 1 DB RIÊNG có chữ "test" trong tên
 (xem tests/test_pg_integration.py — fixture ở đây cũng DROP SCHEMA public).

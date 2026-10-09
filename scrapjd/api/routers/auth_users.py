@@ -1,9 +1,9 @@
 """
 Router quản trị tài khoản người dùng (admin/ss_team) — xem docstring
-api/security.py và sql/migration_add_auth.sql để hiểu toàn bộ thiết kế
+scrapjd/api/security.py và sql/migration_add_auth.sql để hiểu toàn bộ thiết kế
 trước khi đọc file này.
 
-Tách ra từ api/routers/auth.py (08/2026) — xem docstring auth.py
+Tách ra từ scrapjd/api/routers/auth.py (08/2026) — xem docstring auth.py
 (facade) và auth_session.py để biết lý do tách 738 dòng/14 endpoint
 thành 3 file theo domain. File này chứa các route "staff quản lý tài
 khoản NGƯỜI KHÁC": tạo tài khoản, liệt kê, xem đơn ứng tuyển/job đã

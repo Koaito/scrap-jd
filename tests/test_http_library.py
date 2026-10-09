@@ -1,7 +1,7 @@
 """
 Cả repo dùng đúng MỘT thư viện HTTP: curl_cffi (10/2026).
 
-Trước đây api/storage.py import `requests` thật mà requirements.txt chỉ
+Trước đây scrapjd/api/storage.py import `requests` thật mà requirements.txt chỉ
 nhắc qua trong comment, chạy được là nhờ thư viện khác cài kèm. Các adapter
 thì `from curl_cffi import requests` (đặt tên trùng `requests`, rất dễ nhìn
 nhầm là thư viện thật). Test này chặn việc quay lại import `requests` thật.

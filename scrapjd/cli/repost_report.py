@@ -33,7 +33,7 @@ GIỚI HẠN (nói rõ để không đọc số quá mức):
     Chỉ đếm số bị bỏ, không so được.
   - Các ngưỡng là ước lượng ban đầu, CHƯA hiệu chuẩn bằng mắt. Xem phân bố và --csv để chỉnh.
 
-Phần SQL nằm ở db/job_reposts.py.
+Phần SQL nằm ở scrapjd/db/job_reposts.py.
 """
 
 import csv

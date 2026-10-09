@@ -1,5 +1,5 @@
 """
-Tests cho api/routers/import_export.py — route import/export CSV/XLSX.
+Tests cho scrapjd/api/routers/import_export.py — route import/export CSV/XLSX.
 
 Test coverage:
 - Export validation (entity_type, format)

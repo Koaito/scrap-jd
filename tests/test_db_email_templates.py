@@ -1,5 +1,5 @@
 """
-Test cho db/email_templates.py — cụ thể hàm _parse_pg_enum_array(), bản
+Test cho scrapjd/db/email_templates.py — cụ thể hàm _parse_pg_enum_array(), bản
 vá cho lỗi 500 (fastapi.exceptions.ResponseValidationError) khi psycopg2
 không tự parse được cột recommended_for kiểu contact_status_enum[].
 

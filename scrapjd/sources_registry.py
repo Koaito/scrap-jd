@@ -5,9 +5,9 @@ VietnamWorks/CareerViet/...).
 08/2026 — TRƯỚC ĐÂY danh sách này bị khai báo LẶP LẠI thủ công độc lập ở
 4 nơi khác nhau trong backend:
   - main.py::SOURCES
-  - api/crawl_runner.py::_SOURCE_ADAPTERS
-  - api/routers/crawl.py::_CATEGORIES_BY_SOURCE
-  - api/routers/meta.py::get_sources() (hardcode từng nguồn)
+  - scrapjd/api/crawl_runner.py::_SOURCE_ADAPTERS
+  - scrapjd/api/routers/crawl.py::_CATEGORIES_BY_SOURCE
+  - scrapjd/api/routers/meta.py::get_sources() (hardcode từng nguồn)
 
 Hậu quả thực tế đã xảy ra: adapter CareerViet đã viết xong và chạy được
 qua CLI (main.py) từ trước, nhưng "biến mất" ở 3 nơi kia do bị quên đăng
@@ -19,11 +19,11 @@ danh sách phải tự tay giữ đồng bộ.
 Giờ CẢ 4 nơi trên đều import từ ĐÚNG 1 chỗ này (SOURCES / SOURCE_ADAPTERS
 / CATEGORIES_BY_SOURCE bên dưới). Thêm 1 nguồn crawl mới (vd ITviec) từ
 nay chỉ cần:
-  1. Viết adapter mới (kế thừa BaseAdapter, xem adapters/base.py).
-  2. Thêm CATEGORIES tương ứng vào config.py.
+  1. Viết adapter mới (kế thừa BaseAdapter, xem scrapjd/adapters/base.py).
+  2. Thêm CATEGORIES tương ứng vào scrapjd/config.py.
   3. Thêm đúng 1 entry vào dict SOURCES bên dưới.
-KHÔNG cần sửa main.py / api/crawl_runner.py / api/routers/crawl.py /
-api/routers/meta.py nữa — cả 4 file đó tự động thấy nguồn mới.
+KHÔNG cần sửa main.py / scrapjd/api/crawl_runner.py / scrapjd/api/routers/crawl.py /
+scrapjd/api/routers/meta.py nữa — cả 4 file đó tự động thấy nguồn mới.
 
 Ngoại lệ còn lại: frontend (mindx-jobs, repo riêng biệt) vẫn cần tự khai
 báo nhãn hiển thị ở blueprints/crawl.py (_SOURCE_LABELS) — không tránh
@@ -46,8 +46,8 @@ SOURCES = {
 
 DEFAULT_SOURCE = "topcv"
 
-# 2 "view" phái sinh từ SOURCES — giữ NGUYÊN tên biến mà api/crawl_runner.py
-# và api/routers/crawl.py đã dùng trước đây (_SOURCE_ADAPTERS /
+# 2 "view" phái sinh từ SOURCES — giữ NGUYÊN tên biến mà scrapjd/api/crawl_runner.py
+# và scrapjd/api/routers/crawl.py đã dùng trước đây (_SOURCE_ADAPTERS /
 # _CATEGORIES_BY_SOURCE), để 2 nơi đó chỉ cần đổi CÂU IMPORT, không cần
 # sửa phần logic còn lại đang tham chiếu tới tên biến này.
 SOURCE_ADAPTERS = {key: cfg["adapter_cls"] for key, cfg in SOURCES.items()}

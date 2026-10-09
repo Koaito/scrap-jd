@@ -2,8 +2,8 @@
 db.jobs — GHI job (insert/update/tạo tay) và các hàm "probe" cho pipeline crawl.
 
 Tách từ db.py (God module) theo domain; 10/2026 tách tiếp phần đọc sang
-db/job_queries.py (list_jobs, get_job_by_id, get_jobs_by_company_id) và phần
-thống kê sang db/job_health.py (get_job_data_health).
+scrapjd/db/job_queries.py (list_jobs, get_job_by_id, get_jobs_by_company_id) và phần
+thống kê sang scrapjd/db/job_health.py (get_job_data_health).
 """
 
 import json
@@ -56,7 +56,7 @@ JOB_CLOSED_REASONS = frozenset({"staff", "expired_auto", "merged", "unknown"})
 #
 # KHÔNG đổi 4 tham số đó sang sentinel `_UNSET` như cách làm với
 # salary_min/salary_max ở trên, dù comment phía trên từng gợi ý vậy: nơi
-# gọi thứ 2 là api/services/import_executor.py::_update_row() truyền
+# gọi thứ 2 là scrapjd/api/services/import_executor.py::_update_row() truyền
 # level_id/province_id/work_type/deadline = None với nghĩa "ô này trống
 # trong file import -> GIỮ NGUYÊN", nếu đổi default sang sentinel mà quên
 # đổi None -> JOB_UNSET ở đó thì mỗi dòng import thiếu cột sẽ XOÁ dữ liệu
@@ -86,7 +86,7 @@ def probe_needs_enrichment(probe) -> bool:
     tax_id (trang company profile TopCV hiển thị "Mã số thuế"). Nhưng
     VietnamWorks KHÔNG BAO GIỜ hiển thị mã số thuế công ty (đã xác nhận
     08/2026) -> nếu vẫn dùng tax_id, mọi công ty crawl từ VietnamWorks sẽ
-    có tax_id RỖNG VĨNH VIỄN -> hàm này LUÔN trả True -> pipeline.py gọi
+    có tax_id RỖNG VĨNH VIỄN -> hàm này LUÔN trả True -> scrapjd/pipeline.py gọi
     lại fetch_company_profile() ở MỌI LẦN CRAWL cho MỌI công ty VNW, dù
     đã có đủ dữ liệu từ trước -> tốn request thừa vô hạn, ngược hẳn mục
     đích thiết kế ban đầu ("chỉ crawl công ty 1 lần").
@@ -491,10 +491,10 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     cần ghi, không phải tín hiệu "bỏ qua".
 
     **Cần truyền đúng `_UNSET` ở CẢ 2 nơi gọi hàm này** (không chỉ 1):
-    `api/routers/jobs.py::patch_job()` (dựa vào
+    `scrapjd/api/routers/jobs.py::patch_job()` (dựa vào
     `payload.model_fields_set` của Pydantic để biết field có mặt trong
     body PATCH hay không) và
-    `api/services/import_executor.py::_update_row()` (dựa vào
+    `scrapjd/api/services/import_executor.py::_update_row()` (dựa vào
     `"salary_min" in data`/`"salary_max" in data` — dict thuần dựng lúc
     build preview, không qua Pydantic nên không có `model_fields_set`).
     Quên 1 trong 2 nơi sẽ khiến field lương "sống 2 luật khác nhau" tuỳ

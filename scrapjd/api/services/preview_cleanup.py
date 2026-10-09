@@ -1,6 +1,6 @@
 """
 Cleanup task — xoá định kỳ mọi import_previews đã hết hạn (Requirement
-9). Đăng ký chạy qua APScheduler trong lifespan của api/app.py (thêm 08/2026),
+9). Đăng ký chạy qua APScheduler trong lifespan của scrapjd/api/app.py (thêm 08/2026),
 mỗi 15 phút — cùng tinh thần "job nền" như crawl scheduler nếu sau này có,
 KHÔNG chặn request nào của FE khi chạy (chạy nền trong process, tách
 riêng connection ngắn hạn rồi trả lại pool ngay).

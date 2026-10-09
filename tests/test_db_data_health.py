@@ -1,6 +1,6 @@
 """
 Test cho db.get_company_data_health() / db.get_job_data_health()
-(db/companies.py, db/jobs.py — thêm 08/2026, thay thế cách cũ frontend
+(scrapjd/db/companies.py, scrapjd/db/jobs.py — thêm 08/2026, thay thế cách cũ frontend
 tự đếm/group bằng Python trên list_all_companies()/
 list_all_jobs(include_content=True)).
 
@@ -31,7 +31,7 @@ class FakeCursor:
     (pop từng lần gọi) và 1 HÀNG QUEUE cho fetchall() (pop từng lần
     gọi) — khớp đúng cách get_job_data_health() gọi NHIỀU execute()
     nối tiếp trên CÙNG 1 cursor (1 fetchone rồi 3 fetchall, xem
-    db/jobs.py). Không quan tâm nội dung SQL thật (không assert query
+    scrapjd/db/jobs.py). Không quan tâm nội dung SQL thật (không assert query
     string) — chỉ test phần xử lý Python sau khi có kết quả."""
 
     def __init__(self, fetchone_queue=None, fetchall_queue=None):

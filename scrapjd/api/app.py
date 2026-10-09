@@ -2,7 +2,7 @@
 Entry point FastAPI — lớp API layer bọc ngoài codebase crawler hiện có.
 
 CHẠY:
-    uvicorn api.app:app --reload --port 8000
+    uvicorn scrapjd.api.app:app --reload --port 8000
 
 Sau khi chạy, xem tài liệu tự sinh tại (CẦN set ENABLE_DOCS=true trong
 .env trước — mặc định TẮT, xem mục "GIỚI HẠN ĐÃ BIẾT" bên dưới):
@@ -13,13 +13,13 @@ Sau khi chạy, xem tài liệu tự sinh tại (CẦN set ENABLE_DOCS=true tron
 cả hai cùng nói chuyện với 1 Postgres, có thể chạy song song, không
 xung đột. main.py KHÔNG bị sửa gì trong đợt thêm API layer này.
 
-AUTH + CORS (xem thêm api/auth.py và .env.example):
+AUTH + CORS (xem thêm scrapjd/api/auth.py và .env.example):
   - MỌI endpoint THẬT SỰ trả dữ liệu (kể cả /health) yêu cầu header
     'X-API-Key' đúng giá trị biến môi trường API_KEY — đăng ký theo
     TỪNG router bằng `dependencies=[Depends(require_api_key)]` ở
     include_router() (và trực tiếp trên @app.get("/health")).
   - NGOẠI LỆ (08/2026, sửa bug link xác thực email luôn 401): 3 route
-    công khai trong api/routers/auth.py — POST /auth/register, GET
+    công khai trong scrapjd/api/routers/auth.py — POST /auth/register, GET
     /auth/verify-email, POST /auth/resend-verification — nằm ở
     `auth.public_router`, include KHÔNG kèm X-API-Key. Lý do: GET
     /auth/verify-email được người dùng bấm thẳng từ email, trình duyệt
@@ -96,7 +96,7 @@ async def lifespan(app: FastAPI):
     db_module.init_pool()
 
     # 08/2026 (xem sql/migration_add_crawl_runs.sql +
-    # api/services/crawl_watchdog.py): reconcile CÁC LƯỢT CRAWL MỒ CÔI
+    # scrapjd/api/services/crawl_watchdog.py): reconcile CÁC LƯỢT CRAWL MỒ CÔI
     # từ lần chạy process TRƯỚC (còn kẹt 'queued'/'running' vì process
     # đó dừng đột ngột) — PHẢI chạy TRƯỚC yield (trước khi nhận request
     # nào), để không có cửa sổ thời gian nào UNIQUE INDEX
@@ -132,7 +132,7 @@ async def lifespan(app: FastAPI):
     # — BackgroundScheduler chạy TRONG process này (không cần service
     # ngoài kiểu cron/Celery riêng), đủ cho quy mô hiện tại (1 instance,
     # xem README.md mục "Trạng thái" + cùng lưu ý về scale ngang như
-    # api/rate_limit.py: nếu sau này chạy nhiều instance/worker, mỗi
+    # scrapjd/api/rate_limit.py: nếu sau này chạy nhiều instance/worker, mỗi
     # process sẽ tự chạy cleanup riêng — KHÔNG sai (DELETE ... WHERE
     # expires_at < now() là idempotent, chạy trùng nhiều lần không hại
     # gì), chỉ hơi thừa công, không cần sửa gì thêm nếu scale sau này).
@@ -143,11 +143,11 @@ async def lifespan(app: FastAPI):
     # cho reconcile_orphaned_crawl_runs() ở trên (chỉ bắt được lúc
     # server RESTART) — watchdog này bắt thêm trường hợp process không
     # restart nhưng 1 task bị treo giữa chừng (xem docstring
-    # api/services/crawl_watchdog.py).
+    # scrapjd/api/services/crawl_watchdog.py).
     scheduler.add_job(run_crawl_watchdog_once, "interval", minutes=CRAWL_WATCHDOG_INTERVAL_MINUTES)
     # Watchdog bảo trì treo (08/2026) — đối xứng watchdog crawl ở trên,
     # DÙNG CHUNG scheduler này, xem docstring
-    # api/services/maintenance_watchdog.py.
+    # scrapjd/api/services/maintenance_watchdog.py.
     scheduler.add_job(run_maintenance_watchdog_once, "interval", minutes=MAINTENANCE_WATCHDOG_INTERVAL_MINUTES)
     scheduler.start()
 
@@ -164,7 +164,7 @@ app = FastAPI(
     # KHÔNG còn dependencies=[Depends(require_api_key)] ở cấp app (khác
     # bản trước 08/2026) — X-API-Key giờ đăng ký RIÊNG cho từng router
     # bên dưới (include_router(..., dependencies=[...])) để có thể loại
-    # trừ auth.public_router (xem docstring đầu file + api/routers/auth.py).
+    # trừ auth.public_router (xem docstring đầu file + scrapjd/api/routers/auth.py).
     lifespan=lifespan,
     # /docs, /redoc, /openapi.json KHÔNG đi qua dependencies= ở trên (xem
     # docstring đầu file) -> mặc định TẮT HẲN (fail-closed), chỉ bật khi
@@ -174,9 +174,9 @@ app = FastAPI(
     openapi_url="/openapi.json" if _docs_enabled else None,
 )
 
-# Rate limiting (xem docstring đầy đủ ở api/rate_limit.py) — chỉ áp
+# Rate limiting (xem docstring đầy đủ ở scrapjd/api/rate_limit.py) — chỉ áp
 # dụng thật sự cho 4 route trong auth.public_router có gắn decorator
-# @limiter.limit(...) (api/routers/auth.py), KHÔNG tự động áp cho mọi
+# @limiter.limit(...) (scrapjd/api/routers/auth.py), KHÔNG tự động áp cho mọi
 # route. 3 dòng dưới đây là phần "lắp" bắt buộc của slowapi:
 #   - app.state.limiter: nơi decorator @limiter.limit(...) tra cứu
 #     ngược lại limiter instance lúc request tới.
@@ -212,7 +212,7 @@ app.add_middleware(
 # Security headers cơ bản — thêm 08/2026 (rà soát bảo mật), áp dụng cho
 # MỌI response kể cả lỗi/redirect. Chi phí gần như 0 (chỉ set vài
 # header), nên thêm dù API này chủ yếu trả JSON thuần (không tự render
-# HTML, trừ 2 route redirect ở api/routers/auth.py) — phòng hờ vẫn tốt
+# HTML, trừ 2 route redirect ở scrapjd/api/routers/auth.py) — phòng hờ vẫn tốt
 # hơn không có, và một số proxy/CDN phía trước (Render) không tự thêm
 # các header này giúp.
 #   - X-Content-Type-Options: nosniff — chặn trình duyệt tự đoán

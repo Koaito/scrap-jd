@@ -1,6 +1,6 @@
 """
 Crawl trigger — schema request/response cho POST /crawl, GET /crawl/{run_id}.
-Tách từ api/schemas.py (08/2026) — xem docstring api/schemas/__init__.py.
+Tách từ api/schemas.py (08/2026) — xem docstring scrapjd/api/schemas/__init__.py.
 """
 
 from datetime import datetime
@@ -149,7 +149,7 @@ class PaginatedCrawlBatches(BaseModel):
 
 # ------------------------------------------------------------------
 # Log live — GET /crawl/{run_id}/logs (08/2026, xem docstring
-# sql/migration_add_crawl_progress_logs.sql và api/run_log.py)
+# sql/migration_add_crawl_progress_logs.sql và scrapjd/api/run_log.py)
 # ------------------------------------------------------------------
 
 class CrawlLogOut(BaseModel):

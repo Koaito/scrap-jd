@@ -1,9 +1,9 @@
 """
 Router phiên đăng nhập (JWT + refresh token xoay vòng) — xem docstring
-api/security.py và sql/migration_add_auth.sql để hiểu toàn bộ thiết kế
+scrapjd/api/security.py và sql/migration_add_auth.sql để hiểu toàn bộ thiết kế
 trước khi đọc file này.
 
-Tách ra từ api/routers/auth.py (08/2026) — file gốc gộp 4 nhóm concern
+Tách ra từ scrapjd/api/routers/auth.py (08/2026) — file gốc gộp 4 nhóm concern
 khác nhau (session, quản trị user, đăng ký công khai) trong 1 file
 738 dòng/14 endpoint, khó theo dõi khi sửa. auth.py giờ chỉ còn là
 facade gộp lại router của 3 file con (xem docstring auth.py) — app.py
@@ -68,7 +68,7 @@ def _issue_token_pair(conn, user_row, request: Request, session_id: str) -> tupl
 @limiter.limit("20/minute")
 def login(payload: LoginRequest, request: Request, conn=Depends(get_db)):
     """20/minute theo IP — thêm 08/2026 cùng đợt rà soát rate-limit tổng
-    thể (xem api/rate_limit.py). Route công khai duy nhất KHÔNG có giới
+    thể (xem scrapjd/api/rate_limit.py). Route công khai duy nhất KHÔNG có giới
     hạn nào trước đó ngoài khoá tài khoản is_account_locked() — nhưng
     khoá đó chỉ chặn brute-force VÀO 1 tài khoản cụ thể (5 lần sai liên
     tiếp, xem security.FAILED_LOGIN_LOCK_THRESHOLD), không chặn được kiểu

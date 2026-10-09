@@ -2,7 +2,7 @@
 Jobs — schema request/response cho POST /jobs, PATCH /jobs, GET /jobs
 (list/detail). Tách từ api/schemas.py (08/2026, xem entity_specs.py cho
 đợt tách tương tự bên import/export) — schemas/__init__.py re-export lại
-mọi tên cũ, KHÔNG cần sửa `from api.schemas import X` ở nơi gọi.
+mọi tên cũ, KHÔNG cần sửa `from scrapjd.api.schemas import X` ở nơi gọi.
 """
 
 from datetime import date, datetime
@@ -78,7 +78,7 @@ class JobDetailOut(JobOut):
 # JobDetailOut dùng chung (GET /jobs/{id} cũng dùng JobDetailOut, field này
 # chỉ có ý nghĩa đúng 1 lần tại thời điểm tạo, để trong schema chung sẽ thành
 # field vô nghĩa "was_existing: null" ở mọi response GET). create_job()
-# (api/routers/jobs.py) đã tự tính được was_duplicate (để quyết định có ghi
+# (scrapjd/api/routers/jobs.py) đã tự tính được was_duplicate (để quyết định có ghi
 # audit log CREATE_JOB hay không) nhưng TRƯỚC ĐÂY biến này bị bỏ đi — client
 # không có cách nào biết job vừa "tạo" thật sự là job mới hay là job cũ bị
 # trả lại (khi đó toàn bộ lương/deadline/mô tả vừa nhập đều bị bỏ, không ghi
@@ -128,10 +128,10 @@ class PaginatedJobs(BaseModel):
 
 class JobHealthRow(BaseModel):
     """1 dòng thống kê "thiếu field" — dùng chung với company, xem
-    FieldHealthRow (api/schemas/companies.py). Định nghĩa RIÊNG (không
+    FieldHealthRow (scrapjd/api/schemas/companies.py). Định nghĩa RIÊNG (không
     import chéo companies.py) để tránh phụ thuộc ngược lại companies.py
     -> jobs.py (jobs.py hiện KHÔNG phụ thuộc companies.py, xem lưu ý ở
-    api/schemas/__init__.py — giữ nguyên hướng phụ thuộc 1 chiều đó)."""
+    scrapjd/api/schemas/__init__.py — giữ nguyên hướng phụ thuộc 1 chiều đó)."""
     field: str
     label: str
     missing: int

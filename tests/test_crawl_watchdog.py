@@ -1,5 +1,5 @@
 """
-Test api/services/crawl_watchdog.run_crawl_watchdog_once() — KHÔNG cần
+Test scrapjd/api/services/crawl_watchdog.run_crawl_watchdog_once() — KHÔNG cần
 database (mock db_module). Logic SQL của reconcile_stale_runs được test trên
 Postgres thật ở tests/test_pg_integration.py.
 """

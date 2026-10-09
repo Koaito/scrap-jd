@@ -17,12 +17,12 @@ vượt giới hạn Supabase.
 
 VÌ SAO GLOBAL_JOB_LIMIT mặc định = 2: mỗi job nền đang chạy giữ 2
 connection Postgres NGOÀI POOL cùng lúc — 1 cho execute()/_execute_one()
-(chạy job thật), 1 riêng cho api/run_log.py (ghi log live) — cả 2 CỐ Ý
-dùng db.get_connection() (không qua pool, xem docstring db/connection.py
-và mục CONNECTION POOL ở đầu api/maintenance_runner.py +
-api/crawl_runner.py). Vậy tối đa 2 job * 2 connection = 4 connection
+(chạy job thật), 1 riêng cho scrapjd/api/run_log.py (ghi log live) — cả 2 CỐ Ý
+dùng db.get_connection() (không qua pool, xem docstring scrapjd/db/connection.py
+và mục CONNECTION POOL ở đầu scrapjd/api/maintenance_runner.py +
+scrapjd/api/crawl_runner.py). Vậy tối đa 2 job * 2 connection = 4 connection
 cho job nền tại 1 thời điểm, cộng với pool API (DB_POOL_MIN/DB_POOL_MAX,
-xem config.py — default hiện là 20, KHÔNG phải 8).
+xem scrapjd/config.py — default hiện là 20, KHÔNG phải 8).
 
 Đối chiếu với Supabase (đo 10/2026, PGPORT=6543 = Transaction Pooler,
 max_connections của Postgres = 60): lúc 3 nguồn crawl song song chỉ có 14
@@ -35,17 +35,17 @@ connection) mới cần hạ DB_POOL_MAX xuống khoảng 8 để tổng không 
 
 CHỈ dùng threading.Semaphore (in-memory, KHÔNG phân tán giữa nhiều
 process) vì Render hiện deploy 1 instance/1 process (xem
-api/rate_limit.py, README.md mục "Trạng thái") — nếu sau này scale
+scrapjd/api/rate_limit.py, README.md mục "Trạng thái") — nếu sau này scale
 ngang (nhiều instance) hoặc bật `uvicorn --workers > 1`, Semaphore này
 sẽ KHÔNG còn tác dụng (mỗi process giữ bản đếm riêng, không đồng bộ với
-nhau, y hệt giới hạn đã ghi ở api/rate_limit.py cho slowapi) và PHẢI đổi
+nhau, y hệt giới hạn đã ghi ở scrapjd/api/rate_limit.py cho slowapi) và PHẢI đổi
 sang cơ chế khóa dùng chung, ví dụ Postgres advisory lock
 (pg_try_advisory_lock — không cần thêm service ngoài như Redis, đúng
 tinh thần "free-tier, rẻ, an toàn trước" của project) thay vì Semaphore
 ở đây.
 
 Đặt ở module RIÊNG (không khai báo lặp lại Semaphore() ở từng file) để
-api/maintenance_runner.py và api/crawl_runner.py dùng CHUNG đúng 1 giới
+scrapjd/api/maintenance_runner.py và scrapjd/api/crawl_runner.py dùng CHUNG đúng 1 giới
 hạn tổng — nếu mỗi file tự tạo Semaphore(2) riêng, tổng job nền chạy
 song song thực tế sẽ lên tới 4 (2 maintenance + 2 crawl độc lập nhau)
 thay vì đúng 2 như mong muốn.

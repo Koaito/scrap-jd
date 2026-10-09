@@ -1,7 +1,7 @@
 """
 db.job_merge — phần chạy SQL của lệnh gộp job trùng (`python main.py merge-duplicates`, xem
-merge_duplicates.py, Phần 3b). Logic chọn job giữ / hợp nhất trường / kế hoạch chuyển dữ liệu
-con là hàm THUẦN ở merge_duplicates.py; ở đây chỉ chạy SQL.
+scrapjd/cli/merge_duplicates.py, Phần 3b). Logic chọn job giữ / hợp nhất trường / kế hoạch chuyển dữ liệu
+con là hàm THUẦN ở scrapjd/cli/merge_duplicates.py; ở đây chỉ chạy SQL.
 
   - list_merge_job_details: ĐỌC chi tiết job + dữ liệu con (dùng để lập kế hoạch).
   - merge_job_group:        GHI — gộp MỘT nhóm trong transaction của nơi gọi (xem docstring hàm). Từ C3c,

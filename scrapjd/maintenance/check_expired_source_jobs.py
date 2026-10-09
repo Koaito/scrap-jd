@@ -21,9 +21,9 @@ PHẢI dùng "CLOSED", không được quay lại "EXPIRED" trừ khi migration 
 bị revert.
 
 NGUYÊN TẮC "THÀ THIẾU CÒN HƠN SAI" (xuyên suốt project, xem
-get_company_fb_linkedin_link.py) — áp dụng NGHIÊM NGẶT ở đây vì hậu quả
+scrapjd/maintenance/get_company_fb_linkedin_link.py) — áp dụng NGHIÊM NGẶT ở đây vì hậu quả
 sai lớn hơn nhiều so với việc thiếu social link: đóng nhầm 1 job vẫn
-đang tuyển thật sẽ chặn học viên ứng tuyển (xem api/routers/me.py — chỉ
+đang tuyển thật sẽ chặn học viên ứng tuyển (xem scrapjd/api/routers/me.py — chỉ
 ứng tuyển được job OPEN). Vì vậy CHỈ tự động đóng job khi tín hiệu KHÔNG
 MƠ HỒ:
 
@@ -53,7 +53,7 @@ MƠ HỒ:
   job_sources_log) đã qua ngày hôm nay -> listing đó CLOSED 'expired_auto'
   (không phụ thuộc URL có sống hay không). Từ C3a nhánh này chạy trên
   listing chứ không trên job: job chỉ CLOSED khi không còn listing sống
-  nào (job tự suy ra, xem db/job_derivation.py), nên job có một tin hết hạn
+  nào (job tự suy ra, xem scrapjd/db/job_derivation.py), nên job có một tin hết hạn
   nhưng còn tin khác chưa hết hạn vẫn OPEN. Nhánh check link nguồn ở trên
   Từ C3b cũng chạy trên listing (xem dưới).
 
@@ -67,7 +67,7 @@ CHẠY:
 NÊN CHẠY ĐỊNH KỲ — hiện CHƯA CÓ cron tự động (hạ tầng máy chủ hiện tại
 chưa đáp ứng được lịch chạy tự động, xem thảo luận 08/2026), tạm thời
 CHẠY THỦ CÔNG qua nút bấm trên web (trang bảo trì dữ liệu, job_type
-'check_expired_jobs' — xem api/maintenance_runner.py) hoặc CLI, gợi ý
+'check_expired_jobs' — xem scrapjd/api/maintenance_runner.py) hoặc CLI, gợi ý
 1 tuần/lần.
 
 DỌN CV (thêm 08/2026 — xem việc_chưa_làm.txt mục "chưa có hệ thống tự
@@ -109,7 +109,7 @@ REQUEST_TIMEOUT_SECONDS = 10
 class _Throttled404Checker:
     """Chỉ hỏi source_url còn sống hay không (HEAD trước, fallback GET
     nếu server không hỗ trợ HEAD đúng) — không cần đọc/parse nội dung
-    trang như get_company_fb_linkedin_link.py, nên KHÔNG cần BeautifulSoup
+    trang như scrapjd/maintenance/get_company_fb_linkedin_link.py, nên KHÔNG cần BeautifulSoup
     ở đây, chỉ cần status_code."""
 
     def __init__(self):
@@ -161,7 +161,7 @@ def cleanup_cvs_of_closed_jobs(conn, dry_run: bool = False) -> dict:
     "DỌN CV". Trả {"cv_cleaned": int, "cv_cleanup_errors": int}.
 
     cv_storage.delete_cv() TỰ NUỐT exception + chỉ log warning (xem
-    api/storage.py — thiết kế sẵn từ chỗ dùng lúc học viên rút đơn),
+    scrapjd/api/storage.py — thiết kế sẵn từ chỗ dùng lúc học viên rút đơn),
     KHÔNG raise và KHÔNG trả về biết thành công hay không — nên hàm này
     LUÔN clear_application_cv() sau khi gọi delete_cv(), coi lượt gọi
     storage là "đã cố gắng dọn" bất kể thành công thật hay không. Đánh
@@ -327,7 +327,7 @@ def run(limit: Optional[int] = None, check_deadline_only: bool = False,
         # Unicode), nhưng dễ vấp khi viết type TypeScript (khó gõ, khó
         # autocomplete, khó tìm trong editor). stats dict này được
         # json.dumps() nguyên vẹn rồi lưu thẳng vào cột JSONB
-        # maintenance_runs.stats (db/maintenance_runs.py::mark_done()),
+        # maintenance_runs.stats (scrapjd/db/maintenance_runs.py::mark_done()),
         # trả ra API y hệt cấu trúc — đổi key ở ĐÚNG 1 nơi duy nhất
         # (nguồn) là đủ, không cần transform gì thêm ở tầng DB/router.
         "still_alive": 0, "needs_manual_check": 0,

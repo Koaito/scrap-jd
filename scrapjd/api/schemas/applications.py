@@ -1,7 +1,7 @@
 """
 Job applications + saved jobs — schema request/response (thêm 08/2026,
 xem db.py mục cùng tên). Tách từ api/schemas.py (08/2026) — xem docstring
-api/schemas/__init__.py.
+scrapjd/api/schemas/__init__.py.
 """
 
 from datetime import datetime

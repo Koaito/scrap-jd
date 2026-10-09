@@ -2,7 +2,7 @@
 Audit logs — schema response cho GET /audit-logs, PATCH
 /audit-logs/{log_id}/note (lịch sử thao tác ss_team/admin, 08/2026, xem
 db.py mục "AUDIT LOGS" + sql/migration_add_audit_logs.sql). Tách từ
-api/schemas.py (08/2026) — xem docstring api/schemas/__init__.py.
+api/schemas.py (08/2026) — xem docstring scrapjd/api/schemas/__init__.py.
 """
 
 from datetime import datetime
@@ -91,7 +91,7 @@ class AuditLogNoteUpdate(BaseModel):
     lúc tạo (chặn cứng, xem ACTION_LOG_RULES trong db.py) nên route này
     vẫn CHO sửa lại (chỉnh câu chữ), nhưng KHÔNG cho set về rỗng nếu
     note_required=true (route trả 422 nếu cố tình xoá note của log bắt
-    buộc — xem api/routers/audit_logs.py).
+    buộc — xem scrapjd/api/routers/audit_logs.py).
 
     Chỉ actor_id GỐC của log mới gọi được route này — kiểm tra ở router,
     không ở schema."""
@@ -99,7 +99,7 @@ class AuditLogNoteUpdate(BaseModel):
     
     note: str = Field(..., min_length=1, description="Nội dung note mới.")
 
-    # Validator dùng CHUNG (api/schemas/validators.py) — xem docstring
+    # Validator dùng CHUNG (scrapjd/api/schemas/validators.py) — xem docstring
     # ở đó để biết lý do tách ra thay vì định nghĩa lặp ở từng schema.
     _note_not_blank = field_validator("note")(validate_note_not_blank)
 

@@ -35,7 +35,7 @@ inactive" đã chốt, + "conflict_in_batch" thêm 08/2026):
                                   (thêm 08/2026) dùng 1 action LAN TRUYỀN
                                   "keep_this"/"keep_other"/"import_both"
                                   áp dụng 1 lần cho CẢ CẶP — xem
-                                  api/services/import_executor.py::
+                                  scrapjd/api/services/import_executor.py::
                                   BATCH_PROPAGATING_ACTIONS +
                                   _expand_conflict_in_batch_resolutions().
 """

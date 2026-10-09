@@ -1,10 +1,10 @@
 """
 db.job_level_recompute — phần chạy SQL của lệnh tính lại level hàng loạt
-(`python main.py recompute-levels`, xem recompute_levels.py). Logic quyết định
-level mới là hàm THUẦN ở recompute_levels.py; ở đây chỉ chọn job, tra nhóm trùng
+(`python main.py recompute-levels`, xem scrapjd/cli/recompute_levels.py). Logic quyết định
+level mới là hàm THUẦN ở scrapjd/cli/recompute_levels.py; ở đây chỉ chọn job, tra nhóm trùng
 và ghi.
 
-Luật đóng dấu/không đè 'manual' vẫn nằm ở MỘT chỗ là db/job_levels.py: hàm ghi ở
+Luật đóng dấu/không đè 'manual' vẫn nằm ở MỘT chỗ là scrapjd/db/job_levels.py: hàm ghi ở
 đây dùng lại _derived_level_assignments, không tự viết lại luật.
 """
 

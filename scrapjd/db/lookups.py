@@ -23,14 +23,14 @@ def get_province_id(conn, province_name: str) -> Optional[int]:
     không khớp tên có sẵn thành 1 dòng "province" MỚI trong bảng cứng
     này. Các lớp lọc ở adapter (vd
     VietnamWorksAdapter._looks_like_province_name() trong
-    adapters/vietnamworks.py) chỉ loại được chuỗi rõ ràng KHÔNG PHẢI tên
+    scrapjd/adapters/vietnamworks.py) chỉ loại được chuỗi rõ ràng KHÔNG PHẢI tên
     tỉnh (có số/dấu phẩy/quá dài) — vẫn để lọt bất kỳ chuỗi "trông giống"
     tên tỉnh (không số, không dấu phẩy, ngắn) dù không thật sự nằm trong
     danh sách 34 tỉnh/thành hợp lệ, ví dụ tên phòng ban, biến thể viết
     tắt, hoặc tên tỉnh cũ đã sáp nhập. Mọi giá trị như vậy trước đây đều
     biến thành rác trong bảng provinces. Endpoint API cho phép client
-    truyền province_name tuỳ ý (api/routers/companies.py,
-    api/routers/jobs.py) cũng đi qua cùng 1 hàm này nên cùng bị lỗi.
+    truyền province_name tuỳ ý (scrapjd/api/routers/companies.py,
+    scrapjd/api/routers/jobs.py) cũng đi qua cùng 1 hàm này nên cùng bị lỗi.
 
     Sửa bằng cách bỏ hẳn nhánh INSERT: nếu tên tỉnh không khớp trực tiếp,
     THỬ QUY ĐỔI qua province_alias.resolve_province_alias() trước khi bỏ

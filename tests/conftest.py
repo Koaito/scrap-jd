@@ -28,7 +28,7 @@ def make_fake_request(headers: dict | None = None) -> StarletteRequest:
     Exception("parameter `request` must be an instance of
     starlette.requests.Request"), không phải lỗi test logic.
 
-    scope tối thiểu đủ để cả 2 key_func hiện có trong api/rate_limit.py
+    scope tối thiểu đủ để cả 2 key_func hiện có trong scrapjd/api/rate_limit.py
     chạy được: get_remote_address (đọc scope["client"]) và
     get_user_id_or_ip (đọc header Authorization, rơi về IP nếu thiếu/
     không hợp lệ — không raise, xem docstring get_user_id_or_ip)."""
@@ -46,8 +46,8 @@ def make_fake_request(headers: dict | None = None) -> StarletteRequest:
 
 @pytest.fixture
 def pipeline_db(monkeypatch):
-    """Fake dùng chung thay module `db` mà pipeline.py gọi (B2, xem tests/pipeline_fakes.py và
-    pipeline_db.py). Đã gắn vào pipeline.db, tự khôi phục sau test. Mặc định là tình huống bình
+    """Fake dùng chung thay module `db` mà scrapjd/pipeline.py gọi (B2, xem tests/pipeline_fakes.py và
+    scrapjd/pipeline_db.py). Đã gắn vào pipeline.db, tự khôi phục sau test. Mặc định là tình huống bình
     thường không trùng gì; test ghi đè return_value/side_effect đúng chỗ cần khác."""
     from scrapjd import pipeline
     from pipeline_fakes import make_pipeline_db

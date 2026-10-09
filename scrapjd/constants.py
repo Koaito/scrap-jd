@@ -3,7 +3,7 @@ Constants và enums dùng chung trong codebase — tập trung ở đây thay v�
 rải rác khắp nơi, dễ bảo trì và đảm bảo nhất quán.
 
 Thêm 08/2026 để expose qua GET /meta/enums cho frontend (xem
-api/routers/meta.py), thay vì frontend hardcode lại ~10 dict _MAP
+scrapjd/api/routers/meta.py), thay vì frontend hardcode lại ~10 dict _MAP
 trong crawler_client.py — mỗi khi backend đổi enum (như vụ EXPIRED ->
 CLOSED) phải nhớ sửa ở 2 nơi.
 """
@@ -50,7 +50,7 @@ LEVEL_CODE_VALUES = [
 #
 # ĐỒNG BỘ 3 nơi (tests/test_stats.py có test so khớp tự động, đổi 1
 # nơi mà quên nơi kia sẽ đỏ test): sql/schema.sql (seed),
-# sql/migration_update_provinces_2025.sql, province_alias.py (mọi tên
+# sql/migration_update_provinces_2025.sql, scrapjd/province_alias.py (mọi tên
 # MỚI mà PROVINCE_ALIAS_MAP quy đổi về).
 #
 # CHỈ chứa giá trị ĐƯỢC PHÉP CHỌN — bảng `provinces` trong DB thật có

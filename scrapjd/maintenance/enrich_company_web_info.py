@@ -7,7 +7,7 @@ companies.website / companies.tax_id cho công ty chưa có, bằng cách:
      Tavily trong 1 lần gọi duy nhất, trích xuất website/tax_id ra JSON
      có cấu trúc, với confidence TÁCH RIÊNG cho từng field.
 
-TẠI SAO TÁCH SCRIPT RIÊNG (giống nguyên tắc get_company_fb_linkedin_link.py):
+TẠI SAO TÁCH SCRIPT RIÊNG (giống nguyên tắc scrapjd/maintenance/get_company_fb_linkedin_link.py):
 Đây là nguồn dữ liệu KHÁC HẲN TopCV/VietnamWorks — tỷ lệ lỗi/nhầm lẫn cao
 hơn nhiều (search engine + LLM trích xuất, không phải parse HTML có cấu
 trúc cố định từ 1 nguồn tin cậy), không nên làm chậm/rủi ro luồng crawl
@@ -42,7 +42,7 @@ tốt được giữ lại dù field kia không đủ tin cậy.
 
 CHI PHÍ TAVILY TĂNG GẤP ĐÔI: mỗi công ty giờ tốn 2 credit Tavily thay vì
 1 -> free tier 1.000 credit/tháng chỉ còn enrich được ~500 công ty/tháng
-thay vì ~1.000 (xem comment TAVILY_API_KEY trong config.py). Nếu 1 trong
+thay vì ~1.000 (xem comment TAVILY_API_KEY trong scrapjd/config.py). Nếu 1 trong
 2 lần search lỗi/rỗng, script VẪN tiếp tục với bộ kết quả còn lại (không
 bỏ hẳn công ty đó) — tránh lãng phí credit của lần search đã thành công.
 
@@ -56,7 +56,7 @@ NGẶT hơn ở đây vì độ tin cậy nguồn thấp hơn hẳn):
   - website phải là URL http(s) hợp lệ VÀ KHÔNG thuộc danh sách domain
     chắc chắn không phải website chính thức của công ty (mạng xã hội,
     trang tuyển dụng, trang tra cứu MST, Wikipedia...) — cùng nguyên tắc
-    _NON_COMPANY_WEBSITE_DOMAINS đã áp dụng trong adapters/topcv.py.
+    _NON_COMPANY_WEBSITE_DOMAINS đã áp dụng trong scrapjd/adapters/topcv.py.
   - Không tìm được / không đủ tin cậy -> để trống, KHÔNG đoán mò.
 
 CẢNH BÁO "NHẦM PHÁP NHÂN CHỊ EM CÙNG THƯƠNG HIỆU" (thêm 08/2026, sau khi
@@ -110,7 +110,7 @@ logger = logging.getLogger(__name__)
 _TAX_ID_PATTERN = re.compile(r"^\d{10}(-\d{3})?$")
 
 # Domain CHẮC CHẮN không phải website chính thức của 1 công ty — cùng
-# danh sách nguyên tắc với adapters/topcv.py (_NON_COMPANY_WEBSITE_DOMAINS),
+# danh sách nguyên tắc với scrapjd/adapters/topcv.py (_NON_COMPANY_WEBSITE_DOMAINS),
 # bổ sung thêm các trang đặc thù cho ngữ cảnh search/tra cứu doanh nghiệp
 # (trang tra MST, Wikipedia, các job site khác ngoài TopCV).
 _NON_COMPANY_WEBSITE_DOMAINS = (

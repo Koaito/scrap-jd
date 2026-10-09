@@ -1,6 +1,6 @@
 """
 db.company_queries — truy vấn ĐỌC danh sách / chi tiết công ty cho API
-(tách từ db/companies.py, 10/2026). Chỉ SELECT, không ghi.
+(tách từ scrapjd/db/companies.py, 10/2026). Chỉ SELECT, không ghi.
 """
 
 from typing import Optional
@@ -36,7 +36,7 @@ def list_companies(conn, *, keyword: Optional[str] = None,
 
     has_social=True  -> chỉ công ty đã có fanpage_url HOẶC linkedin_url.
     has_social=False -> chỉ công ty còn thiếu CẢ HAI (tập ứng viên cho
-    get_company_fb_linkedin_link.py) — tiện cho dashboard theo dõi tiến
+    scrapjd/maintenance/get_company_fb_linkedin_link.py) — tiện cho dashboard theo dõi tiến
     độ enrich mà không cần chạy script tay để biết còn bao nhiêu.
 
     created_by: lọc công ty do 1 thành viên ss_team/admin cụ thể tự

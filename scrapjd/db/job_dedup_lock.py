@@ -1,6 +1,6 @@
 """
 db.job_dedup_lock — khoá advisory chống trùng khi nhiều nơi ghi job chạy song song (A4). Tách từ
-db/jobs.py (đã chạm ngưỡng 700 dòng, xem tests/test_db_facade.py). Tên hàm giữ nguyên và vẫn gọi được
+scrapjd/db/jobs.py (đã chạm ngưỡng 700 dòng, xem tests/test_db_facade.py). Tên hàm giữ nguyên và vẫn gọi được
 qua `db.lock_job_dedup_key`, `db.JobDedupLockTimeout`...
 
 Nơi dùng: pipeline._process_job (crawl), db.create_manual_job và route POST /jobs (nhập tay).

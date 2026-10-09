@@ -1,6 +1,6 @@
 """
 C1 nửa 2/2 trên POSTGRES THẬT: mọi chỗ tạo hoặc cập nhật listing (job_sources_log) ghi các cột trạng thái
-mới theo đúng các luật trong db/listing_state.py. Chưa có chỗ đọc nào dùng các cột này (C2, C3), nên test
+mới theo đúng các luật trong scrapjd/db/listing_state.py. Chưa có chỗ đọc nào dùng các cột này (C2, C3), nên test
 đọc thẳng bảng.
 
 Cách chạy giống tests/test_pg_repost_link.py: đặt TEST_DATABASE_URL trỏ tới database dùng riêng cho test

@@ -1,12 +1,12 @@
 """
-Logic THUẦN của lệnh gộp job trùng (merge_duplicates.py, Phần 3b) — không cần DB.
+Logic THUẦN của lệnh gộp job trùng (scrapjd/cli/merge_duplicates.py, Phần 3b) — không cần DB.
 Phần SQL đọc nằm ở tests/test_pg_merge_duplicates.py, phần ghi (--apply) ở
 tests/test_pg_merge_apply.py.
 
 Kiểm tra: đọc file --only, chọn nhóm (mặc định / --only), luật hợp nhất trường (lương, hạn,
 hồi sinh, level, ghi chú), kế hoạch chuyển dữ liệu con (xung đột UNIQUE), báo cáo, CSV; vòng gộp
 từng nhóm (_apply_plans: stale/lỗi không chặn nhóm sau, dừng khi có crawl, mất kết nối); kiểm tra
-tham số dòng lệnh; ranh giới lớp (SQL ghi chỉ nằm ở db/job_merge.py, commit chỉ ở nơi điều phối).
+tham số dòng lệnh; ranh giới lớp (SQL ghi chỉ nằm ở scrapjd/db/job_merge.py, commit chỉ ở nơi điều phối).
 """
 import csv
 import dataclasses
@@ -494,7 +494,7 @@ def test_plan_carries_expected_details_of_every_member():
 
 
 def test_every_column_a_plan_can_change_is_writable_by_merge_job_group():
-    # Danh sách trắng ở db/job_merge.py phải phủ mọi cột mà luật hợp nhất có thể đổi, nếu không
+    # Danh sách trắng ở scrapjd/db/job_merge.py phải phủ mọi cột mà luật hợp nhất có thể đổi, nếu không
     # --apply sẽ từ chối nhóm vì "cột không được phép".
     # Từ C3c trạng thái/lý do đóng/source_url chỉ đi qua sync_job_from_listings (_DERIVED_JOB_COLUMNS), không còn
     # nằm trong danh sách ghi trực tiếp; `deadline` ở đây chỉ để điền hạn trống của job giữ nhập tay.
@@ -685,7 +685,7 @@ def _code_only(name):
 
 
 def test_merge_duplicates_has_no_raw_sql():
-    # Logic + điều phối không chứa SQL: mọi câu SQL (đọc lẫn ghi) nằm ở db/job_merge.py.
+    # Logic + điều phối không chứa SQL: mọi câu SQL (đọc lẫn ghi) nằm ở scrapjd/db/job_merge.py.
     code = _code_only("scrapjd/cli/merge_duplicates.py")
     for forbidden in ("INSERT INTO", "UPDATE ", "DELETE FROM", "TRUNCATE", "ALTER ", ".cursor(", ".execute("):
         assert forbidden not in code, f"merge_duplicates.py chứa '{forbidden}'"

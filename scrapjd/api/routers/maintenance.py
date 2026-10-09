@@ -18,7 +18,7 @@ router = APIRouter(prefix="/maintenance", tags=["maintenance"])
 _VALID_MAINTENANCE_STATUSES = {"queued", "running", "done", "error"}
 
 # CHỈ job_type này nhận dry_run/check_deadline_only (khớp
-# api/schemas/maintenance.py::_CHECK_EXPIRED_JOBS, khai lại ở đây vì
+# scrapjd/api/schemas/maintenance.py::_CHECK_EXPIRED_JOBS, khai lại ở đây vì
 # tên đó không export — router chỉ cần biết ĐÚNG 1 job_type này khác
 # biệt, không cần import riêng 1 hằng số cho việc so sánh string).
 _CHECK_EXPIRED_JOBS = "check_expired_jobs"
@@ -35,7 +35,7 @@ def trigger_maintenance_run(
 ):
     """Kích hoạt 1 lượt chạy job bảo trì dữ liệu CHẠY NỀN — trả về
     run_id ngay, KHÔNG chờ chạy xong (đối xứng POST /crawl, xem docstring
-    api/maintenance_runner.py).
+    scrapjd/api/maintenance_runner.py).
 
     BẮT BUỘC đăng nhập VÀ role='admin' — cùng mức chặt như POST /crawl
     (5 job này đều ghi/gọi API tốn tài nguyên, 2 job còn tốn PHÍ THẬT

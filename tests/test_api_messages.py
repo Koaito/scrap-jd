@@ -1,11 +1,11 @@
 """
-Tests cho api/routers/messages.py — hệ thống nhắn tin học viên ↔ SS /
+Tests cho scrapjd/api/routers/messages.py — hệ thống nhắn tin học viên ↔ SS /
 SS ↔ SS (thêm 08/2026). Xem backend-scrap-jd-nhan-tin.md §5 (checklist
 self-test) — file này hiện thực hoá checklist đó thành test tự động.
 
 QUY ƯỚC (giống tests/test_api_contacts.py, test_api_email_templates.py):
 - Gọi thẳng hàm router (không qua TestClient HTTP) — mock db_module
-  bằng unittest.mock.patch("api.routers.messages.db_module").
+  bằng unittest.mock.patch("scrapjd.api.routers.messages.db_module").
 - fake_request (từ conftest.py) BẮT BUỘC cho mọi route có
   @limiter.limit(...) — truyền request=fake_request.
 - Test ở đây KIỂM TRA LOGIC ROUTER (role check, thứ tự if/else, mã lỗi
@@ -598,7 +598,7 @@ def test_list_conversations_includes_relationship_id(mock_conn, ss_user, fake_re
 
     Gọi router trực tiếp (không qua TestClient) nên response_model của
     FastAPI KHÔNG tự áp dụng — router chỉ return thẳng list dict từ
-    db_module (xem list_conversations() trong api/routers/messages.py),
+    db_module (xem list_conversations() trong scrapjd/api/routers/messages.py),
     validate rõ ràng qua ConversationOut.model_validate() ở đây để test
     đúng cái FastAPI thật sự làm lúc serialize response."""
     student_id = str(uuid.uuid4())
@@ -785,7 +785,7 @@ def test_cancel_then_resend_no_cooldown(mock_conn, student_user, fake_request):
 # - Race condition thật: bắn đồng thời accept + decline từ 2 request
 #   thật -> chỉ 1 thành công. Unit test ở trên chỉ xác nhận ĐÚNG SQL
 #   atomic (UPDATE...WHERE status=:expected) được VIẾT đúng trong
-#   db/messages.py, không xác nhận Postgres THỰC SỰ serialize đúng
+#   scrapjd/db/messages.py, không xác nhận Postgres THỰC SỰ serialize đúng
 #   dưới tải đồng thời — cần chạy 2 process/thread thật nhắm vào cùng
 #   1 DB, hoặc dùng pytest + testcontainers/pg thật trong CI.
 # - COUNT(*) pending trong cùng transaction với INSERT (chống race
@@ -805,7 +805,7 @@ def test_cancel_then_resend_no_cooldown(mock_conn, student_user, fake_request):
 
 # ==================================================================
 # 9. GET /messages/conversations/{partner_id} — MESSAGE_PARTNER_NOT_FOUND
-#    (trước đây hằng này KHÔNG có trong api/error_codes.py nên nhánh 404
+#    (trước đây hằng này KHÔNG có trong scrapjd/api/error_codes.py nên nhánh 404
 #    ném AttributeError -> API trả 500; không test nào chạm route này
 #    nên lỗi lọt qua.)
 # ==================================================================
@@ -871,7 +871,7 @@ def test_get_conversation_invalid_uuid_400(mock_conn, student_user, fake_request
 
 def test_every_error_code_used_by_messages_router_is_defined():
     """Chặn lặp lại lỗi MESSAGE_PARTNER_NOT_FOUND: quét mã nguồn router,
-    mọi `error_codes.X` được dùng phải tồn tại trong api/error_codes.py
+    mọi `error_codes.X` được dùng phải tồn tại trong scrapjd/api/error_codes.py
     (nếu thiếu thì chỉ lộ ra lúc runtime, ở đúng nhánh lỗi hiếm gặp)."""
     import inspect
     import re

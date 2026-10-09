@@ -1,13 +1,13 @@
 """
 db.crawl_runs — lưu bền trạng thái + lịch sử từng lượt crawl vào bảng
 crawl_runs (08/2026, THAY THẾ _RUNS dict RAM cũ trong
-api/crawl_runner.py — xem sql/migration_add_crawl_runs.sql để biết đầy
+scrapjd/api/crawl_runner.py — xem sql/migration_add_crawl_runs.sql để biết đầy
 đủ lý do thiết kế).
 
-Cùng pattern db/audit_logs.py: mỗi hàm ở đây tự lo transaction của
+Cùng pattern scrapjd/db/audit_logs.py: mỗi hàm ở đây tự lo transaction của
 riêng nó (commit() ngay trong hàm, KHÁC các hàm insert_job()/log_action()
 ở module khác vốn để router tự commit cùng lúc với thao tác chính) —
-lý do khác biệt: api/crawl_runner.py::execute() chạy NỀN (background
+lý do khác biệt: scrapjd/api/crawl_runner.py::execute() chạy NỀN (background
 task), không có 1 request/response bao quanh để router commit hộ, nên
 mỗi lần đổi trạng thái (queued -> running -> done/error) PHẢI tự commit
 ngay, để nếu process bị kill giữa chừng (deploy mới đè lên lúc đang
@@ -34,7 +34,7 @@ class ActiveCrawlExistsError(Exception):
     race condition 2 request cùng nguồn lọt qua SELECT check gần như
     đồng thời) — nếu race condition đó xảy ra, insert thứ 2 vẫn sẽ raise
     psycopg2.errors.UniqueViolation, router cần bắt CẢ 2 loại lỗi (xem
-    api/routers/crawl.py)."""
+    scrapjd/api/routers/crawl.py)."""
 
 
 def create_run(conn, *, source: str, category: str, pages: int,
@@ -92,7 +92,7 @@ def update_progress(conn, run_id: str, progress: dict) -> None:
 
     progress: dict gọn kiểu {"page": int, "fetched": int,
     "inserted": int, "last_update": iso str} — KHÔNG có shape cố định
-    bắt buộc ở tầng DB (JSONB), pipeline.py là nơi quyết định đúng các
+    bắt buộc ở tầng DB (JSONB), scrapjd/pipeline.py là nơi quyết định đúng các
     key này, xem docstring run_pipeline() tham số on_progress.
 
     Tự commit ngay (cùng lý do các hàm mark_*() khác trong module này
@@ -110,8 +110,8 @@ def update_progress(conn, run_id: str, progress: dict) -> None:
 
 def append_log(conn, run_id: str, level: str, message: str) -> None:
     """Thêm 1 dòng log live cho run_id — gọi từ logging.Handler gắn tạm
-    thời trong execute() (xem api/run_log.py::capture_run_logs), bắt
-    MỌI log do pipeline.py/adapters/*.py phát ra qua logger chuẩn
+    thời trong execute() (xem scrapjd/api/run_log.py::capture_run_logs), bắt
+    MỌI log do scrapjd/pipeline.py/adapters/*.py phát ra qua logger chuẩn
     (logging.getLogger(__name__)) trong lúc lượt crawl này đang chạy —
     không cần sửa từng file logger.info() rải rác thành 2 lời gọi.
 
@@ -345,7 +345,7 @@ def has_active_run(conn, source: str) -> bool:
 
 def reconcile_orphaned_runs(conn) -> int:
     """Đánh dấu 'error' MỌI dòng đang 'queued'/'running' — gọi ĐÚNG 1
-    LẦN lúc app khởi động (api/app.py::lifespan, TRƯỚC khi nhận request
+    LẦN lúc app khởi động (scrapjd/api/app.py::lifespan, TRƯỚC khi nhận request
     nào), KHÔNG gọi ở nơi khác.
 
     LÝ DO AN TOÀN GỌI VÔ ĐIỀU KIỆN: kiến trúc hiện tại là 1 process
@@ -375,7 +375,7 @@ def reconcile_orphaned_runs(conn) -> int:
 
 
 # Mốc "lần cuối có tiến độ" của 1 dòng crawl_runs: progress.last_update do
-# api/crawl_runner.py ghi sau mỗi job. Regex chặn giá trị không phải ISO
+# scrapjd/api/crawl_runner.py ghi sau mỗi job. Regex chặn giá trị không phải ISO
 # datetime (dữ liệu lỗi/ghi tay) trả NULL thay vì để ép kiểu ::timestamptz
 # raise lỗi làm hỏng cả câu UPDATE của watchdog — khi đó COALESCE rơi về
 # started_at.
@@ -391,7 +391,7 @@ _LAST_PROGRESS_AT_SQL = r"""
 def reconcile_stale_runs(conn, timeout_minutes: int, *,
                          no_progress_minutes: Optional[int] = None) -> int:
     """Đánh dấu 'error' các lượt crawl bị TREO — gọi ĐỊNH KỲ qua APScheduler
-    (api/services/crawl_watchdog.py), KHÁC reconcile_orphaned_runs() (chỉ
+    (scrapjd/api/services/crawl_watchdog.py), KHÁC reconcile_orphaned_runs() (chỉ
     gọi 1 lần lúc khởi động). Trả về tổng số dòng đã đánh dấu.
 
     Bắt trường hợp reconcile_orphaned_runs() KHÔNG bắt được: process
@@ -405,7 +405,7 @@ def reconcile_stale_runs(conn, timeout_minutes: int, *,
 
     - 'running': treo nếu KHÔNG có tiến độ mới trong `no_progress_minutes`
       kể từ progress.last_update (heartbeat sau mỗi job, xem
-      api/crawl_runner.py), rơi về started_at nếu chưa có heartbeat nào
+      scrapjd/api/crawl_runner.py), rơi về started_at nếu chưa có heartbeat nào
       (dòng cũ trước khi có cột progress). Tính theo tiến độ thay vì tổng
       thời gian chạy vì thời gian 1 lượt hợp lệ rất khó ước lượng (max_jobs
       lớn x delay 5-16s/request có thể vượt 2-3 giờ) — ngưỡng theo tổng
@@ -413,7 +413,7 @@ def reconcile_stale_runs(conn, timeout_minutes: int, *,
       treo thật vẫn giữ khoá nguồn rất lâu.
     - 'queued': so với started_at (mốc tạo dòng) với `timeout_minutes`.
       Không có heartbeat để dựa vào, và 1 run có thể xếp hàng hợp lệ chờ
-      GLOBAL_JOB_SEMAPHORE (xem api/concurrency.py) trong lúc job khác chạy.
+      GLOBAL_JOB_SEMAPHORE (xem scrapjd/api/concurrency.py) trong lúc job khác chạy.
       Vì vậy ngưỡng này phải LỚN (xem CRAWL_STALE_TIMEOUT_MINUTES).
 
     no_progress_minutes=None -> dùng timeout_minutes cho cả 2 status."""

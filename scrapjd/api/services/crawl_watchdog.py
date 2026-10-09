@@ -7,12 +7,12 @@ bị "khoá" crawl mãi mãi (08/2026, xem sql/migration_add_crawl_runs.sql).
 
 Đây là LỚP DỰ PHÒNG THỨ 2, bổ sung cho
 db.reconcile_orphaned_crawl_runs() (chạy 1 lần lúc app khởi động, xem
-api/app.py::lifespan) — lớp đó chỉ bắt được trường hợp SERVER RESTART.
+scrapjd/api/app.py::lifespan) — lớp đó chỉ bắt được trường hợp SERVER RESTART.
 Watchdog này bắt thêm trường hợp process KHÔNG restart nhưng 1
 background task bị treo (network timeout vô hạn, deadlock...).
 
-Đăng ký chạy qua APScheduler trong lifespan của api/app.py, DÙNG CHUNG
-1 scheduler instance với cleanup import_previews (api/services/
+Đăng ký chạy qua APScheduler trong lifespan của scrapjd/api/app.py, DÙNG CHUNG
+1 scheduler instance với cleanup import_previews (scrapjd/api/services/
 preview_cleanup.py) — không tạo thêm scheduler riêng, cùng tinh thần
 "1 process, ít tài nguyên" xuyên suốt project.
 """

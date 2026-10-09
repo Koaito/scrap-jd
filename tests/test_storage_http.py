@@ -1,5 +1,5 @@
 """
-api/storage.py gọi Supabase Storage qua HTTP. Test này dựng một server HTTP
+scrapjd/api/storage.py gọi Supabase Storage qua HTTP. Test này dựng một server HTTP
 THẬT trên 127.0.0.1 (không mock thư viện HTTP) để kiểm tra đúng thứ đi qua
 dây: method, đường dẫn, header, body nhị phân, JSON, xử lý mã lỗi, lỗi kết
 nối và timeout. Nhờ vậy đổi thư viện HTTP (requests -> curl_cffi, 10/2026)
@@ -129,7 +129,7 @@ def test_upload_not_configured_raises_without_calling(server):
 
 
 def test_upload_connection_error_is_runtime_error():
-    # api/routers/me.py chỉ bắt RuntimeError quanh upload_cv; lỗi mạng mà
+    # scrapjd/api/routers/me.py chỉ bắt RuntimeError quanh upload_cv; lỗi mạng mà
     # lọt ra dạng exception của thư viện HTTP sẽ thành 500 không có
     # error_code và bỏ lại transaction dở. Phải được gói thành RuntimeError.
     with patch.object(storage, "SUPABASE_URL", _dead_url()):

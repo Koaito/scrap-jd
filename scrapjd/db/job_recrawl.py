@@ -1,5 +1,5 @@
 """
-db.job_recrawl — ghi job do pipeline crawl lại (tách từ db/jobs.py, 10/2026):
+db.job_recrawl — ghi job do pipeline crawl lại (tách từ scrapjd/db/jobs.py, 10/2026):
 ghi nhận nguồn phụ cho tin đăng lại (kèm việc job đóng vì hết hạn tự mở lại và hạn của job dời theo tin mới, 3c),
 tìm job để coi là tin đăng lại, tìm job theo mã job trong URL, và cập nhật job đã có bằng dữ liệu vừa crawl. Tên hàm giữ nguyên và vẫn gọi
 được qua `db.update_job_from_recrawl`, `db.link_repost_source`...

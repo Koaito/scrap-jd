@@ -64,14 +64,14 @@ GỘP THẬT (--apply, nửa 2/2)
   - Từ chối nếu có crawl_runs/maintenance_runs 'queued'/'running' (kiểm tra lại trước mỗi nhóm).
   - Mỗi nhóm: transaction riêng, khoá dòng job, đọc lại và so với kế hoạch (đổi giữa chừng thì
     bỏ qua nhóm đó, báo "stale"), snapshot vào audit_logs (MERGE_JOB) rồi mới xoá job phụ. updated_at
-    của job giữ KHÔNG nhảy (cờ app.skip_updated_at). Xem db/job_merge.py::merge_job_group.
+    của job giữ KHÔNG nhảy (cờ app.skip_updated_at). Xem scrapjd/db/job_merge.py::merge_job_group.
   - Nhóm stale hoặc lỗi: bỏ qua, chạy tiếp các nhóm sau, cuối báo cáo liệt kê. Exit code: 0 xong
     hết; 1 từ chối/chưa sẵn sàng/huỷ; 2 có nhóm stale/lỗi (các nhóm khác vẫn đã gộp); 130 bị ngắt.
   - Không xoá file CV trong storage của đơn ứng tuyển trùng bị bỏ; đường dẫn nằm trong audit.
   - Chưa có lệnh khôi phục (unmerge): cách khôi phục thủ công từ snapshot ghi trong README.
 
 Logic quyết định là hàm THUẦN (không DB), có test ở tests/test_merge_duplicates.py. Phần SQL
-nằm ở db/job_merge.py; hàm run() ở dưới điều phối (đọc -> lập kế hoạch -> hỏi xác nhận -> gộp
+nằm ở scrapjd/db/job_merge.py; hàm run() ở dưới điều phối (đọc -> lập kế hoạch -> hỏi xác nhận -> gộp
 từng nhóm -> báo cáo).
 """
 

@@ -44,7 +44,7 @@ from scrapjd.config import (
     # 08/2026: dùng delay RIÊNG cho TopCV (cao hơn REQUEST_DELAY_SECONDS
     # dùng chung cho VietnamWorks/CareerViet) — TopCV đang bị chặn 403
     # theo IP khi crawl chạy từ server Render, xem docstring 2 hằng số
-    # này ở config.py để biết đầy đủ lý do + hướng dứt điểm (proxy).
+    # này ở scrapjd/config.py để biết đầy đủ lý do + hướng dứt điểm (proxy).
     TOPCV_REQUEST_DELAY_SECONDS, TOPCV_REQUEST_JITTER_SECONDS,
 )
 
@@ -100,10 +100,10 @@ class TopCVAdapter(BaseAdapter):
     def __init__(self, session: Optional[requests.Session] = None):
         # Session curl_cffi (impersonate="chrome124" -> giả lập TLS
         # fingerprint Chrome) + throttle/retry dùng chung giờ nằm ở
-        # BaseAdapter.__init__() (xem docstring ở adapters/base.py) —
+        # BaseAdapter.__init__() (xem docstring ở scrapjd/adapters/base.py) —
         # TopCV chỉ còn truyền riêng delay/jitter cao hơn mức mặc định,
         # vì đang bị chặn 403 theo IP reputation khi crawl từ server,
-        # xem docstring đầy đủ ở config.py::TOPCV_REQUEST_DELAY_SECONDS.
+        # xem docstring đầy đủ ở scrapjd/config.py::TOPCV_REQUEST_DELAY_SECONDS.
         super().__init__(
             session=session,
             headers=DEFAULT_HEADERS,
@@ -137,7 +137,7 @@ class TopCVAdapter(BaseAdapter):
                     # thể bị TopCV chặn (403/429/lỗi kết nối liên tục),
                     # KHÔNG PHẢI "hết job" (làm gì có trang nào lấy được
                     # để biết còn/hết job). Raise thay vì chỉ log+break,
-                    # để execute() (api/crawl_runner.py) ghi status='error'
+                    # để execute() (scrapjd/api/crawl_runner.py) ghi status='error'
                     # thay vì 'done' với 0 job mới -> UI không hiển thị
                     # nhầm "Hoàn tất" cho 1 lượt crawl thực chất bị chặn
                     # hoàn toàn. Xem docstring CrawlBlockedError.
@@ -177,7 +177,7 @@ class TopCVAdapter(BaseAdapter):
             logger.info("Trang %d: %d job mới", page, new_count)
             # Không cần time.sleep() thủ công ở đây nữa — _fetch_html()
             # đã tự throttle MỌI request (kể cả các request crawl sâu
-            # fetch_job_full_detail/fetch_company_profile bên pipeline.py
+            # fetch_job_full_detail/fetch_company_profile bên scrapjd/pipeline.py
             # gọi ngay sau đây, vốn TRƯỚC ĐÂY hoàn toàn không có delay).
 
     # ------------------------------------------------------------------
@@ -188,7 +188,7 @@ class TopCVAdapter(BaseAdapter):
         return base_url if page == 1 else f"{base_url}{sep}page={page}"
 
     # _fetch_html()/_throttle() giờ dùng chung từ BaseAdapter (xem
-    # adapters/base.py) — TopCV không còn override riêng, chỉ khác biệt
+    # scrapjd/adapters/base.py) — TopCV không còn override riêng, chỉ khác biệt
     # qua delay_seconds/jitter_seconds truyền ở __init__() phía trên.
 
     # Tracking params TopCV gắn vào MỌI link job trong trang kết quả tìm
@@ -575,7 +575,7 @@ class TopCVAdapter(BaseAdapter):
 
         Trả None (KHÁC HẲN dict rỗng-an-toàn) khi _fetch_html() thất bại
         thật sự (403/429 sau khi hết retry, timeout, network error,
-        source_url rỗng) — để pipeline.py phân biệt được 2 trường hợp và
+        source_url rỗng) — để scrapjd/pipeline.py phân biệt được 2 trường hợp và
         BỎ HẲN job đó (theo quyết định: thà thiếu job còn hơn insert 1
         job với work_type/deadline/parsed_content = NULL một cách âm thầm
         không ai biết, dễ nhầm tưởng "trang không có dữ liệu" trong khi

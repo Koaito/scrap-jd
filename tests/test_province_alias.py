@@ -1,4 +1,4 @@
-"""Test resolve_province_alias() (province_alias.py).
+"""Test resolve_province_alias() (scrapjd/province_alias.py).
 
 Chạy thuần Python, không cần DB. Bổ sung cho test_resolve_province_alias()
 cũ trong test_parse_and_normalize.py (giữ nguyên) bằng:
@@ -8,7 +8,7 @@ cũ trong test_parse_and_normalize.py (giữ nguyên) bằng:
   sql/schema.sql, và bỏ dấu không làm 2 tỉnh khác nhau trùng key.
 
 Bối cảnh: "Thừa Thiên Huế", "TP.HCM", "Ho Chi Minh" từng trả "" nên rơi
-vào "Khác" (xem db/lookups.py::get_province_id).
+vào "Khác" (xem scrapjd/db/lookups.py::get_province_id).
 """
 import os
 import re

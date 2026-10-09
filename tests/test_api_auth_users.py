@@ -1,5 +1,5 @@
 """
-Tests cho GET /auth/users/{ss_user_id} (api/routers/auth_users.py::get_user,
+Tests cho GET /auth/users/{ss_user_id} (scrapjd/api/routers/auth_users.py::get_user,
 thêm 10/2026) — thay cho việc frontend tải cả GET /auth/users rồi lọc theo id.
 
 Cùng convention với tests/test_api_messages.py: gọi thẳng hàm route (không

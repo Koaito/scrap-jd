@@ -1,5 +1,5 @@
 """
-Tests cho api/routers/contacts.py — route CRUD company_contacts.
+Tests cho scrapjd/api/routers/contacts.py — route CRUD company_contacts.
 
 Test coverage:
 - Authentication/authorization (ss_team required)

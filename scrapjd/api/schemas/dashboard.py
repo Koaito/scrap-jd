@@ -2,7 +2,7 @@
 Dashboard — schema response cho GET /dashboard/insights/{students,
 companies,monthly} (Phần 5 mục 8 của plan Next.js). Mỗi endpoint ứng với
 đúng 1 tab của trang /dashboard để Next.js tải theo yêu cầu từng tab.
-Xem db/dashboard.py để biết logic từng khối.
+Xem scrapjd/db/dashboard.py để biết logic từng khối.
 
 Quy ước: field trả về theo tên backend (job_id/company_name...), KHÔNG
 theo tên Flask (id/company/position). Chuỗi nhãn tiếng Việt do frontend

@@ -125,7 +125,7 @@ def test_failed_merge_leaves_everything_untouched(pg_conn):
 
 
 def test_merge_with_tax_id_conflict_end_to_end(pg_conn):
-    """Đường thật mà enrich_company_web_info.py đi: tax_id tra được trùng một
+    """Đường thật mà scrapjd/maintenance/enrich_company_web_info.py đi: tax_id tra được trùng một
     công ty khác đã có, công ty nguồn có lịch sử audit."""
     source = _company(pg_conn, "ABC Việt Nam")
     target = _company(pg_conn, "Công ty ABC", tax_id="0312345678")

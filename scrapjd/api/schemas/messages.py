@@ -1,5 +1,5 @@
 """
-Hệ thống nhắn tin — schema request/response cho api/routers/messages.py
+Hệ thống nhắn tin — schema request/response cho scrapjd/api/routers/messages.py
 (thêm 08/2026). Xem backend-scrap-jd-nhan-tin.md cho toàn bộ kế hoạch.
 """
 
@@ -28,7 +28,7 @@ class MessageCreate(BaseModel):
 
 class ChatMessageOut(BaseModel):
     # Tên "ChatMessageOut" (không phải "MessageOut") CỐ Ý — tránh đè
-    # lên api.schemas.auth.MessageOut (response chung {"message": str}
+    # lên scrapjd.api.schemas.auth.MessageOut (response chung {"message": str}
     # cho các action xác nhận, đã tồn tại từ trước, tên trùng nếu dùng
     # "MessageOut" ở đây).
     id: int

@@ -4,7 +4,7 @@ SS ↔ SS (08/2026). Xem backend-scrap-jd-nhan-tin.md cho toàn bộ kế
 hoạch/state machine, sql/migration_add_chat_messages.sql cho schema.
 
 QUY ƯỚC: mọi hàm ở đây CHỈ thao tác DB, KHÔNG tự conn.commit() (theo
-đúng convention db/contacts.py, db/companies.py...) — commit là trách
+đúng convention scrapjd/db/contacts.py, scrapjd/db/companies.py...) — commit là trách
 nhiệm của router sau khi gọi xong (và log_action nếu cần), để router
 gộp nhiều thao tác vào 1 transaction khi cần.
 
@@ -32,7 +32,7 @@ DECLINE_COOLDOWN_DAYS = 7
 
 # Trần của messages.id (BIGSERIAL = bigint có dấu 64-bit). Query param
 # before_id/after_id vượt trần này làm Postgres raise NumericValueOutOfRange
-# (bigint out of range) -> 500 vì api/app.py không bắt lỗi DB. Router dùng hằng
+# (bigint out of range) -> 500 vì scrapjd/api/app.py không bắt lỗi DB. Router dùng hằng
 # này làm `le=` của Query để trả 422 ngay ở tầng validate của FastAPI. Giữ cạnh
 # schema thật của cột (sql/migration_add_chat_messages.sql) để nếu sau này đổi
 # kiểu cột thì chỉ phải sửa đúng 1 chỗ.
@@ -274,7 +274,7 @@ def get_messages_between(
     bằng before_id (id < before_id nếu có). Gọi CHỈ SAU KHI router đã
     xác nhận current_user thuộc về (user_a, user_b) — hàm này không tự
     check quyền (IDOR check là trách nhiệm router, xem
-    api/routers/messages.py)."""
+    scrapjd/api/routers/messages.py)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         if before_id is not None:
             cur.execute(

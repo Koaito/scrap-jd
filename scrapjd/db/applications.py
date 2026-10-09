@@ -124,7 +124,7 @@ def list_saved_jobs_for_user(conn, ss_user_id: str):
 
 def list_closed_job_applications_with_cv(conn, limit: Optional[int] = None):
     """Đơn ứng tuyển của job ĐÃ CLOSED mà vẫn còn cv_url (chưa được dọn)
-    — dùng cho check_expired_source_jobs.py::cleanup_cvs_of_closed_jobs().
+    — dùng cho scrapjd/maintenance/check_expired_source_jobs.py::cleanup_cvs_of_closed_jobs().
 
     CỐ Ý join job_status='CLOSED' (không lọc theo "vừa đóng trong lượt
     chạy này") — quét TOÀN BỘ job đã CLOSED trong DB, kể cả những job đã
@@ -188,7 +188,7 @@ def set_application_cv_url(conn, application_id: str, cv_url: str) -> None:
     """Gắn đường dẫn CV vừa upload lên storage vào application. KHÔNG
     commit — nằm chung transaction với create_job_application() và
     log_action() của POST /me/applications, để upload lỗi thì rollback
-    được cả đơn vừa tạo (xem api/routers/me.py::apply_to_job). Đối xứng
+    được cả đơn vừa tạo (xem scrapjd/api/routers/me.py::apply_to_job). Đối xứng
     với clear_application_cv() ở trên."""
     with conn.cursor() as cur:
         cur.execute(

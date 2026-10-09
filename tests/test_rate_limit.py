@@ -1,5 +1,5 @@
 """
-Test cho api/rate_limit.py::get_client_ip() / get_user_id_or_ip() — bản
+Test cho scrapjd/api/rate_limit.py::get_client_ip() / get_user_id_or_ip() — bản
 sửa Phần 1 mục 3.14 của plan migrate Next.js: rate limit theo IP phải
 đếm theo IP NGƯỜI DÙNG CUỐI (do Next.js khai báo qua header
 X-Client-IP), không phải IP egress dùng chung của server Next.js.
@@ -9,7 +9,7 @@ X-API-Key hợp lệ. Nếu tin vô điều kiện, ai cũng tự đổi đượ
 của mình bằng cách gửi mỗi request 1 IP giả -> rate limit vô dụng.
 
 Request giả dựng bằng make_fake_request() (conftest.py, client cố định
-127.0.0.1); API_KEY được patch thẳng vào api.auth._API_KEY (biến được
+127.0.0.1); API_KEY được patch thẳng vào scrapjd.api.auth._API_KEY (biến được
 đọc lúc gọi hàm, không cache).
 """
 import uuid

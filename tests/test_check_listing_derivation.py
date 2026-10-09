@@ -1,5 +1,5 @@
 """
-Báo cáo so job suy ra từ listing với job đang lưu (check_listing_derivation.py, C2 nửa 1/2). Phần so và phân
+Báo cáo so job suy ra từ listing với job đang lưu (scrapjd/cli/check_listing_derivation.py, C2 nửa 1/2). Phần so và phân
 loại là hàm thuần; phần chạy dùng DB giả. Test trên Postgres thật nằm ở tests/test_pg_job_derivation.py.
 """
 import io

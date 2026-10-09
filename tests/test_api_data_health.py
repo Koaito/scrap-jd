@@ -1,6 +1,6 @@
 """
-Test cho api/routers/companies.py::get_company_data_health() và
-api/routers/jobs.py::get_job_data_health() (route GET /companies/
+Test cho scrapjd/api/routers/companies.py::get_company_data_health() và
+scrapjd/api/routers/jobs.py::get_job_data_health() (route GET /companies/
 data-health, GET /jobs/data-health — thêm 08/2026).
 
 Test coverage:

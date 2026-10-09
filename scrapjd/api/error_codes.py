@@ -1,6 +1,6 @@
 """
-Hằng số error_code dùng xuyên suốt API layer (api/routers/*.py,
-api/auth.py, api/deps.py) — Giai đoạn 1 kế hoạch i18n (09/2026).
+Hằng số error_code dùng xuyên suốt API layer (scrapjd/api/routers/*.py,
+scrapjd/api/auth.py, scrapjd/api/deps.py) — Giai đoạn 1 kế hoạch i18n (09/2026).
 
 MỤC ĐÍCH: mỗi raise HTTPException(detail={"error_code": ..., "message": ...})
 dùng 1 hằng số ở đây thay vì gõ tay chuỗi rải rác — tránh gõ sai/trùng
@@ -32,7 +32,7 @@ hại, fallback về "message" gốc như cũ.
 """
 
 # ---------------------------------------------------------------
-# api/deps.py — lỗi xác thực token (đã có sẵn TRƯỚC Giai đoạn 1, giữ
+# scrapjd/api/deps.py — lỗi xác thực token (đã có sẵn TRƯỚC Giai đoạn 1, giữ
 # nguyên, liệt kê lại ở đây cho đủ bộ hằng số).
 # ---------------------------------------------------------------
 MISSING_AUTH_HEADER = "missing_auth_header"
@@ -41,13 +41,13 @@ SESSION_REVOKED = "session_revoked"
 TOKEN_EXPIRED = "token_expired"
 
 # ---------------------------------------------------------------
-# api/auth.py
+# scrapjd/api/auth.py
 # ---------------------------------------------------------------
 AUTH_SERVER_MISSING_API_KEY = "auth_server_missing_api_key"
 AUTH_MISSING = "auth_missing"
 
 # ---------------------------------------------------------------
-# api/routers/audit_logs.py
+# scrapjd/api/routers/audit_logs.py
 # ---------------------------------------------------------------
 AUDIT_LOG_ENTITY_TYPE_INVALID = "audit_log_entity_type_invalid"
 AUDIT_LOG_ACTION_TYPE_INVALID = "audit_log_action_type_invalid"
@@ -59,14 +59,14 @@ AUDIT_LOG_ONLY_ACTOR_CAN_EDIT_NOTE = "audit_log_only_actor_can_edit_note"
 AUDIT_LOG_REQUIRED = "audit_log_required"
 
 # ---------------------------------------------------------------
-# api/routers/auth_registration.py
+# scrapjd/api/routers/auth_registration.py
 # ---------------------------------------------------------------
 AUTH_EMAIL_ALREADY_REGISTERED = "auth_email_already_registered"
 AUTH_INVALID = "auth_invalid"
 AUTH_EXPIRED = "auth_expired"
 
 # ---------------------------------------------------------------
-# api/routers/auth_session.py
+# scrapjd/api/routers/auth_session.py
 # ---------------------------------------------------------------
 AUTH_WRONG_CREDENTIALS = "auth_wrong_credentials"
 AUTH_DEACTIVATED = "auth_deactivated"
@@ -80,14 +80,14 @@ AUTH_ACCOUNT_INACTIVE = "auth_account_inactive"
 AUTH_ACCOUNT_NOT_FOUND = "auth_account_not_found"
 AUTH_OLD_PASSWORD_INCORRECT = "auth_old_password_incorrect"
 # CẬP NHẬT 09/2026 (Phần B audit i18n, phát hiện qua đối chiếu với FE
-# job-posting): api/deps.py::require_role() raise HTTPException với
+# job-posting): scrapjd/api/deps.py::require_role() raise HTTPException với
 # detail=f"..." dạng STRING THUẦN, không có error_code/message/params
 # như chuẩn còn lại — FE không tra bảng dịch được (không có error_code
 # để tra), luôn hiện tiếng Việt bất kể locale. Thêm mã này để đồng bộ.
 AUTH_INSUFFICIENT_ROLE = "auth_insufficient_role"
 
 # ---------------------------------------------------------------
-# api/routers/auth_users.py
+# scrapjd/api/routers/auth_users.py
 # ---------------------------------------------------------------
 USER_ROLE_INVALID = "user_role_invalid"
 USER_EMAIL_ALREADY_REGISTERED = "user_email_already_registered"
@@ -97,7 +97,7 @@ USER_FORBIDDEN = "user_forbidden"
 USER_CANNOT_MODIFY_SELF = "user_cannot_modify_self"
 
 # ---------------------------------------------------------------
-# api/routers/companies.py
+# scrapjd/api/routers/companies.py
 # ---------------------------------------------------------------
 COMPANY_CREATED_BY_INVALID_UUID = "company_created_by_invalid_uuid"
 COMPANY_COMPANY_ID_INVALID_UUID = "company_company_id_invalid_uuid"
@@ -105,7 +105,7 @@ COMPANY_COMPANY_NOT_FOUND = "company_company_not_found"
 COMPANY_TAX_ID_ALREADY_USED = "company_tax_id_already_used"
 
 # ---------------------------------------------------------------
-# api/routers/contacts.py
+# scrapjd/api/routers/contacts.py
 # ---------------------------------------------------------------
 CONTACT_ASSIGNED_SS_USER_INVALID_UUID = "contact_assigned_ss_user_invalid_uuid"
 CONTACT_ASSIGNED_USER_NOT_FOUND = "contact_assigned_user_not_found"
@@ -123,7 +123,7 @@ CONTACT_STILL_ACTIVE = "contact_still_active"
 CONTACT_HAS_LINKS = "contact_has_links"
 
 # ---------------------------------------------------------------
-# api/routers/crawl.py
+# scrapjd/api/routers/crawl.py
 # ---------------------------------------------------------------
 CRAWL_NOT_FOUND = "crawl_not_found"
 CRAWL_NOT_FOUND_2 = "crawl_not_found_2"
@@ -137,19 +137,19 @@ CRAWL_RUN_ID_INVALID_UUID = "crawl_run_id_invalid_uuid"
 CRAWL_RUN_NOT_FOUND = "crawl_run_not_found"
 
 # ---------------------------------------------------------------
-# api/routers/dashboard.py
+# scrapjd/api/routers/dashboard.py
 # ---------------------------------------------------------------
 DASHBOARD_FOLLOWUP_DAYS_INVALID = "dashboard_followup_days_invalid"
 
 # ---------------------------------------------------------------
-# api/routers/email_templates.py
+# scrapjd/api/routers/email_templates.py
 # ---------------------------------------------------------------
 EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID = "email_template_template_id_invalid_uuid"
 EMAIL_TEMPLATE_TEMPLATE_NOT_FOUND = "email_template_template_not_found"
 EMAIL_TEMPLATE_REQUIRED = "email_template_required"
 
 # ---------------------------------------------------------------
-# api/routers/import_export.py
+# scrapjd/api/routers/import_export.py
 # ---------------------------------------------------------------
 IMPORT_ENTITY_TYPE_INVALID = "import_entity_type_invalid"
 IMPORT_ENTITY_TYPE_FILTER_STATUS = "import_entity_type_filter_status"
@@ -171,7 +171,7 @@ IMPORT_INTERNAL_ERROR = "import_internal_error"
 IMPORT_PREVIEW_ID_INVALID_UUID = "import_preview_id_invalid_uuid"
 IMPORT_NOT_FOUND = "import_not_found"
 IMPORT_PREVIEW_EXPIRED = "import_preview_expired"
-# CẬP NHẬT 09/2026 (Phần B audit i18n): api/routers/import_export.py
+# CẬP NHẬT 09/2026 (Phần B audit i18n): scrapjd/api/routers/import_export.py
 # (bước validate file trước khi tạo preview) raise HTTPException với
 # detail thiếu hẳn error_code — chỉ có "message" + "errors" (danh sách
 # lỗi từng dòng). FE không tra bảng dịch được. Thêm mã này để đồng bộ;
@@ -179,7 +179,7 @@ IMPORT_PREVIEW_EXPIRED = "import_preview_expired"
 IMPORT_ROW_VALIDATION_FAILED = "import_row_validation_failed"
 
 # ---------------------------------------------------------------
-# api/routers/jobs.py
+# scrapjd/api/routers/jobs.py
 # ---------------------------------------------------------------
 JOB_CREATED_BY_INVALID_UUID = "job_created_by_invalid_uuid"
 JOB_JOB_ID_INVALID_UUID = "job_job_id_invalid_uuid"
@@ -192,7 +192,7 @@ JOB_IDS_INVALID_UUID = "job_ids_invalid_uuid"
 JOB_DEDUP_LOCK_TIMEOUT = "job_dedup_lock_timeout"
 
 # ---------------------------------------------------------------
-# api/routers/maintenance.py
+# scrapjd/api/routers/maintenance.py
 # ---------------------------------------------------------------
 MAINTENANCE_JOB_NOT_FOUND = "maintenance_job_not_found"
 MAINTENANCE_REQUIRED = "maintenance_required"
@@ -206,7 +206,7 @@ MAINTENANCE_AFTER_ID_INVALID = "maintenance_after_id_invalid"
 MAINTENANCE_RUN_NOT_FOUND = "maintenance_run_not_found"
 
 # ---------------------------------------------------------------
-# api/routers/me.py
+# scrapjd/api/routers/me.py
 # ---------------------------------------------------------------
 PROFILE_JOB_ID_INVALID_UUID = "profile_job_id_invalid_uuid"
 PROFILE_JOB_NOT_FOUND = "profile_job_not_found"
@@ -223,7 +223,7 @@ PROFILE_JOB_ALREADY_SAVED = "profile_job_already_saved"
 PROFILE_JOB_NOT_SAVED = "profile_job_not_saved"
 
 # ---------------------------------------------------------------
-# api/routers/messages.py
+# scrapjd/api/routers/messages.py
 # ---------------------------------------------------------------
 MESSAGE_FORBIDDEN = "message_forbidden"
 MESSAGE_NOT_FOUND = "message_not_found"

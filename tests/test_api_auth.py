@@ -1,11 +1,11 @@
 """
 Test cho POST /auth/refresh — tập trung vào GRACE PERIOD tái sử dụng
 refresh token vừa xoay vòng (security.REFRESH_REUSE_GRACE_SECONDS, thêm
-khi migrate Next.js — xem docstring hằng số này ở api/security.py và
-docstring refresh() ở api/routers/auth_session.py).
+khi migrate Next.js — xem docstring hằng số này ở scrapjd/api/security.py và
+docstring refresh() ở scrapjd/api/routers/auth_session.py).
 
 Gọi route TRỰC TIẾP (không qua TestClient) và patch thẳng
-api.routers.auth_session.db_module — cùng pattern với
+scrapjd.api.routers.auth_session.db_module — cùng pattern với
 tests/test_api_contacts.py (xem docstring ở đó), vì các route này có
 @limiter.limit(...) cần 1 Request thật (dùng fixture fake_request từ
 conftest.py), không phải MagicMock.

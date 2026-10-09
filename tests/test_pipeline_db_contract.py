@@ -1,5 +1,5 @@
 """
-Hợp đồng giữa pipeline.py, PipelineDB (pipeline_db.py), module db thật và Fake dùng chung (B2).
+Hợp đồng giữa scrapjd/pipeline.py, PipelineDB (scrapjd/pipeline_db.py), module db thật và Fake dùng chung (B2).
 
 Mục đích: bốn thứ này không được lệch nhau mà không ai biết. Mỗi test dưới đây đỏ ở đúng một kiểu
 lệch, thông báo nói rõ phải sửa chỗ nào. Không cần DB hay mạng.

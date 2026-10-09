@@ -1,5 +1,5 @@
 """
-Test cho api/routers/meta.py::get_stats()/get_engagement_stats()/
+Test cho scrapjd/api/routers/meta.py::get_stats()/get_engagement_stats()/
 get_sources()/get_enums() (GET /stats, GET /stats/engagement,
 GET /sources, GET /enums) — 4 route đọc-only, KHÔNG có route nào yêu
 cầu role hay bị rate-limit (không có tham số `user`/`request` trong
@@ -10,7 +10,7 @@ Test coverage:
 - get_stats()/get_engagement_stats() delegate ĐÚNG xuống db_module,
   KHÔNG tự xử lý/biến đổi gì thêm — trả thẳng dict backend tính sẵn.
 - response_model=StatsOut/EngagementStatsOut validate đúng qua đủ
-  field thật (9 field của StatsOut, xem api/schemas/stats.py — KHÔNG
+  field thật (9 field của StatsOut, xem scrapjd/api/schemas/stats.py — KHÔNG
   phải 8 field như 1 bản kế hoạch cũ (plan_nextjs.md) từng ghi nhầm),
   kể cả 2 field mới nhất jobs_by_status/total_students (09/2026) mà
   Next.js dashboard đang đọc trực tiếp (xem app/actions/dashboard.ts).
@@ -38,7 +38,7 @@ from scrapjd.api.schemas import EngagementStatsOut, StatsOut
 # GET /stats
 # ---------------------------------------------------------------------------
 
-# Khớp ĐÚNG shape thật db_module.get_stats_summary() trả về (db/stats.py)
+# Khớp ĐÚNG shape thật db_module.get_stats_summary() trả về (scrapjd/db/stats.py)
 # — đủ cả 9 field của StatsOut, kể cả 2 field mới 09/2026.
 _FAKE_STATS = {
     "total_jobs": 120,
@@ -70,7 +70,7 @@ def test_get_stats_delegates_to_db_module(mock_conn):
 def test_get_stats_response_matches_stats_out_schema():
     """response_model=StatsOut (khai báo trên route) phải validate được
     đúng shape thật của get_stats_summary() — bắt hồi quy nếu ai đó sửa
-    db/stats.py thêm/bớt field mà quên đồng bộ StatsOut, hoặc ngược lại.
+    scrapjd/db/stats.py thêm/bớt field mà quên đồng bộ StatsOut, hoặc ngược lại.
     Test KHÔNG hard-code lại field theo trí nhớ mà validate thẳng bằng
     chính class StatsOut import từ schema thật."""
     validated = StatsOut(**_FAKE_STATS)
@@ -138,7 +138,7 @@ def test_get_engagement_stats_delegates_to_db_module(mock_conn):
 
 def test_get_engagement_stats_response_matches_schema():
     """response_model=EngagementStatsOut validate đúng shape gộp — bắt
-    hồi quy nếu JobEngagementOut/MonthlyEngagementOut (api/schemas/stats.py)
+    hồi quy nếu JobEngagementOut/MonthlyEngagementOut (scrapjd/api/schemas/stats.py)
     đổi field mà route/db layer không cập nhật theo."""
     validated = EngagementStatsOut(
         jobs=_FAKE_ENGAGEMENT_JOBS, monthly=_FAKE_MONTHLY
@@ -182,12 +182,12 @@ def test_get_sources_has_no_parameters():
 
 
 # ---------------------------------------------------------------------------
-# GET /enums — không đọc DB, tính thẳng từ constants.py
+# GET /enums — không đọc DB, tính thẳng từ scrapjd/constants.py
 # ---------------------------------------------------------------------------
 
 
 def test_get_enums_matches_constants_module():
-    """get_enums() phải LUÔN khớp đúng constants.py (nguồn sự thật duy
+    """get_enums() phải LUÔN khớp đúng scrapjd/constants.py (nguồn sự thật duy
     nhất cho enum values) — lý do endpoint này tồn tại (xem docstring):
     tránh lệch giữa backend và frontend mỗi khi đổi enum (như
     EXPIRED -> CLOSED trong JOB_STATUS_VALUES). Test so trực tiếp với
@@ -235,7 +235,7 @@ def test_get_enums_job_status_and_level_code_needed_by_job_form():
 
 def test_get_enums_has_no_parameters():
     """Route KHÔNG có tham số conn/request/user nào — hoàn toàn tính
-    tĩnh từ constants.py, không chạm DB."""
+    tĩnh từ scrapjd/constants.py, không chạm DB."""
     import inspect
     from scrapjd.api.routers.meta import get_enums
 
@@ -252,7 +252,7 @@ def _read_province_seed(relative_sql_path: str) -> list[str]:
     """Đọc danh sách tên tỉnh từ khối `INSERT INTO provinces ... VALUES
     ('A'), ('B'), ... ON CONFLICT` trong 1 file SQL THẬT của repo (không
     hard-code lại danh sách trong test — mục đích của test này chính là
-    bắt trường hợp constants.py lệch khỏi seed thật). Chỉ quét từ
+    bắt trường hợp scrapjd/constants.py lệch khỏi seed thật). Chỉ quét từ
     "INSERT INTO provinces" tới "ON CONFLICT" để không dính comment."""
     import re
     from pathlib import Path
@@ -302,7 +302,7 @@ def test_province_values_match_migration_2025():
 
 
 def test_province_values_cover_every_alias_target():
-    """Mọi tên tỉnh MỚI mà province_alias.py quy đổi về (kể cả tên đã là
+    """Mọi tên tỉnh MỚI mà scrapjd/province_alias.py quy đổi về (kể cả tên đã là
     tên mới, map về chính nó) đều phải nằm trong PROVINCE_VALUES, và
     ngược lại — nếu lệch, job crawl từ tên tỉnh cũ sẽ được gán vào 1
     tỉnh mà dropdown không cho chọn (hoặc dropdown có tỉnh mà crawl

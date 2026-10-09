@@ -1,12 +1,12 @@
 """
-Test cho middleware reject_oversized_request (api/app.py) — gate chặn
+Test cho middleware reject_oversized_request (scrapjd/api/app.py) — gate chặn
 request quá lớn ở tầng app, thêm 08/2026 (xem việc_chưa_làm.txt mục
 "Chưa có gate chặn gửi file quá lớn khi gửi CV").
 
 Chỉ test HÀNH VI CỦA MIDDLEWARE (chặn dựa vào header Content-Length,
 chạy TRƯỚC auth/route) — KHÔNG cần API_KEY/JWT thật, vì middleware này
 cố ý đặt để chạy sớm hơn cả bước check X-API-Key (xem comment thứ tự
-middleware trong api/app.py). Test dùng TestClient thật (không mock
+middleware trong scrapjd/api/app.py). Test dùng TestClient thật (không mock
 app) để đảm bảo test đúng hành vi tích hợp của middleware trong app
 thật, không phải gọi hàm middleware cô lập.
 
@@ -14,8 +14,8 @@ Chạy: pytest tests/test_request_size_limit.py -v
 """
 import os
 
-# api/app.py raise RuntimeError khi import nếu thiếu JWT_SECRET_KEY
-# (xem api/security.py) — set trước khi import app, giống cách
+# scrapjd/api/app.py raise RuntimeError khi import nếu thiếu JWT_SECRET_KEY
+# (xem scrapjd/api/security.py) — set trước khi import app, giống cách
 # .github/workflows/test.yml set biến này cho toàn bộ suite.
 os.environ.setdefault("JWT_SECRET_KEY", "test_secret_not_used_in_production")
 

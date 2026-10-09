@@ -1,9 +1,9 @@
 """
-Test cho api/routers/dashboard.py (GET /dashboard/insights/students,
+Test cho scrapjd/api/routers/dashboard.py (GET /dashboard/insights/students,
 /companies, /monthly) — Phần 5 mục 8 của plan Next.js.
 
 CHỈ test tầng route + schema (mock db_module, không có DB thật): SQL bên
-trong db/dashboard.py cần chạy thử trên Postgres thật (xem checklist ở
+trong scrapjd/db/dashboard.py cần chạy thử trên Postgres thật (xem checklist ở
 commit message) — không kiểm chứng được bằng mock.
 
 Test coverage:

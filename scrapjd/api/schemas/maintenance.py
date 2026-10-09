@@ -2,7 +2,7 @@
 Maintenance trigger — schema request/response cho POST
 /maintenance/{job_type}, GET /maintenance/{run_id} (08/2026, xem lịch sử
 trao đổi "phương án B — generic runner dùng chung", đối xứng
-api/schemas/crawl.py nhưng generic hoá theo job_type + params thay vì
+scrapjd/api/schemas/crawl.py nhưng generic hoá theo job_type + params thay vì
 source/category riêng cho crawl).
 """
 
@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 # ------------------------------------------------------------------
 # Đăng ký 5 job_type — NGUỒN SỰ THẬT DUY NHẤT cho nhãn hiển thị +
-# validate. Khớp đúng _JOB_RUNNERS ở api/maintenance_runner.py và enum
+# validate. Khớp đúng _JOB_RUNNERS ở scrapjd/api/maintenance_runner.py và enum
 # maintenance_job_type_enum ở sql/migration_add_maintenance_runs.sql.
 # Frontend (mindx-jobs) giữ nhãn tiếng Việt riêng của nó (giống
 # _SOURCE_LABELS ở blueprints/crawl.py) — dict này chỉ phục vụ validate
@@ -35,7 +35,7 @@ MAINTENANCE_JOB_TYPES = (
 # nút trên web, xem lịch sử trao đổi).
 #
 # 08/2026 (sửa bug) — TRƯỚC ĐÂY còn có "get_fb_linkedin" trong set này
-# theo giả định sai. get_fb_linkedin (get_company_fb_linkedin_link.py)
+# theo giả định sai. get_fb_linkedin (scrapjd/maintenance/get_company_fb_linkedin_link.py)
 # KHÔNG gọi Tavily/Gemini — chỉ fetch HTML thô từ website công ty đã có
 # sẵn (companies.website) bằng curl_cffi + BeautifulSoup, hoàn toàn
 # miễn phí. Comment mô tả hiển thị đã được sửa đúng từ trước, nhưng
@@ -108,7 +108,7 @@ class PaginatedMaintenanceRuns(BaseModel):
 
 # ------------------------------------------------------------------
 # Log live — GET /maintenance/{run_id}/logs — đối xứng CrawlLogOut/
-# CrawlLogsOut ở api/schemas/crawl.py
+# CrawlLogsOut ở scrapjd/api/schemas/crawl.py
 # ------------------------------------------------------------------
 
 class MaintenanceLogOut(BaseModel):

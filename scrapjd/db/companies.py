@@ -2,8 +2,8 @@
 db.companies — GHI công ty (tạo/cập nhật/gộp/xoá mềm).
 
 Tách từ db.py (God module) theo domain; 10/2026 tách tiếp: truy vấn đọc ->
-db/company_queries.py, chọn công ty cần enrich -> db/company_enrichment.py,
-tín hiệu + thống kê -> db/company_analytics.py.
+scrapjd/db/company_queries.py, chọn công ty cần enrich -> scrapjd/db/company_enrichment.py,
+tín hiệu + thống kê -> scrapjd/db/company_analytics.py.
 """
 
 import logging
@@ -125,7 +125,7 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
     source_profile_url (thêm 08/2026, xem
     sql/migration_add_source_profile_url.sql): URL trang hồ sơ công ty
     trên nguồn crawl gốc (TopCV/VietnamWorks) — LUÔN ghi lại mỗi khi
-    pipeline.py thấy company_url mới cho công ty này, KỂ CẢ KHI
+    scrapjd/pipeline.py thấy company_url mới cho công ty này, KỂ CẢ KHI
     probe_needs_enrichment() trả False (4 field nội dung đã đủ) — khác
     với các field kia (chỉ ghi khi "có giá trị mới VÀ field cũ rỗng/muốn
     đè"), source_profile_url nên LUÔN được cập nhật thành URL MỚI NHẤT
@@ -136,10 +136,10 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
     products_services (NỐI LẠI 08/2026, xem lịch sử trao đổi): cột này
     thực ra CHƯA BAO GIỜ bị DROP thật ở DB — sql/migration_drop_
     products_services.sql tồn tại nhưng chưa từng được chạy trên DB thật.
-    Trước đó code (pipeline.py) đã ngừng ghi field này dù mọi adapter vẫn
+    Trước đó code (scrapjd/pipeline.py) đã ngừng ghi field này dù mọi adapter vẫn
     fetch sẵn profile["description"] mỗi lần crawl — dữ liệu có trong tay
     nhưng bị vứt đi, khiến cột trống 100% dù còn tồn tại. Giờ nối lại việc
-    GHI ở tầng crawl/enrich tự động (pipeline.py, backfill_company_
+    GHI ở tầng crawl/enrich tự động (scrapjd/pipeline.py, backfill_company_
     profiles.py); CHỦ Ý KHÔNG thêm lại vào CompanyCreate/CompanyUpdate
     (api/schemas.py) hay UI — giữ nguyên quyết định cũ "bỏ khỏi CRM/form
     nhập tay", chỉ khác ở chỗ dữ liệu crawl được nên lưu lại thay vì vứt."""
@@ -290,7 +290,7 @@ def merge_companies(conn, source_company_id: str, target_company_id: str) -> Non
     """Gộp source_company_id VÀO target_company_id (source biến mất khỏi
     DB sau khi gọi hàm này) — dùng khi phát hiện 2 company_id khác nhau
     thực ra là CÙNG 1 pháp nhân (vd trùng tax_id phát hiện qua
-    enrich_company_web_info.py).
+    scrapjd/maintenance/enrich_company_web_info.py).
 
     target LUÔN là company đã có sẵn tax_id đó từ trước (đáng tin hơn,
     vì tax_id là định danh pháp lý ổn định) — source là company vừa tra
@@ -341,7 +341,7 @@ def find_company_by_tax_id(conn, tax_id: str) -> Optional[str]:
     nào — tax_id có UNIQUE INDEX (uq_companies_tax_id, xem sql/schema.sql)
     nên tối đa 1 kết quả khớp. Cùng logic tra cứu tax_id đã dùng inline
     trong get_or_create_company_by_profile() (bước 1), tách riêng ra đây
-    để update_company_profile_with_merge() (enrich_company_web_info.py)
+    để update_company_profile_with_merge() (scrapjd/maintenance/enrich_company_web_info.py)
     dùng lại được mà không phải chép lại query."""
     if not tax_id:
         return None
@@ -357,11 +357,11 @@ def update_company_profile_with_merge(conn, company_id: str, *, tax_id: str = ""
                                        address: str = "") -> str:
     """Giống update_company_profile(), nhưng AN TOÀN với trường hợp
     tax_id mới tìm được trùng với 1 company_id KHÁC đã có sẵn — dùng cho
-    enrich_company_web_info.py, nơi tax_id đến từ tra cứu web (không
+    scrapjd/maintenance/enrich_company_web_info.py, nơi tax_id đến từ tra cứu web (không
     phải nguồn crawl gốc), nên khả năng khớp phải 1 company đã tồn tại
     từ trước (crawl bởi nguồn khác, tên ghi hơi khác) là có thật.
 
-    update_company_profile() (bản gốc, dùng trong pipeline.py) KHÔNG có
+    update_company_profile() (bản gốc, dùng trong scrapjd/pipeline.py) KHÔNG có
     bước kiểm tra này vì tax_id ở đó luôn đến kèm 1 lần
     fetch_company_profile() DUY NHẤT ngay lúc company vừa được tạo/match
     trong CÙNG 1 lần crawl — rủi ro trùng thấp hơn nhiều, và

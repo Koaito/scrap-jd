@@ -3,11 +3,11 @@ from fastapi import APIRouter, Depends
 from scrapjd import db as db_module
 from scrapjd.api.deps import get_db
 from scrapjd.api.schemas import EngagementStatsOut, StatsOut
-# CATEGORIES_BY_SOURCE từ sources_registry.py (nguồn sự thật duy nhất)
+# CATEGORIES_BY_SOURCE từ scrapjd/sources_registry.py (nguồn sự thật duy nhất)
 # — trước đây get_sources() bên dưới hardcode riêng từng nguồn
 # (TOPCV_CATEGORIES/VIETNAMWORKS_CATEGORIES/CAREERVIET_CATEGORIES), và
 # chính đây là 1 trong 4 nơi từng bị "quên" thêm CareerViet dù CLI đã
-# crawl được (xem docstring sources_registry.py). Giờ vòng lặp bên dưới
+# crawl được (xem docstring scrapjd/sources_registry.py). Giờ vòng lặp bên dưới
 # tự động chạy qua MỌI nguồn trong registry, không hardcode tên nguồn
 # nào nữa -> thêm nguồn mới vào registry là endpoint này tự khớp theo,
 # không cần sửa file này nữa.
@@ -22,7 +22,7 @@ def get_stats(conn=Depends(get_db)):
     """Số liệu tổng quan cho dashboard — tổng job, tổng công ty, tỷ lệ
     đã có social, phân bố theo ngành/nguồn, tổng đơn ứng tuyển (thêm
     08/2026), jobs_by_status và total_students (thêm 09/2026 — xem
-    StatsOut ở api/schemas/stats.py)."""
+    StatsOut ở scrapjd/api/schemas/stats.py)."""
     return db_module.get_stats_summary(conn)
 
 
@@ -53,12 +53,12 @@ def get_engagement_stats(conn=Depends(get_db)):
 def get_sources():
     """Danh sách source + category có sẵn để crawl — frontend dùng để
     render dropdown cho form POST /crawl, không cần hard-code lại phía
-    frontend, luôn khớp với sources_registry.py hiện hành.
+    frontend, luôn khớp với scrapjd/sources_registry.py hiện hành.
 
-    08/2026 — VIẾT LẠI để lặp qua CATEGORIES_BY_SOURCE (sources_registry.py)
+    08/2026 — VIẾT LẠI để lặp qua CATEGORIES_BY_SOURCE (scrapjd/sources_registry.py)
     thay vì liệt kê thủ công từng nguồn (topcv/vietnamworks/careerviet).
     Bản cũ từng "quên" thêm careerviet ở đúng chỗ này dù backend đã
-    crawl được qua CLI (xem docstring sources_registry.py) — với vòng
+    crawl được qua CLI (xem docstring scrapjd/sources_registry.py) — với vòng
     lặp này, thêm 1 nguồn mới vào registry là endpoint tự động trả về
     đúng, không còn khả năng quên hardcode ở đây nữa."""
     return {
@@ -89,7 +89,7 @@ def get_enums():
     route này không đọc DB (xem test_get_enums_has_no_parameters), và
     bảng thật có thể còn dòng tên tỉnh CŨ chỉ để giữ tham chiếu dữ liệu
     lịch sử — không được cho chọn lại. Danh sách này được test tự động
-    so khớp với sql/schema.sql + migration + province_alias.py."""
+    so khớp với sql/schema.sql + migration + scrapjd/province_alias.py."""
     return {
         "job_status": constants.JOB_STATUS_VALUES,
         "work_type": constants.WORK_TYPE_VALUES,
