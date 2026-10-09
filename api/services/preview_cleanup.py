@@ -8,7 +8,7 @@ riêng connection ngắn hạn rồi trả lại pool ngay).
 
 import logging
 
-import db as db_module
+from scrapjd import db as db_module
 from api.services import preview_manager
 
 logger = logging.getLogger(__name__)

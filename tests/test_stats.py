@@ -321,7 +321,7 @@ def test_province_values_are_resolved_by_get_province_id_without_fallback():
     from unittest.mock import MagicMock
 
     from scrapjd import constants
-    from db.lookups import get_province_id
+    from scrapjd.db.lookups import get_province_id
 
     ids = {name: i + 1 for i, name in enumerate(constants.PROVINCE_VALUES)}
 

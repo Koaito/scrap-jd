@@ -24,7 +24,7 @@ QUY ƯỚC
 
 import logging
 
-from db.job_derivation import _LISTING_COLUMNS, DerivedJob, derive_job_from_listings
+from scrapjd.db.job_derivation import _LISTING_COLUMNS, DerivedJob, derive_job_from_listings
 
 logger = logging.getLogger(__name__)
 

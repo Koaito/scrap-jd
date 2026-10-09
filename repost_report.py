@@ -45,7 +45,7 @@ from itertools import combinations
 from typing import Optional
 from urllib.parse import urlparse
 
-import db
+from scrapjd import db
 
 SHINGLE_SIZE = 3       # số từ liên tiếp trong một "cụm"
 MIN_WORDS = 20         # ít hơn số từ này thì không đủ nội dung để so

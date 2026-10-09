@@ -2,7 +2,7 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from api import crawl_runner
 from api.deps import require_admin, require_role

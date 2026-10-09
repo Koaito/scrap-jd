@@ -84,10 +84,10 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Callable, Optional
 
-import db
+from scrapjd import db
 import duplicate_report as dr
-from db.job_derivation import derive_job_from_listings
-from db.job_sync import diff_job_from_derived
+from scrapjd.db.job_derivation import derive_job_from_listings
+from scrapjd.db.job_sync import diff_job_from_derived
 
 logger = logging.getLogger(__name__)
 

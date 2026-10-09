@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-import db
+from scrapjd import db
 
 
 class _FakeCursor:

@@ -15,7 +15,7 @@ exception tự nổi lên cho router rollback + trả lỗi (Requirement 6.2,
 from dataclasses import dataclass
 from typing import Optional
 
-import db as db_module
+from scrapjd import db as db_module
 from api.services import company_resolver, conflict_detector
 from api.services.entity_specs import check_cross_field_rules, get_spec
 from api.services.validation_engine import validate_single_field

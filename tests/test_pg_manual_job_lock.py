@@ -23,7 +23,7 @@ import psycopg2
 import pytest
 from fastapi import HTTPException
 
-import db
+from scrapjd import db
 from api import error_codes
 from api.routers.jobs import create_job
 from api.schemas import JobCreate
@@ -132,7 +132,7 @@ def _force_race(monkeypatch):
         return result
 
     # create_manual_job gọi qua biến module db.jobs, route gọi qua gói db.
-    monkeypatch.setattr("db.jobs.find_manual_job_duplicate", find_then_wait)
+    monkeypatch.setattr("scrapjd.db.jobs.find_manual_job_duplicate", find_then_wait)
     monkeypatch.setattr(db, "find_manual_job_duplicate", find_then_wait)
 
 
@@ -188,7 +188,7 @@ def test_same_key_but_different_level_still_creates_both(pg_conn, monkeypatch):
 def test_control_without_the_lock_the_same_race_creates_two_jobs(pg_conn, monkeypatch):
     """Đối chứng: tắt khoá thì đúng kịch bản đầu tiên sinh hai job. Không bảo vệ điều gì của code; chứng
     minh test dựng đúng cuộc đua."""
-    monkeypatch.setattr("db.jobs.lock_job_dedup_key", lambda *a, **k: None)
+    monkeypatch.setattr("scrapjd.db.jobs.lock_job_dedup_key", lambda *a, **k: None)
     company, title = _company(pg_conn), f"Data Analyst {uuid.uuid4().hex[:6]}"
     _force_race(monkeypatch)
     a, b = _run_two(_create_via_db(company, title, "Junior"), _create_via_db(company, title, "Junior"))

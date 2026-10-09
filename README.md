@@ -247,7 +247,7 @@ xong nếu không muốn job bị gộp lại lần sau thì xử lý nguyên nh
 **Chặn nguồn sinh job trùng (Phần 3c).** Gộp xong mà crawler vẫn sinh trùng thì trùng sẽ mọc lại. Nguyên nhân
 (đo trên 230 job trùng thật): bước 3c của `pipeline.py` tra tin đăng lại bằng `find_manual_job_duplicate`, hàm này bỏ
 qua job đã CLOSED (khoảng 88% job trùng) và dùng cả level làm khoá (khoảng 34%). Nay pipeline dùng
-`db.find_repost_candidate` (`db/job_recrawl.py`): khoá là công ty + tiêu đề (chuẩn hoá giống `generate_job_hash`:
+`db.find_repost_candidate` (`scrapjd/db/job_recrawl.py`): khoá là công ty + tiêu đề (chuẩn hoá giống `generate_job_hash`:
 không phân biệt hoa/thường, gộp khoảng trắng) + tỉnh, **không xét level**, **xét cả job CLOSED**; nhiều job khớp thì
 chọn OPEN, rồi cùng level, rồi tạo gần nhất. `find_manual_job_duplicate` (dùng cho `POST /jobs` nhập tay) giữ nguyên.
 Xử lý theo trạng thái job cũ (`pipeline._import_repost`), mọi trường hợp đều ghi URL mới làm nguồn phụ:
@@ -256,7 +256,7 @@ Xử lý theo trạng thái job cũ (`pipeline._import_repost`), mọi trường
   thì dời hạn ra sau, hạn sớm hơn thì giữ nguyên, kể cả job nhân viên đã sửa tay. Không còn hàm dời hạn riêng; số liệu
   `repost_deadline_extended` đếm theo kết quả đồng bộ (`RepostLink.deadline_extended`).
 - Job CLOSED vì `expired_auto` (do `check_expired_source_jobs` tự đóng): **mở lại** (C4 phần 1/3). `db.link_repost_source`
-  ghi listing của URL mới ở trạng thái OPEN kèm hạn của tin mới (luật 1 ở `db/listing_state.py`), job suy ra OPEN từ
+  ghi listing của URL mới ở trạng thái OPEN kèm hạn của tin mới (luật 1 ở `scrapjd/db/listing_state.py`), job suy ra OPEN từ
   listing đó nên `deadline` và `source_url` theo listing (để URL cũ đã chết thì `check_expired_source_jobs` đóng lại
   ngay), và hàm ghi audit `REOPEN_JOB` cùng transaction. Tin mới không có hạn thì hạn job là NULL.
 - **Không mở lại** (chỉ ghi nguồn phụ, giữ CLOSED) khi: `closed_reason` là `staff`, `unknown` hoặc `merged` (listing mới
@@ -351,6 +351,19 @@ scrapjd/                   <- package code lõi (đang dời dần từ thư m�
   adapters/                <- base.py (BaseAdapter: session curl_cffi, _throttle(), _fetch_html()
                               với retry/backoff, ngắt mạch, ghi snapshot) + topcv.py,
                               vietnamworks.py, careerviet.py (mỗi adapter chỉ chứa logic parse riêng)
+  db/                      <- mọi thao tác PostgreSQL, tách theo domain
+    connection.py          <- connection, connection pool, apply_schema, migration tracking
+    jobs.py, companies.py  <- GHI job / công ty (insert, update, gộp, probe cho pipeline)
+    job_queries.py, company_queries.py     <- ĐỌC danh sách / chi tiết cho API (chỉ SELECT)
+    job_health.py, company_analytics.py    <- thống kê "tình trạng dữ liệu", tín hiệu hợp tác
+    company_enrichment.py  <- chọn công ty cần bổ sung thông tin cho các script enrich_*
+    contacts.py, auth.py, audit_logs.py, applications.py, messages.py,
+    email_templates.py, dashboard.py, stats.py, lookups.py <- theo domain
+    crawl_runs.py, crawl_batches.py, crawl_snapshots.py, maintenance_runs.py
+    job_levels.py, job_recrawl.py, job_level_recompute.py <- luật đóng dấu level, tái crawl theo mã job, SQL của `recompute-levels`
+    job_duplicates.py      <- SQL (chỉ đọc) của `report-duplicates`: job nằm trong nhóm nghi trùng + dữ liệu con
+    job_merge.py           <- SQL của `merge-duplicates`: đọc chi tiết job + dữ liệu con, gộp một nhóm trong transaction (merge_job_group), kiểm tra enum MERGE_JOB / crawl đang chạy
+    __init__.py            <- re-export toàn bộ tên, dùng qua `from scrapjd import db`
 pipeline.py                <- nối adapter -> normalize -> db; xử lý từng job theo các bước nhỏ
                               (_process_job -> _import_new_job -> _import_repost / _insert_new_job)
 pipeline_stats.py          <- PipelineStats: bộ đếm của một lượt crawl (dataclass, gõ sai tên báo lỗi
@@ -361,20 +374,6 @@ main.py                    <- CLI: init-db, migrate, crawl, stats, snapshots, sn
 recompute_levels.py        <- logic lệnh `recompute-levels`: tính lại level từ tiêu đề + level_signals (chạy thử / --apply)
 duplicate_report.py        <- logic lệnh `report-duplicates`: phân loại nhóm job nghi trùng + đề xuất job giữ (chỉ đọc)
 merge_duplicates.py        <- lệnh `merge-duplicates` (3b): chọn nhóm, job giữ, hợp nhất trường, kế hoạch chuyển dữ liệu con (thuần) + điều phối --apply (xác nhận, kiểm tra crawl, gộp từng nhóm, báo cáo)
-
-db/                        <- mọi thao tác PostgreSQL, tách theo domain
-  connection.py            <- connection, connection pool, apply_schema, migration tracking
-  jobs.py, companies.py    <- GHI job / công ty (insert, update, gộp, probe cho pipeline)
-  job_queries.py, company_queries.py       <- ĐỌC danh sách / chi tiết cho API (chỉ SELECT)
-  job_health.py, company_analytics.py      <- thống kê "tình trạng dữ liệu", tín hiệu hợp tác
-  company_enrichment.py    <- chọn công ty cần bổ sung thông tin cho các script enrich_*
-  contacts.py, auth.py, audit_logs.py, applications.py, messages.py,
-  email_templates.py, dashboard.py, stats.py, lookups.py   <- theo domain
-  crawl_runs.py, crawl_batches.py, crawl_snapshots.py, maintenance_runs.py
-  job_levels.py, job_recrawl.py, job_level_recompute.py   <- luật đóng dấu level, tái crawl theo mã job, SQL của `recompute-levels`
-  job_duplicates.py        <- SQL (chỉ đọc) của `report-duplicates`: job nằm trong nhóm nghi trùng + dữ liệu con
-  job_merge.py             <- SQL của `merge-duplicates`: đọc chi tiết job + dữ liệu con, gộp một nhóm trong transaction (merge_job_group), kiểm tra enum MERGE_JOB / crawl đang chạy
-  __init__.py              <- re-export toàn bộ tên, dùng qua `import db`
 
 backfill_company_profiles.py             <- vá profile công ty qua source_profile_url đã lưu
 enrich_company_profile_from_website.py   <- vá industry/products_services qua website + Gemini
@@ -415,7 +414,7 @@ Các quy ước dưới đây được test canh giữ; vi phạm thì `pytest` 
   `pipeline.py` quyết định. Mỗi nhánh có ghi DB commit đúng một lần ở cuối
   nhánh thành công, mọi lỗi rollback phần chưa commit của job đó. Thêm nhánh
   mới có ghi DB thì phải tự commit ở cuối nhánh (`tests/test_pipeline_transactions.py`).
-- **`api/routers/` không chứa SQL thô.** SQL nằm ở `db/` (`tests/test_layering.py`).
+- **`api/routers/` không chứa SQL thô.** SQL nằm ở `scrapjd/db/` (`tests/test_layering.py`).
 - **Chỉ dùng một thư viện HTTP: `curl_cffi`.** Không import `requests`
   (`tests/test_http_library.py`).
 - **Migration tạo bảng mới thì `schema.sql` cũng phải có bảng đó**
@@ -440,7 +439,7 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
 - `--source`: `topcv` (mặc định), `vietnamworks` hoặc `careerviet`.
 - `--category`: `data-analyst`, `data-engineer`, `data-scientist`,
   `software-engineering`, `business-analyst`, `ui-ux-design` (CareerViet
-  chưa có `ui-ux-design`). Danh sách đầy đủ theo nguồn nằm trong `config.py`.
+  chưa có `ui-ux-design`). Danh sách đầy đủ theo nguồn nằm trong `scrapjd/config.py`.
 - `--pages`: số trang tối đa. Một trang TopCV khoảng 20-25 job, VietnamWorks
   khoảng 50 job.
 - `--max-jobs`: giới hạn TỔNG số JD, dừng ngay khi đủ. Dùng riêng thì tự
@@ -479,10 +478,10 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   `0041`, D2), đồng thời là index cho các câu tra "URL này đã crawl chưa". Ghi nguồn phụ trùng URL
   của job khác thì `link_repost_source` không ghi đè, trả `False` và cảnh báo; `insert_job` raise
   `UniqueViolation` và pipeline rollback job đó. Migration dừng nếu DB đang có URL nằm ở nhiều dòng.
-- **Trạng thái từng listing** (C1, migration `0043` và `db/listing_state.py`): mỗi dòng `job_sources_log`
+- **Trạng thái từng listing** (C1, migration `0043` và `scrapjd/db/listing_state.py`): mỗi dòng `job_sources_log`
   (một URL tin đăng) có `listing_status` (`OPEN` | `CLOSED` | `UNKNOWN`), `deadline`, `first_seen_at`,
   `last_seen_at`, `closed_reason`, `closed_at`. Hiện CHỈ ĐƯỢC GHI, chưa chỗ đọc nào dùng (C2 và C3 sẽ chuyển
-  job thành giá trị tổng hợp từ listing). Mọi SQL ghi trạng thái nằm ở `db/listing_state.py`. Luật ghi:
+  job thành giá trị tổng hợp từ listing). Mọi SQL ghi trạng thái nằm ở `scrapjd/db/listing_state.py`. Luật ghi:
   listing mới là `OPEN` (cả job nhập tay), trừ khi job đang `CLOSED` thì listing sinh ra đã `CLOSED` với đúng
   `closed_reason` của job; job chuyển `CLOSED` thì mọi listing chưa đóng đóng theo cùng lý do (listing đã đóng
   giữ lý do cũ); nhân viên mở lại job thì listing đóng vì `staff` và listing hiện hành (URL trùng
@@ -490,11 +489,11 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   kèm hạn mới. Fetch chi tiết thành công ghi `last_seen_at` và hạn đọc được; `check_expired_source_jobs` ghi
   `last_seen_at` cho URL trả HTTP 2xx. Không có migration mới ở bước này, chạy được ngay sau khi push.
 - **So job với listing** (C2 nửa 1/2): `python main.py check-listing-derivation` (chỉ đọc) suy ra trạng thái,
-  hạn và `source_url` của từng job từ các listing của nó (luật ở `db/job_derivation.py`: OPEN nếu có listing
+  hạn và `source_url` của từng job từ các listing của nó (luật ở `scrapjd/db/job_derivation.py`: OPEN nếu có listing
   OPEN hoặc UNKNOWN; hạn muộn nhất trong các listing OPEN; URL của listing OPEN mới nhất) rồi so với giá trị
   đang lưu trong `job_postings`, in số liệu lệch theo từng trường và loại lệch. `--csv FILE` xuất từng trường
   lệch, `--show N` đổi số ví dụ, `--strict` thoát mã 2 nếu còn lệch.
-- **Job theo kịp listing** (C2 nửa 2/2, `db/job_sync.py`): sau mỗi lần ghi listing, `sync_job_from_listings` ghi lại
+- **Job theo kịp listing** (C2 nửa 2/2, `scrapjd/db/job_sync.py`): sau mỗi lần ghi listing, `sync_job_from_listings` ghi lại
   `job_status`, `closed_reason`, `deadline`, `source_url` của job cho bằng giá trị suy ra (chỉ cột lệch; không làm
   nhảy `updated_at`). Gọi từ `link_repost_source`, `update_job` (đóng, mở lại, sửa hạn),
   `mark_source_detail_checked`, `mark_listing_seen`. Hệ quả cần biết: job OPEN nhận tin đăng lại có `source_url` là
@@ -751,7 +750,7 @@ liệu" của frontend.
 
 ### Thêm ngành (category) cho nguồn đã có
 
-`config.py` khai báo category theo kiểu **category-first**: dict
+`scrapjd/config.py` khai báo category theo kiểu **category-first**: dict
 `JOB_CATEGORIES` khai báo mỗi category **một lần**, kèm sub-dict `sources`
 liệt kê nguồn nào crawl được category đó:
 
@@ -784,7 +783,7 @@ nên adapter và `main.py` không cần sửa khi thêm category.
 
 Việc đăng ký nguồn nằm trong **một module duy nhất**: `scrapjd/sources_registry.py`.
 
-1. Thêm bộ category cho nguồn mới vào `config.py` (theo cấu trúc `sources`
+1. Thêm bộ category cho nguồn mới vào `scrapjd/config.py` (theo cấu trúc `sources`
    ở trên, hoặc một dict `{key: {..., "matching_industry": ...}}` riêng nếu
    nguồn mới không dùng chung bộ category).
 2. Viết `scrapjd/adapters/itviec.py`, kế thừa `BaseAdapter` (`scrapjd/adapters/base.py`).
@@ -800,7 +799,7 @@ Việc đăng ký nguồn nằm trong **một module duy nhất**: `scrapjd/sour
    ```
 
 Xong: `main.py` và toàn bộ `api/` (crawl runner, router `/crawl`, router
-`/sources`) tự thấy nguồn mới; không cần sửa `normalize.py`, `db/`,
+`/sources`) tự thấy nguồn mới; không cần sửa `scrapjd/normalize.py`, `scrapjd/db/`,
 `pipeline.py`. Ngoại lệ duy nhất (vì là hai repo tách biệt): frontend
 `mindx-jobs` cần tự thêm nhãn hiển thị ở `blueprints/crawl.py::_SOURCE_LABELS`.
 

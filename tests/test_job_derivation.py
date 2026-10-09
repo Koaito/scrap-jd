@@ -6,7 +6,7 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
-from db.job_derivation import DerivedJob, derive_job_from_listings
+from scrapjd.db.job_derivation import DerivedJob, derive_job_from_listings
 
 T0 = datetime(2026, 10, 1, 8, 0, tzinfo=timezone.utc)
 

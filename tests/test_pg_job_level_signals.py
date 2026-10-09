@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 import psycopg2
 import pytest
 
-import db
+from scrapjd import db
 from scrapjd import normalize
 import pipeline
 from scrapjd.adapters.base import BaseAdapter

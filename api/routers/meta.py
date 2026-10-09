@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-import db as db_module
+from scrapjd import db as db_module
 from api.deps import get_db
 from api.schemas import EngagementStatsOut, StatsOut
 # CATEGORIES_BY_SOURCE từ sources_registry.py (nguồn sự thật duy nhất)

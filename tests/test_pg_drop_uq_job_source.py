@@ -21,7 +21,7 @@ import psycopg2
 import psycopg2.errors
 import pytest
 
-import db
+from scrapjd import db
 from pg_migration_helpers import (
     SQL_DIR,
     connect,

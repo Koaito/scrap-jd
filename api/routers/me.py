@@ -31,7 +31,7 @@ from typing import Optional
 import psycopg2.errors
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from api import storage as cv_storage
 from api.deps import get_db, require_role

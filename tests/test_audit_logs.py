@@ -17,8 +17,8 @@ from unittest.mock import patch
 import pytest
 from fastapi import HTTPException
 
-import db as db_module
-from db.audit_logs import diff_changed_fields
+from scrapjd import db as db_module
+from scrapjd.db.audit_logs import diff_changed_fields
 
 
 # ---------------------------------------------------------------------

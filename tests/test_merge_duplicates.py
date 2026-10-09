@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-import db
+from scrapjd import db
 import duplicate_report as dr
 import merge_duplicates as md
 
@@ -499,7 +499,7 @@ def test_every_column_a_plan_can_change_is_writable_by_merge_job_group():
     # Từ C3c trạng thái/lý do đóng/source_url chỉ đi qua sync_job_from_listings (_DERIVED_JOB_COLUMNS), không còn
     # nằm trong danh sách ghi trực tiếp; `deadline` ở đây chỉ để điền hạn trống của job giữ nhập tay.
     planned = set(md.SALARY_COLUMNS) | set(md.LEVEL_COLUMNS) | {"deadline", "ss_team_notes"}
-    from db.job_merge import _DERIVED_JOB_COLUMNS, _WRITABLE_JOB_COLUMNS
+    from scrapjd.db.job_merge import _DERIVED_JOB_COLUMNS, _WRITABLE_JOB_COLUMNS
     assert planned == set(_WRITABLE_JOB_COLUMNS)
     assert _DERIVED_JOB_COLUMNS == {"job_status", "closed_reason", "deadline", "source_url"}
     assert not ({"job_status", "closed_reason", "source_url"} & set(_WRITABLE_JOB_COLUMNS))
@@ -694,7 +694,7 @@ def test_merge_duplicates_has_no_raw_sql():
 def test_job_merge_never_commits_or_rolls_back_inside_merge_job_group():
     # merge_job_group chạy trong transaction của nơi gọi (nơi gọi commit/rollback); nếu hàm tự
     # commit thì lỗi ở bước sau sẽ để lại nhóm gộp dở. Hai hàm đọc được phép rollback sau SELECT.
-    code = (ROOT / "db" / "job_merge.py").read_text(encoding="utf-8")
+    code = (ROOT / "scrapjd" / "db" / "job_merge.py").read_text(encoding="utf-8")
     body = code[code.index("def merge_job_group("):]
     body = re.sub(r'''"""(.*?)"""''', "", body, flags=re.S)
     body = "\n".join(line.split("#", 1)[0] for line in body.splitlines())

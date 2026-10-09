@@ -51,7 +51,7 @@ import os
 from collections import Counter
 from typing import Optional
 
-import db
+from scrapjd import db
 from scrapjd import normalize
 from scrapjd.adapters.base import CrawlBlockedError
 from scrapjd.adapters.topcv import TopCVAdapter

@@ -23,7 +23,7 @@ không do test hợp đồng so chữ ký với hàm thật.
 
 from typing import Optional, Protocol
 
-from db.job_recrawl import RepostLink
+from scrapjd.db.job_recrawl import RepostLink
 
 
 class PipelineDB(Protocol):

@@ -15,7 +15,7 @@ không tạo thêm process/thread riêng.
 
 import logging
 
-import db as db_module
+from scrapjd import db as db_module
 from scrapjd.config import MAINTENANCE_STALE_TIMEOUT_MINUTES
 
 logger = logging.getLogger(__name__)

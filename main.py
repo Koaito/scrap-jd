@@ -33,7 +33,7 @@ import getpass
 import logging
 import sys
 
-import db
+from scrapjd import db
 from scrapjd.adapters.base import CrawlBlockedError
 from pipeline import run_pipeline
 import check_listing_derivation

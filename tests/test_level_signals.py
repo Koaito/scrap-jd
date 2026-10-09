@@ -5,7 +5,7 @@ Phần chạy trên Postgres thật nằm ở tests/test_pg_job_level_signals.py
 import pytest
 
 from scrapjd import normalize
-from db.job_levels import _check_level_signals, _derived_level_assignments
+from scrapjd.db.job_levels import _check_level_signals, _derived_level_assignments
 
 SIGNALS = {"experience_text": "3 năm", "level_hint": ""}
 

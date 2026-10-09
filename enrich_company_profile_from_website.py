@@ -68,7 +68,7 @@ from bs4 import BeautifulSoup
 from google import genai
 from google.genai import errors as genai_errors
 
-import db
+from scrapjd import db
 from scrapjd.config import DEFAULT_HEADERS, GEMINI_API_KEY, GEMINI_MODEL, ENRICH_REQUEST_DELAY_SECONDS
 
 logging.basicConfig(

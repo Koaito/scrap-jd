@@ -100,7 +100,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit, parse_qsl, unquote
 from curl_cffi import requests
 from bs4 import BeautifulSoup
 
-import db
+from scrapjd import db
 from scrapjd.config import DEFAULT_HEADERS
 
 logging.basicConfig(

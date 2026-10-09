@@ -33,7 +33,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 from urllib.parse import urlparse
 
-import db
+from scrapjd import db
 
 logger = logging.getLogger(__name__)
 

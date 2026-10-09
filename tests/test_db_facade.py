@@ -9,9 +9,9 @@ Test đọc mã nguồn/import, không cần DB.
 import inspect
 from pathlib import Path
 
-import db
+from scrapjd import db
 
-DB_DIR = Path(__file__).resolve().parent.parent / "db"
+DB_DIR = Path(__file__).resolve().parent.parent / "scrapjd" / "db"
 
 # Ngưỡng cảnh báo, không phải mục tiêu. File vượt ngưỡng nên tách theo
 # domain (xem cách db/jobs.py -> job_queries.py, job_health.py) thay vì nới số này.
@@ -31,24 +31,24 @@ def test_all_has_no_duplicates():
 def test_split_modules_are_wired_through_facade():
     # Mỗi hàm sau phải được định nghĩa ở đúng module con sau khi tách.
     expected = {
-        "insert_job": "db.jobs",
-        "update_job": "db.jobs",
-        "list_jobs": "db.job_queries",
-        "get_job_by_id": "db.job_queries",
-        "get_jobs_by_company_id": "db.job_queries",
-        "get_job_data_health": "db.job_health",
-        "merge_companies": "db.companies",
-        "soft_delete_company": "db.companies",
-        "list_companies": "db.company_queries",
-        "get_company_by_id": "db.company_queries",
-        "get_companies_needing_web_lookup": "db.company_enrichment",
-        "update_company_social_links": "db.company_enrichment",
-        "get_partnership_signals": "db.company_analytics",
-        "get_company_data_health": "db.company_analytics",
-        "list_duplicate_job_rows": "db.job_duplicates",
-        "list_merge_job_details": "db.job_merge",
-        "list_multi_source_job_logs": "db.job_reposts",
-        "lock_job_dedup_key": "db.job_dedup_lock",
+        "insert_job": "scrapjd.db.jobs",
+        "update_job": "scrapjd.db.jobs",
+        "list_jobs": "scrapjd.db.job_queries",
+        "get_job_by_id": "scrapjd.db.job_queries",
+        "get_jobs_by_company_id": "scrapjd.db.job_queries",
+        "get_job_data_health": "scrapjd.db.job_health",
+        "merge_companies": "scrapjd.db.companies",
+        "soft_delete_company": "scrapjd.db.companies",
+        "list_companies": "scrapjd.db.company_queries",
+        "get_company_by_id": "scrapjd.db.company_queries",
+        "get_companies_needing_web_lookup": "scrapjd.db.company_enrichment",
+        "update_company_social_links": "scrapjd.db.company_enrichment",
+        "get_partnership_signals": "scrapjd.db.company_analytics",
+        "get_company_data_health": "scrapjd.db.company_analytics",
+        "list_duplicate_job_rows": "scrapjd.db.job_duplicates",
+        "list_merge_job_details": "scrapjd.db.job_merge",
+        "list_multi_source_job_logs": "scrapjd.db.job_reposts",
+        "lock_job_dedup_key": "scrapjd.db.job_dedup_lock",
     }
     wrong = {
         name: inspect.getmodule(getattr(db, name)).__name__
@@ -62,9 +62,9 @@ def test_job_unset_sentinel_is_shared():
     # import_executor dùng db.JOB_UNSET; update_job so sánh với _UNSET trong
     # db.jobs — phải là CÙNG một object, nếu không "không gửi field" sẽ
     # bị hiểu thành "xoá lương".
-    import db.jobs
+    from scrapjd.db import jobs as db_jobs
 
-    assert db.JOB_UNSET is db.jobs._UNSET
+    assert db.JOB_UNSET is db_jobs._UNSET
 
 
 def test_no_db_module_grows_back_into_god_module():

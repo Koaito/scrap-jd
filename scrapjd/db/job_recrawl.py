@@ -11,10 +11,10 @@ from dataclasses import dataclass
 from datetime import date
 from typing import Optional
 
-from db.audit_logs import log_action
-from db.job_levels import _derived_level_assignments
-from db.job_sync import sync_job_from_listings
-from db.listing_state import AUTO_REOPEN_REASONS, CONFLICT_URL, insert_listing  # noqa: F401  (re-export)
+from scrapjd.db.audit_logs import log_action
+from scrapjd.db.job_levels import _derived_level_assignments
+from scrapjd.db.job_sync import sync_job_from_listings
+from scrapjd.db.listing_state import AUTO_REOPEN_REASONS, CONFLICT_URL, insert_listing  # noqa: F401  (re-export)
 
 logger = logging.getLogger(__name__)
 

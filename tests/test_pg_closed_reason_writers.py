@@ -16,7 +16,7 @@ import psycopg2
 import pytest
 
 import check_expired_source_jobs as cej
-import db
+from scrapjd import db
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 

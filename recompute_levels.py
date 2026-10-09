@@ -42,9 +42,9 @@ from collections import Counter
 from dataclasses import dataclass
 from typing import Optional
 
-import db
+from scrapjd import db
 from scrapjd import normalize
-from db.job_level_recompute import SKIP_UPDATED_AT_SETTING
+from scrapjd.db.job_level_recompute import SKIP_UPDATED_AT_SETTING
 
 logger = logging.getLogger(__name__)
 

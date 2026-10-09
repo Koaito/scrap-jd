@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 import psycopg2
 import pytest
 
-import db
+from scrapjd import db
 import duplicate_report as dr
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")

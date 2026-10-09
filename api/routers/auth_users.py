@@ -16,7 +16,7 @@ lớn require_admin — không có route công khai nào.
 
 from fastapi import APIRouter, Depends, HTTPException
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from api import security
 from api.deps import require_admin, require_role, get_db

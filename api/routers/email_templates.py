@@ -23,7 +23,7 @@ DELETE_EMAIL_TEMPLATE) — enforce ở đây (422 TRƯỚC KHI chạm DB), giố
 hệt pattern PATCH/DELETE /companies/{id}/contacts/{id}.
 """
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from fastapi import APIRouter, Depends, HTTPException
 

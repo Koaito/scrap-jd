@@ -1007,7 +1007,7 @@ def test_message_id_query_params_are_bounded_to_bigint():
     -> 500. Query(ge=0, le=MAX_MESSAGE_ID) chặn ở tầng validate (422)."""
     import inspect
 
-    import db
+    from scrapjd import db
     from api.routers.messages import get_history, get_new_messages
 
     assert db.MAX_MESSAGE_ID == 2**63 - 1
@@ -1025,7 +1025,7 @@ def test_message_id_query_params_rejected_by_fastapi_over_bigint():
     from fastapi import FastAPI
     from fastapi.testclient import TestClient
 
-    import db
+    from scrapjd import db
     from api.deps import get_current_user, get_db
     from api.routers.messages import router
 

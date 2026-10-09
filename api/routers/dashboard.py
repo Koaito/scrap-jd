@@ -15,7 +15,7 @@ bộ yêu cầu ss_team trở lên — trang /dashboard vốn staff-only, và ta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from api.deps import get_db, require_role
 from api.rate_limit import get_user_id_or_ip, limiter

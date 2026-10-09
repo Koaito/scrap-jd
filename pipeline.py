@@ -9,8 +9,8 @@ from dataclasses import asdict, dataclass
 from typing import Callable, Optional
 
 from scrapjd.adapters.base import DEFAULT_DEDUP_RESOLVERS, BaseAdapter, CrawlBlockedError
-import db
-from db.job_recrawl import AUTO_REOPEN_REASONS
+from scrapjd import db
+from scrapjd.db.job_recrawl import AUTO_REOPEN_REASONS
 from scrapjd import normalize
 from scrapjd.config import DEGRADED_EMPTY_RATE
 from field_stats import WARN_MIN_SAMPLES, EmptyFieldCounter, degraded_reasons

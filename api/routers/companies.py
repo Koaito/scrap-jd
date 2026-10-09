@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from api.deps import get_db, require_role
 from api.rate_limit import limiter

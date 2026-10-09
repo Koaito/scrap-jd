@@ -34,7 +34,7 @@ import logging
 from datetime import date
 from typing import Optional
 
-from db.job_sync import sync_job_from_listings
+from scrapjd.db.job_sync import sync_job_from_listings
 
 logger = logging.getLogger(__name__)
 

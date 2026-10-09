@@ -11,7 +11,7 @@ alias get_or_create_province) để KHÔNG phải sửa bất kỳ chỗ nào đ
 trong repo — API bên ngoài giữ nguyên 100%, chỉ tổ chức lại bên trong.
 """
 
-from db.connection import (
+from scrapjd.db.connection import (
     is_valid_uuid,
     get_connection,
     init_pool,
@@ -23,12 +23,12 @@ from db.connection import (
     baseline_migrations,
     list_pending_migrations,
 )
-from db.lookups import (
+from scrapjd.db.lookups import (
     get_province_id,
     get_or_create_province,
     get_level_id,
 )
-from db.companies import (
+from scrapjd.db.companies import (
     find_company_probe,
     get_or_create_company_by_profile,
     get_or_create_company,
@@ -40,22 +40,22 @@ from db.companies import (
     update_company_profile_with_merge,
     soft_delete_company,
 )
-from db.company_enrichment import (
+from scrapjd.db.company_enrichment import (
     get_companies_needing_profile_from_website,
     get_companies_needing_social_links,
     update_company_social_links,
     get_companies_needing_web_lookup,
     get_companies_needing_profile_backfill,
 )
-from db.company_queries import (
+from scrapjd.db.company_queries import (
     list_companies,
     get_company_by_id,
 )
-from db.company_analytics import (
+from scrapjd.db.company_analytics import (
     get_partnership_signals,
     get_company_data_health,
 )
-from db.jobs import (
+from scrapjd.db.jobs import (
     _UNSET as JOB_UNSET,
     JOB_CLOSED_REASONS,
     JOB_CLEARABLE_FIELD_TO_COLUMN,
@@ -73,12 +73,12 @@ from db.jobs import (
     update_job,
     job_exists_by_id,
 )
-from db.job_dedup_lock import (
+from scrapjd.db.job_dedup_lock import (
     lock_job_dedup_key,
     JobDedupLockTimeout,
     JOB_DEDUP_LOCK_TIMEOUT_MS,
 )
-from db.job_recrawl import (
+from scrapjd.db.job_recrawl import (
     link_repost_source,
     RepostLink,
     find_repost_candidate,
@@ -86,18 +86,18 @@ from db.job_recrawl import (
     find_jobs_by_source_url_regex,
     update_job_from_recrawl,
 )
-from db.listing_state import (
+from scrapjd.db.listing_state import (
     close_expired_listings,
     close_listing_dead,
     mark_listing_seen,
 )
-from db.job_sync import sync_job_from_listings
-from db.job_derivation import (
+from scrapjd.db.job_sync import sync_job_from_listings
+from scrapjd.db.job_derivation import (
     derive_job_from_listings,
     list_checkable_listings,
     list_jobs_with_listings,
 )
-from db.job_level_recompute import (
+from scrapjd.db.job_level_recompute import (
     skip_updated_at_supported,
     list_level_recompute_candidates,
     compute_content_hashes_for_levels,
@@ -105,10 +105,10 @@ from db.job_level_recompute import (
     count_duplicate_job_groups,
     write_recomputed_levels,
 )
-from db.job_duplicates import (
+from scrapjd.db.job_duplicates import (
     list_duplicate_job_rows,
 )
-from db.job_merge import (
+from scrapjd.db.job_merge import (
     list_merge_job_details,
     merge_job_group,
     merge_job_enum_supported,
@@ -116,24 +116,24 @@ from db.job_merge import (
     MergeStaleError,
     MergeIntegrityError,
 )
-from db.job_reposts import (
+from scrapjd.db.job_reposts import (
     list_multi_source_job_logs,
     list_merge_log_origins,
 )
-from db.job_queries import (
+from scrapjd.db.job_queries import (
     list_jobs,
     get_job_by_id,
     get_jobs_by_company_id,
 )
-from db.job_health import (
+from scrapjd.db.job_health import (
     get_job_data_health,
 )
-from db.stats import (
+from scrapjd.db.stats import (
     get_stats_summary,
     get_job_engagement_counts,
     get_monthly_engagement_stats,
 )
-from db.dashboard import (
+from scrapjd.db.dashboard import (
     get_jobs_needing_push,
     get_stale_jobs,
     get_top_skills,
@@ -143,7 +143,7 @@ from db.dashboard import (
     get_company_job_activity,
     get_monthly_recap_counts,
 )
-from db.auth import (
+from scrapjd.db.auth import (
     get_user_by_email,
     get_user_by_id,
     create_user,
@@ -170,7 +170,7 @@ from db.auth import (
     get_user_by_reset_token_hash,
     reset_password_with_token,
 )
-from db.contacts import (
+from scrapjd.db.contacts import (
     list_company_contacts,
     list_all_contacts,
     get_company_contact_by_id,
@@ -181,14 +181,14 @@ from db.contacts import (
     ContactHasLinksError,
     hard_delete_company_contact,
 )
-from db.email_templates import (
+from scrapjd.db.email_templates import (
     list_email_templates,
     get_email_template_by_id,
     create_email_template,
     patch_email_template,
     delete_email_template,
 )
-from db.applications import (
+from scrapjd.db.applications import (
     create_job_application,
     list_applications_for_user,
     list_applications_for_job,
@@ -203,7 +203,7 @@ from db.applications import (
     set_application_cv_url,
     get_application_with_job_info,
 )
-from db.audit_logs import (
+from scrapjd.db.audit_logs import (
     ACTION_LOG_RULES,
     NoteRequiredError,
     diff_changed_fields,
@@ -212,7 +212,7 @@ from db.audit_logs import (
     get_audit_log_by_id,
     update_audit_log_note,
 )
-from db.crawl_runs import (
+from scrapjd.db.crawl_runs import (
     ActiveCrawlExistsError,
     create_run as create_crawl_run,
     mark_running as mark_crawl_run_running,
@@ -229,12 +229,12 @@ from db.crawl_runs import (
     get_latest_run as get_latest_crawl_run,
     get_recent_blocked_run as get_recent_blocked_crawl_run,
 )
-from db.crawl_snapshots import (
+from scrapjd.db.crawl_snapshots import (
     save_snapshots as save_crawl_snapshots,
     list_snapshots as list_crawl_snapshots,
     get_snapshot as get_crawl_snapshot,
 )
-from db.crawl_batches import (
+from scrapjd.db.crawl_batches import (
     create_batch as create_crawl_batch,
     advance_batch as advance_crawl_batch,
     mark_done as mark_crawl_batch_done,
@@ -249,7 +249,7 @@ from db.crawl_batches import (
 # backfill_company_profiles.py, enrich_company_profile_from_website.py,
 # enrich_company_web_info.py, get_company_fb_linkedin_link.py,
 # check_expired_source_jobs.py — xem api/maintenance_runner.py.
-from db.maintenance_runs import (
+from scrapjd.db.maintenance_runs import (
     ActiveMaintenanceRunExistsError,
     create_run as create_maintenance_run,
     mark_running as mark_maintenance_run_running,
@@ -265,7 +265,7 @@ from db.maintenance_runs import (
     get_logs_batch as get_maintenance_run_logs_batch,
     get_latest_run_per_job_type as get_latest_maintenance_run_per_job_type,
 )
-from db.messages import (
+from scrapjd.db.messages import (
     MAX_PENDING_PER_STUDENT,
     DECLINE_COOLDOWN_DAYS,
     MAX_MESSAGE_ID,

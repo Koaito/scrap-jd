@@ -25,8 +25,8 @@ from collections import Counter
 from dataclasses import dataclass, field
 from typing import Optional
 
-import db
-from db.job_derivation import DerivedJob, derive_job_from_listings
+from scrapjd import db
+from scrapjd.db.job_derivation import DerivedJob, derive_job_from_listings
 
 DEFAULT_SHOW = 5
 FIELDS = ("job_status", "closed_reason", "deadline", "source_url")

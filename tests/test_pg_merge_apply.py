@@ -27,7 +27,7 @@ import psycopg2.errors
 import psycopg2.extras
 import pytest
 
-import db
+from scrapjd import db
 import duplicate_report as dr
 import merge_duplicates as md
 
@@ -461,7 +461,7 @@ def test_failure_while_writing_audit_rolls_back_the_whole_group(pg_conn, monkeyp
     g = _rich_group(pg_conn)
     plan = _plan_for(pg_conn, [g["keeper"], g["d1"], g["d2"]], g["keeper"])
     before = _state(pg_conn)
-    import db.job_merge as jm
+    import scrapjd.db.job_merge as jm
     real = jm.log_action
     calls = []
 

@@ -16,7 +16,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import db
+from scrapjd import db
 import pipeline
 from scrapjd.adapters.base import BaseAdapter
 from scrapjd.models import RawJobRecord
@@ -70,9 +70,9 @@ def test_naive_timestamp_is_treated_as_utc():
 
 def test_default_recheck_days_comes_from_config(monkeypatch):
     probe = _probe(NO_DEADLINE, NOW - timedelta(days=3))
-    monkeypatch.setattr("db.jobs.DETAIL_RECHECK_DAYS", 2)
+    monkeypatch.setattr("scrapjd.db.jobs.DETAIL_RECHECK_DAYS", 2)
     assert db.job_needs_detail_enrichment(probe, now=NOW) is True
-    monkeypatch.setattr("db.jobs.DETAIL_RECHECK_DAYS", 30)
+    monkeypatch.setattr("scrapjd.db.jobs.DETAIL_RECHECK_DAYS", 30)
     assert db.job_needs_detail_enrichment(probe, now=NOW) is False
 
 

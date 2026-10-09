@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 import psycopg2
 import pytest
 
-import db
+from scrapjd import db
 from scrapjd import normalize
 import recompute_levels as rl
 

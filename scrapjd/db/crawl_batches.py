@@ -22,7 +22,7 @@ from typing import Optional
 
 import psycopg2.extras
 
-from db.crawl_runs import create_run
+from scrapjd.db.crawl_runs import create_run
 
 logger = logging.getLogger(__name__)
 

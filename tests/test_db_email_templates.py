@@ -16,7 +16,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from db.email_templates import _parse_pg_enum_array
+from scrapjd.db.email_templates import _parse_pg_enum_array
 
 
 def test_single_value_matches_original_bug_log():

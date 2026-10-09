@@ -13,8 +13,8 @@ Dùng qua fixture `pipeline_db` (tests/conftest.py), đã gắn vào pipeline.db
 """
 from unittest.mock import create_autospec
 
-import db as real_db
-from db.job_recrawl import RepostLink
+from scrapjd import db as real_db
+from scrapjd.db.job_recrawl import RepostLink
 from pipeline_db import PipelineDB
 
 DEFAULT_COMPANY_ID = "company-1"

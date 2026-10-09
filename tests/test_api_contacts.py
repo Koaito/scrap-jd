@@ -16,7 +16,7 @@ from fastapi import HTTPException, Request
 from api.routers.contacts import (
     _validate_assignee,
 )
-from db.contacts import ContactHasLinksError
+from scrapjd.db.contacts import ContactHasLinksError
 from conftest import (
     make_company_record,
     make_contact_record,

@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from db.crawl_runs import get_recent_blocked_run, mark_error
+from scrapjd.db.crawl_runs import get_recent_blocked_run, mark_error
 
 
 def _conn(fetchone=None):

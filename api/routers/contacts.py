@@ -11,7 +11,7 @@ theo đúng thiết kế 3 role đã thống nhất (xem lịch sử trao đổi
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from api.deps import ROLE_HIERARCHY, get_db, require_role
 from api.rate_limit import get_user_id_or_ip, limiter

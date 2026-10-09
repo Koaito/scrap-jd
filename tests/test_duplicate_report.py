@@ -296,7 +296,7 @@ def test_run_cli_rejects_negative_show(capsys):
 def test_report_code_is_read_only():
     """Báo cáo 3a không được chứa câu ghi hay commit: đây là lệnh chỉ đọc."""
     write_sql = re.compile(r"\b(INSERT|UPDATE|DELETE|TRUNCATE|ALTER|DROP|CREATE)\b")
-    for rel in ("duplicate_report.py", "db/job_duplicates.py"):
+    for rel in ("duplicate_report.py", "scrapjd/db/job_duplicates.py"):
         text = (ROOT / rel).read_text(encoding="utf-8")
         code = "\n".join(line.split("#", 1)[0] for line in text.splitlines())
         assert not write_sql.search(code), f"{rel} có câu SQL ghi"

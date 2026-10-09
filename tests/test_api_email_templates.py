@@ -314,7 +314,7 @@ def test_delete_email_template_invalid_uuid(mock_conn, ss_team_user):
 def test_action_log_rules_email_template_actions():
     """CREATE không bắt buộc note; UPDATE/DELETE bắt buộc — đúng yêu cầu
     đã chốt, khớp hành vi 422 test ở trên."""
-    from db.audit_logs import ACTION_LOG_RULES
+    from scrapjd.db.audit_logs import ACTION_LOG_RULES
 
     assert ACTION_LOG_RULES["CREATE_EMAIL_TEMPLATE"]["note_required"] is False
     assert ACTION_LOG_RULES["UPDATE_EMAIL_TEMPLATE"]["note_required"] is True

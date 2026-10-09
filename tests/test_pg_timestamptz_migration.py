@@ -32,10 +32,10 @@ import psycopg2.errors
 import pytest
 from psycopg2 import sql as pgsql
 
-import db
+from scrapjd import db
 from api.routers.jobs import _decode_cursor, _encode_cursor
 from api.services.export_query import ExportFilters, query_jobs_for_export
-from db.dashboard import _vn_date
+from scrapjd.db.dashboard import _vn_date
 from pg_migration_helpers import (
     SCHEMA as _SCHEMA,
     SQL_DIR as _SQL_DIR,

@@ -16,7 +16,7 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from api.deps import get_db, require_role
 from api.rate_limit import get_user_id_or_ip, limiter

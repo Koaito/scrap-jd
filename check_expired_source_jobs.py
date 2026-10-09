@@ -94,7 +94,7 @@ from typing import Optional
 
 from curl_cffi import requests
 
-import db
+from scrapjd import db
 from api import storage as cv_storage
 from scrapjd.config import DEFAULT_HEADERS
 

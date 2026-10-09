@@ -27,7 +27,7 @@ from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from api import security
 from api.deps import get_db

@@ -21,7 +21,7 @@ import psycopg2
 import psycopg2.extras
 import pytest
 
-import db
+from scrapjd import db
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 

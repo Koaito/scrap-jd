@@ -25,11 +25,11 @@ from urllib.parse import urlparse
 import psycopg2
 import pytest
 
-import db
+from scrapjd import db
 import duplicate_report as dr
 import merge_duplicates as md
-from db import listing_state
-from db.listing_state import CONFLICT_NONE, initial_listing_state, insert_listing
+from scrapjd.db import listing_state
+from scrapjd.db.listing_state import CONFLICT_NONE, initial_listing_state, insert_listing
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
@@ -710,6 +710,6 @@ def test_every_listing_satisfies_the_invariants_after_a_mixed_history(pg_conn):
 
 
 def test_module_exports_are_wired_through_db_facade():
-    assert db.mark_source_detail_checked.__module__ == "db.jobs"
+    assert db.mark_source_detail_checked.__module__ == "scrapjd.db.jobs"
     assert db.mark_listing_seen is listing_state.mark_listing_seen
     assert CONFLICT_NONE in listing_state._CONFLICT_SQL

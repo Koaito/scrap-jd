@@ -17,9 +17,9 @@ from urllib.parse import urlparse
 import psycopg2
 import pytest
 
-import db
-from db.job_recrawl import AUTO_REOPEN_REASONS
-from db.job_sync import SKIP_UPDATED_AT_SETTING, sync_job_from_listings
+from scrapjd import db
+from scrapjd.db.job_recrawl import AUTO_REOPEN_REASONS
+from scrapjd.db.job_sync import SKIP_UPDATED_AT_SETTING, sync_job_from_listings
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
@@ -228,7 +228,7 @@ def test_job_with_only_unknown_listings_stays_open(pg_conn):
 def test_status_change_is_logged_at_info(pg_conn, caplog):
     job = _job(pg_conn)
     _raw(pg_conn, "UPDATE job_postings SET job_status = 'CLOSED', closed_reason = 'staff' WHERE job_id = %s", (job,))
-    with caplog.at_level(logging.INFO, logger="db.job_sync"):
+    with caplog.at_level(logging.INFO, logger="scrapjd.db.job_sync"):
         sync_job_from_listings(pg_conn, job)
     pg_conn.commit()
     assert job in caplog.text and "CLOSED -> OPEN" in caplog.text
@@ -443,7 +443,7 @@ def test_update_job_reopen_when_no_listing_matches_job_url_still_opens_one(pg_co
 def test_update_job_without_status_or_deadline_runs_no_sync(pg_conn, monkeypatch):
     job = _job(pg_conn)
     calls = []
-    import db.listing_state as ls
+    import scrapjd.db.listing_state as ls
     monkeypatch.setattr(ls, "sync_job_from_listings", lambda *a, **k: calls.append(a))
     db.update_job(pg_conn, job, job_title="Chỉ đổi tên")
     pg_conn.commit()

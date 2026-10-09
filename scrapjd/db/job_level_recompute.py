@@ -11,7 +11,7 @@ Luật đóng dấu/không đè 'manual' vẫn nằm ở MỘT chỗ là db/job_
 import json
 from typing import Optional
 
-from db.job_levels import _derived_level_assignments
+from scrapjd.db.job_levels import _derived_level_assignments
 
 # Tên cờ phiên mà trg_set_updated_at() đọc (sql/migration_add_skip_updated_at_flag.sql).
 SKIP_UPDATED_AT_SETTING = "app.skip_updated_at"

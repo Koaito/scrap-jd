@@ -19,7 +19,7 @@ from scrapjd.adapters.base import BaseAdapter
 from scrapjd.adapters.careerviet import CareerVietAdapter
 from scrapjd.adapters.topcv import TopCVAdapter
 from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
-from db.crawl_snapshots import save_snapshots
+from scrapjd.db.crawl_snapshots import save_snapshots
 from snapshots import MAX_PER_ANOMALY, SnapshotRecorder
 from vnw_page_builder import build_detail_html
 

@@ -24,8 +24,8 @@ from urllib.parse import urlparse
 import psycopg2
 import pytest
 
-import db
-from db.dashboard import _vn_date, get_monthly_recap_counts
+from scrapjd import db
+from scrapjd.db.dashboard import _vn_date, get_monthly_recap_counts
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 

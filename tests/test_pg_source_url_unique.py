@@ -27,7 +27,7 @@ import psycopg2.errors
 import pytest
 from psycopg2 import sql as pgsql
 
-import db
+from scrapjd import db
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
@@ -280,7 +280,7 @@ def test_link_repost_source_new_url_returns_true(pg_conn):
 def test_link_repost_source_same_job_same_url_returns_false_without_warning(pg_conn, caplog):
     url = f"https://topcv.vn/{uuid.uuid4()}"
     job = _make_job(pg_conn, url)
-    with caplog.at_level(logging.WARNING, logger="db.job_recrawl"):
+    with caplog.at_level(logging.WARNING, logger="scrapjd.db.job_recrawl"):
         assert db.link_repost_source(pg_conn, job, source_name="TopCV", source_url=url).inserted is False
     pg_conn.commit()
     assert _owner(pg_conn, url) == [job]
@@ -291,7 +291,7 @@ def test_link_repost_source_url_owned_by_another_job_is_kept_and_warned(pg_conn,
     url = f"https://topcv.vn/{uuid.uuid4()}"
     owner = _make_job(pg_conn, url, "Việc của chủ URL")
     other = _make_job(pg_conn, f"https://topcv.vn/{uuid.uuid4()}", "Việc khác")
-    with caplog.at_level(logging.WARNING, logger="db.job_recrawl"):
+    with caplog.at_level(logging.WARNING, logger="scrapjd.db.job_recrawl"):
         assert db.link_repost_source(pg_conn, other, source_name="TopCV", source_url=url,
                                      raw_jd_content="không được ghi").inserted is False
     pg_conn.commit()

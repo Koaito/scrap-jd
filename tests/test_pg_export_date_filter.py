@@ -24,7 +24,7 @@ from urllib.parse import urlparse
 import psycopg2
 import pytest
 
-import db
+from scrapjd import db
 from api.services.export_query import (
     ExportFilters,
     count_rows_for_export,

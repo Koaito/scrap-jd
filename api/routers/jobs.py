@@ -5,7 +5,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from api import storage as cv_storage
 from api.deps import get_db, require_role
@@ -13,8 +13,8 @@ from api.rate_limit import get_user_id_or_ip, limiter
 from api.schemas import JobApplicantOut, JobCreate, JobCreateResult, JobDataHealth, JobDetailOut, JobSaverOut, JobUpdate, PaginatedJobs
 # Import thẳng (không qua db_module) để test patch được db_module bằng MagicMock
 # mà hằng số này vẫn là dict thật — cùng cách contacts.py import ContactHasLinksError.
-from db.job_dedup_lock import JobDedupLockTimeout
-from db.jobs import JOB_CLEARABLE_FIELD_TO_COLUMN
+from scrapjd.db.job_dedup_lock import JobDedupLockTimeout
+from scrapjd.db.jobs import JOB_CLEARABLE_FIELD_TO_COLUMN
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 

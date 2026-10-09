@@ -23,7 +23,7 @@ Cách chạy:
 import argparse
 import logging
 
-import db
+from scrapjd import db
 from scrapjd.normalize import normalize_company_size
 
 logging.basicConfig(

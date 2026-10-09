@@ -21,7 +21,7 @@ thay vì ở tầng dependency.
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from api.deps import get_current_user, get_db
 from api.rate_limit import get_user_id_or_ip, limiter

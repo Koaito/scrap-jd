@@ -48,7 +48,7 @@ from typing import Iterator
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-import db as db_module
+from scrapjd import db as db_module
 from api import error_codes
 from api import security
 

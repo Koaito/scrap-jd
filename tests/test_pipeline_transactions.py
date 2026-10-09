@@ -18,10 +18,10 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import db as real_db
+from scrapjd import db as real_db
 import pipeline
 from scrapjd.adapters.base import BaseAdapter, CrawlBlockedError
-from db.job_recrawl import RepostLink
+from scrapjd.db.job_recrawl import RepostLink
 from field_stats import EmptyFieldCounter
 from scrapjd.models import RawJobRecord
 from pipeline_db import PIPELINE_DB_READS, PIPELINE_DB_WRITES

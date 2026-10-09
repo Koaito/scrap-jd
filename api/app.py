@@ -60,7 +60,7 @@ from slowapi.errors import RateLimitExceeded
 from slowapi.middleware import SlowAPIMiddleware
 from apscheduler.schedulers.background import BackgroundScheduler
 
-import db as db_module
+from scrapjd import db as db_module
 from api.auth import require_api_key
 from api.rate_limit import limiter
 from api.routers import auth, companies, contacts, crawl, dashboard, jobs, maintenance, me, meta, audit_logs, import_export, email_templates, messages

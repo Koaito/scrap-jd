@@ -120,8 +120,8 @@ def test_get_user_response_model_is_user_out_and_never_leaks_password_hash():
 def test_list_and_detail_share_same_columns():
     """Chống lệch shape: danh sách và chi tiết cùng dùng USER_SUMMARY_COLUMNS
     và mọi cột đó đều có mặt trong UserOut."""
-    import db
-    from db.auth import USER_SUMMARY_COLUMNS
+    from scrapjd import db
+    from scrapjd.db.auth import USER_SUMMARY_COLUMNS
 
     cols = [c.strip() for c in USER_SUMMARY_COLUMNS.split(",")]
     assert "password_hash" not in cols

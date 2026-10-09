@@ -1,9 +1,9 @@
 # API Layer (FastAPI) — hướng dẫn chạy
 
-Lớp API này **bọc ngoài** codebase crawler hiện có (`scrapjd/adapters/`, `normalize.py`,
-`db/`, `pipeline.py`) — không sửa gì các file đó ngoại trừ thêm 1 nhóm
-hàm query mới riêng cho API (nằm rải theo domain trong `db/`, ví dụ
-`db/jobs.py`, `db/companies.py`... — trước 08/2026 gộp chung 1 file
+Lớp API này **bọc ngoài** codebase crawler hiện có (`scrapjd/adapters/`, `scrapjd/normalize.py`,
+`scrapjd/db/`, `pipeline.py`) — không sửa gì các file đó ngoại trừ thêm 1 nhóm
+hàm query mới riêng cho API (nằm rải theo domain trong `scrapjd/db/`, ví dụ
+`scrapjd/db/jobs.py`, `scrapjd/db/companies.py`... — trước 08/2026 gộp chung 1 file
 `db.py` duy nhất, đã tách theo domain, xem "Kiến trúc" trong
 `README.md`). `main.py` (CLI crawl cũ) giữ nguyên 100%, chạy song song
 không xung đột với API. Quy trình crawl/vá dữ liệu xem `README.md`; file
@@ -193,8 +193,8 @@ ra ngay, không đợi access token 30 phút tự hết hạn).
 | GET | `/dashboard/insights/companies?followup_days=7\|14\|30` | Thêm 09/2026 — tab "Doanh nghiệp": công ty tiềm năng cao thiếu/nguội contact, contact cần follow-up, công ty nở rộ/im ắng. `followup_days` ngoài whitelist → `400` | API key + JWT (ss_team+) |
 | GET | `/dashboard/insights/monthly` | Thêm 09/2026 — tab "Báo cáo tháng": job/công ty mới + % so tháng trước, job hết hạn, top ngành/công ty, ứng tuyển/lưu job. Tháng theo lịch, giờ VN | API key + JWT (ss_team+) |
 | GET | `/messages/conversations/{partner_id}` | Thêm 09/2026 — tra đúng 1 người đối thoại (tên, role, `relationship_*`), kể cả chưa từng nhắn. `404` gộp "không tồn tại" và "không được phép thấy" | API key + JWT |
-| GET | `/sources` | Danh sách source/category có sẵn (đọc từ `scrapjd/sources_registry.py`, phái sinh từ `config.py::JOB_CATEGORIES` — 08/2026, xem README.md#thêm-ngành--nguồn-crawl-mới) — frontend render dropdown | API key |
-| GET | `/enums` | Danh sách enum hợp lệ dạng `{tên: [giá trị,...]}` (job_status, work_type, level_code, ... — không đọc DB, tính từ `constants.py`). Thêm 09/2026: `province_name` — 34 tỉnh/thành sau sáp nhập + `Khác`/`Remote`, dùng build dropdown "Địa điểm" của form job (gửi giá trị khác/gõ tự do sẽ bị backend âm thầm gán về `Khác`) | API key |
+| GET | `/sources` | Danh sách source/category có sẵn (đọc từ `scrapjd/sources_registry.py`, phái sinh từ `scrapjd/config.py::JOB_CATEGORIES` — 08/2026, xem README.md#thêm-ngành--nguồn-crawl-mới) — frontend render dropdown | API key |
+| GET | `/enums` | Danh sách enum hợp lệ dạng `{tên: [giá trị,...]}` (job_status, work_type, level_code, ... — không đọc DB, tính từ `scrapjd/constants.py`). Thêm 09/2026: `province_name` — 34 tỉnh/thành sau sáp nhập + `Khác`/`Remote`, dùng build dropdown "Địa điểm" của form job (gửi giá trị khác/gõ tự do sẽ bị backend âm thầm gán về `Khác`) | API key |
 | GET | `/health` | Health check | API key |
 | POST | `/auth/register` | Tự đăng ký (phone/track cho học viên, luôn role `user`), gửi email xác thực | **KHÔNG cần API key** |
 | GET | `/auth/verify-email?token=` | Kích hoạt tài khoản — bấm từ link trong email, trả HTML | **KHÔNG cần API key** |
@@ -485,7 +485,7 @@ trả về trong response của `GET`/`POST`/`PATCH` tương ứng.
 ## Connection pool
 
 `api/deps.py:get_db()` mượn/trả connection từ 1 pool đã mở sẵn
-(`psycopg2.pool.ThreadedConnectionPool`, xem `db/connection.py`) thay vì
+(`psycopg2.pool.ThreadedConnectionPool`, xem `scrapjd/db/connection.py`) thay vì
 mở connection mới mỗi request. Pool khởi tạo 1 lần lúc app khởi động
 (`api/app.py`, `lifespan`), đóng lại lúc app tắt.
 

@@ -19,8 +19,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from api.schemas import JobUpdate
-from db.audit_logs import diff_changed_fields
-from db.jobs import JOB_CLEARABLE_FIELD_TO_COLUMN, update_job
+from scrapjd.db.audit_logs import diff_changed_fields
+from scrapjd.db.jobs import JOB_CLEARABLE_FIELD_TO_COLUMN, update_job
 
 
 # ------------------------------------------------------------------

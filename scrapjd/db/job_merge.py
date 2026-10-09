@@ -14,10 +14,10 @@ from typing import Optional
 
 from psycopg2.extras import Json
 
-from db.audit_logs import log_action
-from db.job_level_recompute import SKIP_UPDATED_AT_SETTING
-from db.job_sync import sync_job_from_listings
-from db.listing_state import close_job_listings, set_job_listings_deadline
+from scrapjd.db.audit_logs import log_action
+from scrapjd.db.job_level_recompute import SKIP_UPDATED_AT_SETTING
+from scrapjd.db.job_sync import sync_job_from_listings
+from scrapjd.db.listing_state import close_job_listings, set_job_listings_deadline
 
 # Cột của job_postings cần để lập kế hoạch gộp. Khác db.list_duplicate_job_rows (3a): lấy đủ các
 # khối cần hợp nhất (lương, hạn, trạng thái, level + dấu, ghi chú), không lấy tên công ty/tỉnh.

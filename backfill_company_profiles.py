@@ -58,7 +58,7 @@ import logging
 from typing import Optional
 from urllib.parse import urlsplit
 
-import db
+from scrapjd import db
 from scrapjd.adapters.topcv import TopCVAdapter
 from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from scrapjd.adapters.careerviet import CareerVietAdapter

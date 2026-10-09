@@ -29,7 +29,7 @@ from fastapi import HTTPException, UploadFile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-import db
+from scrapjd import db
 from api import error_codes
 from api.routers import jobs as jobs_router
 from api.routers import me as me_router

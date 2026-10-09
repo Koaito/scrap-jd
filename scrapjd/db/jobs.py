@@ -12,9 +12,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Iterable, Optional
 
 from scrapjd.config import DETAIL_RECHECK_DAYS
-from db.job_dedup_lock import lock_job_dedup_key
-from db.job_levels import _check_level_signals, _check_level_stamp, _derived_level_assignments
-from db.listing_state import (
+from scrapjd.db.job_dedup_lock import lock_job_dedup_key
+from scrapjd.db.job_levels import _check_level_signals, _check_level_stamp, _derived_level_assignments
+from scrapjd.db.listing_state import (
     CONFLICT_NONE,
     insert_listing,
     job_is_closed_locked,

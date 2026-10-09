@@ -64,7 +64,7 @@ migration + 1 entry label ở frontend, KHÔNG cần bảng/router mới.
 import logging
 from typing import Optional
 
-import db as db_module
+from scrapjd import db as db_module
 
 from api.concurrency import GLOBAL_JOB_SEMAPHORE
 from api.run_log import capture_run_logs

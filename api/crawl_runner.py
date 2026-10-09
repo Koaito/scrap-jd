@@ -103,7 +103,7 @@ import time
 from datetime import datetime, timezone
 from typing import Optional
 
-import db as db_module
+from scrapjd import db as db_module
 from scrapjd.adapters.base import CrawlBlockedError
 from pipeline import run_pipeline
 from snapshots import SnapshotRecorder

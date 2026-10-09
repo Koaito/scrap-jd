@@ -19,7 +19,7 @@ preview_cleanup.py) — không tạo thêm scheduler riêng, cùng tinh thần
 
 import logging
 
-import db as db_module
+from scrapjd import db as db_module
 from scrapjd.config import CRAWL_STALE_NO_PROGRESS_MINUTES, CRAWL_STALE_TIMEOUT_MINUTES
 
 logger = logging.getLogger(__name__)
