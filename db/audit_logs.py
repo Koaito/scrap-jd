@@ -35,7 +35,7 @@ ACTION_LOG_RULES: dict[str, dict] = {
     # "đóng JD" (job còn trong DB), còn gộp thì job phụ bị xoá thật. Log tự động: chạy bằng CLI
     # nên actor_id NULL, không có người điền note -> không thuộc tab "log thủ công".
     "MERGE_JOB": {"is_manual_log": False, "note_required": False},
-    # Pipeline tự mở lại job đã đóng khi thấy tin được đăng lại (db.reopen_job_for_repost, A2, xem
+    # Pipeline tự mở lại job đã đóng khi thấy tin được đăng lại (db.link_repost_source, A2/C4, xem
     # sql/0038_add_reopen_job_audit_action.sql). Log tự động, actor_id NULL. Nhân viên mở lại bằng
     # PATCH vẫn ghi UPDATE_JOB như trước.
     "REOPEN_JOB": {"is_manual_log": False, "note_required": False},

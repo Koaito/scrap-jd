@@ -21,6 +21,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import db as real_db
 import pipeline
 from adapters.base import BaseAdapter, CrawlBlockedError
+from db.job_recrawl import RepostLink
 from field_stats import EmptyFieldCounter
 from models import RawJobRecord
 from pipeline_db import PIPELINE_DB_READS, PIPELINE_DB_WRITES
@@ -132,16 +133,10 @@ class FakeDB:
         return self._write("update_company_profile", conn)
 
     def link_repost_source(self, conn, *a, **k):
-        return self._write("link_repost_source", conn)
+        return self._write("link_repost_source", conn, RepostLink(inserted=True))
 
     def extend_job_deadline(self, conn, *a, **k):
         return self._write("extend_job_deadline", conn, True)
-
-    def reopen_job_for_repost(self, conn, *a, **k):
-        return self._write("reopen_job_for_repost", conn, True)
-
-    def sync_job_from_listings(self, conn, *a, **k):
-        return self._write("sync_job_from_listings", conn, {})
 
     def insert_job(self, conn, **k):
         return self._write("insert_job", conn)
@@ -321,8 +316,8 @@ def test_company_page_not_fetched_no_extra_rollback(monkeypatch):
     ("insert_job", None, None),
     ("link_repost_source", None, "old-job"),
     ("extend_job_deadline", None, "old-job"),
-    ("reopen_job_for_repost", None, {"job_id": "old-job", "job_status": "CLOSED", "level_id": None,
-                                      "deadline": None, "closed_reason": "expired_auto"}),
+    ("link_repost_source", None, {"job_id": "old-job", "job_status": "CLOSED", "level_id": None,
+                                  "deadline": None, "closed_reason": "expired_auto"}),   # tin đăng lại của job đóng
     ("update_job_fields", NEEDS_PATCH_PROBE, None),
     ("mark_source_detail_checked", NEEDS_PATCH_PROBE, None),
 ])

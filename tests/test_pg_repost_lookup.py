@@ -1,7 +1,7 @@
 """
 Phần 3c nửa 1/2 trên POSTGRES THẬT: hai hàm tầng DB mới của việc chặn nguồn sinh job trùng,
-db.find_repost_candidate (tra job để coi tin vừa crawl là đăng lại) và db.reopen_job_for_repost
-(mở lại job CLOSED, cách A). Nửa này CHƯA nối vào pipeline.py nên hành vi crawl chưa đổi.
+db.find_repost_candidate (tra job để coi tin vừa crawl là đăng lại). Việc mở lại job CLOSED từng nằm ở
+db.reopen_job_for_repost, từ C4 phần 1/3 do db.link_repost_source làm (tests/test_pg_job_sync.py).
 Cách chạy như tests/test_pg_merge_duplicates.py: đặt TEST_DATABASE_URL trỏ tới database dùng
 riêng cho test (tên chứa "test"); không đặt thì cả file được bỏ qua.
 
@@ -10,13 +10,11 @@ Chứng minh:
     tỉnh; KHÔNG xét level; xét cả job CLOSED; tỉnh/công ty khác thì không khớp;
   - thứ tự chọn khi nhiều job khớp: OPEN > cùng level > tạo gần nhất;
   - closed_reason đọc thẳng từ cột job_postings.closed_reason (A2), không còn đọc audit_logs;
-  - reopen: OPEN + hạn mới + source_url mới, chỉ khi job đang CLOSED và hạn mới chưa qua,
-    chạy lại/chạy song song chỉ một bên thắng; content_hash không đổi;
   - find_manual_job_duplicate (dùng cho POST /jobs) giữ nguyên hành vi cũ.
 """
 import os
 import uuid
-from datetime import date, timedelta
+from datetime import date
 from urllib.parse import urlparse
 
 import psycopg2
@@ -34,7 +32,6 @@ pytestmark = pytest.mark.skipif(
 
 _SCHEMA_PATH = os.path.join(os.path.dirname(__file__), "..", "sql", "schema.sql")
 PAST = "2020-01-01 00:00:00"
-TODAY = date(2026, 10, 7)
 
 
 @pytest.fixture(scope="module")
@@ -236,65 +233,8 @@ def test_find_repost_candidate_leaves_the_transaction_alone(pg_conn):
     pg_conn.rollback()
 
 
-# ------------------------------------------------------------------ mở lại job
-def test_reopen_sets_status_deadline_and_source_url_and_keeps_hash(pg_conn):
-    c = _company(pg_conn)
-    job = _job(pg_conn, c, "Data Engineer", status="CLOSED", deadline="2026-09-01",
-               url="https://www.topcv.vn/old")
-    before = _row(pg_conn, job)
-    ok = db.reopen_job_for_repost(pg_conn, job, source_url="https://www.topcv.vn/new",
-                                  deadline=date(2026, 11, 1), today=TODAY)
-    pg_conn.commit()
-    assert ok is True
-    status, deadline, url, updated_at, content_hash = _row(pg_conn, job)
-    assert (status, deadline, url) == ("OPEN", date(2026, 11, 1), "https://www.topcv.vn/new")
-    assert content_hash == before[4]                       # không đổi khoá nên hash giữ nguyên
-    assert updated_at > PAST                               # mở lại là thay đổi thật nên updated_at nhảy như thường
-
-
-def test_reopen_with_no_deadline_clears_the_stale_old_deadline(pg_conn):
-    c = _company(pg_conn)
-    job = _job(pg_conn, c, "Data Engineer", status="CLOSED", deadline="2026-09-01")
-    assert db.reopen_job_for_repost(pg_conn, job, source_url="https://x/new", deadline=None, today=TODAY) is True
-    pg_conn.commit()
-    assert _row(pg_conn, job)[:2] == ("OPEN", None)
-
-
-def test_reopen_refuses_when_new_deadline_already_passed(pg_conn):
-    c = _company(pg_conn)
-    job = _job(pg_conn, c, "Data Engineer", status="CLOSED", deadline="2026-09-01", url="https://x/old")
-    assert db.reopen_job_for_repost(pg_conn, job, source_url="https://x/new",
-                                    deadline=TODAY - timedelta(days=1), today=TODAY) is False
-    pg_conn.commit()
-    assert _row(pg_conn, job)[:3] == ("CLOSED", date(2026, 9, 1), "https://x/old")
-    # hạn đúng bằng hôm nay thì vẫn còn hiệu lực (giống check_expired_source_jobs: chỉ đóng khi deadline < hôm nay)
-    assert db.reopen_job_for_repost(pg_conn, job, source_url="https://x/new", deadline=TODAY, today=TODAY) is True
-    pg_conn.commit()
-
-
-def test_reopen_never_touches_a_job_that_is_already_open(pg_conn):
-    c = _company(pg_conn)
-    job = _job(pg_conn, c, "Data Engineer", status="OPEN", deadline="2026-12-01", url="https://x/old")
-    assert db.reopen_job_for_repost(pg_conn, job, source_url="https://x/new",
-                                    deadline=date(2027, 1, 1), today=TODAY) is False
-    pg_conn.commit()
-    assert _row(pg_conn, job)[:3] == ("OPEN", date(2026, 12, 1), "https://x/old")
-
-
-def test_reopen_is_won_by_only_one_of_two_concurrent_crawlers(pg_conn):
-    c = _company(pg_conn)
-    job = _job(pg_conn, c, "Data Engineer", status="CLOSED", deadline="2026-09-01")
-    first = db.reopen_job_for_repost(pg_conn, job, source_url="https://x/a", deadline=date(2026, 11, 1), today=TODAY)
-    pg_conn.commit()
-    second = db.reopen_job_for_repost(pg_conn, job, source_url="https://x/b", deadline=date(2026, 12, 1), today=TODAY)
-    pg_conn.commit()
-    assert (first, second) == (True, False)
-    assert _row(pg_conn, job)[2] == "https://x/a"          # bên đến sau không ghi đè
-
-
-def test_reopen_unknown_job_returns_false(pg_conn):
-    assert db.reopen_job_for_repost(pg_conn, str(uuid.uuid4()), source_url="https://x", deadline=None) is False
-    pg_conn.rollback()
+# Việc mở lại job vì tin đăng lại (trước đây db.reopen_job_for_repost) nay do db.link_repost_source làm, test ở
+# tests/test_pg_job_sync.py (C4 phần 1/3).
 
 
 # ------------------------------------------------------------------ hành vi cũ của POST /jobs không đổi

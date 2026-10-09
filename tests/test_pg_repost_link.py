@@ -110,7 +110,8 @@ def test_link_repost_source_adds_row_once_without_new_job(pg_conn):
                                    source_url="https://topcv/a-repost")
     pg_conn.commit()
 
-    assert (first, second) == (True, False)
+    assert (first.inserted, second.inserted) == (True, False)
+    assert not first.reopened and not second.reopened             # job OPEN: không có gì để mở lại
     assert _count(pg_conn, "SELECT count(*) FROM job_postings") == jobs_before
     assert _count(pg_conn, "SELECT count(*) FROM job_sources_log WHERE job_id = %s", (job_id,)) == 2
     with pg_conn.cursor() as cur:

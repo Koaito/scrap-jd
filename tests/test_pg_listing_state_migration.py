@@ -292,7 +292,7 @@ def test_existing_writers_in_the_codebase_work_on_the_migrated_schema(migrated):
         cur.execute("SELECT job_id FROM job_sources_log WHERE log_id = %s", (ids["L1"],))
         job_id = str(cur.fetchone()[0])
     assert db.link_repost_source(conn, job_id, source_name="topcv", source_url="https://x/repost-new",
-                                 raw_jd_content="JD", salary_raw_text="") is True
+                                 raw_jd_content="JD", salary_raw_text="").inserted is True
     conn.commit()
     with conn.cursor() as cur:
         cur.execute("SELECT log_id FROM job_sources_log WHERE source_url = 'https://x/repost-new'")

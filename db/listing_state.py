@@ -5,17 +5,18 @@ db.listing_state — MỘT nơi duy nhất ghi trạng thái của listing (mộ
 MÔ HÌNH (đã duyệt 08/10/2026, xem KE_HOACH_BACKEND_DATABASE.md mục 4): listing giữ trạng thái, job là giá
 trị tổng hợp từ các listing của nó. Hệ quả ở tầng ghi, mọi hàm dưới đây thực thi đúng các luật sau:
 
-  1. Listing mới do crawl hoặc nhập tay: OPEN, trừ khi job đang CLOSED thì listing sinh ra đã CLOSED với
-     đúng closed_reason của job (staff / unknown / merged: tin đăng lại không mở được job; expired_auto:
-     job được mở lại ngay sau đó bởi reopen_listing_for_repost, hoặc giữ CLOSED nếu hạn mới đã qua).
+  1. Listing mới do crawl hoặc nhập tay: OPEN, trừ khi job đang CLOSED. Job CLOSED vì staff / unknown / merged
+     thì listing sinh ra đã CLOSED với đúng closed_reason của job (tin đăng lại không mở được job). Job CLOSED vì
+     'expired_auto' (do check_expired_source_jobs đóng) thì tin đăng lại là bằng chứng job còn sống (C4): listing
+     sinh ra OPEN kèm hạn của tin mới, trừ khi hạn đó đã qua thì listing sinh ra CLOSED 'expired_auto'. Job suy ra
+     từ listing nên tự mở lại (db.job_sync, do link_repost_source gọi), không còn hàm mở lại riêng.
   2. Job chuyển sang CLOSED: mọi listing chưa CLOSED của job thành CLOSED, cùng closed_reason với job
      (close_job_listings). Listing đã CLOSED trước đó giữ lý do và giờ đóng của chính nó.
   3. Nhân viên mở lại job CLOSED: các listing CLOSED vì 'staff' về OPEN, và listing hiện hành (URL trùng
      job_postings.source_url) về OPEN dù lý do đóng là gì, để job OPEN không bao giờ có 0 listing OPEN do
      chính thao tác mở lại. Listing đóng vì lý do khác (expired_auto, merged) giữ nguyên
      (reopen_job_listings). Listing hiện hành chết thật thì check_expired_source_jobs đóng lại ở lượt sau.
-  4. Pipeline mở lại job vì tin đăng lại: listing của URL mới về OPEN kèm hạn mới
-     (reopen_listing_for_repost); các listing cũ giữ nguyên.
+  4. (Đã gộp vào luật 1 ở C4: listing của tin đăng lại sinh ra OPEN kèm hạn mới, không còn bước mở listing riêng.)
   5. Hạn của listing đã qua: listing OPEN hoặc UNKNOWN đóng với lý do 'expired_auto' (close_expired_listings,
      C3a). Job chỉ đóng khi hết listing sống, nhờ sync_job_from_listings của nơi gọi.
   6. URL của listing trả HTTP 404/410: đúng listing đó đóng 'expired_auto' (close_listing_dead, C3b). HTTP 2xx
@@ -30,6 +31,7 @@ một chỗ cần giữ đúng.
 """
 
 import logging
+from datetime import date
 from typing import Optional
 
 from db.job_sync import sync_job_from_listings
@@ -40,6 +42,10 @@ LISTING_OPEN = "OPEN"
 LISTING_CLOSED = "CLOSED"
 LISTING_UNKNOWN = "UNKNOWN"
 
+# closed_reason mà tin đăng lại được phép mở lại job (luật 1). Chỉ job do check_expired_source_jobs đóng. 'staff' là
+# nhân viên chủ động đóng, 'unknown' không rõ (coi như do nhân viên đóng), 'merged' dự phòng: cả ba giữ CLOSED.
+AUTO_REOPEN_REASONS = frozenset({"expired_auto"})
+
 # Cách xử lý khi URL đã có trong job_sources_log. Chuỗi SQL cố định (không nhận từ bên ngoài).
 CONFLICT_NONE = "none"                 # INSERT thường: URL đã có thì raise UniqueViolation (insert_job)
 CONFLICT_URL = "url"                   # ON CONFLICT (source_url) DO NOTHING (link_repost_source)
@@ -49,20 +55,32 @@ _CONFLICT_SQL = {
 }
 
 
-def initial_listing_state(job_status: str, job_closed_reason: Optional[str]) -> tuple:
-    """(listing_status, closed_reason) cho listing MỚI của một job đang ở trạng thái cho trước (luật 1).
-    Hàm thuần, không đụng DB. Job CLOSED mà thiếu closed_reason (không xảy ra với dữ liệu hợp lệ vì
-    chk_job_postings_closed_state) thì dùng 'unknown' thay vì làm vỡ CHECK của listing."""
-    if job_status == "CLOSED":
-        return LISTING_CLOSED, job_closed_reason or "unknown"
-    return LISTING_OPEN, None
+def initial_listing_state(job_status: str, job_closed_reason: Optional[str], *, deadline=None,
+                          today: Optional[date] = None) -> tuple:
+    """(listing_status, closed_reason) cho listing MỚI của một job đang ở trạng thái cho trước (luật 1), `deadline`
+    là hạn của chính tin mới. Hàm thuần, không đụng DB. Job CLOSED mà thiếu closed_reason (không xảy ra với dữ liệu
+    hợp lệ vì chk_job_postings_closed_state) thì dùng 'unknown' thay vì làm vỡ CHECK của listing.
+
+    Job CLOSED vì lý do trong AUTO_REOPEN_REASONS: listing OPEN nếu tin mới không có hạn hoặc hạn chưa qua (hạn
+    đúng bằng hôm nay vẫn còn hiệu lực, giống check_expired_source_jobs: chỉ đóng khi deadline < hôm nay), còn lại
+    CLOSED 'expired_auto' vì job sẽ bị đóng lại ngay ở lượt kiểm tra sau. `today` mặc định date.today()."""
+    if job_status != "CLOSED":
+        return LISTING_OPEN, None
+    if job_closed_reason in AUTO_REOPEN_REASONS:
+        if deadline is not None and deadline < (today or date.today()):
+            return LISTING_CLOSED, job_closed_reason
+        return LISTING_OPEN, None
+    return LISTING_CLOSED, job_closed_reason or "unknown"
 
 
 def insert_listing(conn, *, job_id: str, source_name: str, source_url: str,
                    salary_raw_text: str = "", raw_jd_content: str = "",
                    detail_fetched: bool = False, deadline=None,
-                   on_conflict: str = CONFLICT_URL) -> bool:
-    """Ghi một listing mới cho job ĐÃ CÓ; trạng thái suy ra từ job lúc này (luật 1). Trả True nếu vừa
+                   on_conflict: str = CONFLICT_URL, today: Optional[date] = None) -> bool:
+    """Ghi một listing mới cho job ĐÃ CÓ; trạng thái suy ra từ job lúc này và hạn của tin mới (luật 1; `today` chỉ
+    để test, mặc định date.today()). Job CLOSED vì expired_auto mà tin mới còn hạn thì listing sinh ra OPEN trong khi
+    job còn CLOSED: nơi gọi PHẢI gọi sync_job_from_listings ngay sau trong cùng transaction (link_repost_source làm
+    việc đó). Trả True nếu vừa
     thêm dòng, False nếu URL đã có (chỉ với CONFLICT_URL; CONFLICT_NONE thì raise UniqueViolation). Raise LookupError nếu job không tồn tại.
 
     first_seen_at và last_seen_at lấy mặc định now() của cột (cùng một giá trị, nên last_seen_at >=
@@ -84,7 +102,7 @@ def insert_listing(conn, *, job_id: str, source_name: str, source_url: str,
         row = cur.fetchone()
         if row is None:
             raise LookupError(f"job {job_id} không tồn tại, không ghi được listing {source_url}")
-        status, reason = initial_listing_state(row[0], row[1])
+        status, reason = initial_listing_state(row[0], row[1], deadline=deadline, today=today)
         cur.execute(
             f"""
             INSERT INTO job_sources_log (job_id, source_name, source_url, salary_raw_content,
@@ -191,26 +209,6 @@ def reopen_job_listings(conn, job_id: str) -> int:
             (job_id, job_id, job_id),
         )
         return opened + cur.rowcount
-
-
-def reopen_listing_for_repost(conn, job_id: str, source_url: str, deadline) -> bool:
-    """Luật 4. Pipeline vừa mở lại job vì tin đăng lại tại `source_url`: listing của URL đó về OPEN, hạn =
-    hạn của tin mới (NULL nếu tin không ghi hạn), last_seen_at = now(). Listing khác của job không đổi.
-    Trả False nếu job chưa có listing cho URL đó (nơi gọi bình thường đã ghi listing ngay trước)."""
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE job_sources_log
-               SET listing_status = 'OPEN', closed_reason = NULL, closed_at = NULL,
-                   deadline = %s, last_seen_at = GREATEST(last_seen_at, now())
-             WHERE job_id = %s AND source_url = %s
-            """,
-            (deadline, job_id, source_url),
-        )
-        found = cur.rowcount > 0
-    if not found:
-        logger.warning("Mở lại job %s nhưng chưa có listing cho %s, không có gì để mở.", job_id, source_url)
-    return found
 
 
 def set_job_listings_deadline(conn, job_id: str, deadline) -> int:

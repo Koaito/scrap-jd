@@ -118,9 +118,7 @@ def test_auto_closed_and_reopened_by_staff_matches_derivation(pg_conn):
 def test_job_reopened_by_repost_matches_derivation_on_all_four_fields(pg_conn):
     job = _job(pg_conn)
     db.update_job(pg_conn, job, job_status="CLOSED", closed_reason="expired_auto")
-    new = _link(pg_conn, job, deadline=FUTURE2)
-    assert db.reopen_job_for_repost(pg_conn, job, source_url=new, deadline=FUTURE2)
-    pg_conn.commit()
+    _link(pg_conn, job, deadline=FUTURE2)            # C4: tin đăng lại mở lại job (listing OPEN, job suy ra OPEN)
     assert _report(pg_conn).mismatches == []
 
 

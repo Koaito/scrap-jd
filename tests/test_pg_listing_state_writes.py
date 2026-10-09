@@ -126,7 +126,7 @@ def _job_url(conn, job_id):
 def _link(conn, job_id, url=None, *, deadline=FUTURE):
     url = url or _url()
     assert db.link_repost_source(conn, job_id, source_name="Fake", source_url=url,
-                                 raw_jd_content="JD", deadline=deadline) is True
+                                 raw_jd_content="JD", deadline=deadline)
     conn.commit()
     return url
 
@@ -149,13 +149,31 @@ def _force_unknown(conn, url):
     ("OPEN", None, ("OPEN", None)),
     ("OPEN", "staff", ("OPEN", None)),            # job OPEN thì lý do (nếu lọt vào) không có nghĩa
     ("CLOSED", "staff", ("CLOSED", "staff")),
-    ("CLOSED", "expired_auto", ("CLOSED", "expired_auto")),
+    ("CLOSED", "expired_auto", ("OPEN", None)),   # C4: tin đăng lại của job hết hạn (không hạn) sống lại
     ("CLOSED", "merged", ("CLOSED", "merged")),
     ("CLOSED", "unknown", ("CLOSED", "unknown")),
     ("CLOSED", None, ("CLOSED", "unknown")),      # không xảy ra với dữ liệu hợp lệ, nhưng không được vỡ CHECK
 ])
 def test_initial_listing_state(job_status, reason, expected):
     assert initial_listing_state(job_status, reason) == expected
+
+
+TODAY = date(2026, 10, 9)
+
+
+@pytest.mark.parametrize("deadline,expected", [
+    (None, ("OPEN", None)),                                  # tin mới không ghi hạn: không có gì chứng tỏ hết hạn
+    (date(2026, 11, 1), ("OPEN", None)),
+    (TODAY, ("OPEN", None)),                                  # hạn đúng hôm nay còn hiệu lực (như check_expired)
+    (date(2026, 10, 8), ("CLOSED", "expired_auto")),          # hạn đã qua: sinh ra CLOSED, job giữ CLOSED
+])
+def test_initial_listing_state_of_expired_auto_job_depends_on_the_new_deadline(deadline, expected):
+    assert initial_listing_state("CLOSED", "expired_auto", deadline=deadline, today=TODAY) == expected
+
+
+@pytest.mark.parametrize("reason", ["staff", "unknown", "merged"])
+def test_initial_listing_state_ignores_a_future_deadline_for_other_closed_reasons(reason):
+    assert initial_listing_state("CLOSED", reason, deadline=date(2099, 1, 1), today=TODAY) == ("CLOSED", reason)
 
 
 # ============================================================ luật 1: listing mới
@@ -218,7 +236,7 @@ def test_link_repost_on_job_closed_for_other_reasons_writes_closed_listing(pg_co
 def test_link_repost_url_owned_by_another_job_is_not_overwritten(pg_conn):
     a, b = _new_job(pg_conn), _new_job(pg_conn)
     url = _job_url(pg_conn, a)
-    assert db.link_repost_source(pg_conn, b, source_name="Fake", source_url=url, deadline=FUTURE2) is False
+    assert not db.link_repost_source(pg_conn, b, source_name="Fake", source_url=url, deadline=FUTURE2)
     pg_conn.rollback()
     s = _listing(pg_conn, url)
     assert s["job_id"] == a and s["deadline"] == FUTURE      # listing của job A không bị đổi
@@ -246,36 +264,37 @@ def test_insert_job_url_of_another_job_still_raises_unique_violation(pg_conn):
     pg_conn.rollback()
 
 
-# ============================================================ luật 4: pipeline mở lại job vì tin đăng lại
+# ============================================================ luật 1 (C4): tin đăng lại của job đóng expired_auto
 def test_repost_of_expired_job_reopens_job_and_new_listing_but_not_old_one(pg_conn):
     old_url = _url()
     job = _new_job(pg_conn, url=old_url, deadline=FUTURE)
     _close(pg_conn, job, "expired_auto")
-    new_url = _link(pg_conn, job, deadline=FUTURE2)
-    assert _status(pg_conn, new_url) == ("CLOSED", "expired_auto")       # sinh ra theo job đang đóng
-    assert db.reopen_job_for_repost(pg_conn, job, source_url=new_url, deadline=FUTURE2) is True
+    new_url = _url()
+    link = db.link_repost_source(pg_conn, job, source_name="Fake", source_url=new_url, deadline=FUTURE2)
     pg_conn.commit()
+    assert link.inserted and link.reopened
     s = _listing(pg_conn, new_url)
     assert (s["listing_status"], s["closed_reason"], s["closed_at"], s["deadline"]) == ("OPEN", None, None, FUTURE2)
     assert _status(pg_conn, old_url) == ("CLOSED", "expired_auto")       # URL cũ đã chết, giữ nguyên
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT job_status::text, closed_reason, closed_at, deadline, source_url "
+                    "FROM job_postings WHERE job_id = %s", (job,))
+        assert cur.fetchone() == ("OPEN", None, None, FUTURE2, new_url)
+    pg_conn.rollback()
 
 
 def test_repost_with_expired_deadline_does_not_reopen_and_listing_stays_closed(pg_conn):
     job = _new_job(pg_conn, deadline=FUTURE)
     _close(pg_conn, job, "expired_auto")
-    new_url = _link(pg_conn, job, deadline=PAST)
-    assert db.reopen_job_for_repost(pg_conn, job, source_url=new_url, deadline=PAST) is False
+    new_url = _url()
+    link = db.link_repost_source(pg_conn, job, source_name="Fake", source_url=new_url, deadline=PAST)
     pg_conn.commit()
+    assert link.inserted and not link.reopened
     assert _status(pg_conn, new_url) == ("CLOSED", "expired_auto")
-
-
-def test_reopen_without_a_listing_for_that_url_is_harmless(pg_conn, caplog):
-    job = _new_job(pg_conn)
-    _close(pg_conn, job, "expired_auto")
-    with caplog.at_level("WARNING"):
-        assert db.reopen_job_for_repost(pg_conn, job, source_url=_url(), deadline=FUTURE) is True
-    pg_conn.commit()
-    assert "chưa có listing" in caplog.text
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT job_status::text FROM job_postings WHERE job_id = %s", (job,))
+        assert cur.fetchone()[0] == "CLOSED"
+    pg_conn.rollback()
 
 
 def test_repost_of_open_job_keeps_old_listing_and_adds_open_one(pg_conn):
@@ -608,8 +627,9 @@ def test_new_listing_waits_for_concurrent_close_and_is_born_closed(pg_conn):
 
     def writer():
         try:
-            result["inserted"] = db.link_repost_source(
+            link = db.link_repost_source(
                 other_conn, job, source_name="Fake", source_url=new_url, deadline=FUTURE)
+            result["inserted"] = (link.inserted, link.reopened)
             other_conn.commit()
         except Exception as exc:  # noqa: BLE001
             result["error"] = exc
@@ -623,7 +643,7 @@ def test_new_listing_waits_for_concurrent_close_and_is_born_closed(pg_conn):
         pg_conn.commit()                                                       # A commit
         t.join(timeout=10)
         assert not t.is_alive()
-        assert result == {"inserted": True}
+        assert result == {"inserted": (True, False)}       # job đóng vì staff: không mở lại được
     finally:
         other_conn.close()
     assert _status(pg_conn, new_url) == ("CLOSED", "staff")
@@ -671,9 +691,7 @@ def test_every_listing_satisfies_the_invariants_after_a_mixed_history(pg_conn):
     _close(pg_conn, jobs[0])
     _link(pg_conn, jobs[0])                                          # tin đăng lại vào job đóng vì staff
     _close(pg_conn, jobs[1], "expired_auto")
-    new = _link(pg_conn, jobs[1])
-    db.reopen_job_for_repost(pg_conn, jobs[1], source_url=new, deadline=FUTURE2)
-    pg_conn.commit()
+    _link(pg_conn, jobs[1], deadline=FUTURE2)                         # tin đăng lại mở lại job đóng expired_auto
     _close(pg_conn, jobs[2])
     db.update_job(pg_conn, jobs[2], job_status="OPEN")
     pg_conn.commit()

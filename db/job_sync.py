@@ -2,10 +2,10 @@
 db.job_sync — ĐƯA JOB THEO KỊP LISTING (C2, nửa 2/2): sau mỗi lần ghi listing, ghi lại job_status,
 closed_reason, deadline, source_url của job cho bằng giá trị db.job_derivation suy ra từ các listing.
 
-Đây là chỗ \"job là giá trị tổng hợp\" thành hiện thực ở tầng ghi. Các đường ghi trực tiếp vào job (ca đặc
-biệt của reopen_job_for_repost, extend_job_deadline, update_job) vẫn còn, tạm thời, để C4 gỡ khi đã đủ bằng
-chứng (lệnh check-listing-derivation --strict); hàm này chạy SAU chúng nên giá trị cuối cùng luôn là giá trị
-suy ra, và là no-op khi hai bên đã khớp.
+Đây là chỗ \"job là giá trị tổng hợp\" thành hiện thực ở tầng ghi. Các đường ghi trực tiếp vào job còn lại
+(extend_job_deadline, tạm thời tới C4 phần 2/3; update_job, đường nhân viên sửa) chạy TRƯỚC hàm này nên giá trị
+cuối cùng luôn là giá trị suy ra, và hàm này là no-op khi hai bên đã khớp. Ca đặc biệt mở lại job vì tin đăng lại
+(reopen_job_for_repost) đã gỡ ở C4 phần 1/3: tin đăng lại sinh listing OPEN, job tự mở lại nhờ hàm này.
 
 QUY ƯỚC
   - Chỉ ghi các cột LỆCH, một câu UPDATE, và chỉ khi có lệch (không lệch thì không ghi gì, kể cả không khoá
@@ -37,7 +37,7 @@ def diff_job_from_derived(stored: dict, derived: DerivedJob, *, defer_deadline: 
     dùng chính nó để dự đoán những gì lúc gộp thật sẽ ghi.
 
     closed_reason chỉ có mặt khi job suy ra là CLOSED (job OPEN thì trigger trg_set_job_closed_state tự xoá lý
-    do). defer_deadline=True bỏ qua hạn (xem followup_reasons của sync_job_from_listings)."""
+    do). defer_deadline=True bỏ qua hạn (xem sync_job_from_listings)."""
     changes: dict = {}
     if stored["job_status"] != derived.job_status:
         changes["job_status"] = (stored["job_status"], derived.job_status)
@@ -51,19 +51,16 @@ def diff_job_from_derived(stored: dict, derived: DerivedJob, *, defer_deadline: 
     return changes
 
 
-def sync_job_from_listings(conn, job_id: str, *, followup_reasons=None) -> dict:
+def sync_job_from_listings(conn, job_id: str, *, defer_deadline: bool = False) -> dict:
     """Xem docstring module. Trả {} nếu không có gì đổi hoặc job không tồn tại hoặc chưa có listing.
 
-    followup_reasons (chỉ link_repost_source truyền, TẠM THỜI tới C4): tập closed_reason được pipeline mở lại
-    tự động (AUTO_REOPEN_REASONS). Pipeline luôn gọi tiếp một trong hai hàm cũ sau link_repost_source:
-      - job đang OPEN: extend_job_deadline. Hàm này là nơi dời hạn và đếm repost_deadline_extended, và pipeline
-        không gọi nó cho job do nhân viên sửa tay, nên khi có tham số này đồng bộ KHÔNG đụng hạn của job OPEN
-        (nhân viên đã chỉnh tay thì tin đăng lại không kéo hạn của họ);
-      - job CLOSED vì một lý do trong tập: reopen_job_for_repost. Hàm này đọc giá trị cũ để ghi audit
-        REOPEN_JOB, nên đồng bộ KHÔNG đụng gì của job đó; reopen_job_for_repost tự đồng bộ ngay sau khi mở được,
-        còn khi từ chối mở lại (hạn tin mới đã qua) thì pipeline gọi sync_job_from_listings trực tiếp.
-    Giá trị cuối cùng vẫn khớp listing vì hạn và URL mà hai hàm kia ghi chính là của listing mới. C4 bỏ hai hàm
-    đó và bỏ tham số này."""
+    defer_deadline (chỉ link_repost_source truyền, TẠM THỜI tới C4 phần 2/3): không đụng hạn của job đang OPEN. Sau
+    link_repost_source pipeline luôn gọi extend_job_deadline cho job OPEN; hàm đó là nơi dời hạn và đếm
+    repost_deadline_extended, và pipeline không gọi nó cho job do nhân viên sửa tay (đường VietnamWorks đổi tiêu
+    đề), nên khi có tham số này đồng bộ KHÔNG kéo hạn của job OPEN (nhân viên đã chỉnh tay thì tin đăng lại không
+    kéo hạn của họ). Giá trị cuối cùng vẫn khớp listing vì hạn mà extend_job_deadline ghi chính là của listing
+    mới. Job đang CLOSED thì không hoãn gì: job đóng vì expired_auto nhận tin đăng lại còn hạn có listing mới OPEN,
+    nên được đồng bộ mở lại ngay tại đây (C4 phần 1/3). C4 phần 2/3 bỏ hàm kia và bỏ tham số này."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT job_status::text, closed_reason, deadline, source_url FROM job_postings "
@@ -74,9 +71,6 @@ def sync_job_from_listings(conn, job_id: str, *, followup_reasons=None) -> dict:
         if row is None:
             return {}
         stored = dict(zip(("job_status", "closed_reason", "deadline", "source_url"), row))
-        if (followup_reasons is not None and stored["job_status"] == "CLOSED"
-                and stored["closed_reason"] in followup_reasons):
-            return {}
         cur.execute(
             "SELECT job_id, source_url, listing_status, deadline, first_seen_at, last_seen_at, "
             "closed_reason, closed_at FROM job_sources_log WHERE job_id = %s",
@@ -87,7 +81,7 @@ def sync_job_from_listings(conn, job_id: str, *, followup_reasons=None) -> dict:
         if derived is None:
             return {}
 
-        defer = followup_reasons is not None and stored["job_status"] == "OPEN"
+        defer = defer_deadline and stored["job_status"] == "OPEN"
         changes = diff_job_from_derived(stored, derived, defer_deadline=defer)
         if not changes:
             return {}

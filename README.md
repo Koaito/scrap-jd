@@ -253,12 +253,13 @@ chọn OPEN, rồi cùng level, rồi tạo gần nhất. `find_manual_job_dupli
 Xử lý theo trạng thái job cũ (`pipeline._import_repost`), mọi trường hợp đều ghi URL mới làm nguồn phụ:
 
 - Job OPEN: dời hạn nộp ra sau nếu hạn mới muộn hơn (như trước).
-- Job CLOSED: **mở lại** (`db.reopen_job_for_repost`: OPEN, hạn nộp mới, `source_url` mới; phải đổi cả `source_url` vì
-  `check_expired_source_jobs` kiểm tra theo `job_postings.source_url`, để URL cũ đã chết thì job bị đóng lại ngay).
-  Tin mới không có hạn thì hạn ghi NULL.
-- **Không mở lại** (chỉ ghi nguồn phụ, giữ CLOSED) khi: nhân viên đã chủ động đóng JD (audit `DELETE_JOB` gần nhất, chưa
-  ai mở lại; job bị đóng tự động không ghi audit nên vẫn mở lại được), hoặc hạn của tin mới đã qua, hoặc job vừa bị luồng
-  khác mở/đổi. Job nhân viên đóng từ trước khi có `audit_logs` thì không nhận ra được.
+- Job CLOSED vì `expired_auto` (do `check_expired_source_jobs` tự đóng): **mở lại** (C4 phần 1/3). `db.link_repost_source`
+  ghi listing của URL mới ở trạng thái OPEN kèm hạn của tin mới (luật 1 ở `db/listing_state.py`), job suy ra OPEN từ
+  listing đó nên `deadline` và `source_url` theo listing (để URL cũ đã chết thì `check_expired_source_jobs` đóng lại
+  ngay), và hàm ghi audit `REOPEN_JOB` cùng transaction. Tin mới không có hạn thì hạn job là NULL.
+- **Không mở lại** (chỉ ghi nguồn phụ, giữ CLOSED) khi: `closed_reason` là `staff`, `unknown` hoặc `merged` (listing mới
+  sinh ra đã CLOSED với đúng lý do đó), hoặc hạn của tin mới đã qua (listing sinh ra CLOSED `expired_auto`), hoặc job
+  vừa bị luồng khác mở trước.
 
 Thống kê lượt crawl có thêm hai khoá, chỉ xuất hiện khi > 0 và đã nằm trong `skipped_duplicate_repost`:
 `repost_reopened` (số job được mở lại) và `repost_kept_closed` (số tin đăng lại khớp job CLOSED nhưng không mở lại).
@@ -487,11 +488,12 @@ python main.py crawl --source topcv --category data-analyst --max-jobs 20
   lệch, `--show N` đổi số ví dụ, `--strict` thoát mã 2 nếu còn lệch.
 - **Job theo kịp listing** (C2 nửa 2/2, `db/job_sync.py`): sau mỗi lần ghi listing, `sync_job_from_listings` ghi lại
   `job_status`, `closed_reason`, `deadline`, `source_url` của job cho bằng giá trị suy ra (chỉ cột lệch; không làm
-  nhảy `updated_at`). Gọi từ `link_repost_source`, `reopen_job_for_repost`, `update_job` (đóng, mở lại, sửa hạn),
+  nhảy `updated_at`). Gọi từ `link_repost_source`, `update_job` (đóng, mở lại, sửa hạn),
   `mark_source_detail_checked`, `mark_listing_seen`. Hệ quả cần biết: job OPEN nhận tin đăng lại có `source_url` là
   URL của listing OPEN mới nhất (nên `check_expired_source_jobs` kiểm tra URL đó); nhân viên sửa hoặc xoá hạn thì hạn
-  được ghi vào mọi listing OPEN của job, nên hạn job đúng bằng những gì nhân viên gõ. Hai hàm cũ `extend_job_deadline`
-  và `reopen_job_for_repost` còn chạy, tạm thời, tới C4. Migration `0044` gỡ `uq_job_source`; chạy SAU khi code này
+  được ghi vào mọi listing OPEN của job, nên hạn job đúng bằng những gì nhân viên gõ. Hàm cũ `extend_job_deadline`
+  còn chạy, tạm thời, tới C4 phần 2/3 (`reopen_job_for_repost` đã gỡ ở C4 phần 1/3: tin đăng lại của job đóng
+  `expired_auto` sinh listing OPEN và job tự mở lại nhờ đồng bộ). Migration `0044` gỡ `uq_job_source`; chạy SAU khi code này
   Live. `merge-duplicates` đồng bộ job giữ theo listing từ C3c (xem mục `merge-duplicates` ở trên).
 - **VietnamWorks: nhận ra tin bị sửa tiêu đề theo mã job.** Nhà tuyển dụng sửa
   tiêu đề thì URL đổi (phần chữ) còn mã số cuối URL (`...-<mã>-jv`) giữ

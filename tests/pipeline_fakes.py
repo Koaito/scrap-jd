@@ -14,6 +14,7 @@ Dùng qua fixture `pipeline_db` (tests/conftest.py), đã gắn vào pipeline.db
 from unittest.mock import create_autospec
 
 import db as real_db
+from db.job_recrawl import RepostLink
 from pipeline_db import PipelineDB
 
 DEFAULT_COMPANY_ID = "company-1"
@@ -36,10 +37,8 @@ def make_pipeline_db(**returns):
         "get_or_create_province": DEFAULT_PROVINCE_ID,
         "get_or_create_company_by_profile": DEFAULT_COMPANY_ID,
         "insert_job": DEFAULT_NEW_JOB_ID,
-        "link_repost_source": True,
+        "link_repost_source": RepostLink(inserted=True),
         "extend_job_deadline": False,
-        "reopen_job_for_repost": True,
-        "sync_job_from_listings": {},
         "update_job_from_recrawl": True,
     }
     unknown = set(returns) - set(dir(PipelineDB))

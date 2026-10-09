@@ -272,7 +272,7 @@ def _owner(conn, url):
 def test_link_repost_source_new_url_returns_true(pg_conn):
     job = _make_job(pg_conn, f"https://topcv.vn/{uuid.uuid4()}")
     url = f"https://topcv.vn/{uuid.uuid4()}"
-    assert db.link_repost_source(pg_conn, job, source_name="TopCV", source_url=url) is True
+    assert db.link_repost_source(pg_conn, job, source_name="TopCV", source_url=url).inserted is True
     pg_conn.commit()
     assert _owner(pg_conn, url) == [job]
 
@@ -281,7 +281,7 @@ def test_link_repost_source_same_job_same_url_returns_false_without_warning(pg_c
     url = f"https://topcv.vn/{uuid.uuid4()}"
     job = _make_job(pg_conn, url)
     with caplog.at_level(logging.WARNING, logger="db.job_recrawl"):
-        assert db.link_repost_source(pg_conn, job, source_name="TopCV", source_url=url) is False
+        assert db.link_repost_source(pg_conn, job, source_name="TopCV", source_url=url).inserted is False
     pg_conn.commit()
     assert _owner(pg_conn, url) == [job]
     assert not [r for r in caplog.records if "đã thuộc job" in r.getMessage()]
@@ -293,7 +293,7 @@ def test_link_repost_source_url_owned_by_another_job_is_kept_and_warned(pg_conn,
     other = _make_job(pg_conn, f"https://topcv.vn/{uuid.uuid4()}", "Việc khác")
     with caplog.at_level(logging.WARNING, logger="db.job_recrawl"):
         assert db.link_repost_source(pg_conn, other, source_name="TopCV", source_url=url,
-                                     raw_jd_content="không được ghi") is False
+                                     raw_jd_content="không được ghi").inserted is False
     pg_conn.commit()
     assert _owner(pg_conn, url) == [owner]           # không bị chuyển, không nhân đôi
     with pg_conn.cursor() as cur:

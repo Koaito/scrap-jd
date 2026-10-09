@@ -253,11 +253,11 @@ def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
     Xử lý theo trạng thái job cũ:
       - OPEN: dời deadline ra sau nếu hạn mới muộn hơn (db.extend_job_deadline, không bao
         giờ rút ngắn); job đã quá hạn được đăng lại sẽ sống lại.
-      - CLOSED với closed_reason='expired_auto' (do check_expired_source_jobs tự đóng): MỞ LẠI
-        (db.reopen_job_for_repost, ghi audit REOPEN_JOB: OPEN,
-        hạn mới, source_url mới). Đổi cả source_url vì check_expired_source_jobs kiểm tra
-        theo job_postings.source_url, để URL cũ (đã chết) thì job bị đóng lại ngay. Không
-        mở lại nếu hạn của tin mới đã qua.
+      - CLOSED với closed_reason='expired_auto' (do check_expired_source_jobs tự đóng): MỞ LẠI. Việc đó do
+        db.link_repost_source làm (C4 phần 1/3): listing của URL mới sinh ra OPEN kèm hạn mới (luật 1 của
+        db.listing_state), job suy ra OPEN từ listing đó (hạn và source_url theo listing, nên
+        check_expired_source_jobs không kiểm URL cũ đã chết) và ghi audit REOPEN_JOB. Hạn của tin mới đã qua thì
+        listing sinh ra CLOSED nên job giữ CLOSED. Hàm này chỉ đọc kết quả (RepostLink.reopened) để đếm và ghi log.
       - CLOSED với closed_reason khác (staff, unknown, merged; cột job_postings.closed_reason) hoặc
         không mở lại được: giữ nguyên CLOSED, chỉ ghi URL mới làm nguồn phụ.
     Nội dung (parsed_content, work_type) thì KHÔNG vá từ tin đăng lại. raw_jd_content của tin
@@ -267,7 +267,7 @@ def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
     đi qua commit của bước insert)."""
     duplicate_job_id = candidate["job_id"]
     stats.skipped_duplicate_repost += 1
-    db.link_repost_source(
+    link = db.link_repost_source(
         conn, duplicate_job_id,
         source_name=raw.source_name, source_url=raw.source_url,
         raw_jd_content=raw_jd_content, salary_raw_text=raw.salary_text, deadline=deadline,
@@ -275,16 +275,12 @@ def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
     action = ""
     if candidate["job_status"] == "CLOSED":
         reason = candidate["closed_reason"]
-        # Chỉ job do check_expired_source_jobs đóng mới tự mở lại; staff / unknown / merged giữ CLOSED.
-        if reason in AUTO_REOPEN_REASONS and db.reopen_job_for_repost(
-                conn, duplicate_job_id, source_url=raw.source_url, deadline=deadline):
+        if link.reopened:
             stats.repost_reopened += 1
             action = f", MỞ LẠI job đã đóng (hạn {deadline})"
         else:
             stats.repost_kept_closed += 1
             if reason in AUTO_REOPEN_REASONS:
-                # link_repost_source đã hoãn đồng bộ job này để chờ mở lại; không mở được thì đồng bộ ngay (C2).
-                db.sync_job_from_listings(conn, duplicate_job_id)
                 action = ", giữ nguyên CLOSED (hạn mới đã qua hoặc job đã đổi)"
             else:
                 action = f", giữ nguyên CLOSED (closed_reason={reason})"
@@ -375,7 +371,7 @@ def _update_job_by_job_code(conn, raw, match, *, level_code: str, level_source: 
     crawl sau URL này đi nhánh "job đã có" và không bị fetch lại (cùng lý do với
     _import_repost). Nhánh này KHÔNG đổi job_postings.source_url: cột đó là URL mà
     check_expired_source_jobs kiểm tra còn sống hay không (không phải "nguồn gốc bất biến",
-    reopen_job_for_repost và merge-duplicates vẫn có thể ghi đè); URL mới chỉ vào
+    link_repost_source, khi job sống lại, và merge-duplicates vẫn có thể ghi đè); URL mới chỉ vào
     job_sources_log.
 
     Job đã có người sửa tay (updated_by khác rỗng) thì chỉ dừng ở bước ghi URL.
