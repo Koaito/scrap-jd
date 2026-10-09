@@ -127,3 +127,26 @@ def list_jobs_with_listings(conn) -> list:
                 job["listings"].append(row)
     conn.rollback()
     return jobs
+
+
+def list_checkable_listings(conn) -> list:
+    """Listing mà check_expired_source_jobs còn phải kiểm tra (C3a): listing OPEN hoặc UNKNOWN của job đang
+    OPEN. Listing CLOSED không cần kiểm lại; listing của job đã đóng cũng không (job CLOSED thì mọi listing
+    đã CLOSED, xem db.listing_state). Gồm cả listing của job nhập tay (URL dạng manual://uuid): chúng có thể
+    có hạn, và nhánh hạn không đụng tới mạng.
+
+    Trả list[(job_id, job_title, source_url, deadline)], mỗi phần tử là MỘT listing, sắp theo job
+    (created_at, job_id) rồi listing (first_seen_at, source_url) để các listing cùng job nằm liền nhau và
+    thứ tự job giống get_open_jobs_with_source_url. CHỈ ĐỌC, không commit hay rollback (như
+    get_open_jobs_with_source_url): nơi gọi tự commit từng job khi ghi."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT jp.job_id, jp.job_title, l.source_url, l.deadline
+              FROM job_sources_log l
+              JOIN job_postings jp ON jp.job_id = l.job_id
+             WHERE jp.job_status = 'OPEN' AND l.listing_status IN ('OPEN', 'UNKNOWN')
+             ORDER BY jp.created_at, jp.job_id, l.first_seen_at, l.source_url
+            """
+        )
+        return cur.fetchall()

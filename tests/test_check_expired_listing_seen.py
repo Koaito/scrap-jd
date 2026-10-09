@@ -26,6 +26,8 @@ class _Checker:
 
 def _run(mock_conn, code, **kw):
     with patch.object(script.db, "get_connection", return_value=mock_conn), \
+         patch.object(script.db, "list_checkable_listings",
+                      return_value=[("job-1", "Data Analyst", URL, FUTURE)]), \
          patch.object(script.db, "get_open_jobs_with_source_url",
                       return_value=[("job-1", "Data Analyst", URL, FUTURE)]), \
          patch.object(script.db, "update_job") as update_job, \

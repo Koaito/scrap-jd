@@ -16,6 +16,8 @@ trị tổng hợp từ các listing của nó. Hệ quả ở tầng ghi, mọi
      (reopen_job_listings). Listing hiện hành chết thật thì check_expired_source_jobs đóng lại ở lượt sau.
   4. Pipeline mở lại job vì tin đăng lại: listing của URL mới về OPEN kèm hạn mới
      (reopen_listing_for_repost); các listing cũ giữ nguyên.
+  5. Hạn của listing đã qua: listing OPEN hoặc UNKNOWN đóng với lý do 'expired_auto' (close_expired_listings,
+     C3a). Job chỉ đóng khi hết listing sống, nhờ sync_job_from_listings của nơi gọi.
 
 CHƯA ĐỔI CHỖ ĐỌC: không đoạn code nào đọc các cột này để ra quyết định (đó là C2 và C3). Mọi hàm ở đây chỉ
 ghi, không tự commit (đúng quy ước lớp db: nơi gọi chịu trách nhiệm).
@@ -224,6 +226,34 @@ def set_job_listings_deadline(conn, job_id: str, deadline) -> int:
                                     WHERE o.job_id = %s AND o.listing_status = 'OPEN'))
             """,
             (deadline, job_id, job_id),
+        )
+        return cur.rowcount
+
+
+def close_expired_listings(conn, job_id: str, today) -> int:
+    """Luật 5 (C3a). Đóng mọi listing OPEN hoặc UNKNOWN của job mà hạn đã qua (`deadline` < today) với lý do
+    'expired_auto' và closed_at = now(). Listing không có hạn thì không bao giờ bị đóng ở đây. Trả số listing
+    vừa đóng.
+
+    Điều kiện hạn được kiểm lại NGAY TRONG câu UPDATE (không tin danh sách đọc từ trước): giữa lúc đọc và lúc
+    ghi, tin đăng lại hoặc nhân viên có thể đã dời hạn, khi đó listing không bị đóng. Khoá dòng job trước
+    (FOR NO KEY UPDATE, cùng mức với insert_listing và sync_job_from_listings) để không giành nhau với
+    thao tác đóng hoặc mở job đồng thời.
+
+    KHÔNG tự đồng bộ job: nơi gọi gọi sync_job_from_listings sau đó (job chỉ CLOSED khi hết listing sống).
+    Không commit."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM job_postings WHERE job_id = %s FOR NO KEY UPDATE", (job_id,))
+        if cur.fetchone() is None:
+            return 0
+        cur.execute(
+            """
+            UPDATE job_sources_log
+               SET listing_status = 'CLOSED', closed_reason = 'expired_auto', closed_at = now()
+             WHERE job_id = %s AND listing_status IN ('OPEN', 'UNKNOWN')
+               AND deadline IS NOT NULL AND deadline < %s
+            """,
+            (job_id, today),
         )
         return cur.rowcount
 

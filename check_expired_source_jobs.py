@@ -45,10 +45,13 @@ MƠ HỒ:
   site trông như thế nào.
 
   Case KHÔNG cần fetch mạng, hoàn toàn an toàn, được gộp CHUNG script
-  này qua cờ --check-deadline: deadline đã qua ngày hôm nay -> CLOSED
-  luôn (không phụ thuộc source_url có sống hay không, đây là quyết định
-  đã có sẵn ý nghĩa rõ ràng trong schema, tách biệt hoàn toàn với phần
-  check link nguồn ở trên).
+  này qua cờ --check-deadline: hạn của LISTING (một URL tin đăng, bảng
+  job_sources_log) đã qua ngày hôm nay -> listing đó CLOSED 'expired_auto'
+  (không phụ thuộc URL có sống hay không). Từ C3a nhánh này chạy trên
+  listing chứ không trên job: job chỉ CLOSED khi không còn listing sống
+  nào (job tự suy ra, xem db/job_derivation.py), nên job có một tin hết hạn
+  nhưng còn tin khác chưa hết hạn vẫn OPEN. Nhánh check link nguồn ở trên
+  CHƯA đổi (vẫn theo job.source_url, chuyển sang listing ở C3b).
 
 CHẠY:
     python check_expired_source_jobs.py                # check tất cả job OPEN có source_url
@@ -192,10 +195,63 @@ def cleanup_cvs_of_closed_jobs(conn, dry_run: bool = False) -> dict:
     return stats
 
 
+def _group_listings_by_job(listings: list) -> dict:
+    """{job_id: [(job_title, source_url, deadline), ...]} giữ thứ tự job của list_checkable_listings."""
+    by_job: dict = {}
+    for job_id, job_title, source_url, deadline in listings:
+        by_job.setdefault(job_id, []).append((job_title, source_url, deadline))
+    return by_job
+
+
+def _expire_by_deadline(conn, by_job: dict, today: date, dry_run: bool, stats: dict) -> set:
+    """Nhánh HẠN (C3a), chạy trên LISTING, không đụng mạng: mỗi listing OPEN/UNKNOWN có hạn đã qua thì đóng
+    'expired_auto' (db.close_expired_listings), rồi đồng bộ job theo listing (db.sync_job_from_listings): job
+    chỉ CLOSED khi không còn listing sống. Một job còn listing khác chưa hết hạn (hoặc không có hạn) vẫn OPEN.
+
+    Cập nhật stats: expired_by_deadline = số JOB bị đóng vì hạn (cùng ý nghĩa trước C3a),
+    listings_expired_by_deadline = số LISTING bị đóng vì hạn. Commit từng job (lỗi một job không kéo theo job
+    khác). Trả tập job_id đã (hoặc, khi dry_run, SẼ) bị đóng, để nhánh mạng bỏ qua.
+    """
+    closed_jobs: set = set()
+    for n, (job_id, listings) in enumerate(by_job.items(), 1):
+        expired = [(url, dl) for _, url, dl in listings if dl is not None and dl < today]
+        if not expired:
+            continue
+        job_title = listings[0][0]
+        whole_job = len(expired) == len(listings)       # mọi listing sống của job đều hết hạn
+        for url, dl in expired:
+            logger.info("[%d/%d] %s (%s): hạn %s của listing %s đã qua -> listing CLOSED",
+                        n, len(by_job), job_title, job_id, dl, url)
+        if dry_run:
+            stats["listings_expired_by_deadline"] += len(expired)
+            if whole_job:
+                stats["expired_by_deadline"] += 1
+                closed_jobs.add(job_id)
+                logger.info("  -> mọi listing sống đều hết hạn -> job sẽ CLOSED")
+            continue
+        try:
+            closed = db.close_expired_listings(conn, job_id, today)
+            changes = db.sync_job_from_listings(conn, job_id)
+            conn.commit()
+        except Exception as exc:  # noqa: BLE001 - lỗi một job không được chặn cả lượt kiểm tra
+            conn.rollback()
+            logger.warning("  -> lỗi khi đóng listing hết hạn của job %s: %s", job_id, exc)
+            continue
+        stats["listings_expired_by_deadline"] += closed
+        if "job_status" in changes and changes["job_status"][1] == "CLOSED":
+            stats["expired_by_deadline"] += 1
+            closed_jobs.add(job_id)
+            logger.info("  -> mọi listing sống đều hết hạn -> job CLOSED")
+    return closed_jobs
+
+
 def run(limit: Optional[int] = None, check_deadline_only: bool = False,
         dry_run: bool = False, skip_cv_cleanup: bool = False) -> dict:
     stats = {
         "checked": 0, "expired_by_source_dead": 0, "expired_by_deadline": 0,
+        # C3a: số listing đóng vì hạn (expired_by_deadline vẫn đếm JOB bị đóng, nên hai số này chỉ khác
+        # nhau khi job có nhiều listing sống mà chỉ một phần hết hạn).
+        "listings_expired_by_deadline": 0,
         # BUG FIX (migrate Next.js, Phần 5 mục 13 của plan): đổi key
         # "cần_kiểm_tra_tay" (tiếng Việt có dấu) sang "needs_manual_check"
         # (snake_case tiếng Anh) cho nhất quán với MỌI key khác trong toàn
@@ -214,51 +270,46 @@ def run(limit: Optional[int] = None, check_deadline_only: bool = False,
     checker = _Throttled404Checker()
     today = date.today()
     try:
-        jobs = db.get_open_jobs_with_source_url(conn)
+        # --- Nhánh hạn (C3a): chạy trên listing, không tốn request mạng, luôn chạy trước (kể cả khi
+        # --check-deadline không bật, vì đây là tín hiệu miễn phí, không có lý do bỏ qua).
+        by_job = _group_listings_by_job(db.list_checkable_listings(conn))
         if limit:
-            jobs = jobs[:limit]
+            by_job = dict(list(by_job.items())[:limit])
+        stats["checked"] = len(by_job)
+        logger.info("Tìm thấy %d job đang OPEN (%d listing còn sống) để kiểm tra hạn",
+                    len(by_job), sum(len(v) for v in by_job.values()))
+        closed_jobs = _expire_by_deadline(conn, by_job, today, dry_run, stats)
 
-        logger.info("Tìm thấy %d job đang OPEN có source_url để kiểm tra", len(jobs))
+        if not check_deadline_only:
+            # --- Nhánh mạng: CHƯA đổi (vẫn theo job.source_url, C3b mới chuyển sang listing). Đọc lại danh
+            # sách SAU nhánh hạn để không gọi mạng cho job vừa đóng; dry-run không ghi gì nên loại thêm các
+            # job SẼ đóng. --limit giữ cùng tập job với nhánh hạn.
+            jobs = [j for j in db.get_open_jobs_with_source_url(conn)
+                    if j[0] not in closed_jobs and (not limit or j[0] in by_job)]
+            logger.info("Tìm thấy %d job đang OPEN có source_url để kiểm tra nguồn", len(jobs))
 
-        for job_id, job_title, source_url, deadline in jobs:
-            stats["checked"] += 1
-            logger.info("[%d/%d] %s (%s)", stats["checked"], len(jobs), job_title, job_id)
-
-            # Nhánh deadline — không tốn request mạng, luôn chạy trước
-            # (kể cả khi --check-deadline không bật, vì đây là tín hiệu
-            # miễn phí, không có lý do bỏ qua).
-            if deadline is not None and deadline < today:
-                stats["expired_by_deadline"] += 1
-                logger.info("  -> deadline %s đã qua -> CLOSED", deadline)
-                if not dry_run:
-                    db.update_job(conn, job_id, job_status="CLOSED",
-                                  closed_reason="expired_auto")
-                    conn.commit()
-                continue
-
-            if check_deadline_only:
-                continue
-
-            status_code = checker.check(source_url)
-            if status_code in (404, 410):
-                stats["expired_by_source_dead"] += 1
-                logger.info("  -> nguồn trả HTTP %d -> CLOSED", status_code)
-                if not dry_run:
-                    db.update_job(conn, job_id, job_status="CLOSED",
-                                  closed_reason="expired_auto")
-                    conn.commit()
-            elif status_code is not None and 200 <= status_code < 300:
-                stats["still_alive"] += 1
-                if not dry_run:
-                    # Bằng chứng còn sống cho listing (C1): chỉ ghi last_seen_at, không đổi trạng thái.
-                    db.mark_listing_seen(conn, source_url)
-                    conn.commit()
-            else:
-                # None (lỗi fetch) hoặc mã khác (3xx lạ, 403, 5xx...) —
-                # KHÔNG mơ hồ đủ để tự kết luận, xem docstring đầu file.
-                stats["needs_manual_check"] += 1
-                logger.info("  -> HTTP %s, không đủ rõ để tự kết luận -> cần kiểm tra tay: %s",
-                            status_code, source_url)
+            for i, (job_id, job_title, source_url, _deadline) in enumerate(jobs, 1):
+                logger.info("[%d/%d] %s (%s)", i, len(jobs), job_title, job_id)
+                status_code = checker.check(source_url)
+                if status_code in (404, 410):
+                    stats["expired_by_source_dead"] += 1
+                    logger.info("  -> nguồn trả HTTP %d -> CLOSED", status_code)
+                    if not dry_run:
+                        db.update_job(conn, job_id, job_status="CLOSED",
+                                      closed_reason="expired_auto")
+                        conn.commit()
+                elif status_code is not None and 200 <= status_code < 300:
+                    stats["still_alive"] += 1
+                    if not dry_run:
+                        # Bằng chứng còn sống cho listing (C1): chỉ ghi last_seen_at, không đổi trạng thái.
+                        db.mark_listing_seen(conn, source_url)
+                        conn.commit()
+                else:
+                    # None (lỗi fetch) hoặc mã khác (3xx lạ, 403, 5xx...) —
+                    # KHÔNG mơ hồ đủ để tự kết luận, xem docstring đầu file.
+                    stats["needs_manual_check"] += 1
+                    logger.info("  -> HTTP %s, không đủ rõ để tự kết luận -> cần kiểm tra tay: %s",
+                                status_code, source_url)
 
         # Dọn CV — chạy SAU khi vòng đóng job ở trên đã commit xong (để
         # nhánh dọn CV thấy được cả job VỪA đóng trong lượt này lẫn job
@@ -298,7 +349,8 @@ def main():
 
     print("\n===== KẾT QUẢ =====" + (" (DRY RUN — chưa ghi/xoá gì thật)" if args.dry_run else ""))
     print(f"Đã kiểm tra                      : {stats['checked']}")
-    print(f"Đóng do deadline đã qua            : {stats['expired_by_deadline']}")
+    print(f"Đóng do deadline đã qua            : {stats['expired_by_deadline']} job "
+          f"({stats['listings_expired_by_deadline']} listing)")
     print(f"Đóng do nguồn trả 404/410          : {stats['expired_by_source_dead']}")
     print(f"Vẫn còn sống (200 OK)             : {stats['still_alive']}")
     print(f"⚠️  Cần kiểm tra tay (không rõ)    : {stats['needs_manual_check']}")

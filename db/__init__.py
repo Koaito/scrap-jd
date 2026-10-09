@@ -89,11 +89,13 @@ from db.job_recrawl import (
     update_job_from_recrawl,
 )
 from db.listing_state import (
+    close_expired_listings,
     mark_listing_seen,
 )
 from db.job_sync import sync_job_from_listings
 from db.job_derivation import (
     derive_job_from_listings,
+    list_checkable_listings,
     list_jobs_with_listings,
 )
 from db.job_level_recompute import (
@@ -344,6 +346,8 @@ __all__ = [
     "reopen_job_for_repost",
     "AUTO_REOPEN_REASONS",
     "mark_listing_seen",
+    "close_expired_listings",
+    "list_checkable_listings",
     "derive_job_from_listings",
     "sync_job_from_listings",
     "list_jobs_with_listings",

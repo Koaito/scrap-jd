@@ -87,6 +87,7 @@ def test_run_calls_cleanup_by_default(mock_conn):
     kể cả khi không truyền skip_cv_cleanup (mặc định BẬT SẴN — xem
     docstring mục DỌN CV)."""
     with patch.object(script.db, "get_connection", return_value=mock_conn), \
+         patch.object(script.db, "list_checkable_listings", return_value=[]), \
          patch.object(script.db, "get_open_jobs_with_source_url", return_value=[]), \
          patch.object(script, "cleanup_cvs_of_closed_jobs", return_value={
              "cv_cleaned": 5, "cv_cleanup_errors": 0,
@@ -100,6 +101,7 @@ def test_run_calls_cleanup_by_default(mock_conn):
 
 def test_run_skips_cleanup_when_flag_set(mock_conn):
     with patch.object(script.db, "get_connection", return_value=mock_conn), \
+         patch.object(script.db, "list_checkable_listings", return_value=[]), \
          patch.object(script.db, "get_open_jobs_with_source_url", return_value=[]), \
          patch.object(script, "cleanup_cvs_of_closed_jobs") as mock_cleanup:
         stats = script.run(skip_cv_cleanup=True)
