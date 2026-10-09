@@ -1,5 +1,5 @@
 """
-C3a trên POSTGRES THẬT: nhánh hạn của check_expired_source_jobs chạy trên listing.
+C3a và C3b trên POSTGRES THẬT: nhánh hạn (C3a) và nhánh mạng (C3b) của check_expired_source_jobs chạy trên listing.
 
   - list_checkable_listings: chỉ listing OPEN/UNKNOWN của job OPEN;
   - close_expired_listings: đóng 'expired_auto' đúng listing quá hạn, kiểm lại hạn trong chính câu UPDATE,
@@ -368,3 +368,159 @@ def test_run_network_branch_skips_job_closed_by_deadline(pg_conn, run_script):
     assert run_script.checker.calls == [alive_url]
     assert stats["expired_by_deadline"] == 1 and stats["still_alive"] == 1
     assert _job_row(pg_conn, expired)[0] == "CLOSED" and _job_row(pg_conn, alive)[0] == "OPEN"
+
+
+# ============================================================ C3b: close_listing_dead
+def _last_seen(conn, url):
+    conn.commit()
+    with conn.cursor() as cur:
+        cur.execute("SELECT last_seen_at FROM job_sources_log WHERE source_url = %s", (url,))
+        return cur.fetchone()[0]
+
+
+def _age_listing(conn, url):
+    with conn.cursor() as cur:
+        cur.execute("UPDATE job_sources_log SET first_seen_at = now() - interval '5 days', "
+                    "last_seen_at = now() - interval '5 days' WHERE source_url = %s", (url,))
+    conn.commit()
+
+
+def test_close_listing_dead_closes_only_that_listing(pg_conn):
+    job = _job(pg_conn)
+    first = _first_listing_url(pg_conn, job)
+    other = _add_listing(pg_conn, job)
+    assert db.close_listing_dead(pg_conn, job, other) is True
+    pg_conn.commit()
+    assert _listing(pg_conn, other)[:3] == ("CLOSED", "expired_auto", True)
+    assert _listing(pg_conn, first)[0] == "OPEN"
+
+
+def test_close_listing_dead_closes_unknown_listing(pg_conn):
+    job = _job(pg_conn)
+    unknown = _add_listing(pg_conn, job, status="UNKNOWN")
+    assert db.close_listing_dead(pg_conn, job, unknown) is True
+    pg_conn.commit()
+    assert _listing(pg_conn, unknown)[:2] == ("CLOSED", "expired_auto")
+
+
+def test_close_listing_dead_is_idempotent_and_keeps_old_reason(pg_conn):
+    job = _job(pg_conn)
+    url = _add_listing(pg_conn, job)
+    _set_listing(pg_conn, url, status="CLOSED")                     # staff
+    before = _listing(pg_conn, url)
+    assert db.close_listing_dead(pg_conn, job, url) is False
+    pg_conn.commit()
+    assert _listing(pg_conn, url) == before
+
+
+def test_close_listing_dead_wrong_job_or_missing_is_false(pg_conn):
+    a, b = _job(pg_conn), _job(pg_conn)
+    url = _first_listing_url(pg_conn, a)
+    assert db.close_listing_dead(pg_conn, b, url) is False          # URL không thuộc job b
+    assert db.close_listing_dead(pg_conn, str(uuid.uuid4()), url) is False
+    assert db.close_listing_dead(pg_conn, a, "https://x/khong-co") is False
+    pg_conn.commit()
+    assert _listing(pg_conn, url)[0] == "OPEN"
+
+
+# ============================================================ C3b: script.run (nhánh mạng)
+def _net(run_script, codes):
+    run_script.checker.codes = codes
+    return run_script(check_deadline_only=False)
+
+
+def test_net_dead_secondary_listing_closes_it_and_job_stays_open(pg_conn, run_script):
+    job = _job(pg_conn)
+    current = _first_listing_url(pg_conn, job)
+    secondary = _add_listing(pg_conn, job)
+
+    stats = _net(run_script, {secondary: 404})
+
+    assert sorted(run_script.checker.calls) == sorted([current, secondary])   # hỏi cả listing phụ
+    assert stats["listings_expired_by_source_dead"] == 1 and stats["expired_by_source_dead"] == 0
+    assert _listing(pg_conn, secondary)[:2] == ("CLOSED", "expired_auto")
+    assert _listing(pg_conn, current)[0] == "OPEN"
+    assert _job_row(pg_conn, job)[0] == "OPEN"
+    _assert_job_matches_derivation(pg_conn, job)
+
+
+def test_net_dead_current_listing_moves_job_to_the_surviving_one(pg_conn, run_script):
+    job = _job(pg_conn)
+    current = _first_listing_url(pg_conn, job)
+    survivor = _add_listing(pg_conn, job)
+    _net(run_script, {current: 410})
+    status, _, _, source_url = _job_row(pg_conn, job)
+    assert status == "OPEN" and source_url == survivor
+    _assert_job_matches_derivation(pg_conn, job)
+
+
+def test_net_all_listings_dead_closes_the_job(pg_conn, run_script):
+    job = _job(pg_conn)
+    first = _first_listing_url(pg_conn, job)
+    second = _add_listing(pg_conn, job)
+
+    stats = _net(run_script, {first: 404, second: 410})
+
+    assert stats["expired_by_source_dead"] == 1 and stats["listings_expired_by_source_dead"] == 2
+    assert _job_row(pg_conn, job)[:2] == ("CLOSED", "expired_auto")
+    _assert_job_matches_derivation(pg_conn, job)
+
+
+def test_net_2xx_updates_last_seen_but_keeps_unknown(pg_conn, run_script):
+    job = _job(pg_conn)
+    unknown = _add_listing(pg_conn, job, status="UNKNOWN")
+    _age_listing(pg_conn, unknown)
+    before = _last_seen(pg_conn, unknown)
+
+    stats = _net(run_script, {})
+
+    assert stats["still_alive"] == 2
+    assert _listing(pg_conn, unknown)[0] == "UNKNOWN"               # bạn chốt: vẫn UNKNOWN
+    assert _last_seen(pg_conn, unknown) > before
+    assert _job_row(pg_conn, job)[0] == "OPEN"
+
+
+def test_net_dead_unknown_listing_closes(pg_conn, run_script):
+    job = _job(pg_conn)
+    unknown = _add_listing(pg_conn, job, status="UNKNOWN")
+    _net(run_script, {unknown: 404})
+    assert _listing(pg_conn, unknown)[:2] == ("CLOSED", "expired_auto")
+    assert _job_row(pg_conn, job)[0] == "OPEN"                      # listing hiện hành còn sống
+
+
+def test_net_unclear_codes_change_nothing(pg_conn, run_script):
+    job = _job(pg_conn)
+    url = _first_listing_url(pg_conn, job)
+    stats = _net(run_script, {url: 403})
+    assert stats["needs_manual_check"] == 1 and stats["expired_by_source_dead"] == 0
+    assert _listing(pg_conn, url)[0] == "OPEN" and _job_row(pg_conn, job)[0] == "OPEN"
+
+
+def test_net_manual_job_is_not_fetched_or_closed(pg_conn, run_script):
+    job = _job(pg_conn, url="manual://" + str(uuid.uuid4()))
+    stats = _net(run_script, {})
+    assert run_script.checker.calls == []
+    assert stats["needs_manual_check"] == 0
+    assert _job_row(pg_conn, job)[0] == "OPEN"
+
+
+def test_net_dry_run_writes_nothing(pg_conn, run_script):
+    job = _job(pg_conn)
+    url = _first_listing_url(pg_conn, job)
+    _age_listing(pg_conn, url)
+    before = _last_seen(pg_conn, url)
+    run_script.checker.codes = {url: 404}
+
+    stats = run_script(check_deadline_only=False, dry_run=True)
+
+    assert stats["expired_by_source_dead"] == 1 and stats["listings_expired_by_source_dead"] == 1
+    assert _listing(pg_conn, url)[0] == "OPEN" and _job_row(pg_conn, job)[0] == "OPEN"
+    assert _last_seen(pg_conn, url) == before
+
+
+def test_net_job_closed_by_deadline_is_not_fetched(pg_conn, run_script):
+    expired = _job(pg_conn, deadline=PAST)
+    _job_url = _first_listing_url(pg_conn, expired)
+    _net(run_script, {})
+    assert _job_url not in run_script.checker.calls
+    assert _job_row(pg_conn, expired)[0] == "CLOSED"

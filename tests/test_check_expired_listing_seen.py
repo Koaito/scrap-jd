@@ -28,21 +28,20 @@ def _run(mock_conn, code, **kw):
     with patch.object(script.db, "get_connection", return_value=mock_conn), \
          patch.object(script.db, "list_checkable_listings",
                       return_value=[("job-1", "Data Analyst", URL, FUTURE)]), \
-         patch.object(script.db, "get_open_jobs_with_source_url",
-                      return_value=[("job-1", "Data Analyst", URL, FUTURE)]), \
-         patch.object(script.db, "update_job") as update_job, \
+         patch.object(script.db, "close_listing_dead", return_value=True) as close_dead, \
+         patch.object(script.db, "sync_job_from_listings", return_value={}), \
          patch.object(script.db, "mark_listing_seen") as seen, \
          patch.object(script, "_Throttled404Checker", return_value=_Checker(code)):
         stats = script.run(skip_cv_cleanup=True, **kw)
-    return stats, seen, update_job
+    return stats, seen, close_dead
 
 
 @pytest.mark.parametrize("code", [200, 204, 299])
 def test_alive_url_marks_listing_seen_and_commits(mock_conn, code):
-    stats, seen, update_job = _run(mock_conn, code)
+    stats, seen, close_dead = _run(mock_conn, code)
     seen.assert_called_once_with(mock_conn, URL)
     mock_conn.commit.assert_called()
-    update_job.assert_not_called()
+    close_dead.assert_not_called()
     assert stats["still_alive"] == 1
 
 
@@ -58,7 +57,8 @@ def test_dry_run_does_not_mark_listing_seen(mock_conn):
     assert stats["still_alive"] == 1
 
 
-def test_dead_url_closes_job_with_expired_auto(mock_conn):
-    stats, seen, update_job = _run(mock_conn, 404)
-    update_job.assert_called_once_with(mock_conn, "job-1", job_status="CLOSED", closed_reason="expired_auto")
-    assert stats["expired_by_source_dead"] == 1
+def test_dead_url_closes_listing_then_syncs_job(mock_conn):
+    stats, seen, close_dead = _run(mock_conn, 404)
+    close_dead.assert_called_once_with(mock_conn, "job-1", URL)
+    assert stats["listings_expired_by_source_dead"] == 1
+    seen.assert_not_called()

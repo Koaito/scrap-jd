@@ -90,6 +90,7 @@ from db.job_recrawl import (
 )
 from db.listing_state import (
     close_expired_listings,
+    close_listing_dead,
     mark_listing_seen,
 )
 from db.job_sync import sync_job_from_listings
@@ -347,6 +348,7 @@ __all__ = [
     "AUTO_REOPEN_REASONS",
     "mark_listing_seen",
     "close_expired_listings",
+    "close_listing_dead",
     "list_checkable_listings",
     "derive_job_from_listings",
     "sync_job_from_listings",

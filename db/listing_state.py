@@ -18,6 +18,8 @@ trị tổng hợp từ các listing của nó. Hệ quả ở tầng ghi, mọi
      (reopen_listing_for_repost); các listing cũ giữ nguyên.
   5. Hạn của listing đã qua: listing OPEN hoặc UNKNOWN đóng với lý do 'expired_auto' (close_expired_listings,
      C3a). Job chỉ đóng khi hết listing sống, nhờ sync_job_from_listings của nơi gọi.
+  6. URL của listing trả HTTP 404/410: đúng listing đó đóng 'expired_auto' (close_listing_dead, C3b). HTTP 2xx
+     chỉ ghi last_seen_at (mark_listing_seen), KHÔNG đổi UNKNOWN thành OPEN (bạn chốt 09/10).
 
 CHƯA ĐỔI CHỖ ĐỌC: không đoạn code nào đọc các cột này để ra quyết định (đó là C2 và C3). Mọi hàm ở đây chỉ
 ghi, không tự commit (đúng quy ước lớp db: nơi gọi chịu trách nhiệm).
@@ -256,6 +258,29 @@ def close_expired_listings(conn, job_id: str, today) -> int:
             (job_id, today),
         )
         return cur.rowcount
+
+
+def close_listing_dead(conn, job_id: str, source_url: str) -> bool:
+    """Luật 6 (C3b). Nguồn xác nhận URL này đã chết (HTTP 404/410): listing của URL đó, đang OPEN hoặc UNKNOWN,
+    đóng với lý do 'expired_auto' và closed_at = now(). Chỉ đóng ĐÚNG listing đó, listing khác của job giữ
+    nguyên. Trả True nếu vừa đóng; False nếu listing không tồn tại, không thuộc job này, hoặc đã CLOSED rồi
+    (idempotent, và không ghi đè lý do hay giờ đóng cũ).
+
+    Khoá dòng job trước (FOR NO KEY UPDATE, như close_expired_listings). KHÔNG tự đồng bộ job: nơi gọi gọi
+    sync_job_from_listings sau đó (job chỉ CLOSED khi hết listing sống). Không commit."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT 1 FROM job_postings WHERE job_id = %s FOR NO KEY UPDATE", (job_id,))
+        if cur.fetchone() is None:
+            return False
+        cur.execute(
+            """
+            UPDATE job_sources_log
+               SET listing_status = 'CLOSED', closed_reason = 'expired_auto', closed_at = now()
+             WHERE job_id = %s AND source_url = %s AND listing_status IN ('OPEN', 'UNKNOWN')
+            """,
+            (job_id, source_url),
+        )
+        return cur.rowcount > 0
 
 
 def job_is_closed_locked(conn, job_id: str) -> bool:

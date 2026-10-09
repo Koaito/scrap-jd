@@ -26,42 +26,44 @@ class _Checker:
         return self.code
 
 
-def _run(mock_conn, listings, *, sync=None, open_jobs=None, code=200, **kw):
-    """listings = [(job_id, title, url, deadline)] cho list_checkable_listings."""
+def _run(mock_conn, listings, *, sync=None, code=200, **kw):
+    """listings = [(job_id, title, url, deadline)] cho list_checkable_listings. Sau nhánh hạn, lần đọc thứ hai
+    (nhánh mạng) trả cùng danh sách trừ các listing hạn đã qua (như DB thật, vì chúng đã bị đóng)."""
     checker = _Checker(code)
-    if open_jobs is None:
-        seen, open_jobs = set(), []
-        for job_id, title, url, deadline in listings:
-            if job_id not in seen:
-                seen.add(job_id)
-                open_jobs.append((job_id, title, url, deadline))
+    calls = {"n": 0}
+
+    def list_checkable(conn):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return listings
+        return [r for r in listings if not (r[3] is not None and r[3] < TODAY)]
+
     with patch.object(script.db, "get_connection", return_value=mock_conn), \
-         patch.object(script.db, "list_checkable_listings", return_value=listings), \
-         patch.object(script.db, "get_open_jobs_with_source_url", return_value=open_jobs) as get_open, \
+         patch.object(script.db, "list_checkable_listings", side_effect=list_checkable) as list_mock, \
          patch.object(script.db, "close_expired_listings", side_effect=kw.pop("close_side", None)
                       or (lambda conn, job_id, today: 1)) as close, \
+         patch.object(script.db, "close_listing_dead", return_value=True), \
          patch.object(script.db, "sync_job_from_listings",
                       side_effect=sync or (lambda conn, job_id: CLOSED_CHANGE)) as sync_mock, \
-         patch.object(script.db, "update_job") as update_job, \
          patch.object(script.db, "mark_listing_seen"), \
          patch.object(script, "_Throttled404Checker", return_value=checker):
         stats = script.run(skip_cv_cleanup=True, **kw)
-    return stats, close, sync_mock, update_job, checker, get_open
+    return stats, close, sync_mock, None, checker, list_mock
 
 
 def test_expired_listing_closes_listing_then_syncs_job(mock_conn):
-    stats, close, sync, update_job, _, _ = _run(mock_conn, [("j1", "DA", "https://x/1", PAST)])
+    stats, close, sync, _, _, _ = _run(mock_conn, [("j1", "DA", "https://x/1", PAST)], check_deadline_only=True)
     close.assert_called_once_with(mock_conn, "j1", TODAY)
     sync.assert_called_once_with(mock_conn, "j1")
     mock_conn.commit.assert_called()
-    update_job.assert_not_called()                      # không còn đóng job trực tiếp ở nhánh hạn
     assert stats["expired_by_deadline"] == 1 and stats["listings_expired_by_deadline"] == 1
     assert stats["checked"] == 1
 
 
 def test_future_or_missing_deadline_is_left_alone(mock_conn):
     stats, close, sync, *_ = _run(
-        mock_conn, [("j1", "DA", "https://x/1", FUTURE), ("j2", "DB", "https://x/2", None)])
+        mock_conn, [("j1", "DA", "https://x/1", FUTURE), ("j2", "DB", "https://x/2", None)],
+        check_deadline_only=True)
     close.assert_not_called()
     sync.assert_not_called()
     assert stats["expired_by_deadline"] == 0 and stats["checked"] == 2
@@ -92,19 +94,18 @@ def test_all_listings_expired_counts_one_job(mock_conn):
 def test_dry_run_writes_nothing_but_counts(mock_conn):
     listings = [("j1", "DA", "https://x/a", PAST), ("j2", "DB", "https://x/b", PAST),
                 ("j2", "DB", "https://x/c", FUTURE)]
-    stats, close, sync, update_job, *_ = _run(mock_conn, listings, dry_run=True)
+    stats, close, sync, *_ = _run(mock_conn, listings, dry_run=True, check_deadline_only=True)
     close.assert_not_called()
     sync.assert_not_called()
-    update_job.assert_not_called()
     mock_conn.commit.assert_not_called()
     assert stats["expired_by_deadline"] == 1            # chỉ j1 sẽ đóng cả job
     assert stats["listings_expired_by_deadline"] == 2
 
 
 def test_check_deadline_only_skips_network_branch(mock_conn):
-    stats, _, _, _, checker, get_open = _run(
+    stats, _, _, _, checker, list_mock = _run(
         mock_conn, [("j1", "DA", "https://x/1", FUTURE)], check_deadline_only=True)
-    get_open.assert_not_called()
+    assert list_mock.call_count == 1                    # không đọc lại danh sách cho nhánh mạng
     assert checker.calls == [] and stats["still_alive"] == 0
 
 
@@ -112,8 +113,7 @@ def test_network_branch_skips_jobs_closed_by_deadline(mock_conn):
     listings = [("j1", "DA", "https://x/1", PAST), ("j2", "DB", "https://x/2", FUTURE)]
     stats, _, _, _, checker, _ = _run(
         mock_conn, listings,
-        sync=lambda conn, job_id: CLOSED_CHANGE if job_id == "j1" else {},
-        open_jobs=[("j1", "DA", "https://x/1", PAST), ("j2", "DB", "https://x/2", FUTURE)])
+        sync=lambda conn, job_id: CLOSED_CHANGE if job_id == "j1" else {})
     assert checker.calls == ["https://x/2"]
     assert stats["still_alive"] == 1
 
@@ -129,7 +129,7 @@ def test_limit_applies_to_jobs_in_both_branches(mock_conn):
                 ("j2", "DB", "https://x/2", FUTURE), ("j3", "DC", "https://x/3", FUTURE)]
     stats, _, _, _, checker, _ = _run(mock_conn, listings, limit=2)
     assert stats["checked"] == 2
-    assert checker.calls == ["https://x/1", "https://x/2"]
+    assert checker.calls == ["https://x/1", "https://x/1b", "https://x/2"]   # mọi listing của 2 job đầu
 
 
 def test_error_on_one_job_rolls_back_and_continues(mock_conn):
