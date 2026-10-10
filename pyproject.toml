@@ -50,15 +50,17 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # M2: các module đã gắn đủ type hint cho mọi hàm. Thiếu hint ở đây thì mypy báo lỗi (no-untyped-def). Thêm module vào
-# danh sách này khi dọn xong; M2f gom thành cấu hình chung cho cả repo. Hiện có scrapjd/db/ trừ 5 module còn lại của M2b
-# nửa 2/2 (auth, audit_logs, connection, jobs, listing_state).
+# danh sách này khi dọn xong; M2f gom thành cấu hình chung cho cả repo. Hiện có toàn bộ scrapjd/db/ (M2a, M2b).
 module = [
     "scrapjd.db",
     "scrapjd.db.applications",
+    "scrapjd.db.audit_logs",
+    "scrapjd.db.auth",
     "scrapjd.db.companies",
     "scrapjd.db.company_analytics",
     "scrapjd.db.company_enrichment",
     "scrapjd.db.company_queries",
+    "scrapjd.db.connection",
     "scrapjd.db.contacts",
     "scrapjd.db.crawl_batches",
     "scrapjd.db.crawl_runs",
@@ -76,6 +78,8 @@ module = [
     "scrapjd.db.job_recrawl",
     "scrapjd.db.job_reposts",
     "scrapjd.db.job_sync",
+    "scrapjd.db.jobs",
+    "scrapjd.db.listing_state",
     "scrapjd.db.lookups",
     "scrapjd.db.maintenance_runs",
     "scrapjd.db.messages",

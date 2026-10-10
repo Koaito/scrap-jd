@@ -96,7 +96,8 @@ def list_audit_logs(
         limit=limit,
         offset=offset,
     )
-    return PaginatedAuditLogs(total=total, limit=limit, offset=offset, items=rows)
+    # items=rows: Pydantic tự validate từng dict thành AuditLogOut (mypy không biết điều này).
+    return PaginatedAuditLogs(total=total, limit=limit, offset=offset, items=rows)  # type: ignore[arg-type]
 
 
 @router.patch("/{log_id}/note", response_model=AuditLogOut)

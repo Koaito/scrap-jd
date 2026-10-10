@@ -56,8 +56,8 @@ _CONFLICT_SQL = {
 }
 
 
-def initial_listing_state(job_status: str, job_closed_reason: Optional[str], *, deadline=None,
-                          today: Optional[date] = None) -> tuple:
+def initial_listing_state(job_status: str, job_closed_reason: Optional[str], *, deadline: Optional[date] = None,
+                          today: Optional[date] = None) -> tuple[str, Optional[str]]:
     """(listing_status, closed_reason) cho listing MỚI của một job đang ở trạng thái cho trước (luật 1), `deadline`
     là hạn của chính tin mới. Hàm thuần, không đụng DB. Job CLOSED mà thiếu closed_reason (không xảy ra với dữ liệu
     hợp lệ vì chk_job_postings_closed_state) thì dùng 'unknown' thay vì làm vỡ CHECK của listing.
@@ -76,7 +76,7 @@ def initial_listing_state(job_status: str, job_closed_reason: Optional[str], *, 
 
 def insert_listing(conn: Conn, *, job_id: str, source_name: str, source_url: str,
                    salary_raw_text: str = "", raw_jd_content: str = "",
-                   detail_fetched: bool = False, deadline=None,
+                   detail_fetched: bool = False, deadline: Optional[date] = None,
                    on_conflict: str = CONFLICT_URL, today: Optional[date] = None) -> bool:
     """Ghi một listing mới cho job ĐÃ CÓ; trạng thái suy ra từ job lúc này và hạn của tin mới (luật 1; `today` chỉ
     để test, mặc định date.today()). Job CLOSED vì expired_auto mà tin mới còn hạn thì listing sinh ra OPEN trong khi
@@ -119,7 +119,7 @@ def insert_listing(conn: Conn, *, job_id: str, source_name: str, source_url: str
         return cur.rowcount > 0
 
 
-def mark_listing_detail_checked(conn: Conn, source_url: str, *, deadline=None) -> None:
+def mark_listing_detail_checked(conn: Conn, source_url: str, *, deadline: Optional[date] = None) -> None:
     """Fetch THÀNH CÔNG trang chi tiết của URL này: ghi detail_checked_at (như trước C1) và last_seen_at.
     `deadline` (nếu có) là hạn đọc được từ chính trang đó, ghi vào listing; None thì giữ hạn cũ (cùng quy
     tắc \"không xoá dữ liệu cũ khi lượt sau không lấy được\" của update_job_fields). Không đổi
@@ -212,7 +212,7 @@ def reopen_job_listings(conn: Conn, job_id: str) -> int:
         return opened + cur.rowcount
 
 
-def set_job_listings_deadline(conn: Conn, job_id: str, deadline) -> int:
+def set_job_listings_deadline(conn: Conn, job_id: str, deadline: Optional[date]) -> int:
     """Nhân viên sửa hoặc xoá hạn của job (PATCH, import): ghi cùng hạn đó vào MỌI listing OPEN của job (bạn
     duyệt 08/10: nhân viên gõ hạn nào thì hạn job đúng là hạn đó, kể cả khi job có nhiều listing OPEN hạn khác
     nhau). Job không có listing OPEN thì ghi vào mọi listing, đúng \"vùng\" mà derive_job_from_listings lấy
@@ -231,7 +231,7 @@ def set_job_listings_deadline(conn: Conn, job_id: str, deadline) -> int:
         return cur.rowcount
 
 
-def close_expired_listings(conn: Conn, job_id: str, today) -> int:
+def close_expired_listings(conn: Conn, job_id: str, today: date) -> int:
     """Luật 5 (C3a). Đóng mọi listing OPEN hoặc UNKNOWN của job mà hạn đã qua (`deadline` < today) với lý do
     'expired_auto' và closed_at = now(). Listing không có hạn thì không bao giờ bị đóng ở đây. Trả số listing
     vừa đóng.
@@ -293,7 +293,7 @@ def job_is_closed_locked(conn: Conn, job_id: str) -> bool:
 
 
 def sync_listings_after_job_update(conn: Conn, job_id: str, *, job_status: Optional[str], was_closed: bool,
-                                   deadline_changed: bool, deadline=None) -> None:
+                                   deadline_changed: bool, deadline: Optional[date] = None) -> None:
     """Đưa listing rồi job theo kịp một lần db.update_job() vừa ghi job (nhân viên sửa tay, import,
     check_expired_source_jobs). Gọi SAU câu UPDATE job_postings, cùng transaction.
       - job_status = 'CLOSED': đóng mọi listing (luật 2);

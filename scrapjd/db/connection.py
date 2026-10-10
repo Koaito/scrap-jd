@@ -7,7 +7,7 @@ import os
 import re
 import time
 import uuid as uuid_module
-from typing import Optional
+from typing import Iterable, Optional
 
 import psycopg2
 import psycopg2.pool
@@ -35,7 +35,7 @@ def is_valid_uuid(value: Optional[str]) -> bool:
         return False
 
 
-def get_connection():
+def get_connection() -> Conn:
     """Mở 1 connection Postgres MỚI, ĐỘC LẬP với pool bên dưới — dùng cho
     CLI/script chạy 1 lần rồi thoát (main.py, scrapjd/maintenance/enrich_company_web_info.py,
     scrapjd/maintenance/get_company_fb_linkedin_link.py, scrapjd/api/crawl_runner.py chạy nền). Các
@@ -75,7 +75,7 @@ def init_pool(minconn: int = DB_POOL_MIN, maxconn: int = DB_POOL_MAX) -> None:
     logger.info("Đã khởi tạo connection pool (minconn=%s, maxconn=%s).", minconn, maxconn)
 
 
-def get_pooled_connection():
+def get_pooled_connection() -> Conn:
     """Mượn 1 connection từ pool — dùng trong scrapjd/api/deps.py:get_db().
     PHẢI trả lại bằng release_connection() (KHÔNG gọi conn.close()
     trực tiếp, xem lý do trong docstring get_connection() ở trên).
@@ -148,7 +148,7 @@ def close_pool() -> None:
         logger.info("Đã đóng connection pool.")
 
 
-def apply_schema(conn: Conn, schema_path: str = "sql/schema.sql"):
+def apply_schema(conn: Conn, schema_path: str = "sql/schema.sql") -> None:
     """Chạy file schema.sql (idempotent — có thể chạy lại nhiều lần an toàn)."""
     with open(schema_path, "r", encoding="utf-8") as f:
         sql = f.read()
@@ -272,7 +272,7 @@ def apply_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
 
 
 def baseline_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR,
-                        except_files=()) -> list:
+                        except_files: Iterable[str] = ()) -> list:
     """Ghi vào schema_migrations mọi migration CHƯA có log, KHÔNG chạy SQL
     của chúng. Dùng khi DB đã ở trạng thái mới nhất nhưng bảng
     schema_migrations còn thiếu/trống (xem khối chú thích "Migration

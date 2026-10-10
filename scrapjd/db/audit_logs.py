@@ -6,11 +6,11 @@ import json
 import logging
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2
 import psycopg2.extras
-from scrapjd.db.pg_types import Conn, fetch_one_row, fetch_scalar
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +83,7 @@ class NoteRequiredError(Exception):
     constraint ở DB), phòng router nào quên validate."""
 
 
-def _as_decimal(value):
+def _as_decimal(value: Any) -> Optional[Decimal]:
     """Decimal nếu `value` là số thật (int/float/Decimal, KHÔNG phải bool),
     ngược lại None. Dùng để so sánh số bằng GIÁ TRỊ thay vì bằng chuỗi."""
     if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
@@ -94,7 +94,7 @@ def _as_decimal(value):
         return None
 
 
-def _same_value(old_val, new_val) -> bool:
+def _same_value(old_val: Any, new_val: Any) -> bool:
     """True nếu 2 giá trị coi như KHÔNG đổi.
 
     Cả 2 vế là số -> so bằng giá trị (Decimal('10000000.00') == 10000000
@@ -109,7 +109,7 @@ def _same_value(old_val, new_val) -> bool:
     return str(old_val) == str(new_val)
 
 
-def _json_friendly(value):
+def _json_friendly(value: Any) -> Any:
     """Decimal -> int (nếu nguyên) hoặc float, để cột `changes` (JSONB)
     lưu SỐ thật thay vì chuỗi \"10000000.00\" do json.dumps(default=str).
     Kiểu khác giữ nguyên (date/UUID vẫn đi qua default=str như trước)."""
@@ -216,7 +216,7 @@ def list_audit_logs(conn: Conn, *, manual_only: bool = False,
                      actor_id: Optional[str] = None,
                      action_type: Optional[str] = None,
                      pending_note: Optional[bool] = None,
-                     limit: int = 50, offset: int = 0):
+                     limit: int = 50, offset: int = 0) -> tuple[list[Row], int]:
     """Trả (list[dict], total) — dùng cho GET /audit-logs.
 
     manual_only=True  -> view "log thủ công" (chỉ is_manual_log=true).
@@ -263,12 +263,12 @@ def list_audit_logs(conn: Conn, *, manual_only: bool = False,
             f"ORDER BY al.created_at DESC LIMIT %s OFFSET %s",
             params + [limit, offset],
         )
-        rows = cur.fetchall()
+        rows = fetch_all_rows(cur)
 
     return rows, total
 
 
-def get_audit_log_by_id(conn: Conn, log_id: str):
+def get_audit_log_by_id(conn: Conn, log_id: str) -> Optional[Row]:
     """Trả 1 dict audit log đầy đủ hoặc None — dùng để kiểm tra quyền
     sửa note (so actor_id) trước khi PATCH /audit-logs/{log_id}/note."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:

@@ -8,12 +8,12 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.extras
-from scrapjd.db.pg_types import Conn, fetch_scalar
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
 
-def get_user_by_email(conn: Conn, email: str):
+def get_user_by_email(conn: Conn, email: str) -> Optional[Row]:
     """Trả dict đầy đủ field (kể cả password_hash, failed_login_count,
     locked_until — CHỈ dùng nội bộ cho luồng login, KHÔNG lộ ra response
     API, xem api/schemas.py UserOut không có các field này) hoặc None
@@ -26,7 +26,7 @@ def get_user_by_email(conn: Conn, email: str):
         return cur.fetchone()
 
 
-def get_user_by_id(conn: Conn, ss_user_id: str):
+def get_user_by_id(conn: Conn, ss_user_id: str) -> Optional[Row]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM app_users WHERE ss_user_id = %s", (ss_user_id,))
         return cur.fetchone()
@@ -101,7 +101,7 @@ def record_failed_login(conn: Conn, ss_user_id: str, *, lock_threshold: int, loc
         return False
 
 
-def is_account_locked(user_row) -> bool:
+def is_account_locked(user_row: Optional[Row]) -> bool:
     """Kiểm tra thuần Python (không query thêm) — user_row lấy từ
     get_user_by_email()/get_user_by_id(), đọc field locked_until có sẵn."""
     locked_until = user_row.get("locked_until") if user_row else None
@@ -124,7 +124,7 @@ def reset_failed_login(conn: Conn, ss_user_id: str) -> None:
         )
 
 
-def create_refresh_token(conn: Conn, *, ss_user_id: str, token_hash: str, expires_at,
+def create_refresh_token(conn: Conn, *, ss_user_id: str, token_hash: str, expires_at: datetime,
                           user_agent: Optional[str] = None,
                           ip_address: Optional[str] = None) -> str:
     with conn.cursor() as cur:
@@ -140,7 +140,7 @@ def create_refresh_token(conn: Conn, *, ss_user_id: str, token_hash: str, expire
         return str(fetch_scalar(cur))
 
 
-def get_refresh_token_by_hash(conn: Conn, token_hash: str, for_update: bool = False):
+def get_refresh_token_by_hash(conn: Conn, token_hash: str, for_update: bool = False) -> Optional[Row]:
     """Trả dict (refresh_token_id, ss_user_id, expires_at, revoked_at,
     replaced_by_token_id...) hoặc None. Route tự kiểm tra hết hạn/đã
     revoke — hàm này chỉ tra cứu thuần, không tự raise/chặn gì.
@@ -172,7 +172,7 @@ def get_refresh_token_by_hash(conn: Conn, token_hash: str, for_update: bool = Fa
         return cur.fetchone()
 
 
-def get_refresh_token_by_id(conn: Conn, refresh_token_id: str):
+def get_refresh_token_by_id(conn: Conn, refresh_token_id: str) -> Optional[Row]:
     """Trả dict token theo PRIMARY KEY (refresh_token_id) hoặc None —
     KHÁC get_refresh_token_by_hash() (tra bằng token_hash, dùng khi
     CLIENT tự gửi token thô lên). Hàm này dùng khi SERVER đã biết sẵn
@@ -246,7 +246,7 @@ USER_SUMMARY_COLUMNS = (
 )
 
 
-def list_users(conn: Conn):
+def list_users(conn: Conn) -> list[Row]:
     """Danh sách thành viên team (không lộ password_hash) — ss_team trở
     lên xem được (GET /auth/users, thêm 08/2026), dùng cho trang quản lý
     user phía frontend. phone/track thêm vào SELECT 08/2026 (xem
@@ -254,10 +254,10 @@ def list_users(conn: Conn):
     frontend phải dùng ngay."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(f"SELECT {USER_SUMMARY_COLUMNS} FROM app_users ORDER BY created_at")
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def get_user_summary_by_id(conn: Conn, ss_user_id: str):
+def get_user_summary_by_id(conn: Conn, ss_user_id: str) -> Optional[Row]:
     """1 phần tử của list_users() theo ss_user_id (GET /auth/users/{id}, thêm
     10/2026) — cùng cột USER_SUMMARY_COLUMNS, KHÔNG có password_hash (khác
     get_user_by_id dùng SELECT *). Trả None nếu không tồn tại. Gọi CHỈ SAU
@@ -328,7 +328,7 @@ def update_user_active_status(conn: Conn, ss_user_id: str, is_active: bool) -> b
 
 def create_user_pending_verification(conn: Conn, *, full_name: str, email: str,
                                       password_hash: str, verify_token_hash: str,
-                                      verify_expires,
+                                      verify_expires: datetime,
                                       phone: Optional[str] = None,
                                       track: Optional[str] = None) -> str:
     """Tạo tài khoản role='user' CHƯA xác thực — KHÁC create_user() ở
@@ -362,7 +362,7 @@ def create_user_pending_verification(conn: Conn, *, full_name: str, email: str,
         return str(fetch_scalar(cur))
 
 
-def get_user_by_verify_token_hash(conn: Conn, verify_token_hash: str):
+def get_user_by_verify_token_hash(conn: Conn, verify_token_hash: str) -> Optional[Row]:
     """Trả dict user (đủ field, kể cả email_verify_expires) hoặc None
     nếu token không tồn tại — KHÔNG tự kiểm tra hết hạn ở đây, route tự
     so sánh email_verify_expires với thời gian hiện tại (tách trách
@@ -394,7 +394,7 @@ def mark_email_verified(conn: Conn, ss_user_id: str) -> None:
         )
 
 
-def set_new_verify_token(conn: Conn, ss_user_id: str, verify_token_hash: str, verify_expires) -> None:
+def set_new_verify_token(conn: Conn, ss_user_id: str, verify_token_hash: str, verify_expires: datetime) -> None:
     """Ghi ĐÈ token xác thực mới — dùng cho POST /auth/resend-verification
     (token cũ hết hạn hoặc email thất lạc, user xin gửi lại). Token cũ
     (nếu còn) bị thay thế hoàn toàn, không dùng lại được nữa.
@@ -409,7 +409,7 @@ def set_new_verify_token(conn: Conn, ss_user_id: str, verify_token_hash: str, ve
         )
 
 
-def set_password_reset_token(conn: Conn, ss_user_id: str, reset_token_hash: str, reset_expires) -> None:
+def set_password_reset_token(conn: Conn, ss_user_id: str, reset_token_hash: str, reset_expires: datetime) -> None:
     """Ghi token reset mật khẩu — gọi bởi POST /auth/forgot-password.
     Ghi ĐÈ token cũ nếu có (user xin gửi lại nhiều lần), token cũ (nếu
     còn) hết hiệu lực ngay vì không còn tồn tại trong DB để đối chiếu.
@@ -425,7 +425,7 @@ def set_password_reset_token(conn: Conn, ss_user_id: str, reset_token_hash: str,
         )
 
 
-def get_user_by_reset_token_hash(conn: Conn, reset_token_hash: str):
+def get_user_by_reset_token_hash(conn: Conn, reset_token_hash: str) -> Optional[Row]:
     """Trả dict user (đủ field, kể cả password_reset_expires) hoặc None
     nếu token không tồn tại — KHÔNG tự kiểm tra hết hạn ở đây, route tự
     so sánh password_reset_expires với thời gian hiện tại (tách trách

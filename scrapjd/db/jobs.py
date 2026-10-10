@@ -8,7 +8,7 @@ thống kê sang scrapjd/db/job_health.py (get_job_data_health).
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 from scrapjd.config import DETAIL_RECHECK_DAYS
@@ -44,6 +44,8 @@ logger = logging.getLogger(__name__)
 # ra giá trị ghi là gì. Field khác gặp vấn đề tương tự trong tương lai
 # chỉ cần đổi default sang _UNSET, không cần sửa lại chữ ký hàm.
 _UNSET = object()
+# Kiểu: tham số mang default _UNSET (salary_min, salary_max, level_source của update_job) khai là Any, vì mypy không
+# biểu diễn được "int | None | _UNSET" khi _UNSET là một object() trần.
 
 # Giá trị hợp lệ của job_postings.closed_reason (CHECK chk_job_postings_closed_reason, xem
 # sql/0037_add_job_closed_reason.sql). 'merged' là dự phòng, hiện chưa có nơi nào ghi.
@@ -76,7 +78,7 @@ JOB_CLEARABLE_FIELD_TO_COLUMN = {
     "work_type": "work_type",
 }
 
-def probe_needs_enrichment(probe) -> bool:
+def probe_needs_enrichment(probe: Optional[tuple[Any, ...]]) -> bool:
     """probe = kết quả find_company_probe() (company_id, website, industry,
     company_size, address) hoặc None. Trả True nếu nên gọi
     fetch_company_profile() — tức là công ty chưa từng thấy, hoặc đã thấy
@@ -120,7 +122,7 @@ def job_exists_by_source_url(conn: Conn, source_url: str) -> bool:
         return cur.fetchone() is not None
 
 
-def get_job_probe_by_source_url(conn: Conn, source_url: str):
+def get_job_probe_by_source_url(conn: Conn, source_url: str) -> Optional[tuple[Any, ...]]:
     """Tra cứu nhanh 1 job đã có theo source_url — trả về
     (job_id, work_type, deadline, parsed_content, detail_checked_at) hoặc None
     nếu job này chưa từng crawl. detail_checked_at là lần gần nhất fetch thành
@@ -144,7 +146,8 @@ def get_job_probe_by_source_url(conn: Conn, source_url: str):
         return cur.fetchone()
 
 
-def job_needs_detail_enrichment(probe, *, now=None, recheck_days=None) -> bool:
+def job_needs_detail_enrichment(probe: Optional[tuple[Any, ...]], *, now: Optional[datetime] = None,
+                                recheck_days: Optional[int] = None) -> bool:
     """probe = kết quả get_job_probe_by_source_url() (job_id, work_type,
     deadline, parsed_content, detail_checked_at) hoặc None. Trả True nếu nên gọi
     fetch_job_full_detail().
@@ -174,7 +177,7 @@ def job_needs_detail_enrichment(probe, *, now=None, recheck_days=None) -> bool:
     return now - checked_at >= timedelta(days=recheck_days)
 
 
-def mark_source_detail_checked(conn: Conn, source_url: str, *, deadline=None) -> None:
+def mark_source_detail_checked(conn: Conn, source_url: str, *, deadline: Optional[date] = None) -> None:
     """Ghi nhận vừa fetch THÀNH CÔNG trang chi tiết của source_url này (không ghi khi fetch lỗi: lỗi có
     thể chỉ là tạm thời, lượt sau thử lại ngay). Ghi cả last_seen_at và, nếu có, hạn đọc được từ trang
     (`deadline`) vào listing, xem db.listing_state.mark_listing_detail_checked (C1).
@@ -214,7 +217,7 @@ def insert_job(conn: Conn, *, company_id: str, job_title: str, matching_industry
                 work_type: Optional[str], currency: str,
                 salary_min: Optional[int], salary_max: Optional[int],
                 salary_type: str, source_url: str, source_name: str,
-                salary_raw_text: str = "", deadline=None,
+                salary_raw_text: str = "", deadline: Optional[date] = None,
                 parsed_content: Optional[dict] = None,
                 raw_jd_content: str = "",
                 salary_period: str = "MONTH",
@@ -365,7 +368,7 @@ def create_manual_job(conn: Conn, *, job_title: str, company_id: str,
                        salary_max: Optional[int] = None,
                        salary_type: str = "NEGOTIABLE",
                        salary_period: str = "MONTH",
-                       deadline=None,
+                       deadline: Optional[date] = None,
                        parsed_content: Optional[dict] = None,
                        created_by: Optional[str] = None) -> str:
     """Tạo 1 job NHẬP TAY từ frontend (không qua crawl/adapter). Tái dùng
@@ -457,18 +460,18 @@ def update_job(conn: Conn, job_id: str, *, job_title: Optional[str] = None,
                province_id: Optional[int] = None,
                work_type: Optional[str] = None,
                currency: Optional[str] = None,
-               salary_min=_UNSET,
-               salary_max=_UNSET,
+               salary_min: Any = _UNSET,
+               salary_max: Any = _UNSET,
                salary_type: Optional[str] = None,
                salary_period: Optional[str] = None,
-               deadline=None,
+               deadline: Optional[date] = None,
                job_status: Optional[str] = None,
                closed_reason: Optional[str] = None,
                ss_team_notes: Optional[str] = None,
                parsed_content: Optional[dict] = None,
                updated_by: Optional[str] = None,
                clear_fields: Optional[Iterable[str]] = None,
-               level_source=_UNSET,
+               level_source: Any = _UNSET,
                level_rule_version: Optional[int] = None,
                level_signals: Optional[dict] = None) -> bool:
     """Sửa TỰ DO các field của 1 job đã tồn tại — dùng cho PATCH /jobs/{id}

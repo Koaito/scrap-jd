@@ -62,6 +62,7 @@ def create_user(
     conn.commit()
 
     row = db_module.get_user_by_id(conn, ss_user_id)
+    assert row is not None  # vừa tạo và commit ở trên
     return {**row, "temp_password": temp_password}
 
 
