@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class ActiveCrawlExistsError(Exception):
     scrapjd/api/routers/crawl.py)."""
 
 
-def create_run(conn, *, source: str, category: str, pages: int,
+def create_run(conn: Conn, *, source: str, category: str, pages: int,
                 max_jobs: Optional[int], triggered_by: Optional[str],
                 batch_id: Optional[str] = None,
                 batch_position: Optional[int] = None) -> str:
@@ -80,12 +81,12 @@ def create_run(conn, *, source: str, category: str, pages: int,
             """,
             (source, category, pages, max_jobs, triggered_by, batch_id, batch_position),
         )
-        run_id = str(cur.fetchone()[0])
+        run_id = str(fetch_scalar(cur))
     conn.commit()
     return run_id
 
 
-def update_progress(conn, run_id: str, progress: dict) -> None:
+def update_progress(conn: Conn, run_id: str, progress: dict) -> None:
     """Ghi ĐÈ (không cộng dồn) snapshot tiến độ mới nhất — gọi liên tục
     (mỗi trang fetch xong 1 lần) trong lúc execute() đang chạy pipeline
     thật, xem docstring migration_add_crawl_progress_logs.sql.
@@ -108,7 +109,7 @@ def update_progress(conn, run_id: str, progress: dict) -> None:
     conn.commit()
 
 
-def append_log(conn, run_id: str, level: str, message: str) -> None:
+def append_log(conn: Conn, run_id: str, level: str, message: str) -> None:
     """Thêm 1 dòng log live cho run_id — gọi từ logging.Handler gắn tạm
     thời trong execute() (xem scrapjd/api/run_log.py::capture_run_logs), bắt
     MỌI log do scrapjd/pipeline.py/adapters/*.py phát ra qua logger chuẩn
@@ -126,7 +127,7 @@ def append_log(conn, run_id: str, level: str, message: str) -> None:
     conn.commit()
 
 
-def get_logs(conn, run_id: str, after_id: int = 0, limit: int = 500):
+def get_logs(conn: Conn, run_id: str, after_id: int = 0, limit: int = 500) -> list[Row]:
     """Trả list[dict] các dòng log có id > after_id, sắp CŨ -> MỚI (đúng
     thứ tự đọc như terminal thật) — dùng cho GET
     /crawl/{run_id}/logs?after_id=N (poll tăng dần, xem docstring index
@@ -141,10 +142,10 @@ def get_logs(conn, run_id: str, after_id: int = 0, limit: int = 500):
             "WHERE run_id = %s AND id > %s ORDER BY id ASC LIMIT %s",
             (run_id, after_id, limit),
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def mark_running(conn, run_id: str) -> None:
+def mark_running(conn: Conn, run_id: str) -> None:
     """Đổi status 'queued' -> 'running' — gọi ngay khi execute() bắt đầu
     chạy pipeline thật (TRƯỚC khi gọi run_pipeline(), có thể mất vài
     phút), để GET /crawl/{run_id} poll thấy đúng trạng thái thay vì kẹt
@@ -170,7 +171,7 @@ def mark_running(conn, run_id: str) -> None:
     conn.commit()
 
 
-def mark_done(conn, run_id: str, stats: dict) -> None:
+def mark_done(conn: Conn, run_id: str, stats: dict) -> None:
     """Đổi status -> 'done', điền stats + finished_at — gọi khi
     run_pipeline() trả về thành công."""
     with conn.cursor() as cur:
@@ -189,7 +190,7 @@ def mark_done(conn, run_id: str, stats: dict) -> None:
     conn.commit()
 
 
-def mark_error(conn, run_id: str, error: str, stats: Optional[dict] = None) -> None:
+def mark_error(conn: Conn, run_id: str, error: str, stats: Optional[dict] = None) -> None:
     """Đổi status -> 'error', điền error + finished_at — gọi khi
     run_pipeline() raise exception, hoặc source không có adapter đăng ký
     (lỗi xảy ra TRƯỚC khi kịp mark_running(), vẫn hợp lệ đi thẳng từ
@@ -221,7 +222,7 @@ def mark_error(conn, run_id: str, error: str, stats: Optional[dict] = None) -> N
     conn.commit()
 
 
-def get_recent_blocked_run(conn, source: str, within_minutes: int) -> Optional[dict]:
+def get_recent_blocked_run(conn: Conn, source: str, within_minutes: int) -> Optional[dict]:
     """Lượt crawl GẦN NHẤT của `source` bị chặn (status='error' và
     stats.blocked = true) trong `within_minutes` phút qua, hoặc None. Dùng để
     cảnh báo trong log lúc bắt đầu lượt mới — KHÔNG dùng để chặn bấm chạy."""
@@ -258,7 +259,7 @@ _CRAWL_RUN_FROM_JOINS = """
 """
 
 
-def get_latest_run(conn) -> Optional[dict]:
+def get_latest_run(conn: Conn) -> Optional[dict]:
     """Trả 1 dict crawl_runs GẦN NHẤT theo started_at (bất kể status —
     queued/running/done/error đều tính), hoặc None nếu chưa từng crawl
     lần nào — dùng cho GET /crawl/latest-log-run (08/2026, xem lịch sử
@@ -277,7 +278,7 @@ def get_latest_run(conn) -> Optional[dict]:
         return cur.fetchone()
 
 
-def get_run(conn, run_id: str) -> Optional[dict]:
+def get_run(conn: Conn, run_id: str) -> Optional[dict]:
     """Trả 1 dict crawl_runs đầy đủ hoặc None — dùng cho GET
     /crawl/{run_id} (poll tiến độ)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -289,10 +290,10 @@ def get_run(conn, run_id: str) -> Optional[dict]:
         return cur.fetchone()
 
 
-def list_runs(conn, *, source: Optional[str] = None,
+def list_runs(conn: Conn, *, source: Optional[str] = None,
               status: Optional[str] = None,
               triggered_by: Optional[str] = None,
-              limit: int = 50, offset: int = 0):
+              limit: int = 50, offset: int = 0) -> tuple[list[Row], int]:
     """Trả (list[dict], total) — dùng cho GET /crawl (trang "Lịch sử
     crawl"), sắp mới nhất trước. Cùng shape (total/limit/offset/items)
     với list_audit_logs() để frontend dùng chung 1 kiểu phân trang."""
@@ -316,19 +317,19 @@ def list_runs(conn, *, source: Optional[str] = None,
             f"SELECT count(*) AS total {_CRAWL_RUN_FROM_JOINS} {where_clause}",
             params,
         )
-        total = cur.fetchone()["total"]
+        total = fetch_one_row(cur)["total"]
 
         cur.execute(
             f"SELECT {_CRAWL_RUN_SELECT_COLUMNS} {_CRAWL_RUN_FROM_JOINS} {where_clause} "
             f"ORDER BY cr.started_at DESC LIMIT %s OFFSET %s",
             params + [limit, offset],
         )
-        rows = cur.fetchall()
+        rows = fetch_all_rows(cur)
 
     return rows, total
 
 
-def has_active_run(conn, source: str) -> bool:
+def has_active_run(conn: Conn, source: str) -> bool:
     """True nếu source này đang có 1 lượt 'queued'/'running' — dùng ở
     router (GET /crawl/active hoặc validate trước khi hiện nút) nếu
     frontend cần hỏi TRƯỚC khi thử POST /crawl, thay vì đợi 409 trả
@@ -343,7 +344,7 @@ def has_active_run(conn, source: str) -> bool:
         return cur.fetchone() is not None
 
 
-def reconcile_orphaned_runs(conn) -> int:
+def reconcile_orphaned_runs(conn: Conn) -> int:
     """Đánh dấu 'error' MỌI dòng đang 'queued'/'running' — gọi ĐÚNG 1
     LẦN lúc app khởi động (scrapjd/api/app.py::lifespan, TRƯỚC khi nhận request
     nào), KHÔNG gọi ở nơi khác.
@@ -388,7 +389,7 @@ _LAST_PROGRESS_AT_SQL = r"""
 """
 
 
-def reconcile_stale_runs(conn, timeout_minutes: int, *,
+def reconcile_stale_runs(conn: Conn, timeout_minutes: int, *,
                          no_progress_minutes: Optional[int] = None) -> int:
     """Đánh dấu 'error' các lượt crawl bị TREO — gọi ĐỊNH KỲ qua APScheduler
     (scrapjd/api/services/crawl_watchdog.py), KHÁC reconcile_orphaned_runs() (chỉ

@@ -12,6 +12,7 @@ from typing import Optional
 import psycopg2
 import psycopg2.pool
 from scrapjd.config import DB_CONFIG, DB_POOL_MAX, DB_POOL_MIN, DB_POOL_WAIT_TIMEOUT
+from scrapjd.db.pg_types import Conn
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ def get_pooled_connection():
             _retry_delay = min(_retry_delay * 1.5, 0.3)
 
 
-def release_connection(conn) -> None:
+def release_connection(conn: Conn) -> None:
     """Trả connection về pool — dùng thay cho conn.close() trong
     scrapjd/api/deps.py:get_db(). An toàn gọi cả khi pool chưa init (no-op),
     tránh lỗi kép nếu request lỗi ngay từ get_pooled_connection()."""
@@ -147,7 +148,7 @@ def close_pool() -> None:
         logger.info("Đã đóng connection pool.")
 
 
-def apply_schema(conn, schema_path: str = "sql/schema.sql"):
+def apply_schema(conn: Conn, schema_path: str = "sql/schema.sql"):
     """Chạy file schema.sql (idempotent — có thể chạy lại nhiều lần an toàn)."""
     with open(schema_path, "r", encoding="utf-8") as f:
         sql = f.read()
@@ -188,7 +189,7 @@ def apply_schema(conn, schema_path: str = "sql/schema.sql"):
 _MIGRATIONS_DIR = "sql"
 
 
-def _ensure_schema_migrations_table(conn) -> None:
+def _ensure_schema_migrations_table(conn: Conn) -> None:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -233,7 +234,7 @@ def _list_migration_files(migrations_dir: str = _MIGRATIONS_DIR) -> list:
     return legacy + [f for _, f in numbered]
 
 
-def list_pending_migrations(conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
+def list_pending_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
     """Tên các file migration (cũ `migration_*.sql` và mới `NNNN_*.sql`, theo thứ tự chạy,
     xem _list_migration_files) CHƯA có trong schema_migrations của
     DB đang kết nối — dùng để kiểm tra TRƯỚC khi deploy (vd hiện cảnh
@@ -245,7 +246,7 @@ def list_pending_migrations(conn, migrations_dir: str = _MIGRATIONS_DIR) -> list
     return [f for f in _list_migration_files(migrations_dir) if f not in applied]
 
 
-def apply_migrations(conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
+def apply_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
     """Chạy MỌI migration (cũ và mới) chưa được ghi log áp dụng cho DB đang kết
     nối, mỗi file trong 1 transaction riêng (lỗi ở file nào dừng lại ở
     đó — KHÔNG rollback các file trước đã chạy + ghi log thành công,
@@ -270,7 +271,7 @@ def apply_migrations(conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
     return newly_applied
 
 
-def baseline_migrations(conn, migrations_dir: str = _MIGRATIONS_DIR,
+def baseline_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR,
                         except_files=()) -> list:
     """Ghi vào schema_migrations mọi migration CHƯA có log, KHÔNG chạy SQL
     của chúng. Dùng khi DB đã ở trạng thái mới nhất nhưng bảng

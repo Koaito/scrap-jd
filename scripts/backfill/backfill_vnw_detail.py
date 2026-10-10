@@ -67,6 +67,7 @@ from scrapjd import normalize
 from scrapjd.adapters.base import CrawlBlockedError
 from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from scrapjd.pipeline import _build_parsed_content_and_raw  # cùng cách dựng parsed_content như crawl
+from scrapjd.db.pg_types import Conn, fetch_scalar
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                      datefmt="%H:%M:%S")
@@ -103,7 +104,7 @@ LIMIT %(limit)s
 # ----------------------------------------------------------------------
 # DB
 # ----------------------------------------------------------------------
-def select_jobs(conn, *, all_jobs: bool, include_closed: bool, limit: Optional[int],
+def select_jobs(conn: Conn, *, all_jobs: bool, include_closed: bool, limit: Optional[int],
                 before: Optional[str] = None) -> list:
     """Danh sách job cần vá, CŨ NHẤT TRƯỚC (job cũ mới là thứ cần vá; job crawl sau
     bản sửa đã đúng, xử lý chúng chỉ tốn request). `before` (YYYY-MM-DD) chỉ lấy
@@ -120,15 +121,15 @@ def select_jobs(conn, *, all_jobs: bool, include_closed: bool, limit: Optional[i
     return rows
 
 
-def count_duplicate_groups(conn) -> int:
+def count_duplicate_groups(conn: Conn) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM v_duplicate_job_candidates")
-        n = cur.fetchone()[0]
+        n = fetch_scalar(cur)
     conn.rollback()
     return n
 
 
-def _update_raw_jd(conn, job_id, source_url: str, raw_jd: str) -> None:
+def _update_raw_jd(conn: Conn, job_id, source_url: str, raw_jd: str) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE job_sources_log SET raw_jd_content = %s WHERE job_id = %s AND source_url = %s",
@@ -198,7 +199,7 @@ class Summary:
         self.samples: list = []
 
 
-def process_job(conn, adapter, row: dict, *, apply: bool, level_ids: dict,
+def process_job(conn: Conn, adapter, row: dict, *, apply: bool, level_ids: dict,
                 summary: Summary) -> bool:
     """Xử lý một job. Trả True khi job đã xử lý xong và nên ghi vào file tiến độ
     (đã ghi DB thành công, hoặc không còn gì để vá)."""
@@ -261,7 +262,7 @@ def process_job(conn, adapter, row: dict, *, apply: bool, level_ids: dict,
     return True
 
 
-def run(conn, adapter, rows: list, *, apply: bool, level_ids: dict,
+def run(conn: Conn, adapter, rows: list, *, apply: bool, level_ids: dict,
         on_done=None) -> Summary:
     """Duyệt danh sách job. Lỗi một job chỉ đếm rồi đi tiếp; bị chặn thì dừng;
     Ctrl+C dừng êm (job đã xong vẫn còn nguyên)."""

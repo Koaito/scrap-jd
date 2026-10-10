@@ -6,6 +6,7 @@ dữ liệu" của công ty (tách từ scrapjd/db/companies.py, 10/2026). Chỉ
 from typing import Optional
 
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, fetch_one_row
 
 
 # Level "mới ra trường" — khớp level_group 'Entry Level' (xem
@@ -33,7 +34,7 @@ _TARGET_INDUSTRIES = (
 _RESPONDED_CONTACT_STATUSES = ("RESPONDED", "IN_PARTNERSHIP")
 
 
-def get_partnership_signals(conn, company_ids: Optional[list] = None) -> dict:
+def get_partnership_signals(conn: Conn, company_ids: Optional[list] = None) -> dict:
     """Tính sẵn (bằng SQL GROUP BY, KHÔNG kéo full job/contact object về
     Python) 2 tín hiệu cần cho gợi ý "Tiềm năng hợp tác"
     (potential_score.suggest_partnership_potential() bên Flask) mà
@@ -145,7 +146,7 @@ _COMPANY_HEALTH_FIELDS = [
 ]
 
 
-def get_company_data_health(conn) -> dict:
+def get_company_data_health(conn: Conn) -> dict:
     """Thay thế cho việc frontend (blueprints/crawl_status.py bên
     mindx-jobs) từng phải gọi list_all_companies() + list_all_contacts()
     (kéo TOÀN BỘ company/contact về Flask rồi tự đếm field rỗng bằng
@@ -194,7 +195,7 @@ def get_company_data_health(conn) -> dict:
             WHERE c.is_active = true
             """
         )
-        row = cur.fetchone()
+        row = fetch_one_row(cur)
 
     total = row["total"]
     company_health_rows = []

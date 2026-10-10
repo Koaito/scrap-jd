@@ -48,6 +48,7 @@ Mọi hàm chỉ ĐỌC (SELECT), không commit.
 """
 
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, fetch_all_rows, fetch_one_row
 
 # "Hôm nay" theo giờ VN, kiểu DATE — dùng chung mọi câu SQL bên dưới.
 # now() (timestamptz) AT TIME ZONE '...' -> timestamp naive giờ VN -> ::date.
@@ -77,7 +78,7 @@ def _vn_date(column: str) -> str:
 # Tab "Gợi ý học viên"
 # ---------------------------------------------------------------
 
-def get_jobs_needing_push(conn, *, days_min: int = 7, days_max: int = 14) -> list[dict]:
+def get_jobs_needing_push(conn: Conn, *, days_min: int = 7, days_max: int = 14) -> list[dict]:
     """jd_needing_push — job OPEN, CHƯA có ai lưu/ứng tuyển, deadline còn
     từ days_min tới days_max ngày (tính cả 2 đầu mút) so với hôm nay (VN).
     Sắp deadline gần nhất trước. Job không có deadline bị bỏ qua."""
@@ -98,10 +99,10 @@ def get_jobs_needing_push(conn, *, days_min: int = 7, days_max: int = 14) -> lis
             """,
             {"days_min": days_min, "days_max": days_max},
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def get_stale_jobs(conn, *, min_age_days: int = 30) -> list[dict]:
+def get_stale_jobs(conn: Conn, *, min_age_days: int = 30) -> list[dict]:
     """jd_stale ("JD ế") — job OPEN, CHƯA có ai lưu/ứng tuyển, đã thu thập
     (created_at, ngày VN) từ min_age_days ngày trở lên. Cũ nhất trước."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -120,10 +121,10 @@ def get_stale_jobs(conn, *, min_age_days: int = 30) -> list[dict]:
             """,
             {"min_age_days": min_age_days},
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def get_top_skills(conn, *, days_recent: int = 30, top_n: int = 10) -> list[dict]:
+def get_top_skills(conn: Conn, *, days_recent: int = 30, top_n: int = 10) -> list[dict]:
     """top_skills — kỹ năng xuất hiện nhiều nhất trong job thu thập trong
     days_recent ngày gần đây (MỌI trạng thái job, giống Flask). Đếm theo
     LƯỢT XUẤT HIỆN (1 job ghi trùng 1 kỹ năng 2 lần thì tính 2 — giống
@@ -152,10 +153,10 @@ def get_top_skills(conn, *, days_recent: int = 30, top_n: int = 10) -> list[dict
             """,
             {"days_recent": days_recent, "top_n": top_n},
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def get_salary_ranges(conn) -> list[dict]:
+def get_salary_ranges(conn: Conn) -> list[dict]:
     """salary_ranges — mức lương trung bình theo (ngành, level), CHỈ tính
     job lương tháng (MONTH) bằng VNĐ và có ít nhất 1 trong 2 đầu lương > 0
     (0/NULL = "Thoả thuận", không tính). avg_min chỉ tính trên các job có
@@ -189,14 +190,14 @@ def get_salary_ranges(conn) -> list[dict]:
                      1 ASC, 2 ASC
             """
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
 # ---------------------------------------------------------------
 # Tab "Doanh nghiệp"
 # ---------------------------------------------------------------
 
-def get_high_potential_companies_without_contact(conn, *, quiet_days: int = 60) -> list[dict]:
+def get_high_potential_companies_without_contact(conn: Conn, *, quiet_days: int = 60) -> list[dict]:
     """companies_no_contact — công ty đang active, tiềm năng hợp tác CAO
     (HIGH), mà: (a) chưa có contact active nào (reason='no_contact'), hoặc
     (b) có contact nhưng không contact nào được liên hệ trong quiet_days
@@ -236,10 +237,10 @@ def get_high_potential_companies_without_contact(conn, *, quiet_days: int = 60) 
             """,
             {"quiet_days": quiet_days},
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def get_contacts_needing_followup(conn, *, quiet_days: int = 14) -> list[dict]:
+def get_contacts_needing_followup(conn: Conn, *, quiet_days: int = 14) -> list[dict]:
     """contacts_needing_followup — contact active, CHƯA 'IN_PARTNERSHIP',
     im lặng >= quiet_days ngày tính từ last_contacted_date, hoặc từ
     collected_date nếu chưa từng liên hệ (never_contacted=true). Cả 2 ngày
@@ -265,11 +266,11 @@ def get_contacts_needing_followup(conn, *, quiet_days: int = 14) -> list[dict]:
             """,
             {"quiet_days": quiet_days},
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
 def get_company_job_activity(
-    conn,
+    conn: Conn,
     *,
     expanding_days: int = 30,
     expanding_min_jobs: int = 2,
@@ -315,7 +316,7 @@ def get_company_job_activity(
                 "quiet_days": quiet_days,
             },
         )
-        rows = cur.fetchall()
+        rows = fetch_all_rows(cur)
 
         expanding = [r for r in rows if r["recent_job_count"] >= expanding_min_jobs]
         quiet = [r for r in rows if r["quiet_days"] >= quiet_days]
@@ -371,7 +372,7 @@ def get_company_job_activity(
 # Tab "Báo cáo tháng"
 # ---------------------------------------------------------------
 
-def get_monthly_recap_counts(conn) -> dict:
+def get_monthly_recap_counts(conn: Conn) -> dict:
     """monthly_recap — phần đếm từ job/công ty (phần ứng tuyển/lưu job lấy
     riêng từ db.stats.get_monthly_engagement_stats() rồi ghép ở router).
     "Tháng này"/"tháng trước" theo lịch, giờ VN. Trả số THÔ (this/last),
@@ -400,7 +401,7 @@ def get_monthly_recap_counts(conn) -> dict:
             GROUP BY b.this_start, b.last_start
             """
         )
-        jobs = cur.fetchone()
+        jobs = fetch_one_row(cur)
 
         cur.execute(
             f"""
@@ -417,7 +418,7 @@ def get_monthly_recap_counts(conn) -> dict:
             GROUP BY b.this_start, b.last_start
             """
         )
-        companies = cur.fetchone()
+        companies = fetch_one_row(cur)
 
         cur.execute(
             f"""

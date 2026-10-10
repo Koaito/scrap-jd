@@ -116,6 +116,7 @@ from scrapjd.api.run_log import capture_run_logs
 # đăng ký thủ công ở đúng dict này), xem docstring scrapjd/sources_registry.py
 # để biết đầy đủ lý do refactor + cách thêm nguồn crawl mới sau này.
 from scrapjd.sources_registry import SOURCE_ADAPTERS as _SOURCE_ADAPTERS
+from scrapjd.db.pg_types import Conn
 
 logger = logging.getLogger(__name__)
 
@@ -345,7 +346,7 @@ def _run_batch_locked(run_id: str) -> None:
         _run_batch_locked(next_run_id)
 
 
-def _warn_if_recently_blocked(conn, source: str) -> None:
+def _warn_if_recently_blocked(conn: Conn, source: str) -> None:
     """Ghi WARNING vào log live nếu nguồn này vừa có lượt bị chặn trong
     CRAWL_BLOCK_COOLDOWN_MINUTES. Chỉ cảnh báo: admin có thể vừa đổi IP/proxy
     và muốn thử lại ngay. Lỗi DB ở đây không được làm hỏng lượt crawl."""
@@ -368,7 +369,7 @@ def _warn_if_recently_blocked(conn, source: str) -> None:
         )
 
 
-def _save_run_snapshots(conn, run_id: str, source: str, recorder: SnapshotRecorder) -> None:
+def _save_run_snapshots(conn: Conn, run_id: str, source: str, recorder: SnapshotRecorder) -> None:
     """Lưu snapshot đã gom trong RAM xuống DB. db.save_crawl_snapshots() không
     raise (xem docstring); bọc thêm try phòng trường hợp mock/lỗi bất ngờ."""
     if not recorder.items:

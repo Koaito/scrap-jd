@@ -55,6 +55,7 @@ from scrapjd import db
 from scrapjd import normalize
 from scrapjd.adapters.base import CrawlBlockedError
 from scrapjd.adapters.topcv import TopCVAdapter
+from scrapjd.db.pg_types import Conn, fetch_scalar
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                     datefmt="%H:%M:%S")
@@ -91,7 +92,7 @@ LIMIT %(limit)s
 # ----------------------------------------------------------------------
 # DB
 # ----------------------------------------------------------------------
-def select_jobs(conn, *, include_closed: bool, limit: Optional[int],
+def select_jobs(conn: Conn, *, include_closed: bool, limit: Optional[int],
                 before: Optional[str] = None) -> list:
     """Job TopCV đang Senior cần xét, CŨ NHẤT TRƯỚC, mỗi job một dòng (URL TopCV
     đầu tiên của job đó). Đóng transaction đọc trước khi trả về."""
@@ -106,10 +107,10 @@ def select_jobs(conn, *, include_closed: bool, limit: Optional[int],
     return rows
 
 
-def count_duplicate_groups(conn) -> int:
+def count_duplicate_groups(conn: Conn) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM v_duplicate_job_candidates")
-        n = cur.fetchone()[0]
+        n = fetch_scalar(cur)
     conn.rollback()
     return n
 
@@ -159,7 +160,7 @@ class Summary:
         self.samples: list = []
 
 
-def process_job(conn, adapter, row: dict, *, apply: bool, level_ids: dict,
+def process_job(conn: Conn, adapter, row: dict, *, apply: bool, level_ids: dict,
                 summary: Summary) -> bool:
     """Xử lý một job. Trả True khi job đã xong chắc chắn và nên ghi vào file tiến
     độ (chỉ khi --apply)."""
@@ -219,7 +220,7 @@ def process_job(conn, adapter, row: dict, *, apply: bool, level_ids: dict,
     return True
 
 
-def run(conn, adapter, rows: list, *, apply: bool, level_ids: dict,
+def run(conn: Conn, adapter, rows: list, *, apply: bool, level_ids: dict,
         on_done=None) -> Summary:
     """Duyệt danh sách job. Lỗi một job chỉ đếm rồi đi tiếp; bị chặn thì dừng;
     Ctrl+C dừng êm (job đã xong vẫn còn nguyên)."""

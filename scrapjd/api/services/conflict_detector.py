@@ -43,9 +43,10 @@ inactive" đã chốt, + "conflict_in_batch" thêm 08/2026):
 from typing import Optional
 
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn
 
 
-def detect_company_conflict(conn, company_name: Optional[str], tax_id: Optional[str]) -> dict:
+def detect_company_conflict(conn: Conn, company_name: Optional[str], tax_id: Optional[str]) -> dict:
     """Company: match theo tax_id OR company_name — nếu CÙNG 1 record
     khớp cả 2 tiêu chí thì tính là 1 conflict duy nhất (Requirement 3.4).
     Match CẢ company đã is_active=false (giả định B: cảnh báo riêng thay
@@ -76,7 +77,7 @@ def detect_company_conflict(conn, company_name: Optional[str], tax_id: Optional[
     return {"conflict_status": status, "existing_record": dict(existing)}
 
 
-def detect_job_conflict(conn, company_name: Optional[str], job_title: Optional[str], deadline) -> dict:
+def detect_job_conflict(conn: Conn, company_name: Optional[str], job_title: Optional[str], deadline) -> dict:
     """Job: match (company_name AND job_title AND deadline). Match CẢ
     job không OPEN (EXPIRED/CLOSED) — giả định B: cảnh báo riêng thay vì
     âm thầm tạo job trùng mới khi job cũ đã đóng."""
@@ -103,7 +104,7 @@ def detect_job_conflict(conn, company_name: Optional[str], job_title: Optional[s
 
 
 def detect_contact_conflict(
-    conn, company_id: Optional[str], contact_name: Optional[str], work_email: Optional[str],
+    conn: Conn, company_id: Optional[str], contact_name: Optional[str], work_email: Optional[str],
 ) -> dict:
     """Contact: match (company_id AND contact_name AND email). Match CẢ
     contact đã is_active=false (giả định B)."""
@@ -128,7 +129,7 @@ def detect_contact_conflict(
 
 
 def find_duplicate_contacts(
-    conn,
+    conn: Conn,
     *,
     company_id: Optional[str],
     work_email: Optional[str],

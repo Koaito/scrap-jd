@@ -31,13 +31,14 @@ from scrapjd.api.schemas import (
     AccessTokenOut, ChangePasswordRequest, LoginRequest, RefreshRequest,
     TokenPairOut, UserOut, UserProfileUpdate,
 )
+from scrapjd.db.pg_types import Conn
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _issue_token_pair(conn, user_row, request: Request, session_id: str) -> tuple[str, str]:
+def _issue_token_pair(conn: Conn, user_row, request: Request, session_id: str) -> tuple[str, str]:
     """Sinh CẢ access token lẫn refresh token mới cho 1 user — dùng
     chung cho login lẫn refresh (rotation), tránh lặp code.
 
@@ -66,7 +67,7 @@ def _issue_token_pair(conn, user_row, request: Request, session_id: str) -> tupl
 
 @router.post("/login", response_model=TokenPairOut)
 @limiter.limit("20/minute")
-def login(payload: LoginRequest, request: Request, conn=Depends(get_db)):
+def login(payload: LoginRequest, request: Request, conn: Conn = Depends(get_db)):
     """20/minute theo IP — thêm 08/2026 cùng đợt rà soát rate-limit tổng
     thể (xem scrapjd/api/rate_limit.py). Route công khai duy nhất KHÔNG có giới
     hạn nào trước đó ngoài khoá tài khoản is_account_locked() — nhưng
@@ -167,7 +168,7 @@ def login(payload: LoginRequest, request: Request, conn=Depends(get_db)):
 # (access token 30 phút mới hết hạn 1 lần, không ai cần refresh nhanh
 # hơn thế nhiều).
 @limiter.limit("30/minute")
-def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
+def refresh(payload: RefreshRequest, request: Request, conn: Conn = Depends(get_db)):
     """Xoay vòng refresh token: đổi lấy 1 CẶP token mới (cả access lẫn
     refresh), thu hồi token cũ ngay lập tức. Nếu token gửi lên là 1 token
     ĐÃ BỊ THU HỒI TỪ TRƯỚC (revoked_at đã có giá trị) — đây là dấu hiệu
@@ -301,7 +302,7 @@ def refresh(payload: RefreshRequest, request: Request, conn=Depends(get_db)):
 # 30/minute theo IP — cùng lý do refresh() ở trên (chặn gọi lặp vô ích,
 # không phải vì token đoán được).
 @limiter.limit("30/minute")
-def logout(request: Request, payload: RefreshRequest, conn=Depends(get_db)):
+def logout(request: Request, payload: RefreshRequest, conn: Conn = Depends(get_db)):
     """Đăng xuất — thu hồi ĐÚNG refresh token gửi lên (không đụng tới
     token của thiết bị khác). Không lỗi nếu token không tồn tại/đã thu
     hồi từ trước (đăng xuất nhiều lần vẫn coi là thành công, tránh lộ
@@ -320,7 +321,7 @@ def logout(request: Request, payload: RefreshRequest, conn=Depends(get_db)):
 
 
 @router.get("/me", response_model=UserOut)
-def get_me(user: dict = Depends(get_current_user), conn=Depends(get_db)):
+def get_me(user: dict = Depends(get_current_user), conn: Conn = Depends(get_db)):
     """Thông tin user hiện tại — JWT chỉ chứa sub/role/email, nên vẫn
     cần 1 lượt query DB để lấy đủ field khác (full_name, is_active mới
     nhất...) cho frontend hiển thị, KHÔNG tin tưởng field nào ngoài
@@ -338,7 +339,7 @@ def update_me(
     request: Request,
     payload: UserProfileUpdate,
     user: dict = Depends(get_current_user),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """User TỰ sửa hồ sơ của CHÍNH MÌNH (full_name/phone/track) — thêm
     08/2026 cùng đợt làm trang cá nhân phía frontend. KHÔNG sửa email/
@@ -379,7 +380,7 @@ def change_password(
     request: Request,
     payload: ChangePasswordRequest,
     user: dict = Depends(get_current_user),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Tự đổi mật khẩu. Nếu tài khoản đang must_change_password=True
     (mới tạo/vừa bị reset), CHO PHÉP bỏ qua old_password (người dùng chỉ

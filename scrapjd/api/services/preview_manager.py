@@ -72,6 +72,7 @@ from scrapjd.api.services.entity_specs import (
     get_spec,
 )
 from scrapjd.api.services.validation_engine import ValidationResult, validate_single_field
+from scrapjd.db.pg_types import Conn, fetch_scalar
 
 # Contact: field nào (khi sửa) cần re-check trùng mờ ngay — xem
 # conflict_detector.find_duplicate_contacts() + apply_field_fix() bên
@@ -99,7 +100,7 @@ class PreviewOwnershipError(Exception):
     điệp giống hệt PreviewNotFoundError ở tầng router)."""
 
 
-def build_preview(conn, entity_type: str, validation_result: ValidationResult) -> dict:
+def build_preview(conn: Conn, entity_type: str, validation_result: ValidationResult) -> dict:
     """Chạy company resolution (nếu cần) + conflict detection cho toàn bộ
     cleaned_rows, trả về dict preview_data đúng cấu trúc mô tả ở đầu file
     (CHƯA lưu DB — save_preview() lo phần lưu)."""
@@ -298,7 +299,7 @@ def _needs_resolution(entry: dict) -> bool:
     )
 
 
-def save_preview(conn, *, user_id: str, entity_type: str, preview_data: dict) -> str:
+def save_preview(conn: Conn, *, user_id: str, entity_type: str, preview_data: dict) -> str:
     now = datetime.now(timezone.utc)
     expires_at = now + PREVIEW_TTL
     with conn.cursor() as cur:
@@ -310,10 +311,10 @@ def save_preview(conn, *, user_id: str, entity_type: str, preview_data: dict) ->
             """,
             (user_id, entity_type, json.dumps(preview_data, default=str), now, expires_at),
         )
-        return str(cur.fetchone()[0])
+        return str(fetch_scalar(cur))
 
 
-def get_preview(conn, preview_id: str, *, requesting_user_id: str) -> dict:
+def get_preview(conn: Conn, preview_id: str, *, requesting_user_id: str) -> dict:
     """Trả row đầy đủ (dict) của import_previews, đã check TTL + ownership.
     Raise PreviewNotFoundError/PreviewExpiredError/PreviewOwnershipError
     tương ứng — router quyết định mã lỗi HTTP."""
@@ -337,7 +338,7 @@ def get_preview(conn, preview_id: str, *, requesting_user_id: str) -> dict:
 
 
 def apply_field_fix(
-    conn, preview_row: dict, *, row_index: int, field_name: str, raw_value: str,
+    conn: Conn, preview_row: dict, *, row_index: int, field_name: str, raw_value: str,
 ) -> dict:
     """Sửa TẠI CHỖ 1 field của 1 dòng trong preview_data đang lưu DB, rồi
     lưu lại ngay (KHÔNG đợi staff bấm "Xác nhận nhập dữ liệu" ở bước
@@ -593,7 +594,7 @@ def apply_field_fix(
 
 
 def resolve_company_selection(
-    conn, preview_row: dict, *, row_index: int, company_id: Optional[str],
+    conn: Conn, preview_row: dict, *, row_index: int, company_id: Optional[str],
 ) -> dict:
     """Staff chọn 1 công ty (hoặc "tạo công ty mới") trong modal chọn công
     ty ở bước preview cho dòng conflict_status="pending_company_resolution"
@@ -713,7 +714,7 @@ def _clear_batch_link(rows: list[dict], other_row_index: int, expect_pointer_to:
         other_row["conflict_status"] = "no_conflict"
 
 
-def _save_preview_data(conn, preview_id: str, preview_data: dict) -> None:
+def _save_preview_data(conn: Conn, preview_id: str, preview_data: dict) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE import_previews SET preview_data = %s WHERE preview_id = %s",
@@ -721,12 +722,12 @@ def _save_preview_data(conn, preview_id: str, preview_data: dict) -> None:
         )
 
 
-def delete_preview(conn, preview_id: str) -> None:
+def delete_preview(conn: Conn, preview_id: str) -> None:
     with conn.cursor() as cur:
         cur.execute("DELETE FROM import_previews WHERE preview_id = %s", (preview_id,))
 
 
-def cleanup_expired_previews(conn) -> int:
+def cleanup_expired_previews(conn: Conn) -> int:
     """Xoá mọi preview đã hết hạn — dùng cho scheduled cleanup task
     (Requirement 9). Trả số dòng đã xoá (để log)."""
     with conn.cursor() as cur:

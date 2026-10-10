@@ -7,11 +7,12 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
 
-def create_job_application(conn, *, ss_user_id: str, job_id: str, note: Optional[str] = None, cv_url: Optional[str] = None) -> str:
+def create_job_application(conn: Conn, *, ss_user_id: str, job_id: str, note: Optional[str] = None, cv_url: Optional[str] = None) -> str:
     """Raise psycopg2.errors.UniqueViolation nếu user đã ứng tuyển job
     này rồi (uq_job_applications_user_job) — router bắt lỗi này để trả
     409 thay vì để lộ traceback 500."""
@@ -24,10 +25,10 @@ def create_job_application(conn, *, ss_user_id: str, job_id: str, note: Optional
             """,
             (ss_user_id, job_id, note, cv_url),
         )
-        return str(cur.fetchone()[0])
+        return str(fetch_scalar(cur))
 
 
-def list_applications_for_user(conn, ss_user_id: str):
+def list_applications_for_user(conn: Conn, ss_user_id: str) -> list[Row]:
     """Đơn ứng tuyển của 1 học viên — join thêm job_title/company_name
     để hiển thị trực tiếp, không cần frontend gọi thêm GET /jobs/{id}
     cho từng dòng."""
@@ -45,10 +46,10 @@ def list_applications_for_user(conn, ss_user_id: str):
             """,
             (ss_user_id,),
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def list_applications_for_job(conn, job_id: str):
+def list_applications_for_job(conn: Conn, job_id: str) -> list[Row]:
     """Ai đã ứng tuyển 1 job — staff (ss_team+) dùng để chủ động gửi hồ
     sơ cho HR. Join thêm full_name/email/phone từ app_users (bảng dùng
     chung cho mọi role, xem migration_add_role_hierarchy.sql) để staff
@@ -68,10 +69,10 @@ def list_applications_for_job(conn, job_id: str):
             """,
             (job_id,),
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def delete_job_application(conn, *, ss_user_id: str, job_id: str) -> bool:
+def delete_job_application(conn: Conn, *, ss_user_id: str, job_id: str) -> bool:
     """Huỷ ứng tuyển — DELETE thật (08/2026, đổi ý so với thiết kế ban
     đầu coi ứng tuyển là "sự kiện lịch sử không sửa/xoá" — xem lịch sử
     trao đổi: học viên cần rút lại được nếu bấm nhầm/đổi ý). Không cần
@@ -90,7 +91,7 @@ def delete_job_application(conn, *, ss_user_id: str, job_id: str) -> bool:
         return cur.rowcount > 0
 
 
-def create_saved_job(conn, *, ss_user_id: str, job_id: str) -> str:
+def create_saved_job(conn: Conn, *, ss_user_id: str, job_id: str) -> str:
     """Raise psycopg2.errors.UniqueViolation nếu job đã được lưu rồi
     (uq_saved_jobs_user_job) — router bắt lỗi này để trả 409."""
     with conn.cursor() as cur:
@@ -102,10 +103,10 @@ def create_saved_job(conn, *, ss_user_id: str, job_id: str) -> str:
             """,
             (ss_user_id, job_id),
         )
-        return str(cur.fetchone()[0])
+        return str(fetch_scalar(cur))
 
 
-def list_saved_jobs_for_user(conn, ss_user_id: str):
+def list_saved_jobs_for_user(conn: Conn, ss_user_id: str) -> list[Row]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
             """
@@ -119,10 +120,10 @@ def list_saved_jobs_for_user(conn, ss_user_id: str):
             """,
             (ss_user_id,),
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def list_closed_job_applications_with_cv(conn, limit: Optional[int] = None):
+def list_closed_job_applications_with_cv(conn: Conn, limit: Optional[int] = None) -> list[Row]:
     """Đơn ứng tuyển của job ĐÃ CLOSED mà vẫn còn cv_url (chưa được dọn)
     — dùng cho scrapjd/maintenance/check_expired_source_jobs.py::cleanup_cvs_of_closed_jobs().
 
@@ -152,10 +153,10 @@ def list_closed_job_applications_with_cv(conn, limit: Optional[int] = None):
             cur.execute(query + " LIMIT %s", (limit,))
         else:
             cur.execute(query)
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def clear_application_cv(conn, application_id: str) -> None:
+def clear_application_cv(conn: Conn, application_id: str) -> None:
     """Xoá liên kết cv_url của 1 application sau khi đã dọn file thật
     trên storage (KHÔNG xoá cả dòng job_applications — application vẫn
     còn giá trị lịch sử cho staff xem "học viên nào đã ứng tuyển job
@@ -170,7 +171,7 @@ def clear_application_cv(conn, application_id: str) -> None:
         )
 
 
-def get_application_cv_url(conn, application_id: str) -> Optional[str]:
+def get_application_cv_url(conn: Conn, application_id: str) -> Optional[str]:
     """Đường dẫn CV (path nội bộ trong bucket storage) của 1 application.
     Trả None nếu application không tồn tại HOẶC chưa có CV — người gọi
     (GET /jobs/applications/{id}/cv-url) xử lý chung 2 trường hợp này là
@@ -184,7 +185,7 @@ def get_application_cv_url(conn, application_id: str) -> Optional[str]:
     return row[0] if row and row[0] else None
 
 
-def set_application_cv_url(conn, application_id: str, cv_url: str) -> None:
+def set_application_cv_url(conn: Conn, application_id: str, cv_url: str) -> None:
     """Gắn đường dẫn CV vừa upload lên storage vào application. KHÔNG
     commit — nằm chung transaction với create_job_application() và
     log_action() của POST /me/applications, để upload lỗi thì rollback
@@ -197,7 +198,7 @@ def set_application_cv_url(conn, application_id: str, cv_url: str) -> None:
         )
 
 
-def get_application_with_job_info(conn, *, ss_user_id: str, job_id: str) -> Optional[dict]:
+def get_application_with_job_info(conn: Conn, *, ss_user_id: str, job_id: str) -> Optional[dict]:
     """Đơn ứng tuyển của 1 học viên cho 1 job, kèm job_title/company_id để
     ghi audit log và đường dẫn CV để dọn file khi huỷ ứng tuyển. Trả None nếu
     học viên chưa ứng tuyển job này. Gọi TRƯỚC delete_job_application() vì
@@ -215,7 +216,7 @@ def get_application_with_job_info(conn, *, ss_user_id: str, job_id: str) -> Opti
         return cur.fetchone()
 
 
-def delete_saved_job(conn, *, ss_user_id: str, job_id: str) -> bool:
+def delete_saved_job(conn: Conn, *, ss_user_id: str, job_id: str) -> bool:
     """Bỏ lưu — DELETE thật (không soft-delete, đây chỉ là bookmark,
     không cần giữ lịch sử như company_contacts)."""
     with conn.cursor() as cur:
@@ -226,7 +227,7 @@ def delete_saved_job(conn, *, ss_user_id: str, job_id: str) -> bool:
         return cur.rowcount > 0
 
 
-def list_saved_jobs_for_job(conn, job_id: str):
+def list_saved_jobs_for_job(conn: Conn, job_id: str) -> list[Row]:
     """Ai đã lưu 1 job — staff (ss_team+) dùng để biết job nào đang
     được học viên quan tâm nhiều (kể cả chưa ứng tuyển), từ đó chủ động
     nhắc/hỗ trợ. Mirror ĐÚNG list_applications_for_job() ở trên — join
@@ -245,4 +246,4 @@ def list_saved_jobs_for_job(conn, job_id: str):
             """,
             (job_id,),
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)

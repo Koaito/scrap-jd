@@ -97,6 +97,7 @@ from curl_cffi import requests
 from scrapjd import db
 from scrapjd.api import storage as cv_storage
 from scrapjd.config import DEFAULT_HEADERS
+from scrapjd.db.pg_types import Conn
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                      datefmt="%H:%M:%S")
@@ -155,7 +156,7 @@ class _Throttled404Checker:
             time.sleep(remaining)
 
 
-def cleanup_cvs_of_closed_jobs(conn, dry_run: bool = False) -> dict:
+def cleanup_cvs_of_closed_jobs(conn: Conn, dry_run: bool = False) -> dict:
     """Dọn CV (file PDF trên Supabase Storage + cv_url trong DB) của
     MỌI application thuộc job đang CLOSED — xem docstring đầu file mục
     "DỌN CV". Trả {"cv_cleaned": int, "cv_cleanup_errors": int}.
@@ -207,7 +208,7 @@ def _group_listings_by_job(listings: list) -> dict:
     return by_job
 
 
-def _expire_by_deadline(conn, by_job: dict, today: date, dry_run: bool, stats: dict) -> set:
+def _expire_by_deadline(conn: Conn, by_job: dict, today: date, dry_run: bool, stats: dict) -> set:
     """Nhánh HẠN (C3a), chạy trên LISTING, không đụng mạng: mỗi listing OPEN/UNKNOWN có hạn đã qua thì đóng
     'expired_auto' (db.close_expired_listings), rồi đồng bộ job theo listing (db.sync_job_from_listings): job
     chỉ CLOSED khi không còn listing sống. Một job còn listing khác chưa hết hạn (hoặc không có hạn) vẫn OPEN.
@@ -249,7 +250,7 @@ def _expire_by_deadline(conn, by_job: dict, today: date, dry_run: bool, stats: d
     return closed_jobs
 
 
-def _check_source_urls(conn, checker, by_job: dict, today: date, dry_run: bool, stats: dict) -> None:
+def _check_source_urls(conn: Conn, checker, by_job: dict, today: date, dry_run: bool, stats: dict) -> None:
     """Nhánh MẠNG (C3b), chạy trên LISTING: hỏi từng URL của MỌI listing OPEN/UNKNOWN của job OPEN (không chỉ
     URL hiện hành của job).
 

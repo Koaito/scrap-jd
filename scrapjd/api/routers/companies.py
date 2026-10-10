@@ -17,6 +17,7 @@ from scrapjd.api.schemas import (
     PaginatedCompanies,
     PartnershipSignals,
 )
+from scrapjd.db.pg_types import Conn
 
 router = APIRouter(prefix="/companies", tags=["companies"])
 
@@ -41,7 +42,7 @@ def list_companies(
     ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Rate limit 60/minute theo IP (thêm 08/2026) — cùng lý do với
     GET /jobs (xem scrapjd/api/routers/jobs.py::list_jobs)."""
@@ -52,7 +53,8 @@ def list_companies(
         created_by=created_by, include_inactive=include_inactive,
         limit=limit, offset=offset,
     )
-    return PaginatedCompanies(total=total, limit=limit, offset=offset, items=rows)
+    # items=rows: Pydantic tự validate từng dict thành CompanyOut (mypy không biết điều này).
+    return PaginatedCompanies(total=total, limit=limit, offset=offset, items=rows)  # type: ignore[arg-type]
 
 
 @router.get("/partnership-signals", response_model=dict[str, PartnershipSignals])
@@ -64,7 +66,7 @@ def get_partnership_signals(
         description="Lọc theo 1 hoặc nhiều company_id (?company_id=a&company_id=b). "
                     "Không truyền = tính cho TOÀN BỘ công ty trong DB.",
     ),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """GET /companies/partnership-signals — thay thế cho việc frontend
     (blueprints/companies.py bên mindx-jobs) từng phải gọi
@@ -96,7 +98,7 @@ def get_partnership_signals(
 @limiter.limit("60/minute")
 def get_company_data_health(
     request: Request,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     """GET /companies/data-health — thay thế cho việc frontend
@@ -120,7 +122,7 @@ def get_company_data_health(
 
 
 @router.get("/{company_id}", response_model=CompanyDetailOut)
-def get_company(company_id: str, conn=Depends(get_db)):
+def get_company(company_id: str, conn: Conn = Depends(get_db)):
     if not db_module.is_valid_uuid(company_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.COMPANY_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID.", "params": {"value": company_id}})
     row = db_module.get_company_by_id(conn, company_id)
@@ -133,7 +135,7 @@ def get_company(company_id: str, conn=Depends(get_db)):
 @router.post("", response_model=CompanyCreateResult, status_code=201)
 def create_company(
     payload: CompanyCreate,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     """Tạo công ty THỦ CÔNG — dùng trước POST /jobs khi công ty chưa có
@@ -195,6 +197,7 @@ def create_company(
     conn.commit()
 
     row = db_module.get_company_by_id(conn, company_id)
+    assert row is not None  # công ty vừa tạo (hoặc đã có sẵn khi was_existing) và đã commit ở trên
     # Phần 5 mục 16 của plan: đưa was_existing (đã tính sẵn ở đầu hàm,
     # trước đây bị bỏ đi) vào response — CompanyCreateResult (kế thừa
     # CompanyOut, chỉ dùng riêng cho route này) chấp nhận field ngoài từ
@@ -208,7 +211,7 @@ def create_company(
 def patch_company(
     company_id: str,
     payload: CompanyUpdate,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     """Sửa TỰ DO các field của 1 company đã tồn tại (thêm 08/2026, xem
@@ -279,6 +282,7 @@ def patch_company(
     conn.commit()
 
     row = db_module.get_company_by_id(conn, company_id)
+    assert row is not None  # `existing` ở trên đã xác nhận công ty tồn tại
     jobs = db_module.get_jobs_by_company_id(conn, company_id)
     return {**row, "jobs": jobs}
 
@@ -287,7 +291,7 @@ def patch_company(
 def delete_company(
     company_id: str,
     payload: CompanyDeleteRequest,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     """Xoá MỀM company (is_active=false) — thêm 08/2026, xem

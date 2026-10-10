@@ -15,6 +15,7 @@ from scrapjd.api.schemas import JobApplicantOut, JobCreate, JobCreateResult, Job
 # mà hằng số này vẫn là dict thật — cùng cách contacts.py import ContactHasLinksError.
 from scrapjd.db.job_dedup_lock import JobDedupLockTimeout
 from scrapjd.db.jobs import JOB_CLEARABLE_FIELD_TO_COLUMN
+from scrapjd.db.pg_types import Conn
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -83,7 +84,7 @@ def list_jobs(
                     "nếu vi phạm) — 2 tham số phục vụ 2 chế độ phân trang khác "
                     "nhau ở frontend (xem PaginatedJobs.next_cursor).",
     ),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Danh sách job, hỗ trợ filter + phân trang. Không filter gì -> trả
     toàn bộ job, mới nhất trước.
@@ -163,12 +164,13 @@ def list_jobs(
         include_content=include_content,
     )
     next_cursor = _encode_cursor(*next_cursor_tuple) if next_cursor_tuple else None
-    return PaginatedJobs(total=total, limit=limit, offset=offset, items=rows, next_cursor=next_cursor)
+    # items=rows: Pydantic tự validate từng dict thành JobOut (mypy không biết điều này).
+    return PaginatedJobs(total=total, limit=limit, offset=offset, items=rows, next_cursor=next_cursor)  # type: ignore[arg-type]
 
 
 @router.get("/data-health", response_model=JobDataHealth)
 @limiter.limit("60/minute")
-def get_job_data_health(request: Request, conn=Depends(get_db)):
+def get_job_data_health(request: Request, conn: Conn = Depends(get_db)):
     """GET /jobs/data-health — thay thế cho việc frontend
     (blueprints/crawl_status.py bên mindx-jobs, tab "Tình trạng dữ
     liệu") từng phải gọi list_all_jobs(include_content=True) — kéo
@@ -211,7 +213,7 @@ def get_cv_signed_url(
     request: Request,
     application_id: str,
     user: dict = Depends(require_role("ss_team")),  # Chỉ Staff / Admin mới có quyền lấy
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Staff lấy Signed URL để tải và xem CV học viên.
 
@@ -235,7 +237,7 @@ def get_cv_signed_url(
 
 
 @router.get("/{job_id}", response_model=JobDetailOut)
-def get_job(job_id: str, conn=Depends(get_db)):
+def get_job(job_id: str, conn: Conn = Depends(get_db)):
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.JOB_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID.", "params": {"value": job_id}})
     row = db_module.get_job_by_id(conn, job_id)
@@ -247,7 +249,7 @@ def get_job(job_id: str, conn=Depends(get_db)):
 @router.post("", response_model=JobCreateResult, status_code=201)
 def create_job(
     payload: JobCreate,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     """Tạo 1 job THỦ CÔNG (không qua crawl) — company_id PHẢI đã tồn tại
@@ -368,6 +370,7 @@ def create_job(
     conn.commit()
 
     row = db_module.get_job_by_id(conn, job_id)
+    assert row is not None  # job vừa tạo (hoặc job cũ khi was_duplicate) và đã commit ở trên
     # Job đang mở khác cùng khoá (khác level) để client cảnh báo. Đọc sau khi đã
     # commit, bỏ chính job trả về (job mới tạo, hoặc job cũ khi was_duplicate).
     similar_jobs = db_module.find_similar_open_jobs(
@@ -383,7 +386,7 @@ def create_job(
 def patch_job(
     job_id: str,
     payload: JobUpdate,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     """Sửa TỰ DO các field của 1 job đã tồn tại (crawl hay nhập tay đều
@@ -522,7 +525,7 @@ def patch_job(
 def list_job_applications(
     job_id: str,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Ai đã ứng tuyển job này — role 'ss_team' trở lên (giống contacts,
     thông tin full_name/email người ứng tuyển được coi là nhạy cảm
@@ -540,7 +543,7 @@ def list_job_applications(
 def list_job_savers(
     job_id: str,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Thêm 08/2026 — mirror ĐÚNG list_job_applications() ở trên nhưng
     cho chiều 'lưu' thay vì 'ứng tuyển': ai đã lưu (bookmark) job này,

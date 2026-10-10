@@ -20,6 +20,7 @@ from scrapjd.api import error_codes
 from scrapjd.api.deps import get_db, require_role
 from scrapjd.api.rate_limit import get_user_id_or_ip, limiter
 from scrapjd.api.schemas import CompanyInsightsOut, MonthlyInsightsOut, StudentInsightsOut
+from scrapjd.db.pg_types import Conn
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
@@ -46,7 +47,7 @@ def _pct_change(current: int, previous: int):
 def get_student_insights(
     request: Request,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Tab "Gợi ý học viên": JD sắp hết hạn cần đẩy (deadline còn 7-14
     ngày, chưa ai lưu/ứng tuyển), JD "ế" (thu thập >= 30 ngày, chưa ai
@@ -70,7 +71,7 @@ def get_company_insights(
                     "7 | 14 | 30 (mặc định 14), giá trị khác trả 400.",
     ),
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Tab "Doanh nghiệp": công ty tiềm năng cao thiếu/nguội contact,
     contact cần follow-up (im lặng >= followup_days), công ty đang "nở rộ"
@@ -102,7 +103,7 @@ def get_company_insights(
 def get_monthly_insights(
     request: Request,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Tab "Báo cáo tháng": số job/công ty mới + % so với tháng trước, job
     hết hạn trong tháng, top 3 ngành + top 5 công ty tuyển nhiều nhất

@@ -16,6 +16,7 @@ from scrapjd.config import DEGRADED_EMPTY_RATE
 from scrapjd.field_stats import WARN_MIN_SAMPLES, EmptyFieldCounter, degraded_reasons
 from scrapjd.models import RawJobRecord
 from scrapjd.pipeline_stats import PipelineStats
+from scrapjd.db.pg_types import Conn
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ def _build_parsed_content_and_raw(job_detail: dict):
     return parsed_content, raw_jd_content
 
 
-def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: PipelineStats,
+def _handle_existing_job(adapter: BaseAdapter, conn: Conn, raw, job_probe, stats: PipelineStats,
                           field_counter: "EmptyFieldCounter | None" = None) -> None:
     """Xử lý job ĐÃ TỪNG crawl trước đó (source_url trùng) — tách ra từ
     run_pipeline() (08/2026, xem lịch sử trao đổi refactor scrapjd/pipeline.py)
@@ -129,7 +130,7 @@ def _handle_existing_job(adapter: BaseAdapter, conn, raw, job_probe, stats: Pipe
     stats.skipped_duplicate += 1
 
 
-def _resolve_company(adapter: BaseAdapter, conn, raw, company_name: str, province_id) -> str:
+def _resolve_company(adapter: BaseAdapter, conn: Conn, raw, company_name: str, province_id) -> str:
     """Tìm hoặc tạo company ứng với job đang xử lý, kèm enrich profile
     nếu cần — tách ra từ run_pipeline() (08/2026, xem docstring
     _handle_existing_job() ở trên để biết lý do tách chung), nguyên bản
@@ -193,7 +194,7 @@ def _resolve_company(adapter: BaseAdapter, conn, raw, company_name: str, provinc
     return company_id
 
 
-def _release_read_transaction(conn) -> None:
+def _release_read_transaction(conn: Conn) -> None:
     """Đóng transaction mà một câu SELECT vừa mở, TRƯỚC khi chờ mạng.
 
     Kết nối chạy autocommit=False nên chỉ một câu SELECT cũng mở transaction và
@@ -208,7 +209,7 @@ def _release_read_transaction(conn) -> None:
     conn.rollback()
 
 
-def _make_known_url_checker(conn, on_known_skipped=None):
+def _make_known_url_checker(conn: Conn, on_known_skipped=None):
     """Hàm kiểm tra cho BaseAdapter.set_known_url_checker(): True khi URL
     đã có trong DB VÀ không cần vá nữa (đủ work_type/deadline/
     parsed_content) — dùng cùng tiêu chí db.job_needs_detail_enrichment()
@@ -241,7 +242,7 @@ def _make_known_url_checker(conn, on_known_skipped=None):
     return checker
 
 
-def _import_repost(conn, raw, candidate: dict, deadline, raw_jd_content,
+def _import_repost(conn: Conn, raw, candidate: dict, deadline, raw_jd_content,
                     stats: PipelineStats) -> None:
     """Nhánh "tin đăng lại" (bước 3c): URL mới nhưng trùng company + title + province
     (không xét level, xét cả job đã CLOSED, xem db.find_repost_candidate) với job đã có
@@ -312,7 +313,7 @@ def _jd_looks_truncated(parsed_content) -> bool:
     )
 
 
-def _find_job_by_job_code(adapter: BaseAdapter, conn, raw, stats: PipelineStats):
+def _find_job_by_job_code(adapter: BaseAdapter, conn: Conn, raw, stats: PipelineStats):
     """Tìm job đã lưu CÙNG MÃ JOB với URL mới này, để cập nhật thay vì tạo job trùng.
 
     Bối cảnh (VietnamWorks): nhà tuyển dụng sửa tiêu đề tin thì URL đổi (phần chữ
@@ -363,7 +364,7 @@ def _find_job_by_job_code(adapter: BaseAdapter, conn, raw, stats: PipelineStats)
     return None
 
 
-def _update_job_by_job_code(conn, raw, match, *, level_code: str, level_source: str,
+def _update_job_by_job_code(conn: Conn, raw, match, *, level_code: str, level_source: str,
                              level_signals: dict, salary, work_type, deadline, parsed_content, raw_jd_content,
                              stats: PipelineStats) -> None:
     """Nhánh "cùng mã job, tiêu đề còn gần giống" (xem _find_job_by_job_code): cập
@@ -438,7 +439,7 @@ def _update_job_by_job_code(conn, raw, match, *, level_code: str, level_source: 
         )
 
 
-def _insert_new_job(conn, raw, *, company_id, level_id, province_id, work_type, salary,
+def _insert_new_job(conn: Conn, raw, *, company_id, level_id, province_id, work_type, salary,
                      deadline, parsed_content, raw_jd_content, level_code: str,
                      level_source: str, level_signals: dict, company_name: str,
                      stats: PipelineStats) -> None:
@@ -499,7 +500,7 @@ class _DedupContext:
     """Mọi thứ một resolver có thể cần cho job đang xử lý. Các trường company_id,
     province_id, level_id là None ở giai đoạn BEFORE_COMPANY, có giá trị ở AFTER_COMPANY."""
     adapter: BaseAdapter
-    conn: object
+    conn: Conn
     raw: RawJobRecord
     stats: PipelineStats
     level_code: str
@@ -602,7 +603,7 @@ def _run_dedup_stage(resolvers, stage: str, ctx: _DedupContext) -> bool:
     return any(r.resolve(ctx) for r in resolvers if r.stage == stage)
 
 
-def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
+def _import_new_job(adapter: BaseAdapter, conn: Conn, raw, stats: PipelineStats,
                      field_counter: EmptyFieldCounter) -> None:
     """Xử lý job CHƯA từng crawl (source_url chưa có trong DB): chuẩn hoá, lọc
     nhà tuyển dụng ẩn danh, fetch chi tiết, tìm/tạo company, rồi hoặc ghi
@@ -704,7 +705,7 @@ def _import_new_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     )
 
 
-def _process_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
+def _process_job(adapter: BaseAdapter, conn: Conn, raw, stats: PipelineStats,
                   field_counter: EmptyFieldCounter) -> None:
     """Xử lý 1 job adapter trả về. Tách ra từ _process_jobs() (đợt B2,
     10/2026), KHÔNG đổi hành vi.
@@ -724,7 +725,7 @@ def _process_job(adapter: BaseAdapter, conn, raw, stats: PipelineStats,
     _import_new_job(adapter, conn, raw, stats, field_counter)
 
 
-def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
+def _process_jobs(adapter: BaseAdapter, conn: Conn, category_key: str, max_pages: int,
                    max_jobs: "int | None", stats: PipelineStats,
                    field_counter: EmptyFieldCounter, _emit_progress) -> None:
     """Vòng lặp xử lý từng job adapter trả về — tách ra từ run_pipeline() (đợt
@@ -787,7 +788,7 @@ def _process_jobs(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
             _emit_progress()
 
 
-def run_pipeline(adapter: BaseAdapter, conn, category_key: str, max_pages: int,
+def run_pipeline(adapter: BaseAdapter, conn: Conn, category_key: str, max_pages: int,
                   max_jobs: "int | None" = None, on_progress=None) -> dict:
     """
     max_jobs: giới hạn TỔNG SỐ JD sẽ crawl (đếm theo raw record nhận được

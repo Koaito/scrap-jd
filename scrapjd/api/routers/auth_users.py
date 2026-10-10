@@ -24,6 +24,7 @@ from scrapjd.api.schemas import (
     JobApplicationOut, SavedJobOut, UserActiveStatusUpdate,
     UserCreateByAdmin, UserCreatedOut, UserOut, UserRoleUpdate,
 )
+from scrapjd.db.pg_types import Conn
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -32,7 +33,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def create_user(
     payload: UserCreateByAdmin,
     admin: dict = Depends(require_admin),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """CHỈ admin gọi được (require_admin). Mật khẩu TẠM được server tự
     sinh, trả về ĐÚNG 1 LẦN trong response này — admin tự đưa cho người
@@ -67,7 +68,7 @@ def create_user(
 @router.get("/users", response_model=list[UserOut])
 def list_users(
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Danh sách toàn bộ tài khoản (thêm 08/2026) — ss_team trở lên xem
     được (khác POST /auth/users tạo tài khoản, vẫn admin-only), dùng cho
@@ -79,7 +80,7 @@ def list_users(
 def get_user(
     ss_user_id: str,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Thêm 10/2026 — xem đúng 1 tài khoản, shape GIỐNG HỆT 1 phần tử của
     GET /auth/users, cùng quyền (ss_team trở lên, ss_team xem được cả
@@ -101,7 +102,7 @@ def get_user(
 def list_applications_of_user(
     ss_user_id: str,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Thêm 08/2026 — chiều "1 học viên đã ứng tuyển job nào", để bổ
     sung cho GET /jobs/{job_id}/applications (chiều ngược lại, "1 job
@@ -125,7 +126,7 @@ def list_applications_of_user(
 def list_saved_jobs_of_user(
     ss_user_id: str,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Thêm 08/2026 — mirror ĐÚNG list_applications_of_user() ở trên
     nhưng cho chiều "lưu" thay vì "ứng tuyển": 1 học viên đã lưu
@@ -147,7 +148,7 @@ def update_user_role(
     ss_user_id: str,
     payload: UserRoleUpdate,
     admin: dict = Depends(require_admin),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """CHỈ admin gọi được. Đổi role của 1 user khác — CHẶN admin tự đổi
     role CHÍNH MÌNH (tránh tự khoá mình khỏi quyền admin do bấm nhầm;
@@ -179,7 +180,7 @@ def update_user_active_status(
     ss_user_id: str,
     payload: UserActiveStatusUpdate,
     admin: dict = Depends(require_admin),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """CHỈ admin gọi được. Khoá/mở khoá VĨNH VIỄN 1 tài khoản khác —
     CHẶN admin tự khoá CHÍNH MÌNH (cùng lý do với update_user_role() ở

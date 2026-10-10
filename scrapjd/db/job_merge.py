@@ -12,12 +12,14 @@ con là hàm THUẦN ở scrapjd/cli/merge_duplicates.py; ở đây chỉ chạy
 
 from typing import Any, Optional
 
+from psycopg2.extensions import cursor
 from psycopg2.extras import Json
 
 from scrapjd.db.audit_logs import log_action
 from scrapjd.db.job_level_recompute import SKIP_UPDATED_AT_SETTING
 from scrapjd.db.job_sync import sync_job_from_listings
 from scrapjd.db.listing_state import close_job_listings, set_job_listings_deadline
+from scrapjd.db.pg_types import Conn, fetch_scalar
 
 # Cột của job_postings cần để lập kế hoạch gộp. Khác db.list_duplicate_job_rows (3a): lấy đủ các
 # khối cần hợp nhất (lương, hạn, trạng thái, level + dấu, ghi chú), không lấy tên công ty/tỉnh.
@@ -34,7 +36,7 @@ _LOG_COLUMNS = ("log_id", "source_url", "listing_status", "deadline", "first_see
                 "closed_reason", "closed_at")
 
 
-def _fetch_merge_job_details(conn, job_ids: list) -> dict:
+def _fetch_merge_job_details(conn: Conn, job_ids: list) -> dict:
     """Thân của list_merge_job_details, KHÔNG đóng transaction (merge_job_group dùng trong khi
     đang giữ khoá dòng). Xem list_merge_job_details cho định dạng kết quả."""
     ids = [str(j) for j in dict.fromkeys(job_ids)]
@@ -113,7 +115,7 @@ def _fetch_merge_job_details(conn, job_ids: list) -> dict:
     return out
 
 
-def list_merge_job_details(conn, job_ids: list) -> dict:
+def list_merge_job_details(conn: Conn, job_ids: list) -> dict:
     """{job_id (str): dict} cho các job trong `job_ids`, mỗi dict gồm:
 
       - _JOB_COLUMNS (has_editor = updated_by IS NOT NULL; has_notes = ss_team_notes không rỗng);
@@ -135,7 +137,7 @@ def list_merge_job_details(conn, job_ids: list) -> dict:
 # ----------------------------------------------------------------------
 # Kiểm tra sẵn sàng
 # ----------------------------------------------------------------------
-def merge_job_enum_supported(conn) -> bool:
+def merge_job_enum_supported(conn: Conn) -> bool:
     """True nếu audit_action_enum đã có giá trị 'MERGE_JOB' (sql/migration_add_merge_job_audit_action.sql).
     Thiếu thì log_action(MERGE_JOB) sẽ lỗi ở giữa lúc gộp nên --apply từ chối ngay từ đầu."""
     with conn.cursor() as cur:
@@ -148,7 +150,7 @@ def merge_job_enum_supported(conn) -> bool:
     return found
 
 
-def list_active_runs(conn) -> list:
+def list_active_runs(conn: Conn) -> list:
     """Các lượt crawl (crawl_runs) và bảo trì (maintenance_runs) đang 'queued'/'running', mỗi
     phần tử {kind, run_id, label, status, age_minutes}. Bảng chưa tồn tại (DB chưa migrate) thì
     bỏ qua bảng đó. CHỈ ĐỌC; đóng transaction đọc trước khi trả.
@@ -162,7 +164,7 @@ def list_active_runs(conn) -> list:
             ("bảo trì", "maintenance_runs", "job_type::text"),
         ):
             cur.execute("SELECT to_regclass(%s)", (f"public.{table}",))
-            if cur.fetchone()[0] is None:
+            if fetch_scalar(cur) is None:
                 continue
             cur.execute(
                 f"SELECT run_id, {label_sql}, status::text, "
@@ -211,16 +213,16 @@ _CHILD_ID_COLUMNS = {
 }
 
 
-def _norm_status(value) -> Optional[str]:
+def _norm_status(value: Optional[str]) -> Optional[str]:
     return (value or "").strip() or None
 
 
-def _expect_rows(cur, expected: int, what: str) -> None:
+def _expect_rows(cur: cursor, expected: int, what: str) -> None:
     if cur.rowcount != expected:
         raise MergeIntegrityError(f"{what}: ghi {cur.rowcount} dòng, kế hoạch dự kiến {expected}")
 
 
-def _rows_by_job(cur, sql: str, donors: list) -> list:
+def _rows_by_job(cur: cursor, sql: str, donors: list[str]) -> list[tuple[str, str, Any]]:
     """[(job_id str, id str, row dict)] — to_jsonb của từng dòng con của các job phụ."""
     cur.execute(sql, (donors,))
     return [(str(r[0]), str(r[1]), r[2]) for r in cur.fetchall()]
@@ -241,7 +243,7 @@ def _split(rows: list, donor: str, move_ids: list, drop_ids: list) -> tuple:
             [r for j, i, r in rows if j == donor and i in drop])
 
 
-def merge_job_group(conn, *, keeper_id: str, donor_ids: list, expected: dict, changes: dict,
+def merge_job_group(conn: Conn, *, keeper_id: str, donor_ids: list, expected: dict, changes: dict,
                     child: dict, derived_changes: Optional[dict], conflicts: Optional[list] = None,
                     notes: Optional[list] = None, listing_actions: Optional[dict] = None,
                     actor_id: Optional[str] = None, lock_timeout_ms: int = 10_000) -> dict:
@@ -433,7 +435,7 @@ def merge_job_group(conn, *, keeper_id: str, donor_ids: list, expected: dict, ch
         # --- 5. không còn gì trỏ vào job phụ thì mới xoá
         for table in _CHILD_ID_COLUMNS:
             cur.execute(f"SELECT count(*) FROM {table} WHERE job_id = ANY(%s::uuid[])", (donors,))
-            left = cur.fetchone()[0]
+            left = fetch_scalar(cur)
             if left:
                 raise MergeIntegrityError(f"{table} còn {left} dòng trỏ vào job phụ, không xoá job")
         cur.execute("DELETE FROM job_postings WHERE job_id = ANY(%s::uuid[])", (donors,))

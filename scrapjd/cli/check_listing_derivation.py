@@ -27,6 +27,7 @@ from typing import Any, Optional
 
 from scrapjd import db
 from scrapjd.db.job_derivation import DerivedJob, derive_job_from_listings
+from scrapjd.db.pg_types import Conn
 
 DEFAULT_SHOW = 5
 FIELDS = ("job_status", "closed_reason", "deadline", "source_url")
@@ -166,7 +167,7 @@ def write_csv(rep: Report, fh) -> int:
     return len(rep.mismatches)
 
 
-def run(conn, *, show: int = DEFAULT_SHOW, csv_path: Optional[str] = None, strict: bool = False) -> int:
+def run(conn: Conn, *, show: int = DEFAULT_SHOW, csv_path: Optional[str] = None, strict: bool = False) -> int:
     """Chạy trên một kết nối. Chỉ SELECT. Trả exit code: 0 xong; 2 nếu strict và còn lệch."""
     jobs = db.list_jobs_with_listings(conn)
     rep = build_report(jobs)

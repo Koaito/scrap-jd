@@ -51,6 +51,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from scrapjd import db as db_module
 from scrapjd.api import error_codes
 from scrapjd.api import security
+from scrapjd.db.pg_types import Conn
 
 
 def get_db() -> Iterator:
@@ -87,7 +88,7 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ) -> dict:
     """Verify JWT access token trong header `Authorization: Bearer
     <token>`, trả payload (dict có 'sub'=ss_user_id, 'role', 'email',

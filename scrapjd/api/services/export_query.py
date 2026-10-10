@@ -24,6 +24,7 @@ from typing import Any, Optional
 import psycopg2.extras
 
 from scrapjd.api.services.entity_specs import get_spec
+from scrapjd.db.pg_types import Conn, fetch_all_rows, fetch_scalar
 
 
 # Việt Nam dùng UTC+7 quanh năm (không có giờ mùa hè từ 1975) nên dùng offset cố
@@ -136,7 +137,7 @@ def _build_where(
     return where, params
 
 
-def query_jobs_for_export(conn, filters: Optional[ExportFilters] = None) -> list[dict]:
+def query_jobs_for_export(conn: Conn, filters: Optional[ExportFilters] = None) -> list[dict]:
     """Không truyền filters (hoặc mọi field None) = lấy toàn bộ job mọi
     trạng thái — TRƯỚC ĐÂY hard-code WHERE job_status='OPEN', giờ 'OPEN'
     chỉ còn là 1 lựa chọn filters.status, KHÔNG còn mặc định ẩn (staff tự
@@ -171,11 +172,11 @@ def query_jobs_for_export(conn, filters: Optional[ExportFilters] = None) -> list
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(query, params)
-        rows = cur.fetchall()
+        rows = fetch_all_rows(cur)
     return _format_rows(rows, "job")
 
 
-def query_companies_for_export(conn, filters: Optional[ExportFilters] = None) -> list[dict]:
+def query_companies_for_export(conn: Conn, filters: Optional[ExportFilters] = None) -> list[dict]:
     """Không filter is_active = lấy cả company đã soft-delete (giữ đúng
     hành vi cũ) — is_active có mặt trong export_columns để người xem
     file tự biết trạng thái; staff có thể tự lọc is_active=true ở bước
@@ -206,11 +207,11 @@ def query_companies_for_export(conn, filters: Optional[ExportFilters] = None) ->
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(query, params)
-        rows = cur.fetchall()
+        rows = fetch_all_rows(cur)
     return _format_rows(rows, "company")
 
 
-def query_contacts_for_export(conn, filters: Optional[ExportFilters] = None) -> list[dict]:
+def query_contacts_for_export(conn: Conn, filters: Optional[ExportFilters] = None) -> list[dict]:
     """Không filter is_active = lấy cả contact đã soft-delete (giữ đúng
     hành vi cũ)."""
     filters = filters or ExportFilters()
@@ -238,7 +239,7 @@ def query_contacts_for_export(conn, filters: Optional[ExportFilters] = None) -> 
     """
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(query, params)
-        rows = cur.fetchall()
+        rows = fetch_all_rows(cur)
     return _format_rows(rows, "contact")
 
 
@@ -294,7 +295,7 @@ _COUNT_TABLE_SPECS = {
 }
 
 
-def count_rows_for_export(conn, entity_type: str, filters: ExportFilters) -> int:
+def count_rows_for_export(conn: Conn, entity_type: str, filters: ExportFilters) -> int:
     """Đếm tổng số dòng khớp filters (KHÔNG áp filters.limit — limit là
     "lấy N dòng đầu SAU khi lọc", nên tổng số dòng thực tế lọc được vẫn
     cần hiện đúng cho staff biết, dù cuối cùng chỉ tải N dòng)."""
@@ -308,7 +309,7 @@ def count_rows_for_export(conn, entity_type: str, filters: ExportFilters) -> int
     )
     with conn.cursor() as cur:
         cur.execute(f"SELECT COUNT(*) FROM {table} {where}", params)
-        return cur.fetchone()[0]
+        return fetch_scalar(cur)
 
 
 QUERY_FUNCS = {

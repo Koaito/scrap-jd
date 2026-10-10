@@ -9,6 +9,7 @@ Nơi dùng: pipeline._process_job (crawl), db.create_manual_job và route POST /
 from typing import Optional
 
 from psycopg2 import errors as pg_errors
+from scrapjd.db.pg_types import Conn, fetch_scalar
 
 # Thời gian tối đa chờ khoá chống trùng (mili giây). Mỗi job crawl chỉ giữ khoá vài chục mili giây
 # (tra rồi insert rồi commit), nên chờ lâu hơn vậy nghĩa là có chuyện bất thường (một kết nối đứng
@@ -24,7 +25,7 @@ class JobDedupLockTimeout(Exception):
     đánh dấu lỗi: PHẢI rollback trước khi dùng kết nối tiếp (pipeline đã làm vậy ở vòng lặp job)."""
 
 
-def lock_job_dedup_key(conn, *, company_id: str, job_title: str, province_id: Optional[int],
+def lock_job_dedup_key(conn: Conn, *, company_id: str, job_title: str, province_id: Optional[int],
                        timeout_ms: int = JOB_DEDUP_LOCK_TIMEOUT_MS) -> None:
     """Giành khoá advisory CẤP TRANSACTION theo khoá chống trùng (job_postings.dedup_key = công ty +
     tiêu đề chuẩn hoá + tỉnh, xem sql/0039_add_job_dedup_key.sql) để bước "tra trùng rồi insert" của
@@ -56,7 +57,7 @@ def lock_job_dedup_key(conn, *, company_id: str, job_title: str, province_id: Op
                            "sẽ nhả ngay sau câu lệnh nên không bảo vệ được gì.")
     with conn.cursor() as cur:
         cur.execute("SELECT current_setting('lock_timeout')")
-        previous = cur.fetchone()[0]
+        previous = fetch_scalar(cur)
         cur.execute("SELECT set_config('lock_timeout', %s, true)", (f"{int(timeout_ms)}ms",))
         try:
             cur.execute(

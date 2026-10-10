@@ -27,6 +27,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn
 
 SIMILARITY_THRESHOLD = 0.3
 MAX_SUGGESTIONS = 5
@@ -49,7 +50,7 @@ class CompanyResolution:
     suggestions: Optional[list[CompanySuggestion]] = None
 
 
-def resolve_company(conn, company_name: Optional[str], tax_id: Optional[str] = None) -> CompanyResolution:
+def resolve_company(conn: Conn, company_name: Optional[str], tax_id: Optional[str] = None) -> CompanyResolution:
     company_name = (company_name or "").strip()
     tax_id = (tax_id or "").strip() or None
 
@@ -84,7 +85,7 @@ def resolve_company(conn, company_name: Optional[str], tax_id: Optional[str] = N
     return CompanyResolution(status="needs_resolution", suggestions=suggestions)
 
 
-def get_company(conn, company_id: str) -> Optional[dict]:
+def get_company(conn: Conn, company_id: str) -> Optional[dict]:
     """Tra 1 company theo company_id — dùng cho resolve-company (staff tự
     chọn 1 công ty trong modal ở bước preview, xem preview_manager.py::
     resolve_company_selection()) khi cần biết TÊN THẬT của company vừa
@@ -102,7 +103,7 @@ def get_company(conn, company_id: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def suggest_companies(conn, company_name: str) -> list[CompanySuggestion]:
+def suggest_companies(conn: Conn, company_name: str) -> list[CompanySuggestion]:
     """Gợi ý company có tên TƯƠNG TỰ company_name, dùng pg_trgm
     similarity() — cần extension pg_trgm + index gin_trgm_ops (xem
     sql/migration_add_import_export.sql). Trả cả company đã inactive

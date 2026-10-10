@@ -6,11 +6,12 @@ import logging
 from typing import Optional
 
 from scrapjd.province_alias import resolve_province_alias
+from scrapjd.db.pg_types import Conn
 
 logger = logging.getLogger(__name__)
 
 
-def get_province_id(conn, province_name: str) -> Optional[int]:
+def get_province_id(conn: Conn, province_name: str) -> Optional[int]:
     """Tra cứu province_id THEO TÊN, KHÔNG BAO GIỜ insert dòng mới.
 
     `provinces` là bảng CỨNG (fixed lookup table) — chỉ được nạp dữ liệu
@@ -85,7 +86,7 @@ def get_province_id(conn, province_name: str) -> Optional[int]:
 get_or_create_province = get_province_id
 
 
-def get_level_id(conn, level_code: str) -> Optional[int]:
+def get_level_id(conn: Conn, level_code: str) -> Optional[int]:
     with conn.cursor() as cur:
         cur.execute("SELECT level_id FROM levels WHERE level_code = %s", (level_code,))
         row = cur.fetchone()

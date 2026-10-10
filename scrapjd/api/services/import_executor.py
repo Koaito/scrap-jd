@@ -20,6 +20,7 @@ from scrapjd.api.services import company_resolver, conflict_detector
 from scrapjd.api.services.entity_specs import check_cross_field_rules, get_spec
 from scrapjd.api.services.validation_engine import validate_single_field
 from scrapjd.constants import LEVEL_CODE_VALUES
+from scrapjd.db.pg_types import Conn, fetch_scalar
 
 
 BATCH_PROPAGATING_ACTIONS: dict[str, dict[str, str]] = {
@@ -79,7 +80,7 @@ class ImportSummary:
 
 
 def execute_import(
-    conn,
+    conn: Conn,
     *,
     entity_type: str,
     preview_rows: list[dict],
@@ -421,7 +422,7 @@ def _expand_conflict_in_batch_resolutions(
     return expanded
 
 
-def _apply_conflict_action(conn, entity_type, data, existing, status, action, resolution, actor_id, summary):
+def _apply_conflict_action(conn: Conn, entity_type, data, existing, status, action, resolution, actor_id, summary):
     if action == "skip":
         summary.skipped += 1
         return
@@ -511,7 +512,7 @@ def _apply_field_fixes(entity_type: str, row: dict, data: dict, resolution: dict
         raise RowResolutionError(err["message"])
 
 
-def _recheck_conflict(conn, entity_type, data) -> tuple[str, Optional[dict]]:
+def _recheck_conflict(conn: Conn, entity_type, data) -> tuple[str, Optional[dict]]:
     if entity_type == "job":
         # Dùng TÊN CÔNG TY THẬT (tra theo company_id staff vừa chọn ở
         # bước preview, xem preview_manager.resolve_company_selection()),
@@ -547,7 +548,7 @@ def _recheck_conflict(conn, entity_type, data) -> tuple[str, Optional[dict]]:
     return result["conflict_status"], result.get("existing_record")
 
 
-def _create_row(conn, entity_type, data, row, resolution, actor_id):
+def _create_row(conn: Conn, entity_type, data, row, resolution, actor_id):
     if entity_type == "company":
         province_id = (
             db_module.get_or_create_province(conn, data["province_name"])
@@ -571,7 +572,7 @@ def _create_row(conn, entity_type, data, row, resolution, actor_id):
                     actor_id, actor_id,
                 ),
             )
-            return str(cur.fetchone()[0])
+            return str(fetch_scalar(cur))
 
     if entity_type == "job":
         company_id = data.get("company_id") or _resolve_company_id_for_create(conn, data, actor_id)
@@ -614,7 +615,7 @@ def _create_row(conn, entity_type, data, row, resolution, actor_id):
     raise ValueError(f"entity_type không hợp lệ: {entity_type!r}")
 
 
-def _resolve_company_id_for_create(conn, data, actor_id) -> str:
+def _resolve_company_id_for_create(conn: Conn, data, actor_id) -> str:
     """Dòng Job/Contact ở trạng thái no_conflict — company đã resolved
     (exact match tax_id/tên) lúc build preview, company_id nằm trong
     company_resolution chứ không phải data['company_id'] trực tiếp (xem
@@ -626,7 +627,7 @@ def _resolve_company_id_for_create(conn, data, actor_id) -> str:
     )
 
 
-def _update_row(conn, entity_type, data, existing, resolution, actor_id, *, reactivate: bool):
+def _update_row(conn: Conn, entity_type, data, existing, resolution, actor_id, *, reactivate: bool):
     if entity_type == "company":
         company_id = existing[get_spec(entity_type).id_field]
         province_id = (

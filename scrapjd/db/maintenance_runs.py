@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class ActiveMaintenanceRunExistsError(Exception):
     bắt CẢ 2 loại lỗi (xem scrapjd/api/routers/maintenance.py)."""
 
 
-def create_run(conn, *, job_type: str, params: dict,
+def create_run(conn: Conn, *, job_type: str, params: dict,
                 triggered_by: Optional[str]) -> str:
     """Tạo 1 dòng maintenance_runs mới, status='queued', trả về run_id
     (str). Tự commit ngay — gọi TRƯỚC KHI add background task, đối xứng
@@ -64,12 +65,12 @@ def create_run(conn, *, job_type: str, params: dict,
             """,
             (job_type, json.dumps(params, ensure_ascii=False), triggered_by),
         )
-        run_id = str(cur.fetchone()[0])
+        run_id = str(fetch_scalar(cur))
     conn.commit()
     return run_id
 
 
-def append_log(conn, run_id: str, level: str, message: str) -> None:
+def append_log(conn: Conn, run_id: str, level: str, message: str) -> None:
     """Thêm 1 dòng log live cho run_id — gọi từ logging.Handler gắn tạm
     thời trong execute() (xem scrapjd/api/run_log.py::capture_run_logs),
     đối xứng db.crawl_runs.append_log()."""
@@ -81,7 +82,7 @@ def append_log(conn, run_id: str, level: str, message: str) -> None:
     conn.commit()
 
 
-def get_logs(conn, run_id: str, after_id: int = 0, limit: int = 500):
+def get_logs(conn: Conn, run_id: str, after_id: int = 0, limit: int = 500) -> list[Row]:
     """Trả list[dict] các dòng log có id > after_id, sắp CŨ -> MỚI —
     dùng cho GET /maintenance/{run_id}/logs?after_id=N, đối xứng
     db.crawl_runs.get_logs()."""
@@ -91,10 +92,10 @@ def get_logs(conn, run_id: str, after_id: int = 0, limit: int = 500):
             "WHERE run_id = %s AND id > %s ORDER BY id ASC LIMIT %s",
             (run_id, after_id, limit),
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def get_logs_batch(conn, run_after_ids: dict, limit: int = 500) -> dict:
+def get_logs_batch(conn: Conn, run_after_ids: dict, limit: int = 500) -> dict:
     """Trả {run_id: list[dict]} — log MỚI (id > after_id riêng của TỪNG
     run_id) cho NHIỀU run_id trong 1 lần gọi, gộp bằng 1 query duy nhất
     (UNION ALL qua VALUES) thay vì N query riêng lẻ — dùng cho GET
@@ -150,7 +151,7 @@ def get_logs_batch(conn, run_after_ids: dict, limit: int = 500) -> dict:
     return result
 
 
-def mark_running(conn, run_id: str) -> None:
+def mark_running(conn: Conn, run_id: str) -> None:
     """Đổi status 'queued' -> 'running' — gọi ngay khi execute() bắt
     đầu gọi hàm run() thật."""
     with conn.cursor() as cur:
@@ -161,7 +162,7 @@ def mark_running(conn, run_id: str) -> None:
     conn.commit()
 
 
-def mark_done(conn, run_id: str, stats: dict) -> None:
+def mark_done(conn: Conn, run_id: str, stats: dict) -> None:
     """Đổi status -> 'done', điền stats + finished_at — gọi khi run()
     trả về thành công."""
     with conn.cursor() as cur:
@@ -180,7 +181,7 @@ def mark_done(conn, run_id: str, stats: dict) -> None:
     conn.commit()
 
 
-def mark_error(conn, run_id: str, error: str) -> None:
+def mark_error(conn: Conn, run_id: str, error: str) -> None:
     """Đổi status -> 'error', điền error + finished_at — gọi khi run()
     raise exception."""
     with conn.cursor() as cur:
@@ -207,7 +208,7 @@ _MAINTENANCE_RUN_FROM_JOINS = """
 """
 
 
-def get_run(conn, run_id: str) -> Optional[dict]:
+def get_run(conn: Conn, run_id: str) -> Optional[dict]:
     """Trả 1 dict maintenance_runs đầy đủ hoặc None — dùng cho GET
     /maintenance/{run_id} (poll tiến độ)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -219,10 +220,10 @@ def get_run(conn, run_id: str) -> Optional[dict]:
         return cur.fetchone()
 
 
-def list_runs(conn, *, job_type: Optional[str] = None,
+def list_runs(conn: Conn, *, job_type: Optional[str] = None,
               status: Optional[str] = None,
               triggered_by: Optional[str] = None,
-              limit: int = 50, offset: int = 0):
+              limit: int = 50, offset: int = 0) -> tuple[list[Row], int]:
     """Trả (list[dict], total) — dùng cho GET /maintenance (trang lịch
     sử), sắp mới nhất trước — đối xứng db.crawl_runs.list_runs()."""
     conditions = []
@@ -245,19 +246,19 @@ def list_runs(conn, *, job_type: Optional[str] = None,
             f"SELECT count(*) AS total {_MAINTENANCE_RUN_FROM_JOINS} {where_clause}",
             params,
         )
-        total = cur.fetchone()["total"]
+        total = fetch_one_row(cur)["total"]
 
         cur.execute(
             f"SELECT {_MAINTENANCE_RUN_SELECT_COLUMNS} {_MAINTENANCE_RUN_FROM_JOINS} {where_clause} "
             f"ORDER BY mr.started_at DESC LIMIT %s OFFSET %s",
             params + [limit, offset],
         )
-        rows = cur.fetchall()
+        rows = fetch_all_rows(cur)
 
     return rows, total
 
 
-def get_latest_run_per_job_type(conn) -> dict:
+def get_latest_run_per_job_type(conn: Conn) -> dict:
     """Trả {job_type: dict|None} — 1 dict maintenance_runs GẦN NHẤT
     theo started_at cho MỖI job_type (bất kể status), hoặc None nếu
     job_type đó chưa từng chạy lần nào. Dùng cho khung "Log live" ở
@@ -277,7 +278,7 @@ def get_latest_run_per_job_type(conn) -> dict:
     return {row["job_type"]: row for row in rows}
 
 
-def has_active_run(conn, job_type: str) -> bool:
+def has_active_run(conn: Conn, job_type: str) -> bool:
     """True nếu job_type này đang có 1 lượt 'queued'/'running' — đối
     xứng db.crawl_runs.has_active_run()."""
     with conn.cursor() as cur:
@@ -289,7 +290,7 @@ def has_active_run(conn, job_type: str) -> bool:
         return cur.fetchone() is not None
 
 
-def reconcile_orphaned_runs(conn) -> int:
+def reconcile_orphaned_runs(conn: Conn) -> int:
     """Đánh dấu 'error' MỌI dòng đang 'queued'/'running' — gọi ĐÚNG 1
     LẦN lúc app khởi động (scrapjd/api/app.py::lifespan, TRƯỚC khi nhận request
     nào), đối xứng db.crawl_runs.reconcile_orphaned_runs() — cùng lý do
@@ -310,7 +311,7 @@ def reconcile_orphaned_runs(conn) -> int:
     return count
 
 
-def reconcile_stale_runs(conn, timeout_minutes: int) -> int:
+def reconcile_stale_runs(conn: Conn, timeout_minutes: int) -> int:
     """Đánh dấu 'error' các dòng 'queued'/'running' đã quá
     `timeout_minutes` kể từ started_at mà chưa đổi trạng thái — gọi
     ĐỊNH KỲ qua APScheduler (scrapjd/api/services/maintenance_watchdog.py), đối

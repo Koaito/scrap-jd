@@ -20,6 +20,7 @@ from scrapjd import db as db_module
 from scrapjd.api import error_codes
 from scrapjd.api.deps import get_db, require_role
 from scrapjd.api.schemas import AuditLogNoteUpdate, AuditLogOut, PaginatedAuditLogs
+from scrapjd.db.pg_types import Conn
 
 router = APIRouter(prefix="/audit-logs", tags=["audit-logs"])
 
@@ -67,7 +68,7 @@ def list_audit_logs(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     if entity_type is not None and entity_type not in _VALID_ENTITY_TYPES:
         raise HTTPException(
@@ -103,7 +104,7 @@ def update_note(
     log_id: str,
     payload: AuditLogNoteUpdate,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Bổ sung/sửa note của 1 log đã tồn tại.
 

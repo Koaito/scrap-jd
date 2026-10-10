@@ -29,7 +29,8 @@ exclude_also = [
     "if TYPE_CHECKING:",
 ]
 
-# mypy (kiểm kiểu). Mức hiện tại: kiểm cả hàm chưa có type hint và đã dọn sạch cảnh báo; CHƯA bắt buộc mọi hàm phải có type hint.
+# mypy (kiểm kiểu). Mức chung: kiểm cả hàm chưa có type hint và đã dọn sạch cảnh báo. Đang bật dần bắt buộc type hint (M2):
+# module nào đã đủ hint thì thêm vào khối [[tool.mypy.overrides]] `disallow_untyped_defs` bên dưới; xong M2 sẽ bật cho cả repo.
 # CI chạy `mypy` ở .github/workflows/test.yml và CHẶN khi có lỗi.
 # Chạy từ gốc repo: `mypy`. Phiên bản mypy và stubs ghim ở requirements-dev.txt.
 [tool.mypy]
@@ -46,3 +47,40 @@ show_error_codes = true
 # Hai thư viện không có type hint kèm theo (không có py.typed, không có gói stubs chính thức).
 module = ["apscheduler.*", "tavily.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# M2: các module đã gắn đủ type hint cho mọi hàm. Thiếu hint ở đây thì mypy báo lỗi (no-untyped-def). Thêm module vào
+# danh sách này khi dọn xong; M2f gom thành cấu hình chung cho cả repo. Hiện có scrapjd/db/ trừ 5 module còn lại của M2b
+# nửa 2/2 (auth, audit_logs, connection, jobs, listing_state).
+module = [
+    "scrapjd.db",
+    "scrapjd.db.applications",
+    "scrapjd.db.companies",
+    "scrapjd.db.company_analytics",
+    "scrapjd.db.company_enrichment",
+    "scrapjd.db.company_queries",
+    "scrapjd.db.contacts",
+    "scrapjd.db.crawl_batches",
+    "scrapjd.db.crawl_runs",
+    "scrapjd.db.crawl_snapshots",
+    "scrapjd.db.dashboard",
+    "scrapjd.db.email_templates",
+    "scrapjd.db.job_dedup_lock",
+    "scrapjd.db.job_derivation",
+    "scrapjd.db.job_duplicates",
+    "scrapjd.db.job_health",
+    "scrapjd.db.job_level_recompute",
+    "scrapjd.db.job_levels",
+    "scrapjd.db.job_merge",
+    "scrapjd.db.job_queries",
+    "scrapjd.db.job_recrawl",
+    "scrapjd.db.job_reposts",
+    "scrapjd.db.job_sync",
+    "scrapjd.db.lookups",
+    "scrapjd.db.maintenance_runs",
+    "scrapjd.db.messages",
+    "scrapjd.db.pg_types",
+    "scrapjd.db.stats",
+]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true

@@ -51,6 +51,7 @@ from scrapjd.config import (
 # web"). Thêm nguồn crawl mới -> sửa scrapjd/sources_registry.py, KHÔNG sửa
 # file này.
 from scrapjd.sources_registry import SOURCES, DEFAULT_SOURCE
+from scrapjd.db.pg_types import Conn, fetch_scalar
 
 logging.basicConfig(
     level=logging.INFO,
@@ -88,19 +89,19 @@ _BASELINE_REQUIRED_TABLES = {
 }
 
 
-def _missing_baseline_tables(conn, except_files):
+def _missing_baseline_tables(conn: Conn, except_files):
     """Các bảng bắt buộc còn thiếu trong DB (sau khi trừ bảng sẽ được tạo bởi
     file nằm trong except_files)."""
     missing = []
     with conn.cursor() as cur:
         for table, creator in _BASELINE_REQUIRED_TABLES.items():
             cur.execute("SELECT to_regclass(%s)", (f"public.{table}",))
-            if cur.fetchone()[0] is None and creator not in except_files:
+            if fetch_scalar(cur) is None and creator not in except_files:
                 missing.append(table)
     return missing
 
 
-def _cmd_migrate_baseline(conn, args):
+def _cmd_migrate_baseline(conn: Conn, args):
     """`migrate --baseline`: ghi nhận migration chưa có log là đã áp dụng mà
     KHÔNG chạy SQL. Chỉ dùng khi DB đã ở trạng thái mới nhất."""
     except_files = set(args.except_files or [])
@@ -370,7 +371,7 @@ def _crawl_untracked(args, source_cfg, effective_pages):
         conn.close()
 
 
-def _print_crawl_result(conn, args, stats):
+def _print_crawl_result(conn: Conn, args, stats):
     print("\n===== KẾT QUẢ =====")
     if args.max_jobs is not None:
         print(f"(Giới hạn theo --max-jobs={args.max_jobs})")

@@ -88,6 +88,7 @@ from scrapjd import db
 from scrapjd.cli import duplicate_report as dr
 from scrapjd.db.job_derivation import derive_job_from_listings
 from scrapjd.db.job_sync import diff_job_from_derived
+from scrapjd.db.pg_types import Conn
 
 logger = logging.getLogger(__name__)
 
@@ -712,7 +713,7 @@ EXIT_PARTIAL = 2        # đã chạy nhưng có nhóm stale hoặc lỗi (các 
 EXIT_INTERRUPTED = 130  # Ctrl+C (nhóm đã gộp xong vẫn được giữ)
 
 
-def build_plans(conn, selections: list) -> tuple:
+def build_plans(conn: Conn, selections: list) -> tuple:
     """(plans, skipped_thêm): đọc chi tiết các job của nhóm được chọn rồi lập kế hoạch. Nhóm có
     job biến mất giữa hai lần đọc thì bỏ qua với lý do SKIP_VANISHED."""
     ids = [m["job_id"] for sel in selections for m in sel.group.members]
@@ -726,7 +727,7 @@ def build_plans(conn, selections: list) -> tuple:
     return plans, skipped
 
 
-def _check_ready(conn, *, apply: bool) -> Optional[str]:
+def _check_ready(conn: Conn, *, apply: bool) -> Optional[str]:
     """Thông báo lỗi (tiếng Việt) nếu DB chưa sẵn sàng, None nếu ổn."""
     pending = set(db.list_pending_migrations(conn))
     conn.commit()
@@ -774,7 +775,7 @@ class ApplyResult:
     not_run: int = 0                                # số nhóm chưa chạy do dừng sớm
 
 
-def _apply_plans(conn, plans: list, *, force: bool, actor_id: Optional[str] = None) -> ApplyResult:
+def _apply_plans(conn: Conn, plans: list, *, force: bool, actor_id: Optional[str] = None) -> ApplyResult:
     """Gộp lần lượt từng nhóm, mỗi nhóm một transaction. Nhóm stale/lỗi bị bỏ qua, chạy tiếp."""
     result = ApplyResult()
     total = len(plans)
@@ -857,7 +858,7 @@ def print_apply_result(result: ApplyResult, *, planned: int, jobs_before: int, j
         print("\nCó nhóm chưa gộp. Chạy lại cùng lệnh để xử lý tiếp (nhóm đã gộp sẽ không còn trong kế hoạch).")
 
 
-def run(conn, *, only: Optional[OnlySpec] = None, show: int = DEFAULT_SHOW,
+def run(conn: Conn, *, only: Optional[OnlySpec] = None, show: int = DEFAULT_SHOW,
         csv_path: Optional[str] = None, apply: bool = False, limit: Optional[int] = None,
         yes: bool = False, force: bool = False, confirm: Callable[[str], str] = input,
         actor_id: Optional[str] = None) -> int:

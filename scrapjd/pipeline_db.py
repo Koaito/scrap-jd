@@ -24,68 +24,69 @@ không do test hợp đồng so chữ ký với hàm thật.
 from typing import Optional, Protocol
 
 from scrapjd.db.job_recrawl import RepostLink
+from scrapjd.db.pg_types import Conn
 
 
 class PipelineDB(Protocol):
     # ------------------------------------------------------------------ đọc
-    def get_job_probe_by_source_url(self, conn, source_url: str): ...
+    def get_job_probe_by_source_url(self, conn: Conn, source_url: str): ...
 
     def job_needs_detail_enrichment(self, probe, *, now=None, recheck_days=None) -> bool: ...
 
-    def find_company_probe(self, conn, company_name: str): ...
+    def find_company_probe(self, conn: Conn, company_name: str): ...
 
     def probe_needs_enrichment(self, probe) -> bool: ...
 
-    def get_level_id(self, conn, level_code: str) -> Optional[int]: ...
+    def get_level_id(self, conn: Conn, level_code: str) -> Optional[int]: ...
 
     def find_repost_candidate(
-        self, conn, *, company_id: str, job_title: str, province_id: Optional[int],
+        self, conn: Conn, *, company_id: str, job_title: str, province_id: Optional[int],
         level_id: Optional[int] = None,
     ) -> Optional[dict]: ...
 
-    def find_jobs_by_source_url_regex(self, conn, *, source_name: str, url_regex: str) -> list: ...
+    def find_jobs_by_source_url_regex(self, conn: Conn, *, source_name: str, url_regex: str) -> list: ...
 
     # ------------------------------------------------------------------ ghi
     # (kể cả hàm chỉ giữ transaction mở như lock_job_dedup_key: nhánh nào gọi phải tự commit)
-    def get_or_create_province(self, conn, province_name: str) -> Optional[int]: ...
+    def get_or_create_province(self, conn: Conn, province_name: str) -> Optional[int]: ...
 
     def get_or_create_company_by_profile(
-        self, conn, company_name: str, province_id: Optional[int], tax_id: str = "",
+        self, conn: Conn, company_name: str, province_id: Optional[int], tax_id: str = "",
         created_by: Optional[str] = None,
     ) -> str: ...
 
     def update_company_profile(
-        self, conn, company_id: str, *, tax_id: str = "", website: str = "", industry: str = "",
+        self, conn: Conn, company_id: str, *, tax_id: str = "", website: str = "", industry: str = "",
         company_size: str = "", address: str = "", partnership_potential: str = "",
         source_profile_url: str = "", products_services: str = "", updated_by: Optional[str] = None,
     ) -> None: ...
 
     def update_job_fields(
-        self, conn, job_id: str, *, work_type: Optional[str] = None,
+        self, conn: Conn, job_id: str, *, work_type: Optional[str] = None,
         parsed_content: Optional[dict] = None,
     ) -> None: ...
 
-    def mark_source_detail_checked(self, conn, source_url: str, *, deadline=None) -> None: ...
+    def mark_source_detail_checked(self, conn: Conn, source_url: str, *, deadline=None) -> None: ...
 
     def lock_job_dedup_key(
-        self, conn, *, company_id: str, job_title: str, province_id: Optional[int],
+        self, conn: Conn, *, company_id: str, job_title: str, province_id: Optional[int],
         timeout_ms: int = 10000,
     ) -> None: ...
 
     def link_repost_source(
-        self, conn, job_id: str, *, source_name: str, source_url: str, raw_jd_content: str = "",
+        self, conn: Conn, job_id: str, *, source_name: str, source_url: str, raw_jd_content: str = "",
         salary_raw_text: str = "", deadline=None, today=None,
     ) -> RepostLink: ...
 
     def update_job_from_recrawl(
-        self, conn, job_id: str, *, job_title: str, level_id: Optional[int] = None,
+        self, conn: Conn, job_id: str, *, job_title: str, level_id: Optional[int] = None,
         work_type: Optional[str] = None, parsed_content: Optional[dict] = None,
         salary: Optional[dict] = None, level_source: Optional[str] = None,
         level_rule_version: Optional[int] = None, level_signals: Optional[dict] = None,
     ) -> bool: ...
 
     def insert_job(
-        self, conn, *, company_id: str, job_title: str, matching_industry: str,
+        self, conn: Conn, *, company_id: str, job_title: str, matching_industry: str,
         level_id: Optional[int], province_id: Optional[int], work_type: Optional[str],
         currency: str, salary_min: Optional[int], salary_max: Optional[int], salary_type: str,
         source_url: str, source_name: str, salary_raw_text: str = "", deadline=None,

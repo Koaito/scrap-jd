@@ -6,24 +6,25 @@ import logging
 
 import psycopg2
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, fetch_all_rows, fetch_one_row
 
 logger = logging.getLogger(__name__)
 
 
-def get_stats_summary(conn) -> dict:
+def get_stats_summary(conn: Conn) -> dict:
     """Số liệu tổng quan cho dashboard — GET /stats."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT count(*) AS total_jobs FROM job_postings")
-        total_jobs = cur.fetchone()["total_jobs"]
+        total_jobs = fetch_one_row(cur)["total_jobs"]
 
         cur.execute("SELECT count(*) AS total_companies FROM companies")
-        total_companies = cur.fetchone()["total_companies"]
+        total_companies = fetch_one_row(cur)["total_companies"]
 
         cur.execute(
             "SELECT count(*) AS n FROM companies "
             "WHERE fanpage_url IS NOT NULL OR linkedin_url IS NOT NULL"
         )
-        companies_with_social = cur.fetchone()["n"]
+        companies_with_social = fetch_one_row(cur)["n"]
 
         cur.execute(
             "SELECT matching_industry, count(*) AS n FROM job_postings "
@@ -44,13 +45,13 @@ def get_stats_summary(conn) -> dict:
         # gọi API). Đếm thẳng 1 lần ở đây rẻ hơn nhiều so với thêm 1
         # endpoint /stats/applications riêng.
         cur.execute("SELECT count(*) AS n FROM job_applications")
-        total_applications = cur.fetchone()["n"]
+        total_applications = fetch_one_row(cur)["n"]
 
         # Thêm 08/2026 cùng lúc với việc cho staff xem saved_jobs (xem
         # db.list_saved_jobs_for_job()) — để dashboard hiện cân xứng với
         # total_applications ở trên, cùng cách đếm thẳng 1 lần.
         cur.execute("SELECT count(*) AS n FROM saved_jobs")
-        total_saved_jobs = cur.fetchone()["n"]
+        total_saved_jobs = fetch_one_row(cur)["n"]
 
         # Thêm 09/2026 — Frontend cần jobs_by_status để hiển thị KPI "Job đang còn tuyển"
         # Trước đây Flask phải tải toàn bộ jobs array (1000+ records) rồi filter,
@@ -66,7 +67,7 @@ def get_stats_summary(conn) -> dict:
         # Table là app_users (đã rename từ ss_team_members, xem migration_rename_ss_team_members.sql)
         # role='user' là học viên (student), khác 'admin'/'ss_team' (staff)
         cur.execute("SELECT count(*) AS n FROM app_users WHERE role = 'user'")
-        total_students = cur.fetchone()["n"]
+        total_students = fetch_one_row(cur)["n"]
 
     return {
         "total_jobs": total_jobs,
@@ -81,7 +82,7 @@ def get_stats_summary(conn) -> dict:
     }
 
 
-def get_job_engagement_counts(conn) -> list[dict]:
+def get_job_engagement_counts(conn: Conn) -> list[dict]:
     """Đếm số lượt lưu + ứng tuyển của TỪNG job đang OPEN, gộp sẵn 1
     lần cho toàn bộ hệ thống — dùng cho dashboard frontend (nhóm "JD
     ế": job đăng lâu nhưng 0 lượt quan tâm). Trước đây không có cách
@@ -118,10 +119,10 @@ def get_job_engagement_counts(conn) -> list[dict]:
             ORDER BY jp.created_at DESC
             """
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def get_monthly_engagement_stats(conn) -> dict:
+def get_monthly_engagement_stats(conn: Conn) -> dict:
     """So sánh số ứng tuyển/lưu job THÁNG NÀY vs THÁNG TRƯỚC (theo
     calendar month, dùng applied_at/created_at thật của từng dòng) —
     dùng cho tab "Báo cáo tháng" bên frontend. GET /stats hiện có chỉ
@@ -177,7 +178,7 @@ def get_monthly_engagement_stats(conn) -> dict:
             FROM job_applications
             """
         )
-        applications = cur.fetchone()
+        applications = fetch_one_row(cur)
 
         cur.execute(
             """
@@ -200,7 +201,7 @@ def get_monthly_engagement_stats(conn) -> dict:
             FROM saved_jobs
             """
         )
-        saved_jobs = cur.fetchone()
+        saved_jobs = fetch_one_row(cur)
 
     return {
         "applications": dict(applications),

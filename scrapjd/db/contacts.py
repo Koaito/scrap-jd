@@ -3,15 +3,17 @@ db.contacts — tách từ db.py (God module) theo domain.
 """
 
 import logging
+from datetime import date
 from typing import Optional
 
 import psycopg2
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_optional_row, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
 
-def list_company_contacts(conn, company_id: str, *, include_inactive: bool = False):
+def list_company_contacts(conn: Conn, company_id: str, *, include_inactive: bool = False) -> list[Row]:
     """Danh sách contact của 1 company. include_inactive=True để xem lại
     contact đã soft-delete (xem lịch sử liên hệ cũ) — mặc định False,
     chỉ trả contact đang active."""
@@ -22,11 +24,11 @@ def list_company_contacts(conn, company_id: str, *, include_inactive: bool = Fal
     )
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(query, (company_id,))
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
 def list_all_contacts(
-    conn,
+    conn: Conn,
     *,
     include_inactive: bool = False,
     contact_status: Optional[str] = None,
@@ -34,7 +36,7 @@ def list_all_contacts(
     search: Optional[str] = None,
     created_by: Optional[str] = None,
     assigned_ss_user: Optional[str] = None,
-):
+) -> list[Row]:
     """Danh sách contact GỘP TẤT CẢ công ty (khác list_company_contacts()
     chỉ trả theo 1 company_id) — dùng cho trang "Danh sách contact" tổng
     hợp (GET /contacts). JOIN sang companies để trả kèm company_name vì
@@ -83,16 +85,16 @@ def list_all_contacts(
 
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(query, params)
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def get_company_contact_by_id(conn, contact_id: str):
+def get_company_contact_by_id(conn: Conn, contact_id: str) -> Optional[Row]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM company_contacts WHERE contact_id = %s", (contact_id,))
-        return cur.fetchone()
+        return fetch_optional_row(cur)
 
 
-def create_company_contact(conn, *, company_id: str, contact_name: str,
+def create_company_contact(conn: Conn, *, company_id: str, contact_name: str,
                             job_title: Optional[str] = None, work_email: Optional[str] = None,
                             social_link: Optional[str] = None, phone_number: Optional[str] = None,
                             found_source: Optional[str] = None,
@@ -111,15 +113,15 @@ def create_company_contact(conn, *, company_id: str, contact_name: str,
             (company_id, contact_name, job_title, work_email, social_link,
              phone_number, found_source, assigned_ss_user, created_by, created_by),
         )
-        return str(cur.fetchone()[0])
+        return str(fetch_scalar(cur))
 
 
-def update_company_contact(conn, contact_id: str, *, contact_name: Optional[str] = None,
+def update_company_contact(conn: Conn, contact_id: str, *, contact_name: Optional[str] = None,
                             job_title: Optional[str] = None, work_email: Optional[str] = None,
                             social_link: Optional[str] = None, phone_number: Optional[str] = None,
                             found_source: Optional[str] = None,
                             contact_status: Optional[str] = None,
-                            last_contacted_date=None, updated_by: str) -> bool:
+                            last_contacted_date: Optional[date] = None, updated_by: str) -> bool:
     """Chỉ field truyền vào (khác None) mới bị ghi đè — giống pattern
     update_job()/update_company_profile() đã có, tránh phải gửi lại
     toàn bộ object mỗi lần PATCH.
@@ -155,7 +157,7 @@ def update_company_contact(conn, contact_id: str, *, contact_name: Optional[str]
         return cur.rowcount > 0
 
 
-def assign_company_contact(conn, contact_id: str, *, assigned_ss_user: Optional[str],
+def assign_company_contact(conn: Conn, contact_id: str, *, assigned_ss_user: Optional[str],
                             updated_by: str) -> bool:
     """Gán (hoặc BỎ gán, khi assigned_ss_user=None) người phụ trách 1
     contact — tách route riêng khỏi update_company_contact() (xem
@@ -177,7 +179,7 @@ def assign_company_contact(conn, contact_id: str, *, assigned_ss_user: Optional[
         return cur.rowcount > 0
 
 
-def soft_delete_company_contact(conn, contact_id: str, updated_by: str) -> bool:
+def soft_delete_company_contact(conn: Conn, contact_id: str, updated_by: str) -> bool:
     """Xoá MỀM — is_active=false, KHÔNG DELETE thật (xem
     sql/migration_add_role_hierarchy.sql mục 2 để hiểu lý do giữ lịch
     sử). GET mặc định sẽ không còn thấy contact này nữa."""
@@ -199,7 +201,7 @@ class ContactHasLinksError(Exception):
     ràng cho staff, thay vì để lộ ra IntegrityError thô từ Postgres."""
 
 
-def hard_delete_company_contact(conn, contact_id: str) -> bool:
+def hard_delete_company_contact(conn: Conn, contact_id: str) -> bool:
     """Xoá THẬT — chỉ dùng làm bước 2 sau khi contact đã soft-delete
     (is_active=false), theo đúng thiết kế 2 bước đã quyết định (xem
     lịch sử trao đổi 08/2026): staff xoá mềm trước để xác nhận, xoá

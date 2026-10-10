@@ -25,7 +25,8 @@ Hàm thuần (derive_job_from_listings) có test riêng; phần SQL chỉ đọc
 
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
+from typing import Any, Callable, Optional
+from scrapjd.db.pg_types import Conn
 
 LISTING_OPEN = "OPEN"
 LISTING_CLOSED = "CLOSED"
@@ -43,7 +44,7 @@ class DerivedJob:
     source_url: Optional[str]
 
 
-def _latest(listings: list, key):
+def _latest(listings: list[dict], key: Callable[[dict], Any]) -> dict:
     """Phần tử có `key` lớn nhất; hòa thì lấy URL nhỏ nhất theo thứ tự chữ (xác định, không phụ thuộc thứ
     tự dòng đọc ra)."""
     best = max(key(l) for l in listings)
@@ -91,7 +92,7 @@ _LISTING_COLUMNS = ("job_id", "source_url", "listing_status", "deadline", "first
                     "closed_reason", "closed_at")
 
 
-def list_jobs_with_listings(conn) -> list:
+def list_jobs_with_listings(conn: Conn) -> list:
     """[{**cột job (_JOB_COLUMNS, job_id là str), "listings": [dict (_LISTING_COLUMNS)]}] cho MỌI job, kể cả
     job chưa có listing (listings = []). Sắp theo job_id; listing sắp theo first_seen_at, source_url. CHỈ
     ĐỌC; không lấy raw_jd_content (nặng, không cần); đóng transaction đọc trước khi trả."""
@@ -129,7 +130,7 @@ def list_jobs_with_listings(conn) -> list:
     return jobs
 
 
-def list_checkable_listings(conn) -> list:
+def list_checkable_listings(conn: Conn) -> list:
     """Listing mà check_expired_source_jobs còn phải kiểm tra (C3a): listing OPEN hoặc UNKNOWN của job đang
     OPEN. Listing CLOSED không cần kiểm lại; listing của job đã đóng cũng không (job CLOSED thì mọi listing
     đã CLOSED, xem db.listing_state). Gồm cả listing của job nhập tay (URL dạng manual://uuid): chúng có thể

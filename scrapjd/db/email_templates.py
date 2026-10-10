@@ -13,11 +13,12 @@ from typing import Any, Optional
 
 import psycopg2
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_optional_row, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
 
-def _parse_pg_enum_array(raw) -> list[str]:
+def _parse_pg_enum_array(raw: Any) -> list[str]:
     """psycopg2 tự parse được mảng các kiểu built-in (int[], text[]...)
     nhưng KHÔNG tự parse mảng enum tự định nghĩa (vd contact_status_enum[]
     của cột recommended_for) — driver trả về nguyên chuỗi thô dạng Postgres
@@ -41,7 +42,7 @@ def _parse_pg_enum_array(raw) -> list[str]:
     return [item.strip().strip('"') for item in s.split(",") if item.strip()]
 
 
-def list_email_templates(conn):
+def list_email_templates(conn: Conn) -> list[Row]:
     """Toàn bộ mẫu, sắp theo display_order rồi tới created_at (mẫu mới
     thêm chưa chỉnh display_order sẽ rơi xuống cuối theo đúng thứ tự tạo,
     KHÔNG xáo trộn ngẫu nhiên)."""
@@ -49,23 +50,23 @@ def list_email_templates(conn):
         cur.execute(
             "SELECT * FROM email_templates ORDER BY display_order ASC, created_at ASC"
         )
-        rows = cur.fetchall()
+        rows = fetch_all_rows(cur)
         for row in rows:
             row["recommended_for"] = _parse_pg_enum_array(row.get("recommended_for"))
         return rows
 
 
-def get_email_template_by_id(conn, template_id: str):
+def get_email_template_by_id(conn: Conn, template_id: str) -> Optional[Row]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM email_templates WHERE template_id = %s", (template_id,))
-        row = cur.fetchone()
+        row = fetch_optional_row(cur)
         if row is not None:
             row["recommended_for"] = _parse_pg_enum_array(row.get("recommended_for"))
         return row
 
 
 def create_email_template(
-    conn, *, title: str, description: Optional[str], body: str,
+    conn: Conn, *, title: str, description: Optional[str], body: str,
     recommended_for: list[str], display_order: int, created_by: str,
 ) -> str:
     """Tạo mẫu mới. recommended_for là mảng contact_status_enum (có thể
@@ -84,11 +85,11 @@ def create_email_template(
             "VALUES (%s, %s, %s, %s::contact_status_enum[], %s, %s, %s) RETURNING template_id",
             (title, description, body, recommended_for, display_order, created_by, created_by),
         )
-        return cur.fetchone()[0]
+        return fetch_scalar(cur)
 
 
 def patch_email_template(
-    conn, template_id: str, *,
+    conn: Conn, template_id: str, *,
     title: Optional[str] = None,
     description: Optional[str] = None,
     body: Optional[str] = None,
@@ -138,7 +139,7 @@ def patch_email_template(
         return cur.rowcount > 0
 
 
-def delete_email_template(conn, template_id: str) -> bool:
+def delete_email_template(conn: Conn, template_id: str) -> bool:
     """XOÁ HẲN (hard delete) — theo đúng yêu cầu thiết kế, KHÔNG soft-
     delete như company_contacts. Trả False nếu template_id không tồn tại
     (router không log DELETE_EMAIL_TEMPLATE khi trả False, tránh log rác

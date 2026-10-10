@@ -25,6 +25,7 @@ QUY ƯỚC
 import logging
 
 from scrapjd.db.job_derivation import _LISTING_COLUMNS, DerivedJob, derive_job_from_listings
+from scrapjd.db.pg_types import Conn, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ def diff_job_from_derived(stored: dict, derived: DerivedJob) -> dict:
     return changes
 
 
-def sync_job_from_listings(conn, job_id: str) -> dict:
+def sync_job_from_listings(conn: Conn, job_id: str) -> dict:
     """Xem docstring module. Trả {} nếu không có gì đổi hoặc job không tồn tại hoặc chưa có listing."""
     with conn.cursor() as cur:
         cur.execute(
@@ -79,7 +80,7 @@ def sync_job_from_listings(conn, job_id: str) -> dict:
             return {}
 
         cur.execute("SELECT current_setting(%s, true)", (SKIP_UPDATED_AT_SETTING,))
-        previous = cur.fetchone()[0] or ""
+        previous = fetch_scalar(cur) or ""
         assignments = ", ".join(f"{col} = %s" for col in changes)
         values = [new for _, new in changes.values()] + [job_id]
         cur.execute("SELECT set_config(%s, 'on', true)", (SKIP_UPDATED_AT_SETTING,))

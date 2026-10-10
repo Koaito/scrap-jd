@@ -6,6 +6,7 @@ db.company_queries — truy vấn ĐỌC danh sách / chi tiết công ty cho AP
 from typing import Optional
 
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_optional_row
 
 
 _COMPANY_SELECT_COLUMNS = """
@@ -26,12 +27,12 @@ _COMPANY_FROM_JOINS = """
 _COMPANY_LIST_BASE_QUERY = f"SELECT {_COMPANY_SELECT_COLUMNS} {_COMPANY_FROM_JOINS}"
 
 
-def list_companies(conn, *, keyword: Optional[str] = None,
+def list_companies(conn: Conn, *, keyword: Optional[str] = None,
                     has_social: Optional[bool] = None,
                     province_name: Optional[str] = None,
                     created_by: Optional[str] = None,
                     include_inactive: bool = False,
-                    limit: int = 50, offset: int = 0):
+                    limit: int = 50, offset: int = 0) -> tuple[list[Row], int]:
     """Trả (list[dict] company, total_count) — dùng cho GET /companies.
 
     has_social=True  -> chỉ công ty đã có fanpage_url HOẶC linkedin_url.
@@ -75,19 +76,19 @@ def list_companies(conn, *, keyword: Optional[str] = None,
             f"LEFT JOIN provinces p ON p.province_id = c.province_id {where_clause}",
             params,
         )
-        total = cur.fetchone()["total"]
+        total = fetch_one_row(cur)["total"]
 
         cur.execute(
             f"{_COMPANY_LIST_BASE_QUERY} {where_clause} "
             f"ORDER BY c.created_at DESC LIMIT %s OFFSET %s",
             params + [limit, offset],
         )
-        rows = cur.fetchall()
+        rows = fetch_all_rows(cur)
 
     return rows, total
 
 
-def get_company_by_id(conn, company_id: str):
+def get_company_by_id(conn: Conn, company_id: str) -> Optional[Row]:
     """Trả 1 dict company đầy đủ hoặc None — dùng cho GET
     /companies/{company_id}. KHÔNG còn products_services (08/2026, xem
     sql/migration_drop_products_services.sql)."""
@@ -98,4 +99,4 @@ def get_company_by_id(conn, company_id: str):
             f"WHERE c.company_id = %s",
             (company_id,),
         )
-        return cur.fetchone()
+        return fetch_optional_row(cur)

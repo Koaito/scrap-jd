@@ -36,6 +36,7 @@ from scrapjd.api.services import company_resolver, export_query, file_parser, im
 from scrapjd.api.services.entity_specs import get_spec
 from scrapjd.api.services.export_query import ExportFilters
 from scrapjd.api.services.validation_engine import validate_dataframe
+from scrapjd.db.pg_types import Conn
 
 router = APIRouter(tags=["import-export"])
 
@@ -184,7 +185,7 @@ _PREVIEW_SAMPLE_SIZE = 20
 def export_preview(
     entity_type: str,
     filter_params: dict = Depends(_export_filter_params),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     _check_entity_type(entity_type)
@@ -220,7 +221,7 @@ def export_entity(
     entity_type: str,
     format: Literal["csv", "xlsx"] = Query("csv", description="csv | xlsx"),
     filter_params: dict = Depends(_export_filter_params),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     _check_entity_type(entity_type)
@@ -252,7 +253,7 @@ async def import_preview(
     request: Request,
     entity_type: str,
     file: UploadFile = File(...),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     """Rate limit 20/hour theo user_id (thêm 08/2026) — mỗi lần gọi
@@ -309,7 +310,7 @@ async def import_preview(
 def get_import_preview(
     entity_type: str,
     preview_id: str,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     _check_entity_type(entity_type)
@@ -331,7 +332,7 @@ def get_company_suggestions(
     entity_type: str,
     preview_id: str,
     row_index: int = Query(..., ge=0),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     """Gợi ý company tương tự cho 1 dòng cụ thể — dùng khi staff muốn xem
@@ -369,7 +370,7 @@ def verify_field(
     preview_id: str,
     row_index: int,
     payload: FieldVerifyRequest,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     """Staff sửa 1 ô lỗi trên bảng preview, bấm nút "Xác nhận" cạnh ô đó
@@ -409,7 +410,7 @@ def resolve_company(
     preview_id: str,
     row_index: int,
     payload: ResolveCompanyRequest,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     """Staff chọn 1 công ty (hoặc "Tạo công ty mới") trong modal chọn công
@@ -449,7 +450,7 @@ def resolve_company(
 def import_confirm(
     entity_type: str,
     payload: ImportConfirmRequest,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     _check_entity_type(entity_type)
@@ -520,7 +521,7 @@ def import_confirm(
     )
 
 
-def _load_owned_preview(conn, preview_id: str, requesting_user_id: str) -> dict:
+def _load_owned_preview(conn: Conn, preview_id: str, requesting_user_id: str) -> dict:
     if not db_module.is_valid_uuid(preview_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.IMPORT_PREVIEW_ID_INVALID_UUID, "message": f"preview_id '{preview_id}' không đúng định dạng UUID.", "params": {"value": preview_id}})
     try:

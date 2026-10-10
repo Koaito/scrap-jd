@@ -12,6 +12,7 @@ import json
 from typing import Optional
 
 from scrapjd.db.job_levels import _derived_level_assignments
+from scrapjd.db.pg_types import Conn, fetch_scalar
 
 # Tên cờ phiên mà trg_set_updated_at() đọc (sql/migration_add_skip_updated_at_flag.sql).
 SKIP_UPDATED_AT_SETTING = "app.skip_updated_at"
@@ -22,7 +23,7 @@ _CANDIDATE_COLUMNS = (
 )
 
 
-def skip_updated_at_supported(conn) -> bool:
+def skip_updated_at_supported(conn: Conn) -> bool:
     """True nếu hàm trigger trg_set_updated_at() trong DB đã biết cờ phiên
     app.skip_updated_at. Dùng để từ chối --apply khi chưa chạy migration: thiếu
     bước này, cờ bị trigger bỏ qua và updated_at của mọi job bị đổi âm thầm."""
@@ -32,10 +33,10 @@ def skip_updated_at_supported(conn) -> bool:
         )
         row = cur.fetchone()
     conn.rollback()
-    return bool(row) and SKIP_UPDATED_AT_SETTING in row[0]
+    return row is not None and SKIP_UPDATED_AT_SETTING in row[0]
 
 
-def list_level_recompute_candidates(conn, rule_version: int, limit: Optional[int] = None) -> list:
+def list_level_recompute_candidates(conn: Conn, rule_version: int, limit: Optional[int] = None) -> list:
     """Job cần xem lại level: chưa đóng dấu (level_source IS NULL) hoặc đóng dấu theo
     bộ quy tắc cũ hơn `rule_version`. Dòng 'manual' không bao giờ được chọn (version
     NULL nên không thoả điều kiện, và level_source <> NULL). Chọn theo dấu, không
@@ -63,7 +64,7 @@ def list_level_recompute_candidates(conn, rule_version: int, limit: Optional[int
     return rows
 
 
-def compute_content_hashes_for_levels(conn, new_levels: dict) -> dict:
+def compute_content_hashes_for_levels(conn: Conn, new_levels: dict) -> dict:
     """{job_id: content_hash sẽ có nếu job đổi sang level_id mới}, tính bằng chính
     hàm generate_job_hash của DB (cùng công thức với trigger set_job_hash), không
     ghi gì. `new_levels` là {job_id: level_id}."""
@@ -84,7 +85,7 @@ def compute_content_hashes_for_levels(conn, new_levels: dict) -> dict:
     return out
 
 
-def get_jobs_by_content_hashes(conn, hashes: list) -> dict:
+def get_jobs_by_content_hashes(conn: Conn, hashes: list) -> dict:
     """{content_hash: {job_id: job_title}} cho các job HIỆN CÓ mang một trong các hash
     đó (để biết nhóm trùng trước/sau khi đổi level)."""
     hashes = [h for h in set(hashes) if h]
@@ -102,16 +103,16 @@ def get_jobs_by_content_hashes(conn, hashes: list) -> dict:
     return out
 
 
-def count_duplicate_job_groups(conn) -> int:
+def count_duplicate_job_groups(conn: Conn) -> int:
     """Số nhóm trong v_duplicate_job_candidates (job nghi trùng)."""
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM v_duplicate_job_candidates")
-        n = cur.fetchone()[0]
+        n = fetch_scalar(cur)
     conn.rollback()
     return n
 
 
-def write_recomputed_levels(conn, changes: list) -> tuple:
+def write_recomputed_levels(conn: Conn, changes: list) -> tuple:
     """Ghi một lô level tính lại trong transaction HIỆN TẠI (nơi gọi commit/rollback).
     Trả (số dòng đã ghi, danh sách job_id bị bỏ qua vì đã đổi giữa lúc chọn và lúc ghi).
 

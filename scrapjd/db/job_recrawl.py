@@ -15,6 +15,7 @@ from scrapjd.db.audit_logs import log_action
 from scrapjd.db.job_levels import _derived_level_assignments
 from scrapjd.db.job_sync import sync_job_from_listings
 from scrapjd.db.listing_state import AUTO_REOPEN_REASONS, CONFLICT_URL, insert_listing  # noqa: F401  (re-export)
+from scrapjd.db.pg_types import Conn
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,8 @@ class RepostLink:
         return self.inserted
 
 
-def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
-                       raw_jd_content: str = "", salary_raw_text: str = "", deadline=None,
+def link_repost_source(conn: Conn, job_id: str, *, source_name: str, source_url: str,
+                       raw_jd_content: str = "", salary_raw_text: str = "", deadline: Optional[date] = None,
                        today: Optional[date] = None) -> RepostLink:
     """Ghi 1 source_url mới vào job ĐÃ CÓ như một nguồn phụ (job_sources_log),
     không tạo job mới. Dùng khi pipeline nhận ra tin vừa crawl là đăng lại của
@@ -98,6 +99,9 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
     )
     reopened = deadline_extended = False
     if inserted:
+        # insert_listing vừa ghi listing có khoá ngoại tới job_id, và dòng job đang bị khoá FOR NO KEY UPDATE ở
+        # trên, nên đã chèn được thì job chắc chắn tồn tại và `before` có dòng.
+        assert before is not None
         # C2: job theo kịp listing mới (job OPEN nhận tin đăng lại thì source_url và hạn suy ra đổi theo; job đóng
         # expired_auto nhận listing OPEN thì mở lại).
         changes = sync_job_from_listings(conn, job_id)
@@ -119,7 +123,7 @@ def link_repost_source(conn, job_id: str, *, source_name: str, source_url: str,
     return RepostLink(inserted=inserted, reopened=reopened, deadline_extended=deadline_extended)
 
 
-def _log_reopen_for_repost(conn, job_id: str, before: tuple, changes: dict) -> None:
+def _log_reopen_for_repost(conn: Conn, job_id: str, before: tuple, changes: dict) -> None:
     """Job vừa sống lại nhờ listing của tin đăng lại: giữ hành vi A2 (trước đây do hàm riêng làm). updated_at nhảy
     (sync_job_from_listings cố ý không làm nhảy, nhưng mở lại là thay đổi thật nên như trước vẫn nhảy) và ghi
     audit REOPEN_JOB với đủ bốn trường cũ/mới, kể cả trường không đổi."""
@@ -138,7 +142,7 @@ def _log_reopen_for_repost(conn, job_id: str, before: tuple, changes: dict) -> N
     )
 
 
-def find_repost_candidate(conn, *, company_id: str, job_title: str, province_id: Optional[int],
+def find_repost_candidate(conn: Conn, *, company_id: str, job_title: str, province_id: Optional[int],
                           level_id: Optional[int] = None) -> Optional[dict]:
     """Tìm job đã có để coi tin vừa crawl là ĐĂNG LẠI của nó (Phần 3c). Tra theo khoá chống trùng
     job_postings.dedup_key (công ty + tiêu đề chuẩn hoá + tỉnh, A3, xem sql/0039_add_job_dedup_key.sql),
@@ -184,7 +188,7 @@ def find_repost_candidate(conn, *, company_id: str, job_title: str, province_id:
             "deadline": row[3], "closed_reason": row[4]}
 
 
-def find_jobs_by_source_url_regex(conn, *, source_name: str, url_regex: str) -> list:
+def find_jobs_by_source_url_regex(conn: Conn, *, source_name: str, url_regex: str) -> list:
     """Các job đã có ÍT NHẤT MỘT nguồn (job_sources_log) của source_name với
     source_url khớp url_regex (regex POSIX của Postgres). Dùng để tìm job cùng
     mã số ở nguồn mà URL đổi theo tiêu đề (VietnamWorks: ...-<mã>-jv, nhà tuyển
@@ -213,7 +217,7 @@ def find_jobs_by_source_url_regex(conn, *, source_name: str, url_regex: str) -> 
         return cur.fetchall()
 
 
-def update_job_from_recrawl(conn, job_id: str, *, job_title: str,
+def update_job_from_recrawl(conn: Conn, job_id: str, *, job_title: str,
                              level_id: Optional[int] = None,
                              work_type: Optional[str] = None,
                              parsed_content: Optional[dict] = None,

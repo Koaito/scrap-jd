@@ -23,6 +23,7 @@ from scrapjd.api.schemas import (
     ContactAssignUpdate,
     ContactDeleteRequest,
 )
+from scrapjd.db.pg_types import Conn
 
 router = APIRouter(prefix="/companies/{company_id}/contacts", tags=["contacts"])
 
@@ -35,7 +36,7 @@ all_contacts_router = APIRouter(prefix="/contacts", tags=["contacts"])
 _VALID_CONTACT_STATUS = {"UNCONTACTED", "EMAIL_SENT", "RESPONDED", "IN_PARTNERSHIP"}
 
 
-def _validate_assignee(conn, assigned_ss_user: str) -> None:
+def _validate_assignee(conn: Conn, assigned_ss_user: str) -> None:
     """Kiểm tra assigned_ss_user là 1 ss_user_id tồn tại thật VÀ có role
     ss_team hoặc admin — dùng chung cho create_contact() và
     assign_contact() bên dưới. Không cho gán contact cho role 'user'
@@ -78,7 +79,7 @@ def list_all_contacts(
         None, description="Lọc contact đang được GIAO cho 1 thành viên cụ thể phụ trách (ss_user_id) — độc lập với created_by"
     ),
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Danh sách contact GỘP TẤT CẢ công ty, kèm company_name — dùng cho
     trang "Danh sách contact" tổng hợp ở frontend. Cùng require_role
@@ -126,7 +127,7 @@ def list_contacts(
         False, description="true = xem cả contact đã xoá mềm (lịch sử liên hệ cũ)"
     ),
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     if not db_module.is_valid_uuid(company_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID.", "params": {"value": company_id}})
@@ -141,7 +142,7 @@ def create_contact(
     company_id: str,
     payload: CompanyContactCreate,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     if not db_module.is_valid_uuid(company_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID.", "params": {"value": company_id}})
@@ -186,7 +187,7 @@ def update_contact(
     contact_id: str,
     payload: CompanyContactUpdate,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     if not db_module.is_valid_uuid(contact_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.CONTACT_CONTACT_ID_INVALID_UUID, "message": f"contact_id '{contact_id}' không đúng định dạng UUID.", "params": {"value": contact_id}})
@@ -250,7 +251,7 @@ def assign_contact(
     contact_id: str,
     payload: ContactAssignUpdate,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Gán (hoặc bỏ gán, khi assigned_ss_user=null trong body) người
     phụ trách 1 contact — route RIÊNG khỏi PATCH /{contact_id} thường
@@ -310,7 +311,7 @@ def delete_contact(
     contact_id: str,
     payload: ContactDeleteRequest,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Xoá MỀM (is_active=false) — KHÔNG xoá thật, giữ lịch sử liên hệ
     (xem sql/migration_add_role_hierarchy.sql). Gọi lại nhiều lần trên
@@ -349,7 +350,7 @@ def hard_delete_contact(
     contact_id: str,
     payload: ContactDeleteRequest,
     user: dict = Depends(require_role("ss_team")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Xoá THẬT — chỉ dùng làm bước 2, sau khi contact ĐÃ soft-delete
     (is_active=false) qua DELETE /{contact_id} ở trên (thiết kế 2 bước,

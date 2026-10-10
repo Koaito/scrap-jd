@@ -41,6 +41,7 @@ import contextvars
 import logging
 from contextlib import contextmanager
 from typing import Callable, Iterator, Optional
+from scrapjd.db.pg_types import Conn
 
 # Dấu của lượt chạy hiện tại. Mỗi lần capture_run_logs() dùng 1 object mới
 # (không dùng run_id) nên 2 lần capture cho cùng 1 run_id cũng không lẫn nhau.
@@ -54,8 +55,8 @@ class RunLogHandler(logging.Handler):
     run_id, level, message). Lỗi khi ghi bị nuốt: log live hỏng không được
     làm job thật dừng theo."""
 
-    def __init__(self, scope: object, run_id: str, conn,
-                 append_log: Callable[[object, str, str, str], None]):
+    def __init__(self, scope: object, run_id: str, conn: Conn,
+                 append_log: Callable[[Conn, str, str, str], None]):
         super().__init__(level=logging.INFO)
         self.run_id = run_id
         self._scope = scope
@@ -84,8 +85,8 @@ class RunLogHandler(logging.Handler):
 def capture_run_logs(
     run_id: str,
     *,
-    open_connection: Callable[[], object],
-    append_log: Callable[[object, str, str, str], None],
+    open_connection: Callable[[], Conn],
+    append_log: Callable[[Conn, str, str, str], None],
 ) -> Iterator[RunLogHandler]:
     """Trong khối `with`, mọi log INFO trở lên phát ra từ code của lượt này
     được ghi vào DB qua append_log. Thoát khỏi khối (kể cả khi có lỗi) thì gỡ

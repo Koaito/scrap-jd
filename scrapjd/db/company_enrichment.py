@@ -4,9 +4,13 @@ db.company_enrichment — truy vấn chọn công ty cần bổ sung thông tin
 scrapjd/db/companies.py, 10/2026).
 """
 
+from typing import Any
+
+from scrapjd.db.pg_types import Conn
 
 
-def get_companies_needing_profile_from_website(conn):
+
+def get_companies_needing_profile_from_website(conn: Conn) -> list[tuple[Any, ...]]:
     """Lấy công ty ĐÃ CÓ website nhưng còn thiếu industry và/hoặc
     products_services — tập company mà enrich_company_profile_from_
     website.py (script mới, 08/2026) có thể vá được bằng cách đọc trang
@@ -42,7 +46,7 @@ def get_companies_needing_profile_from_website(conn):
         return cur.fetchall()
 
 
-def get_companies_needing_social_links(conn):
+def get_companies_needing_social_links(conn: Conn) -> list[tuple[Any, ...]]:
     """Lấy các công ty ĐÃ CÓ website nhưng còn thiếu fanpage_url hoặc
     linkedin_url — đây là tập company mà scrapjd/maintenance/get_company_fb_linkedin_link.py
     có thể enrich được (script đó cần website làm điểm bắt đầu để tìm
@@ -62,7 +66,7 @@ def get_companies_needing_social_links(conn):
         return cur.fetchall()
 
 
-def update_company_social_links(conn, company_id: str, *,
+def update_company_social_links(conn: Conn, company_id: str, *,
                                  fanpage_url: str = "", linkedin_url: str = "") -> None:
     """Vá thêm fanpage_url/linkedin_url cho 1 công ty (chỉ ghi đè field nào
     tìm thấy giá trị mới, không xóa dữ liệu cũ nếu lần chạy sau không tìm
@@ -87,7 +91,7 @@ def update_company_social_links(conn, company_id: str, *,
         )
 
 
-def get_companies_needing_web_lookup(conn):
+def get_companies_needing_web_lookup(conn: Conn) -> list[tuple[Any, ...]]:
     """Lấy các công ty còn thiếu website HOẶC tax_id — tập company mà
     scrapjd/maintenance/enrich_company_web_info.py (script RIÊNG, tra cứu qua Tavily search +
     Gemini trích xuất) có thể thử vá thêm.
@@ -111,7 +115,7 @@ def get_companies_needing_web_lookup(conn):
         return cur.fetchall()
 
 
-def get_companies_needing_profile_backfill(conn):
+def get_companies_needing_profile_backfill(conn: Conn) -> list[tuple[Any, ...]]:
     """Lấy công ty ĐÃ CÓ source_profile_url (xem
     sql/migration_add_source_profile_url.sql) nhưng vẫn còn thiếu ít
     nhất 1 trong 4 field industry/company_size/address/website — tập

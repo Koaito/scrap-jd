@@ -43,6 +43,7 @@ from scrapjd.api.schemas import (
     SavedJobOut,
     SavedJobToggleResult,
 )
+from scrapjd.db.pg_types import Conn
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -55,7 +56,7 @@ def apply_to_job(
     note: Optional[str] = Form(None),
     cv_file: UploadFile = File(..., description="File PDF CV của học viên (max 5MB)"),
     user: dict = Depends(require_role("user")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID.", "params": {"value": job_id}})
@@ -118,7 +119,7 @@ def apply_to_job(
 @router.get("/applications", response_model=list[JobApplicationOut])
 def list_my_applications(
     user: dict = Depends(require_role("user")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     return db_module.list_applications_for_user(conn, user["sub"])
 
@@ -156,7 +157,7 @@ def withdraw_application(
                     "record đó bị xoá thật ngay trong request này.",
     ),
     user: dict = Depends(require_role("user")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     """Huỷ ứng tuyển (thêm 08/2026, xem db.delete_job_application()) —
     học viên chỉ huỷ được đơn của CHÍNH mình (ss_user_id lấy từ JWT,
@@ -202,7 +203,7 @@ def save_job(
     request: Request,
     payload: SavedJobCreate,
     user: dict = Depends(require_role("user")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     if not db_module.is_valid_uuid(payload.job_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{payload.job_id}' không đúng định dạng UUID.", "params": {"value": payload.job_id}})
@@ -234,7 +235,7 @@ def toggle_saved_job(
     request: Request,
     payload: SavedJobCreate,
     user: dict = Depends(require_role("user")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     if not db_module.is_valid_uuid(payload.job_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{payload.job_id}' không đúng định dạng UUID.", "params": {"value": payload.job_id}})
@@ -253,13 +254,14 @@ def toggle_saved_job(
     conn.commit()
     saved = db_module.list_saved_jobs_for_user(conn, user["sub"])
     saved_row = next(s for s in saved if str(s["saved_job_id"]) == saved_job_id)
-    return SavedJobToggleResult(saved=True, data=saved_row)
+    # data=saved_row: Pydantic tự validate dict thành SavedJobOut (mypy không biết điều này).
+    return SavedJobToggleResult(saved=True, data=saved_row)  # type: ignore[arg-type]
 
 
 @router.get("/saved-jobs", response_model=list[SavedJobOut])
 def list_my_saved_jobs(
     user: dict = Depends(require_role("user")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     return db_module.list_saved_jobs_for_user(conn, user["sub"])
 
@@ -268,7 +270,7 @@ def list_my_saved_jobs(
 def unsave_job(
     job_id: str,
     user: dict = Depends(require_role("user")),
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
 ):
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID.", "params": {"value": job_id}})

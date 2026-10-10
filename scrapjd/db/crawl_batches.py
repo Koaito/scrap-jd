@@ -23,11 +23,12 @@ from typing import Optional
 import psycopg2.extras
 
 from scrapjd.db.crawl_runs import create_run
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
 
-def create_batch(conn, *, source: str, categories: list, pages: int,
+def create_batch(conn: Conn, *, source: str, categories: list, pages: int,
                   max_jobs: Optional[int], triggered_by: Optional[str]) -> str:
     """Tạo 1 dòng crawl_batches mới (status='running'), trả về batch_id
     (str). Gọi TRƯỚC KHI tạo run đầu tiên (xem
@@ -46,12 +47,12 @@ def create_batch(conn, *, source: str, categories: list, pages: int,
                 pages, max_jobs, triggered_by,
             ),
         )
-        batch_id = str(cur.fetchone()[0])
+        batch_id = str(fetch_scalar(cur))
     conn.commit()
     return batch_id
 
 
-def advance_batch(conn, batch_id: str, finished_position: int) -> Optional[str]:
+def advance_batch(conn: Conn, batch_id: str, finished_position: int) -> Optional[str]:
     """Gọi từ scrapjd/api/crawl_runner.py::execute() NGAY SAU KHI 1 run trong
     batch đổi xong trạng thái 'done'/'error' (cả 2 đều tính là "category
     này đã xong", batch KHÔNG dừng lại nếu 1 category lỗi — giống vòng
@@ -88,7 +89,7 @@ def advance_batch(conn, batch_id: str, finished_position: int) -> Optional[str]:
     )
 
 
-def mark_done(conn, batch_id: str) -> None:
+def mark_done(conn: Conn, batch_id: str) -> None:
     """Đổi status -> 'done', điền finished_at — gọi khi advance_batch()
     xác định category cuối cùng đã xong (KHÔNG liên quan category đó
     done hay error — batch 'done' nghĩa là "đã chạy hết danh sách",
@@ -101,7 +102,7 @@ def mark_done(conn, batch_id: str) -> None:
     conn.commit()
 
 
-def mark_error(conn, batch_id: str, error: str) -> None:
+def mark_error(conn: Conn, batch_id: str, error: str) -> None:
     """Đổi status -> 'error', điền error + finished_at — gọi khi
     execute() không tự tạo được run kế tiếp giữa chừng batch (vd
     ActiveCrawlExistsError bất ngờ do ai đó crawl tay đúng lúc source
@@ -132,7 +133,7 @@ _BATCH_FROM_JOINS = """
 """
 
 
-def get_batch(conn, batch_id: str) -> Optional[dict]:
+def get_batch(conn: Conn, batch_id: str) -> Optional[dict]:
     """Trả 1 dict crawl_batches (KHÔNG kèm items — dùng nội bộ trong
     advance_batch(), nhẹ hơn get_batch_with_items() cho router) hoặc
     None nếu không tồn tại."""
@@ -144,7 +145,7 @@ def get_batch(conn, batch_id: str) -> Optional[dict]:
         return cur.fetchone()
 
 
-def get_batch_with_items(conn, batch_id: str) -> Optional[dict]:
+def get_batch_with_items(conn: Conn, batch_id: str) -> Optional[dict]:
     """Trả 1 dict crawl_batches KÈM "items" (list các crawl_runs con,
     sắp theo batch_position tăng dần) + "total"/"completed" (số category
     đã done/error, KHÔNG tính category đang 'queued'/'running') — dùng
@@ -177,10 +178,10 @@ def get_batch_with_items(conn, batch_id: str) -> Optional[dict]:
     return batch
 
 
-def list_batches(conn, *, source: Optional[str] = None,
+def list_batches(conn: Conn, *, source: Optional[str] = None,
                   status: Optional[str] = None,
                   triggered_by: Optional[str] = None,
-                  limit: int = 50, offset: int = 0):
+                  limit: int = 50, offset: int = 0) -> tuple[list[Row], int]:
     """Trả (list[dict], total) — dùng cho GET /crawl/batch (lịch sử
     batch, đối xứng GET /crawl cho run đơn lẻ). Cùng shape
     (total/limit/offset/items) với list_crawl_runs()."""
@@ -204,13 +205,13 @@ def list_batches(conn, *, source: Optional[str] = None,
             f"SELECT count(*) AS total {_BATCH_FROM_JOINS} {where_clause}",
             params,
         )
-        total = cur.fetchone()["total"]
+        total = fetch_one_row(cur)["total"]
 
         cur.execute(
             f"SELECT {_BATCH_SELECT_COLUMNS} {_BATCH_FROM_JOINS} {where_clause} "
             f"ORDER BY cb.created_at DESC LIMIT %s OFFSET %s",
             params + [limit, offset],
         )
-        rows = cur.fetchall()
+        rows = fetch_all_rows(cur)
 
     return rows, total

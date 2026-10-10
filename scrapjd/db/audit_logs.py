@@ -10,6 +10,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, fetch_one_row, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,7 @@ def diff_changed_fields(old_row: dict, payload_fields: dict) -> dict:
     return changes
 
 
-def log_action(conn, *, actor_id: Optional[str], action_type: str,
+def log_action(conn: Conn, *, actor_id: Optional[str], action_type: str,
                 entity_type: str, entity_id: str,
                 entity_label: Optional[str] = None,
                 company_id: Optional[str] = None,
@@ -191,7 +192,7 @@ def log_action(conn, *, actor_id: Optional[str], action_type: str,
                 datetime.now(timezone.utc) if note is not None else None,
             ),
         )
-        return str(cur.fetchone()[0])
+        return str(fetch_scalar(cur))
 
 
 _AUDIT_LOG_SELECT_COLUMNS = """
@@ -209,7 +210,7 @@ _AUDIT_LOG_FROM_JOINS = """
 """
 
 
-def list_audit_logs(conn, *, manual_only: bool = False,
+def list_audit_logs(conn: Conn, *, manual_only: bool = False,
                      entity_type: Optional[str] = None,
                      company_id: Optional[str] = None,
                      actor_id: Optional[str] = None,
@@ -255,7 +256,7 @@ def list_audit_logs(conn, *, manual_only: bool = False,
             f"SELECT count(*) AS total {_AUDIT_LOG_FROM_JOINS} {where_clause}",
             params,
         )
-        total = cur.fetchone()["total"]
+        total = fetch_one_row(cur)["total"]
 
         cur.execute(
             f"SELECT {_AUDIT_LOG_SELECT_COLUMNS} {_AUDIT_LOG_FROM_JOINS} {where_clause} "
@@ -267,7 +268,7 @@ def list_audit_logs(conn, *, manual_only: bool = False,
     return rows, total
 
 
-def get_audit_log_by_id(conn, log_id: str):
+def get_audit_log_by_id(conn: Conn, log_id: str):
     """Trả 1 dict audit log đầy đủ hoặc None — dùng để kiểm tra quyền
     sửa note (so actor_id) trước khi PATCH /audit-logs/{log_id}/note."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -279,7 +280,7 @@ def get_audit_log_by_id(conn, log_id: str):
         return cur.fetchone()
 
 
-def update_audit_log_note(conn, log_id: str, note: str, note_updated_by: str) -> bool:
+def update_audit_log_note(conn: Conn, log_id: str, note: str, note_updated_by: str) -> bool:
     """Sửa/bổ sung note của 1 log ĐÃ TỒN TẠI — dùng cho log thuộc nhóm
     note TUỲ CHỌN (note_required=false), nơi note có thể để trống lúc
     thao tác rồi bổ sung sau. QUYỀN "chỉ actor gốc mới được sửa" kiểm

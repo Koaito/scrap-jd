@@ -3,7 +3,11 @@ db.job_health — thống kê "tình trạng dữ liệu" của job cho tab Tìn
 dữ liệu (tách từ scrapjd/db/jobs.py, 10/2026). Chỉ SELECT, không ghi.
 """
 
+from datetime import date
+from typing import Optional
+
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, Row, fetch_one_row
 
 
 # Field nào tính vào thống kê "thiếu dữ liệu" ở tab Tình trạng dữ liệu
@@ -60,7 +64,7 @@ _JOB_FLAGS_CTE = """
 """
 
 
-def _job_health_rows_from_counts(row) -> list:
+def _job_health_rows_from_counts(row: Row) -> list:
     """Dựng list[{"field","label","missing","total","pct_missing"}] từ 1
     RealDictRow có cột total + missing_<field> — dùng chung cho tổng
     field health lẫn từng nhóm breakdown theo nguồn (job_health_by_source)."""
@@ -76,7 +80,7 @@ def _job_health_rows_from_counts(row) -> list:
     return rows
 
 
-def get_job_data_health(conn, today=None) -> dict:
+def get_job_data_health(conn: Conn, today: Optional[date] = None) -> dict:
     """Thay thế cho việc frontend (blueprints/crawl_status.py bên
     mindx-jobs) từng phải gọi list_all_jobs(include_content=True) — kéo
     TOÀN BỘ job + cột parsed_content (JSONB dài) của cả hệ thống về
@@ -134,7 +138,7 @@ def get_job_data_health(conn, today=None) -> dict:
             FROM job_flags
             """
         )
-        total_row = cur.fetchone()
+        total_row = fetch_one_row(cur)
         job_health_rows = _job_health_rows_from_counts(total_row)
         job_health_total = total_row["total"]
 
@@ -193,7 +197,7 @@ def get_job_data_health(conn, today=None) -> dict:
         )
         dup_rows = cur.fetchall()
 
-    def _job_row_out(row) -> dict:
+    def _job_row_out(row: Row) -> dict:
         return {
             "id": row["job_id"], "position": row["job_title"],
             "company": row["company_name"], "deadline": row["deadline"],

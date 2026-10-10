@@ -45,6 +45,7 @@ from typing import Optional
 from scrapjd import db
 from scrapjd import normalize
 from scrapjd.db.job_level_recompute import SKIP_UPDATED_AT_SETTING
+from scrapjd.db.pg_types import Conn
 
 logger = logging.getLogger(__name__)
 
@@ -238,7 +239,7 @@ def print_report(summary: Summary, effects: Optional[dict], *, apply: bool, rule
 # ----------------------------------------------------------------------
 # Chạy
 # ----------------------------------------------------------------------
-def _check_ready(conn, *, apply: bool) -> Optional[str]:
+def _check_ready(conn: Conn, *, apply: bool) -> Optional[str]:
     """Trả thông báo lỗi (tiếng Việt) nếu DB chưa sẵn sàng, None nếu ổn."""
     pending = set(db.list_pending_migrations(conn))
     conn.commit()
@@ -254,7 +255,7 @@ def _check_ready(conn, *, apply: bool) -> Optional[str]:
     return None
 
 
-def analyze_duplicate_effects(conn, plans: list, level_ids: dict) -> dict:
+def analyze_duplicate_effects(conn: Conn, plans: list, level_ids: dict) -> dict:
     """Ảnh hưởng nhóm trùng của các job SẼ ĐỔI level (không tính job chỉ đóng dấu)."""
     changing = [(row, plan) for row, plan in plans if plan.action == ACTION_CHANGE]
     new_levels = {str(row["job_id"]): level_ids[plan.new_level] for row, plan in changing}
@@ -269,7 +270,7 @@ def analyze_duplicate_effects(conn, plans: list, level_ids: dict) -> dict:
     return simulate_group_effects(members, moves)
 
 
-def run(conn, *, apply: bool, limit: Optional[int] = None, batch_size: int = DEFAULT_BATCH_SIZE,
+def run(conn: Conn, *, apply: bool, limit: Optional[int] = None, batch_size: int = DEFAULT_BATCH_SIZE,
         show: int = DEFAULT_SHOW) -> int:
     """Chạy lệnh trên một kết nối. Trả exit code (0 = xong, 1 = DB chưa sẵn sàng)."""
     error = _check_ready(conn, apply=apply)

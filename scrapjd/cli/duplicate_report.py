@@ -34,6 +34,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from scrapjd import db
+from scrapjd.db.pg_types import Conn
 
 logger = logging.getLogger(__name__)
 
@@ -398,7 +399,7 @@ def export_csv(groups: list, path: str) -> int:
 # ----------------------------------------------------------------------
 # Chạy
 # ----------------------------------------------------------------------
-def run(conn, *, show: int = DEFAULT_SHOW, csv_path: Optional[str] = None) -> int:
+def run(conn: Conn, *, show: int = DEFAULT_SHOW, csv_path: Optional[str] = None) -> int:
     """Chạy báo cáo trên một kết nối. Chỉ SELECT. Trả exit code (0 = xong)."""
     rows = db.list_duplicate_job_rows(conn)
     total_jobs = db.count_jobs(conn)

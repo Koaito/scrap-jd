@@ -46,6 +46,7 @@ from typing import Optional
 from urllib.parse import urlparse
 
 from scrapjd import db
+from scrapjd.db.pg_types import Conn
 
 SHINGLE_SIZE = 3       # số từ liên tiếp trong một "cụm"
 MIN_WORDS = 20         # ít hơn số từ này thì không đủ nội dung để so
@@ -437,7 +438,7 @@ def export_csv(results: list, path: str) -> int:
 # ----------------------------------------------------------------------
 # Chạy
 # ----------------------------------------------------------------------
-def run(conn, *, show: int = DEFAULT_SHOW, csv_path: Optional[str] = None,
+def run(conn: Conn, *, show: int = DEFAULT_SHOW, csv_path: Optional[str] = None,
         suspect_below: float = DEFAULT_SUSPECT_BELOW) -> int:
     """Chạy báo cáo trên một kết nối. Chỉ SELECT. Trả exit code (0 = xong)."""
     rows = db.list_multi_source_job_logs(conn)

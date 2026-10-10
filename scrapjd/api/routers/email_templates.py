@@ -35,13 +35,14 @@ from scrapjd.api.schemas import (
     EmailTemplateUpdate,
     PlaceholderHelpOut,
 )
+from scrapjd.db.pg_types import Conn
 
 router = APIRouter(prefix="/email-templates", tags=["email-templates"])
 
 
 @router.get("", response_model=list[EmailTemplateOut])
 def list_email_templates(
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     return db_module.list_email_templates(conn)
@@ -65,7 +66,7 @@ def get_placeholder_help(
 @router.get("/{template_id}", response_model=EmailTemplateOut)
 def get_email_template(
     template_id: str,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     if not db_module.is_valid_uuid(template_id):
@@ -79,7 +80,7 @@ def get_email_template(
 @router.post("", response_model=EmailTemplateOut, status_code=201)
 def create_email_template(
     payload: EmailTemplateCreate,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     template_id = db_module.create_email_template(
@@ -108,7 +109,7 @@ def create_email_template(
 def patch_email_template(
     template_id: str,
     payload: EmailTemplateUpdate,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     if not db_module.is_valid_uuid(template_id):
@@ -161,7 +162,7 @@ def patch_email_template(
 def delete_email_template(
     template_id: str,
     payload: EmailTemplateDeleteRequest,
-    conn=Depends(get_db),
+    conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
 ):
     """XOÁ HẲN (hard delete) — theo đúng yêu cầu đã chốt, KHÔNG soft-

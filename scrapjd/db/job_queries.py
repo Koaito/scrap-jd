@@ -5,9 +5,10 @@ tạo tay) nằm ở scrapjd/db/jobs.py; thống kê "tình trạng dữ liệu"
 Tên hàm giữ nguyên và vẫn gọi được qua `db.list_jobs`, `db.get_job_by_id`...
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_optional_row
 
 
 _JOB_SELECT_COLUMNS = """
@@ -38,13 +39,13 @@ _JOB_FROM_JOINS = """
 _JOB_LIST_BASE_QUERY = f"SELECT {_JOB_SELECT_COLUMNS} {_JOB_FROM_JOINS}"
 
 
-def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[str] = None,
+def list_jobs(conn: Conn, *, industry: Optional[str] = None, province_name: Optional[str] = None,
               level_code: Optional[str] = None, work_type: Optional[str] = None,
               keyword: Optional[str] = None, job_status: Optional[str] = None,
               created_by: Optional[str] = None, ids: Optional[list[str]] = None,
               limit: int = 50, offset: int = 0,
               cursor: Optional[tuple] = None,
-              include_content: bool = False):
+              include_content: bool = False) -> tuple[list[Row], int, Optional[tuple[Any, Any]]]:
     """Trả (list[dict] job, total_count, next_cursor) — dùng cho GET
     /jobs. `next_cursor` là tuple (created_at, job_id) của dòng cuối
     cùng trong batch vừa trả, hoặc None nếu đây là dòng cuối — tầng API
@@ -154,7 +155,7 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
                     f"LEFT JOIN levels l ON l.level_id = jp.level_id "
                     f"LEFT JOIN provinces p ON p.province_id = jp.province_id "
                     f"{where_clause}", params)
-        total = cur.fetchone()["total"]
+        total = fetch_one_row(cur)["total"]
 
         # include_content=True: thêm jp.parsed_content vào SELECT list —
         # KHÔNG dùng chung _JOB_LIST_BASE_QUERY (hằng số dựng sẵn không
@@ -176,7 +177,7 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
                 f"ORDER BY jp.created_at DESC, jp.job_id DESC LIMIT %s OFFSET %s",
                 list_params + [limit, offset],
             )
-        rows = cur.fetchall()
+        rows = fetch_all_rows(cur)
 
     next_cursor = None
     if len(rows) == limit:
@@ -186,7 +187,7 @@ def list_jobs(conn, *, industry: Optional[str] = None, province_name: Optional[s
     return rows, total, next_cursor
 
 
-def get_job_by_id(conn, job_id: str):
+def get_job_by_id(conn: Conn, job_id: str) -> Optional[Row]:
     """Trả 1 dict job đầy đủ (kèm parsed_content JSONB) hoặc None nếu
     không tìm thấy — dùng cho GET /jobs/{job_id}."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -196,10 +197,10 @@ def get_job_by_id(conn, job_id: str):
             f"WHERE jp.job_id = %s",
             (job_id,),
         )
-        return cur.fetchone()
+        return fetch_optional_row(cur)
 
 
-def get_jobs_by_company_id(conn, company_id: str):
+def get_jobs_by_company_id(conn: Conn, company_id: str) -> list[Row]:
     """Trả list[dict] toàn bộ job đang mở của 1 công ty — dùng cho
     GET /companies/{company_id}/jobs (chi tiết công ty kèm job liên
     quan, tiện cho trang detail phía frontend)."""
@@ -209,4 +210,4 @@ def get_jobs_by_company_id(conn, company_id: str):
             f"ORDER BY jp.created_at DESC",
             (company_id,),
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)

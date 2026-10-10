@@ -10,6 +10,7 @@ import logging
 from typing import Any, Optional
 
 from scrapjd.normalize import normalize_company_size
+from scrapjd.db.pg_types import Conn, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 _NAME_MATCH_ORDER = "ORDER BY is_active DESC, created_at ASC, company_id ASC LIMIT 1"
 
 
-def find_company_probe(conn, company_name: str):
+def find_company_probe(conn: Conn, company_name: str) -> Optional[tuple[Any, ...]]:
     """Tra cứu nhanh theo TÊN (chỉ để quyết định có cần fetch_company_profile
     hay không, không phải nguồn match chính thức). Trả về
     (company_id, website, industry, company_size, address) hoặc None nếu
@@ -48,7 +49,7 @@ def find_company_probe(conn, company_name: str):
         return row if row else None
 
 
-def get_or_create_company_by_profile(conn, company_name: str,
+def get_or_create_company_by_profile(conn: Conn, company_name: str,
                                       province_id: Optional[int],
                                       tax_id: str = "",
                                       created_by: Optional[str] = None) -> str:
@@ -93,16 +94,16 @@ def get_or_create_company_by_profile(conn, company_name: str,
             """,
             (company_name, province_id, tax_id or None, created_by),
         )
-        return str(cur.fetchone()[0])
+        return str(fetch_scalar(cur))
 
 
-def get_or_create_company(conn, company_name: str, province_id: Optional[int]) -> str:
+def get_or_create_company(conn: Conn, company_name: str, province_id: Optional[int]) -> str:
     """Giữ lại cho tương thích ngược — không có tax_id, chỉ match theo tên.
     Ưu tiên dùng get_or_create_company_by_profile() khi có tax_id."""
     return get_or_create_company_by_profile(conn, company_name, province_id, tax_id="")
 
 
-def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: str = "",
+def update_company_profile(conn: Conn, company_id: str, *, tax_id: str = "", website: str = "",
                             industry: str = "", company_size: str = "",
                             address: str = "", partnership_potential: str = "",
                             source_profile_url: str = "", products_services: str = "",
@@ -190,7 +191,7 @@ def update_company_profile(conn, company_id: str, *, tax_id: str = "", website: 
         )
 
 
-def patch_company_profile(conn, company_id: str, *,
+def patch_company_profile(conn: Conn, company_id: str, *,
                            company_name: Optional[str] = None,
                            tax_id: Optional[str] = None,
                            website: Optional[str] = None,
@@ -280,13 +281,13 @@ def patch_company_profile(conn, company_id: str, *,
         return cur.rowcount > 0
 
 
-def company_exists_by_id(conn, company_id: str) -> bool:
+def company_exists_by_id(conn: Conn, company_id: str) -> bool:
     with conn.cursor() as cur:
         cur.execute("SELECT 1 FROM companies WHERE company_id = %s", (company_id,))
         return cur.fetchone() is not None
 
 
-def merge_companies(conn, source_company_id: str, target_company_id: str) -> None:
+def merge_companies(conn: Conn, source_company_id: str, target_company_id: str) -> None:
     """Gộp source_company_id VÀO target_company_id (source biến mất khỏi
     DB sau khi gọi hàm này) — dùng khi phát hiện 2 company_id khác nhau
     thực ra là CÙNG 1 pháp nhân (vd trùng tax_id phát hiện qua
@@ -336,7 +337,7 @@ def merge_companies(conn, source_company_id: str, target_company_id: str) -> Non
         )
 
 
-def find_company_by_tax_id(conn, tax_id: str) -> Optional[str]:
+def find_company_by_tax_id(conn: Conn, tax_id: str) -> Optional[str]:
     """Tìm company_id đã có SẴN đúng tax_id này, None nếu chưa có công ty
     nào — tax_id có UNIQUE INDEX (uq_companies_tax_id, xem sql/schema.sql)
     nên tối đa 1 kết quả khớp. Cùng logic tra cứu tax_id đã dùng inline
@@ -351,7 +352,7 @@ def find_company_by_tax_id(conn, tax_id: str) -> Optional[str]:
         return str(row[0]) if row else None
 
 
-def update_company_profile_with_merge(conn, company_id: str, *, tax_id: str = "",
+def update_company_profile_with_merge(conn: Conn, company_id: str, *, tax_id: str = "",
                                        website: str = "", industry: str = "",
                                        company_size: str = "",
                                        address: str = "") -> str:
@@ -398,7 +399,7 @@ def update_company_profile_with_merge(conn, company_id: str, *, tax_id: str = ""
     return final_company_id
 
 
-def soft_delete_company(conn, company_id: str, updated_by: str) -> bool:
+def soft_delete_company(conn: Conn, company_id: str, updated_by: str) -> bool:
     """Xoá MỀM — is_active=false, KHÔNG DELETE thật (JD/HR contact cũ
     vẫn tham chiếu company_id này). GET /companies mặc định chỉ trả
     is_active=true (xem list_companies() — CẦN thêm filter is_active

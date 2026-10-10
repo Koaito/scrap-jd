@@ -35,6 +35,7 @@ from datetime import date
 from typing import Optional
 
 from scrapjd.db.job_sync import sync_job_from_listings
+from scrapjd.db.pg_types import Conn
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ def initial_listing_state(job_status: str, job_closed_reason: Optional[str], *, 
     return LISTING_CLOSED, job_closed_reason or "unknown"
 
 
-def insert_listing(conn, *, job_id: str, source_name: str, source_url: str,
+def insert_listing(conn: Conn, *, job_id: str, source_name: str, source_url: str,
                    salary_raw_text: str = "", raw_jd_content: str = "",
                    detail_fetched: bool = False, deadline=None,
                    on_conflict: str = CONFLICT_URL, today: Optional[date] = None) -> bool:
@@ -118,7 +119,7 @@ def insert_listing(conn, *, job_id: str, source_name: str, source_url: str,
         return cur.rowcount > 0
 
 
-def mark_listing_detail_checked(conn, source_url: str, *, deadline=None) -> None:
+def mark_listing_detail_checked(conn: Conn, source_url: str, *, deadline=None) -> None:
     """Fetch THÀNH CÔNG trang chi tiết của URL này: ghi detail_checked_at (như trước C1) và last_seen_at.
     `deadline` (nếu có) là hạn đọc được từ chính trang đó, ghi vào listing; None thì giữ hạn cũ (cùng quy
     tắc \"không xoá dữ liệu cũ khi lượt sau không lấy được\" của update_job_fields). Không đổi
@@ -140,7 +141,7 @@ def mark_listing_detail_checked(conn, source_url: str, *, deadline=None) -> None
         sync_job_from_listings(conn, str(row[0]))      # hạn listing đổi thì hạn job suy ra có thể đổi theo
 
 
-def mark_listing_seen(conn, source_url: str) -> bool:
+def mark_listing_seen(conn: Conn, source_url: str) -> bool:
     """Ghi last_seen_at = now() cho URL vừa được xác nhận còn ở nguồn (HTTP 2xx của
     check_expired_source_jobs). Không đổi listing_status. Trả True nếu có dòng được ghi."""
     with conn.cursor() as cur:
@@ -156,7 +157,7 @@ def mark_listing_seen(conn, source_url: str) -> bool:
     return True
 
 
-def close_job_listings(conn, job_id: str) -> int:
+def close_job_listings(conn: Conn, job_id: str) -> int:
     """Luật 2. Gọi SAU khi job đã được ghi CLOSED trong cùng transaction: mọi listing chưa CLOSED của job
     thành CLOSED với closed_reason và closed_at của job. Job không CLOSED thì không làm gì. Idempotent.
     Trả số listing vừa đóng."""
@@ -175,7 +176,7 @@ def close_job_listings(conn, job_id: str) -> int:
         return cur.rowcount
 
 
-def reopen_job_listings(conn, job_id: str) -> int:
+def reopen_job_listings(conn: Conn, job_id: str) -> int:
     """Luật 3. Gọi SAU khi nhân viên mở lại job (job đã được ghi OPEN trong cùng transaction): các listing
     chưa OPEN mà đóng vì 'staff', cùng listing hiện hành (URL trùng job_postings.source_url), về OPEN và
     xoá closed_reason/closed_at; nếu vậy mà job vẫn không có listing nào OPEN hoặc UNKNOWN thì mở listing
@@ -211,7 +212,7 @@ def reopen_job_listings(conn, job_id: str) -> int:
         return opened + cur.rowcount
 
 
-def set_job_listings_deadline(conn, job_id: str, deadline) -> int:
+def set_job_listings_deadline(conn: Conn, job_id: str, deadline) -> int:
     """Nhân viên sửa hoặc xoá hạn của job (PATCH, import): ghi cùng hạn đó vào MỌI listing OPEN của job (bạn
     duyệt 08/10: nhân viên gõ hạn nào thì hạn job đúng là hạn đó, kể cả khi job có nhiều listing OPEN hạn khác
     nhau). Job không có listing OPEN thì ghi vào mọi listing, đúng \"vùng\" mà derive_job_from_listings lấy
@@ -230,7 +231,7 @@ def set_job_listings_deadline(conn, job_id: str, deadline) -> int:
         return cur.rowcount
 
 
-def close_expired_listings(conn, job_id: str, today) -> int:
+def close_expired_listings(conn: Conn, job_id: str, today) -> int:
     """Luật 5 (C3a). Đóng mọi listing OPEN hoặc UNKNOWN của job mà hạn đã qua (`deadline` < today) với lý do
     'expired_auto' và closed_at = now(). Listing không có hạn thì không bao giờ bị đóng ở đây. Trả số listing
     vừa đóng.
@@ -258,7 +259,7 @@ def close_expired_listings(conn, job_id: str, today) -> int:
         return cur.rowcount
 
 
-def close_listing_dead(conn, job_id: str, source_url: str) -> bool:
+def close_listing_dead(conn: Conn, job_id: str, source_url: str) -> bool:
     """Luật 6 (C3b). Nguồn xác nhận URL này đã chết (HTTP 404/410): listing của URL đó, đang OPEN hoặc UNKNOWN,
     đóng với lý do 'expired_auto' và closed_at = now(). Chỉ đóng ĐÚNG listing đó, listing khác của job giữ
     nguyên. Trả True nếu vừa đóng; False nếu listing không tồn tại, không thuộc job này, hoặc đã CLOSED rồi
@@ -281,7 +282,7 @@ def close_listing_dead(conn, job_id: str, source_url: str) -> bool:
         return cur.rowcount > 0
 
 
-def job_is_closed_locked(conn, job_id: str) -> bool:
+def job_is_closed_locked(conn: Conn, job_id: str) -> bool:
     """Job đang CLOSED? Khoá dòng job (FOR NO KEY UPDATE) để trạng thái đọc ra không đổi tới hết transaction.
     update_job gọi trước khi ghi job_status = 'OPEN' để biết đây có phải lần MỞ LẠI (CLOSED -> OPEN) hay
     chỉ là form gửi lại OPEN: chỉ lần mở lại mới mở listing (luật 3). Job không tồn tại thì False."""
@@ -291,7 +292,7 @@ def job_is_closed_locked(conn, job_id: str) -> bool:
     return row is not None and row[0] == "CLOSED"
 
 
-def sync_listings_after_job_update(conn, job_id: str, *, job_status: Optional[str], was_closed: bool,
+def sync_listings_after_job_update(conn: Conn, job_id: str, *, job_status: Optional[str], was_closed: bool,
                                    deadline_changed: bool, deadline=None) -> None:
     """Đưa listing rồi job theo kịp một lần db.update_job() vừa ghi job (nhân viên sửa tay, import,
     check_expired_source_jobs). Gọi SAU câu UPDATE job_postings, cùng transaction.

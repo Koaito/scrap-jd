@@ -22,6 +22,7 @@ from scrapjd.db.listing_state import (
     sync_listings_after_job_update,
 )
 from scrapjd.normalize import LEVEL_SOURCE_MANUAL
+from scrapjd.db.pg_types import Conn, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -108,7 +109,7 @@ def probe_needs_enrichment(probe) -> bool:
     return not (website and industry and company_size and address)
 
 
-def job_exists_by_source_url(conn, source_url: str) -> bool:
+def job_exists_by_source_url(conn: Conn, source_url: str) -> bool:
     """Chống trùng theo link JD gốc — nếu link này đã crawl rồi thì bỏ qua,
     tránh insert lại job giống hệt mỗi lần chạy crawler."""
     with conn.cursor() as cur:
@@ -119,7 +120,7 @@ def job_exists_by_source_url(conn, source_url: str) -> bool:
         return cur.fetchone() is not None
 
 
-def get_job_probe_by_source_url(conn, source_url: str):
+def get_job_probe_by_source_url(conn: Conn, source_url: str):
     """Tra cứu nhanh 1 job đã có theo source_url — trả về
     (job_id, work_type, deadline, parsed_content, detail_checked_at) hoặc None
     nếu job này chưa từng crawl. detail_checked_at là lần gần nhất fetch thành
@@ -173,7 +174,7 @@ def job_needs_detail_enrichment(probe, *, now=None, recheck_days=None) -> bool:
     return now - checked_at >= timedelta(days=recheck_days)
 
 
-def mark_source_detail_checked(conn, source_url: str, *, deadline=None) -> None:
+def mark_source_detail_checked(conn: Conn, source_url: str, *, deadline=None) -> None:
     """Ghi nhận vừa fetch THÀNH CÔNG trang chi tiết của source_url này (không ghi khi fetch lỗi: lỗi có
     thể chỉ là tạm thời, lượt sau thử lại ngay). Ghi cả last_seen_at và, nếu có, hạn đọc được từ trang
     (`deadline`) vào listing, xem db.listing_state.mark_listing_detail_checked (C1).
@@ -181,7 +182,7 @@ def mark_source_detail_checked(conn, source_url: str, *, deadline=None) -> None:
     mark_listing_detail_checked(conn, source_url, deadline=deadline)
 
 
-def update_job_fields(conn, job_id: str, *, work_type: Optional[str] = None,
+def update_job_fields(conn: Conn, job_id: str, *, work_type: Optional[str] = None,
                        parsed_content: Optional[dict] = None) -> None:
     """Vá thêm work_type/parsed_content cho 1 job ĐÃ TỒN TẠI (chỉ
     ghi đè field nào có giá trị mới, không xóa dữ liệu cũ nếu lần crawl
@@ -208,7 +209,7 @@ def update_job_fields(conn, job_id: str, *, work_type: Optional[str] = None,
         )
 
 
-def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
+def insert_job(conn: Conn, *, company_id: str, job_title: str, matching_industry: str,
                 level_id: Optional[int], province_id: Optional[int],
                 work_type: Optional[str], currency: str,
                 salary_min: Optional[int], salary_max: Optional[int],
@@ -265,7 +266,7 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
              created_by, level_source, level_rule_version,
              json.dumps(level_signals, ensure_ascii=False) if level_signals is not None else None),
         )
-        job_id = cur.fetchone()[0]
+        job_id = fetch_scalar(cur)
 
         # Listing đầu tiên của job (C1): OPEN vì job vừa tạo OPEN, hạn = hạn của job. INSERT thường, không
         # ON CONFLICT (C2: không còn dùng uq_job_source, ràng buộc đó gỡ ở migration riêng): job_id vừa sinh
@@ -280,13 +281,13 @@ def insert_job(conn, *, company_id: str, job_title: str, matching_industry: str,
         return str(job_id)
 
 
-def count_jobs(conn) -> int:
+def count_jobs(conn: Conn) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM job_postings")
-        return cur.fetchone()[0]
+        return fetch_scalar(cur)
 
 
-def find_manual_job_duplicate(conn, *, company_id: str, job_title: str,
+def find_manual_job_duplicate(conn: Conn, *, company_id: str, job_title: str,
                                level_id: Optional[int],
                                province_id: Optional[int]) -> Optional[str]:
     """Tìm job CHƯA đóng mà POST /jobs nên coi là "đúng cái đó rồi": cùng khoá chống trùng
@@ -326,7 +327,7 @@ def find_manual_job_duplicate(conn, *, company_id: str, job_title: str,
         return str(row[0]) if row else None
 
 
-def find_similar_open_jobs(conn, *, company_id: str, job_title: str,
+def find_similar_open_jobs(conn: Conn, *, company_id: str, job_title: str,
                            province_id: Optional[int],
                            exclude_job_id: Optional[str] = None) -> list:
     """Các job CHƯA đóng cùng khoá chống trùng (dedup_key) với job vừa nhập, mọi level, để POST /jobs
@@ -354,7 +355,7 @@ def find_similar_open_jobs(conn, *, company_id: str, job_title: str,
         ]
 
 
-def create_manual_job(conn, *, job_title: str, company_id: str,
+def create_manual_job(conn: Conn, *, job_title: str, company_id: str,
                        matching_industry: str = "",
                        level_id: Optional[int] = None,
                        province_id: Optional[int] = None,
@@ -450,7 +451,7 @@ def create_manual_job(conn, *, job_title: str, company_id: str,
     )
 
 
-def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
+def update_job(conn: Conn, job_id: str, *, job_title: Optional[str] = None,
                matching_industry: Optional[str] = None,
                level_id: Optional[int] = None,
                province_id: Optional[int] = None,
@@ -662,7 +663,7 @@ def update_job(conn, job_id: str, *, job_title: Optional[str] = None,
     return found
 
 
-def job_exists_by_id(conn, job_id: str) -> bool:
+def job_exists_by_id(conn: Conn, job_id: str) -> bool:
     with conn.cursor() as cur:
         cur.execute("SELECT 1 FROM job_postings WHERE job_id = %s LIMIT 1", (job_id,))
         return cur.fetchone() is not None

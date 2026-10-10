@@ -19,6 +19,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.extras
+from scrapjd.db.pg_types import Conn, fetch_all_rows, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ MAX_MESSAGE_ID = 9_223_372_036_854_775_807
 # chat_relationships — state machine
 # ============================================================
 
-def get_relationship(conn, student_id: str, ss_id: str) -> Optional[dict]:
+def get_relationship(conn: Conn, student_id: str, ss_id: str) -> Optional[dict]:
     """Trả row chat_relationships giữa 1 cặp student/ss cụ thể, hoặc
     None nếu chưa từng có quan hệ nào (chưa ai nhắn/request)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -54,13 +55,13 @@ def get_relationship(conn, student_id: str, ss_id: str) -> Optional[dict]:
         return cur.fetchone()
 
 
-def get_relationship_by_id(conn, relationship_id: str) -> Optional[dict]:
+def get_relationship_by_id(conn: Conn, relationship_id: str) -> Optional[dict]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM chat_relationships WHERE id = %s", (relationship_id,))
         return cur.fetchone()
 
 
-def count_pending_for_student(conn, student_id: str) -> int:
+def count_pending_for_student(conn: Conn, student_id: str) -> int:
     """Đếm số request đang 'pending' của 1 học viên, TRÊN TOÀN BỘ SS
     (không chỉ 1 cặp) — dùng để enforce MAX_PENDING_PER_STUDENT trước
     khi tạo request mới. Gọi TRONG CÙNG transaction với INSERT ở
@@ -71,10 +72,10 @@ def count_pending_for_student(conn, student_id: str) -> int:
             "SELECT COUNT(*) FROM chat_relationships WHERE student_id = %s AND status = 'pending'",
             (student_id,),
         )
-        return cur.fetchone()[0]
+        return fetch_scalar(cur)
 
 
-def create_pending_request(conn, student_id: str, ss_id: str) -> str:
+def create_pending_request(conn: Conn, student_id: str, ss_id: str) -> str:
     """(a) Học viên gửi request lần đầu (chưa có row) — INSERT thường,
     UNIQUE(student_id, ss_id) đảm bảo chỉ 1 request 'sống' tại 1 thời
     điểm cho 1 cặp. GỌI SAU KHI đã check count_pending_for_student() <
@@ -89,10 +90,10 @@ def create_pending_request(conn, student_id: str, ss_id: str) -> str:
             """,
             (student_id, ss_id, student_id),
         )
-        return str(cur.fetchone()[0])
+        return str(fetch_scalar(cur))
 
 
-def reset_declined_to_pending(conn, student_id: str, ss_id: str) -> Optional[str]:
+def reset_declined_to_pending(conn: Conn, student_id: str, ss_id: str) -> Optional[str]:
     """(b) Học viên gửi lại request SAU KHI đã bị 'declined' quá
     DECLINE_COOLDOWN_DAYS — reset về pending trên row cũ (giữ UNIQUE,
     không tạo row mới). Trả id nếu thành công, None nếu 0 dòng ảnh
@@ -113,7 +114,7 @@ def reset_declined_to_pending(conn, student_id: str, ss_id: str) -> Optional[str
         return str(row[0]) if row else None
 
 
-def accept_relationship(conn, relationship_id: str, ss_id: str) -> bool:
+def accept_relationship(conn: Conn, relationship_id: str, ss_id: str) -> bool:
     """(c) SS accept — CHỈ chuyển được từ đúng 'pending', và chỉ đúng
     ss_id sở hữu request đó (chặn SS khác accept hộ). Trả False nếu 0
     dòng ảnh hưởng (đã bị xử lý bởi thao tác khác / không đúng chủ sở
@@ -130,7 +131,7 @@ def accept_relationship(conn, relationship_id: str, ss_id: str) -> bool:
         return cur.fetchone() is not None
 
 
-def cancel_pending_request(conn, student_id: str, ss_id: str) -> bool:
+def cancel_pending_request(conn: Conn, student_id: str, ss_id: str) -> bool:
     """(h) Học viên TỰ HUỶ request đang 'pending' do chính mình khởi
     tạo (initiated_by = student_id — phân biệt với trường hợp khác,
     dù ở v1 học viên là bên duy nhất tự tạo pending). XOÁ HẲN row
@@ -157,7 +158,7 @@ def cancel_pending_request(conn, student_id: str, ss_id: str) -> bool:
         return cur.fetchone() is not None
 
 
-def decline_relationship(conn, relationship_id: str, ss_id: str) -> bool:
+def decline_relationship(conn: Conn, relationship_id: str, ss_id: str) -> bool:
     """(d) SS decline — cùng điều kiện atomic như accept."""
     with conn.cursor() as cur:
         cur.execute(
@@ -172,7 +173,7 @@ def decline_relationship(conn, relationship_id: str, ss_id: str) -> bool:
         return cur.fetchone() is not None
 
 
-def block_relationship(conn, relationship_id: str, ss_id: str) -> bool:
+def block_relationship(conn: Conn, relationship_id: str, ss_id: str) -> bool:
     """(e) SS block — chặn được từ BẤT KỲ trạng thái nào của relationship
     ĐÃ TỒN TẠI (route block-by-relationship-id, dùng khi đã có lịch sử
     nhắn tin/request). Trả False nếu relationship không tồn tại hoặc
@@ -189,7 +190,7 @@ def block_relationship(conn, relationship_id: str, ss_id: str) -> bool:
         return cur.fetchone() is not None
 
 
-def block_student_by_ss(conn, student_id: str, ss_id: str) -> None:
+def block_student_by_ss(conn: Conn, student_id: str, ss_id: str) -> None:
     """Biến thể của (e) — SS chặn TRƯỚC 1 học viên chưa từng có quan
     hệ nào (chưa có row) — dùng ở route block theo student_id thay vì
     relationship_id, cho trường hợp SS muốn chặn trước khi học viên
@@ -207,7 +208,7 @@ def block_student_by_ss(conn, student_id: str, ss_id: str) -> None:
         )
 
 
-def unblock_relationship(conn, relationship_id: str, ss_id: str) -> bool:
+def unblock_relationship(conn: Conn, relationship_id: str, ss_id: str) -> bool:
     """(f) SS unblock — về lại 'accepted' (không về 'pending', vì SS
     chủ động unblock nghĩa là SS đồng ý nhắn tiếp)."""
     with conn.cursor() as cur:
@@ -222,7 +223,7 @@ def unblock_relationship(conn, relationship_id: str, ss_id: str) -> bool:
         return cur.fetchone() is not None
 
 
-def ensure_accepted_by_ss(conn, student_id: str, ss_id: str) -> None:
+def ensure_accepted_by_ss(conn: Conn, student_id: str, ss_id: str) -> None:
     """(g) SS nhắn TRƯỚC cho học viên (chưa có quan hệ, hoặc đang
     pending/declined) — tự động accept, TRỪ KHI đang 'blocked' (SS tự
     block thì gửi tiếp KHÔNG tự unblock — phải bấm Unblock riêng,
@@ -248,7 +249,7 @@ def ensure_accepted_by_ss(conn, student_id: str, ss_id: str) -> None:
 # messages
 # ============================================================
 
-def insert_message(conn, sender_id: str, receiver_id: str, content: str) -> str:
+def insert_message(conn: Conn, sender_id: str, receiver_id: str, content: str) -> str:
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -258,17 +259,17 @@ def insert_message(conn, sender_id: str, receiver_id: str, content: str) -> str:
             """,
             (sender_id, receiver_id, content),
         )
-        return str(cur.fetchone()[0])
+        return str(fetch_scalar(cur))
 
 
-def get_message_by_id(conn, message_id: str) -> Optional[dict]:
+def get_message_by_id(conn: Conn, message_id: str) -> Optional[dict]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM messages WHERE id = %s", (message_id,))
         return cur.fetchone()
 
 
 def get_messages_between(
-    conn, user_a: str, user_b: str, *, before_id: Optional[int] = None, limit: int = 50
+    conn: Conn, user_a: str, user_b: str, *, before_id: Optional[int] = None, limit: int = 50
 ) -> list[dict]:
     """Lịch sử đầy đủ giữa 2 người, mới nhất trước, phân trang cursor
     bằng before_id (id < before_id nếu có). Gọi CHỈ SAU KHI router đã
@@ -297,10 +298,10 @@ def get_messages_between(
                 """,
                 (user_a, user_b, user_b, user_a, limit),
             )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def get_messages_since(conn, user_a: str, user_b: str, after_id: int) -> list[dict]:
+def get_messages_since(conn: Conn, user_a: str, user_b: str, after_id: int) -> list[dict]:
     """Polling nhẹ: chỉ tin có id > after_id giữa 2 người, cũ nhất
     trước (đúng thứ tự xuất hiện khi FE append vào khung chat)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -313,10 +314,10 @@ def get_messages_since(conn, user_a: str, user_b: str, after_id: int) -> list[di
             """,
             (user_a, user_b, user_b, user_a, after_id),
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def mark_read(conn, current_user_id: str, partner_id: str) -> int:
+def mark_read(conn: Conn, current_user_id: str, partner_id: str) -> int:
     """Đánh dấu đã đọc mọi tin partner_id gửi cho current_user_id còn
     unread. Trả số dòng bị ảnh hưởng."""
     with conn.cursor() as cur:
@@ -330,16 +331,16 @@ def mark_read(conn, current_user_id: str, partner_id: str) -> int:
         return cur.rowcount
 
 
-def get_unread_count(conn, current_user_id: str) -> int:
+def get_unread_count(conn: Conn, current_user_id: str) -> int:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) FROM messages WHERE receiver_id = %s AND read_at IS NULL",
             (current_user_id,),
         )
-        return cur.fetchone()[0]
+        return fetch_scalar(cur)
 
 
-def list_conversations(conn, current_user_id: str) -> list[dict]:
+def list_conversations(conn: Conn, current_user_id: str) -> list[dict]:
     """Danh sách hội thoại của current_user_id: mỗi partner từng nhắn
     qua lại, kèm tin nhắn cuối + unread_count + relationship_status +
     relationship_id (NULL nếu là cặp SS-SS, không qua state machine).
@@ -401,10 +402,10 @@ def list_conversations(conn, current_user_id: str) -> list[dict]:
             """,
             {"me": current_user_id},
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def get_conversation_with(conn, current_user_id: str, requester_is_ss: bool,
+def get_conversation_with(conn: Conn, current_user_id: str, requester_is_ss: bool,
                           partner_id: str) -> Optional[dict]:
     """Tra đúng 1 người đối thoại (Phần 5 mục 9 của plan Next.js) — cùng
     shape với 1 dòng của list_conversations(), nhưng KHÔNG đòi hỏi 2 bên
@@ -459,7 +460,7 @@ def get_conversation_with(conn, current_user_id: str, requester_is_ss: bool,
         return cur.fetchone()
 
 
-def list_pending_requests_for_ss(conn, ss_id: str) -> list[dict]:
+def list_pending_requests_for_ss(conn: Conn, ss_id: str) -> list[dict]:
     """Mục riêng "Yêu cầu đang chờ" cho SS — học viên nào đang pending
     với ss_id này, chưa từng nhắn nên KHÔNG nằm trong list_conversations()
     ở trên (list_conversations chỉ suy từ bảng messages đã có tin)."""
@@ -475,10 +476,10 @@ def list_pending_requests_for_ss(conn, ss_id: str) -> list[dict]:
             """,
             (ss_id,),
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def search_people(conn, query: str, *, requester_role: str) -> list[dict]:
+def search_people(conn: Conn, query: str, *, requester_role: str) -> list[dict]:
     """Tìm người để bắt đầu hội thoại — CHỈ trả id/full_name/role,
     KHÔNG email/phone (xem backend-scrap-jd-nhan-tin.md §3, §4). Học
     viên ('user') chỉ thấy role ss_team/admin; SS/admin thấy mọi role."""
@@ -508,4 +509,4 @@ def search_people(conn, query: str, *, requester_role: str) -> list[dict]:
                 """,
                 (f"%{query}%",),
             )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
