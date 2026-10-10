@@ -23,6 +23,8 @@ DELETE_EMAIL_TEMPLATE) — enforce ở đây (422 TRƯỚC KHI chạm DB), giố
 hệt pattern PATCH/DELETE /companies/{id}/contacts/{id}.
 """
 
+from typing import Optional
+
 from scrapjd import db as db_module
 from scrapjd.api import error_codes
 from fastapi import APIRouter, Depends, HTTPException
@@ -35,7 +37,7 @@ from scrapjd.api.schemas import (
     EmailTemplateUpdate,
     PlaceholderHelpOut,
 )
-from scrapjd.db.pg_types import Conn
+from scrapjd.db.pg_types import Conn, Row
 
 router = APIRouter(prefix="/email-templates", tags=["email-templates"])
 
@@ -44,14 +46,14 @@ router = APIRouter(prefix="/email-templates", tags=["email-templates"])
 def list_email_templates(
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> list[Row]:
     return db_module.list_email_templates(conn)
 
 
 @router.get("/placeholder-help", response_model=PlaceholderHelpOut)
 def get_placeholder_help(
     user: dict = Depends(require_role("ss_team")),
-):
+) -> PlaceholderHelpOut:
     """Bảng chú giải 5 placeholder cố định ({{TEN_CONG_TY}}, {{TEN_STAFF}}...)
     để hiển thị trong UI thêm/sửa mẫu — theo đúng yêu cầu đã chốt: giữ
     nguyên placeholder, chỉ thêm ghi chú hướng dẫn cách điền cho đúng.
@@ -68,7 +70,7 @@ def get_email_template(
     template_id: str,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> Row:
     if not db_module.is_valid_uuid(template_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID, "message": f"template_id '{template_id}' không đúng định dạng UUID.", "params": {"value": template_id}})
     row = db_module.get_email_template_by_id(conn, template_id)
@@ -82,7 +84,7 @@ def create_email_template(
     payload: EmailTemplateCreate,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> Optional[Row]:
     template_id = db_module.create_email_template(
         conn,
         title=payload.title,
@@ -111,7 +113,7 @@ def patch_email_template(
     payload: EmailTemplateUpdate,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> Optional[Row]:
     if not db_module.is_valid_uuid(template_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.EMAIL_TEMPLATE_TEMPLATE_ID_INVALID_UUID, "message": f"template_id '{template_id}' không đúng định dạng UUID.", "params": {"value": template_id}})
 
@@ -158,13 +160,13 @@ def patch_email_template(
     return db_module.get_email_template_by_id(conn, template_id)
 
 
-@router.delete("/{template_id}", status_code=204)
+@router.delete("/{template_id}", status_code=204, response_model=None)
 def delete_email_template(
     template_id: str,
     payload: EmailTemplateDeleteRequest,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> None:
     """XOÁ HẲN (hard delete) — theo đúng yêu cầu đã chốt, KHÔNG soft-
     delete như DELETE /companies hoặc /companies/{id}/contacts/{id}.
 

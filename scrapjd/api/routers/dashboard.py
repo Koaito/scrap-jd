@@ -13,6 +13,8 @@ bộ yêu cầu ss_team trở lên — trang /dashboard vốn staff-only, và ta
 "Doanh nghiệp" chứa tên/ngày liên hệ của contact (dữ liệu nhạy cảm).
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from scrapjd import db as db_module
@@ -33,7 +35,7 @@ FOLLOWUP_DAYS_OPTIONS = (7, 14, 30)
 FOLLOWUP_DAYS_DEFAULT = 14
 
 
-def _pct_change(current: int, previous: int):
+def _pct_change(current: int, previous: int) -> Optional[int]:
     """% thay đổi so với kỳ trước, làm tròn bằng round() của Python (làm
     tròn về số chẵn khi đúng .5 — GIỮ NGUYÊN như _pct_change bên Flask để
     2 bản ra cùng con số). previous rỗng/0 -> None (không chia được)."""
@@ -48,7 +50,7 @@ def get_student_insights(
     request: Request,
     user: dict = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-):
+) -> dict:
     """Tab "Gợi ý học viên": JD sắp hết hạn cần đẩy (deadline còn 7-14
     ngày, chưa ai lưu/ứng tuyển), JD "ế" (thu thập >= 30 ngày, chưa ai
     quan tâm), top 10 kỹ năng 30 ngày gần đây, lương trung bình theo
@@ -72,7 +74,7 @@ def get_company_insights(
     ),
     user: dict = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-):
+) -> dict:
     """Tab "Doanh nghiệp": công ty tiềm năng cao thiếu/nguội contact,
     contact cần follow-up (im lặng >= followup_days), công ty đang "nở rộ"
     (>= 2 job trong 30 ngày) và công ty "im ắng" (job mới nhất > 75 ngày
@@ -104,7 +106,7 @@ def get_monthly_insights(
     request: Request,
     user: dict = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-):
+) -> dict:
     """Tab "Báo cáo tháng": số job/công ty mới + % so với tháng trước, job
     hết hạn trong tháng, top 3 ngành + top 5 công ty tuyển nhiều nhất
     tháng này, số ứng tuyển/lưu job + %. "Tháng" theo lịch, giờ Việt Nam

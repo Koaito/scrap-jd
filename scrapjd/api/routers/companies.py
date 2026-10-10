@@ -43,7 +43,7 @@ def list_companies(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     conn: Conn = Depends(get_db),
-):
+) -> PaginatedCompanies:
     """Rate limit 60/minute theo IP (thêm 08/2026) — cùng lý do với
     GET /jobs (xem scrapjd/api/routers/jobs.py::list_jobs)."""
     if created_by is not None and not db_module.is_valid_uuid(created_by):
@@ -67,7 +67,7 @@ def get_partnership_signals(
                     "Không truyền = tính cho TOÀN BỘ công ty trong DB.",
     ),
     conn: Conn = Depends(get_db),
-):
+) -> dict:
     """GET /companies/partnership-signals — thay thế cho việc frontend
     (blueprints/companies.py bên mindx-jobs) từng phải gọi
     list_all_jobs() + list_all_contacts() (kéo TOÀN BỘ job/contact về
@@ -100,7 +100,7 @@ def get_company_data_health(
     request: Request,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> dict:
     """GET /companies/data-health — thay thế cho việc frontend
     (blueprints/crawl_status.py bên mindx-jobs, tab "Tình trạng dữ
     liệu") từng phải gọi list_all_companies() + list_all_contacts()
@@ -122,7 +122,7 @@ def get_company_data_health(
 
 
 @router.get("/{company_id}", response_model=CompanyDetailOut)
-def get_company(company_id: str, conn: Conn = Depends(get_db)):
+def get_company(company_id: str, conn: Conn = Depends(get_db)) -> dict:
     if not db_module.is_valid_uuid(company_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.COMPANY_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID.", "params": {"value": company_id}})
     row = db_module.get_company_by_id(conn, company_id)
@@ -137,7 +137,7 @@ def create_company(
     payload: CompanyCreate,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> dict:
     """Tạo công ty THỦ CÔNG — dùng trước POST /jobs khi công ty chưa có
     trong DB (GET /companies?keyword= tìm không ra). Nếu tax_id điền vào
     trùng với công ty đã crawl trước đó, tự động DÙNG LẠI company đã có
@@ -213,7 +213,7 @@ def patch_company(
     payload: CompanyUpdate,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> dict:
     """Sửa TỰ DO các field của 1 company đã tồn tại (thêm 08/2026, xem
     lịch sử trao đổi). Chỉ field có mặt trong body mới bị ghi đè, field
     không gửi giữ nguyên giá trị cũ — giống PATCH /jobs/{id}.
@@ -287,13 +287,13 @@ def patch_company(
     return {**row, "jobs": jobs}
 
 
-@router.delete("/{company_id}", status_code=204)
+@router.delete("/{company_id}", status_code=204, response_model=None)
 def delete_company(
     company_id: str,
     payload: CompanyDeleteRequest,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> None:
     """Xoá MỀM company (is_active=false) — thêm 08/2026, xem
     sql/migration_add_company_soft_delete.sql. Trước route này, company
     KHÔNG có cách xoá nào.

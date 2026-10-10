@@ -43,7 +43,7 @@ from scrapjd.api.schemas import (
     SavedJobOut,
     SavedJobToggleResult,
 )
-from scrapjd.db.pg_types import Conn
+from scrapjd.db.pg_types import Conn, Row
 
 router = APIRouter(prefix="/me", tags=["me"])
 
@@ -57,7 +57,7 @@ def apply_to_job(
     cv_file: UploadFile = File(..., description="File PDF CV của học viên (max 5MB)"),
     user: dict = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
-):
+) -> Row:
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID.", "params": {"value": job_id}})
     
@@ -120,7 +120,7 @@ def apply_to_job(
 def list_my_applications(
     user: dict = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     return db_module.list_applications_for_user(conn, user["sub"])
 
 
@@ -146,7 +146,7 @@ router.add_api_route(
 )
 
 
-@router.delete("/applications/{job_id}", status_code=204)
+@router.delete("/applications/{job_id}", status_code=204, response_model=None)
 def withdraw_application(
     job_id: str,
     note: Optional[str] = Query(
@@ -158,7 +158,7 @@ def withdraw_application(
     ),
     user: dict = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
-):
+) -> None:
     """Huỷ ứng tuyển (thêm 08/2026, xem db.delete_job_application()) —
     học viên chỉ huỷ được đơn của CHÍNH mình (ss_user_id lấy từ JWT,
     không nhận qua path/body, giống mọi route khác trong file này).
@@ -204,7 +204,7 @@ def save_job(
     payload: SavedJobCreate,
     user: dict = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
-):
+) -> Row:
     if not db_module.is_valid_uuid(payload.job_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{payload.job_id}' không đúng định dạng UUID.", "params": {"value": payload.job_id}})
     if db_module.get_job_by_id(conn, payload.job_id) is None:
@@ -236,7 +236,7 @@ def toggle_saved_job(
     payload: SavedJobCreate,
     user: dict = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
-):
+) -> SavedJobToggleResult:
     if not db_module.is_valid_uuid(payload.job_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{payload.job_id}' không đúng định dạng UUID.", "params": {"value": payload.job_id}})
     if db_module.get_job_by_id(conn, payload.job_id) is None:
@@ -262,16 +262,16 @@ def toggle_saved_job(
 def list_my_saved_jobs(
     user: dict = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     return db_module.list_saved_jobs_for_user(conn, user["sub"])
 
 
-@router.delete("/saved-jobs/{job_id}", status_code=204)
+@router.delete("/saved-jobs/{job_id}", status_code=204, response_model=None)
 def unsave_job(
     job_id: str,
     user: dict = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
-):
+) -> None:
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID.", "params": {"value": job_id}})
 

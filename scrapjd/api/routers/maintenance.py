@@ -32,7 +32,7 @@ def trigger_maintenance_run(
     payload: MaintenanceRunRequest,
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_admin),
-):
+) -> MaintenanceAccepted:
     """Kích hoạt 1 lượt chạy job bảo trì dữ liệu CHẠY NỀN — trả về
     run_id ngay, KHÔNG chờ chạy xong (đối xứng POST /crawl, xem docstring
     scrapjd/api/maintenance_runner.py).
@@ -99,7 +99,7 @@ def list_maintenance_runs(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> PaginatedMaintenanceRuns:
     """Trang "Lịch sử bảo trì" — đối xứng GET /crawl. QUYỀN 'ss_team'
     trở lên (đọc không tốn tài nguyên như bấm chạy thật, POST
     /maintenance/{job_type} chặt hơn, chỉ 'admin')."""
@@ -124,7 +124,7 @@ def list_maintenance_runs(
 
 
 @router.get("/latest-log-runs", response_model=dict)
-def get_latest_log_runs(user: dict = Depends(require_role("ss_team"))):
+def get_latest_log_runs(user: dict = Depends(require_role("ss_team"))) -> dict:
     """Trả {job_type: MaintenanceStatusOut|None} — lượt chạy GẦN NHẤT
     của MỖI job_type, để mỗi card trên trang web luôn có 1 run_id để
     hiện log lúc mở trang, kể cả khi job_type đó chưa từng chạy lần nào
@@ -143,7 +143,7 @@ def get_maintenance_logs_batch(
     after_ids: str = Query(..., description="after_id tương ứng THEO ĐÚNG THỨ TỰ run_ids, phân cách bởi dấu phẩy"),
     limit: int = Query(500, ge=1, le=2000),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> dict:
     """GỘP nhiều GET /maintenance/{run_id}/logs thành 1 request — dùng
     cho 5 khung "Log live" (mỗi job_type 1 khung) ở tab Bảo trì (09/2026,
     xem lịch sử trao đổi "gộp 5 request logs.json thành 1"): trước đây
@@ -190,7 +190,7 @@ def get_maintenance_logs_batch(
 
 
 @router.get("/{run_id}", response_model=MaintenanceStatusOut)
-def get_maintenance_status(run_id: str, user: dict = Depends(require_role("ss_team"))):
+def get_maintenance_status(run_id: str, user: dict = Depends(require_role("ss_team"))) -> dict:
     """Poll tiến độ/kết quả 1 lượt chạy — đối xứng GET /crawl/{run_id}."""
     if not db_module.is_valid_uuid(run_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.MAINTENANCE_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID.", "params": {"value": run_id}})
@@ -206,7 +206,7 @@ def get_maintenance_logs(
     after_id: int = Query(0, ge=0, description="Chỉ lấy dòng log có id > after_id (poll tăng dần)"),
     limit: int = Query(500, ge=1, le=2000),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> MaintenanceLogsOut:
     """Khu "Xem log live" — đối xứng GET /crawl/{run_id}/logs."""
     if not db_module.is_valid_uuid(run_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.MAINTENANCE_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID.", "params": {"value": run_id}})

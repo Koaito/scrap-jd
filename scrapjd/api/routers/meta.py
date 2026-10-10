@@ -19,7 +19,7 @@ router = APIRouter(tags=["meta"])
 
 
 @router.get("/stats", response_model=StatsOut)
-def get_stats(conn: Conn = Depends(get_db)):
+def get_stats(conn: Conn = Depends(get_db)) -> dict:
     """Số liệu tổng quan cho dashboard — tổng job, tổng công ty, tỷ lệ
     đã có social, phân bố theo ngành/nguồn, tổng đơn ứng tuyển (thêm
     08/2026), jobs_by_status và total_students (thêm 09/2026 — xem
@@ -28,7 +28,7 @@ def get_stats(conn: Conn = Depends(get_db)):
 
 
 @router.get("/stats/engagement", response_model=EngagementStatsOut)
-def get_engagement_stats(conn: Conn = Depends(get_db)):
+def get_engagement_stats(conn: Conn = Depends(get_db)) -> dict:
     """Thêm 08/2026 — riêng cho dashboard tab 'Gợi ý học viên' (JD
     "ế": đăng lâu mà 0 lượt lưu/ứng tuyển) và tab 'Báo cáo tháng' (%
     tăng/giảm học viên lưu/ứng tuyển so tháng trước).
@@ -50,8 +50,8 @@ def get_engagement_stats(conn: Conn = Depends(get_db)):
     }
 
 
-@router.get("/sources")
-def get_sources():
+@router.get("/sources", response_model=None)
+def get_sources() -> dict[str, dict[str, str]]:
     """Danh sách source + category có sẵn để crawl — frontend dùng để
     render dropdown cho form POST /crawl, không cần hard-code lại phía
     frontend, luôn khớp với scrapjd/sources_registry.py hiện hành.
@@ -68,8 +68,8 @@ def get_sources():
     }
 
 
-@router.get("/enums")
-def get_enums():
+@router.get("/enums", response_model=None)
+def get_enums() -> dict[str, list[str]]:
     """Danh sách tất cả enum values dùng trong hệ thống — frontend fetch
     động để build map VN ↔ backend codes, thay vì hardcode ~10 dict
     _MAP trong crawler_client.py.

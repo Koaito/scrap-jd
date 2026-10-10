@@ -31,7 +31,7 @@ def trigger_crawl(
     payload: CrawlRequest,
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_admin),
-):
+) -> CrawlAccepted:
     """Kích hoạt 1 lượt crawl CHẠY NỀN — trả về run_id ngay, KHÔNG chờ
     crawl xong (crawl thật có thể mất vài phút - vài chục phút). Dùng
     GET /crawl/{run_id} để theo dõi tiến độ.
@@ -93,7 +93,7 @@ def trigger_crawl_batch(
     payload: CrawlBatchRequest,
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_admin),
-):
+) -> CrawlBatchAccepted:
     """08/2026 (xem docstring sql/migration_add_crawl_batches.sql) —
     "crawl nhiều category liên tục": tick nhiều category cùng lúc cho 1
     nguồn, bấm 1 lần, hệ thống tự crawl TUẦN TỰ hết — thay cho việc gõ
@@ -161,7 +161,7 @@ def list_crawl_batches(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> PaginatedCrawlBatches:
     """Lịch sử batch — đối xứng GET /crawl (lịch sử run đơn lẻ). ĐẶT
     TRƯỚC GET /{run_id} không bắt buộc về mặt kỹ thuật (khác số lượng
     segment path: "/crawl/batch" so với "/crawl/{run_id}" — FastAPI
@@ -183,7 +183,7 @@ def list_crawl_batches(
 
 
 @router.get("/batch/{batch_id}", response_model=CrawlBatchStatusOut)
-def get_crawl_batch(batch_id: str, user: dict = Depends(require_role("ss_team"))):
+def get_crawl_batch(batch_id: str, user: dict = Depends(require_role("ss_team"))) -> dict:
     """Poll tiến độ TỔNG của 1 batch — trả kèm "items" (từng run con
     theo đúng thứ tự category) + "total"/"completed" để frontend hiện
     kiểu "2/6 category xong" mà không cần tự đếm lại từ GET /crawl."""
@@ -203,7 +203,7 @@ def list_crawl_runs(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> PaginatedCrawlRuns:
     """Trang "Lịch sử crawl" — 08/2026, xem sql/migration_add_crawl_runs.sql.
 
     QUYỀN: 'ss_team' trở lên (giống GET /audit-logs) — đọc lịch sử
@@ -226,7 +226,7 @@ def list_crawl_runs(
 
 
 @router.get("/latest-log-run", response_model=Optional[CrawlStatusOut])
-def get_latest_log_run(user: dict = Depends(require_role("ss_team"))):
+def get_latest_log_run(user: dict = Depends(require_role("ss_team"))) -> Optional[dict]:
     """Trả lượt crawl GẦN NHẤT (bất kể status) — khung "Log live" ở
     frontend gọi endpoint này lúc mở trang /crawl để luôn có 1 run_id
     hiện log, kể cả khi không có lượt nào đang chạy (hiện log của lượt
@@ -244,7 +244,7 @@ def get_latest_log_run(user: dict = Depends(require_role("ss_team"))):
 
 
 @router.get("/{run_id}", response_model=CrawlStatusOut)
-def get_crawl_status(run_id: str, user: dict = Depends(require_role("ss_team"))):
+def get_crawl_status(run_id: str, user: dict = Depends(require_role("ss_team"))) -> dict:
     """Poll tiến độ/kết quả 1 lượt crawl.
 
     08/2026: THÊM yêu cầu đăng nhập tối thiểu 'ss_team' — trước đây
@@ -265,7 +265,7 @@ def get_crawl_logs(
     after_id: int = Query(0, ge=0, description="Chỉ lấy dòng log có id > after_id (poll tăng dần)"),
     limit: int = Query(500, ge=1, le=2000),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> CrawlLogsOut:
     """Khu "Xem log live" ở trang /crawl — poll endpoint này lặp lại
     (vd mỗi 2 giây) với after_id = last_id của lần gọi trước, để chỉ
     tải các dòng MỚI thay vì tải lại toàn bộ log mỗi lần (log 1 lượt

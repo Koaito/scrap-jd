@@ -20,7 +20,7 @@ from scrapjd import db as db_module
 from scrapjd.api import error_codes
 from scrapjd.api.deps import get_db, require_role
 from scrapjd.api.schemas import AuditLogNoteUpdate, AuditLogOut, PaginatedAuditLogs
-from scrapjd.db.pg_types import Conn
+from scrapjd.db.pg_types import Conn, Row
 
 router = APIRouter(prefix="/audit-logs", tags=["audit-logs"])
 
@@ -69,7 +69,7 @@ def list_audit_logs(
     offset: int = Query(0, ge=0),
     user: dict = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-):
+) -> PaginatedAuditLogs:
     if entity_type is not None and entity_type not in _VALID_ENTITY_TYPES:
         raise HTTPException(
             status_code=400,
@@ -106,7 +106,7 @@ def update_note(
     payload: AuditLogNoteUpdate,
     user: dict = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-):
+) -> Optional[Row]:
     """Bổ sung/sửa note của 1 log đã tồn tại.
 
     QUYỀN: CHỈ actor_id GỐC của log (người thực hiện thao tác đó) mới
