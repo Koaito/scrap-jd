@@ -314,8 +314,9 @@ mypy
 ```
 
 Cấu hình ở `pyproject.toml` (mục `[tool.mypy]`): kiểm `scrapjd/`, `scripts/` và `main.py`, kiểm cả hàm chưa có
-type hint, báo `# type: ignore` thừa. Hiện sạch cảnh báo; chưa chạy trong CI và chưa bắt buộc mọi hàm phải có
-type hint. Chỗ nào buộc phải bỏ qua thì dùng `# type: ignore[mã-lỗi]` kèm một dòng giải thích lý do.
+type hint, báo `# type: ignore` thừa. Hiện sạch cảnh báo và CI chạy `mypy` trước pytest, có lỗi kiểu là job đỏ.
+Chưa bắt buộc mọi hàm phải có type hint. Chỗ nào buộc phải bỏ qua thì dùng `# type: ignore[mã-lỗi]` kèm một dòng
+giải thích lý do.
 
 ---
 

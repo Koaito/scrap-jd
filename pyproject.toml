@@ -29,8 +29,8 @@ exclude_also = [
     "if TYPE_CHECKING:",
 ]
 
-# mypy (kiểm kiểu). Mức hiện tại: kiểm cả hàm chưa có type hint và dọn sạch cảnh báo; CHƯA bắt buộc mọi hàm phải có type hint,
-# và CHƯA chạy trong CI.
+# mypy (kiểm kiểu). Mức hiện tại: kiểm cả hàm chưa có type hint và đã dọn sạch cảnh báo; CHƯA bắt buộc mọi hàm phải có type hint.
+# CI chạy `mypy` ở .github/workflows/test.yml và CHẶN khi có lỗi.
 # Chạy từ gốc repo: `mypy`. Phiên bản mypy và stubs ghim ở requirements-dev.txt.
 [tool.mypy]
 python_version = "3.12"

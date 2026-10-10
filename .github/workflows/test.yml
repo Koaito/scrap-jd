@@ -51,17 +51,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Cài dependency (app + test)
-        # requirements-dev.txt KHÔNG tồn tại trong repo (chưa từng được
-        # commit — xem `git log -- requirements-dev.txt`) — dòng
-        # `pip install -r requirements-dev.txt` cũ ở đây sẽ luôn FAIL
-        # ngay bước cài đặt (`ERROR: Could not open requirements file`),
-        # nghĩa là job "test" trên thực tế CHƯA BAO GIỜ chạy được tới
-        # bước pytest, dù workflow "trông như" đã bật. Toàn bộ dependency
-        # cho test (pytest, pytest-asyncio, httpx) ĐÃ có sẵn trong
-        # requirements.txt (xem comment cuối file đó) nên bỏ hẳn dòng
-        # thừa/sai, chỉ cần cài đúng 1 file là đủ.
-        run: pip install -r requirements.txt
+      - name: Cài dependency (app + test + mypy)
+        # requirements-dev.txt gồm `-r requirements.txt` (app + pytest, pytest-cov) cộng mypy và stubs đã ghim
+        # phiên bản, nên một lệnh là đủ. Trước 10/2026 repo CHƯA có requirements-dev.txt (dòng
+        # `pip install -r requirements-dev.txt` cũ từng làm job fail ngay bước cài đặt, nên đã bỏ); file được
+        # tạo lại ở bước bật mypy (M1) với nội dung khác hẳn, chỉ chứa công cụ kiểm kiểu. Render vẫn chỉ đọc
+        # requirements.txt nên không cài mypy lúc deploy.
+        run: pip install -r requirements-dev.txt
 
       - name: Cài ruff (linter)
         # Thêm 08/2026 cùng đợt rà soát khả năng mở rộng — trước đây
@@ -74,6 +70,13 @@ jobs:
 
       - name: Chạy ruff
         run: ruff check .
+
+      - name: Chạy mypy (kiểm kiểu)
+        # CHẶN: có lỗi kiểu là job đỏ. Cấu hình ở pyproject.toml, mục [tool.mypy]; phiên bản mypy và stubs ghim ở
+        # requirements-dev.txt. Đặt trước pytest vì chạy nhanh và không cần DB, lỗi kiểu thì dừng sớm. Lưu ý: kết
+        # quả còn phụ thuộc phiên bản các thư viện app chưa ghim (bs4, curl_cffi, starlette, slowapi, fastapi...), nên
+        # bản mới của chúng có thể làm bước này đỏ dù code không đổi; cách xử lý gốc là lockfile (E11 trong kế hoạch).
+        run: mypy
 
       - name: Chạy test
         # JWT_SECRET_KEY: scrapjd/api/security.py raise RuntimeError ngay lúc
