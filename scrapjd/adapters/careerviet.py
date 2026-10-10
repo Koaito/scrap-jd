@@ -143,11 +143,11 @@ import json
 import re
 import logging
 from datetime import datetime
-from typing import Iterator, Optional, cast
+from typing import Any, Iterator, Optional, cast
 from urllib.parse import urljoin, urlsplit
 
 from curl_cffi import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from scrapjd.adapters.base import BaseAdapter, CrawlBlockedError
 from scrapjd.models import RawJobRecord
@@ -717,7 +717,7 @@ class CareerVietAdapter(BaseAdapter):
     # HTML fallback helpers (section.job-detail-content)
     # ------------------------------------------------------------------
     @staticmethod
-    def _extract_info_box_labels(section) -> dict:
+    def _extract_info_box_labels(section: Optional[Tag]) -> dict:
         """Trang mẫu có 2 khối <div class="detail-box..."> LẶP LẠI nội
         dung giống hệt nhau (khả năng cao là biến thể responsive ẩn/hiện
         theo breakpoint, 1 khối có style="display:none") -> duyệt hết
@@ -843,7 +843,7 @@ def _iso_to_ddmmyyyy(iso_text: str) -> str:
     return ""
 
 
-def _months_to_year_text(months) -> str:
+def _months_to_year_text(months: Any) -> str:
     """36 (tháng) -> '3 năm', tương thích thẳng với regex
     r"(\\d+)\\s*năm" trong normalize.infer_level() hiện tại (xem
     docstring đầu file mục "Tương thích ngược"). months=0/None/không

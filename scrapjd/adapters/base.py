@@ -2,12 +2,13 @@ import logging
 import random
 import time
 from abc import ABC, abstractmethod
-from typing import Callable, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from curl_cffi import requests as curl_requests
 
 from scrapjd.models import RawJobRecord
 from scrapjd.config import REQUEST_DELAY_SECONDS, CRAWL_BLOCK_CONSECUTIVE_FAILURES
+from scrapjd.snapshots import SnapshotRecorder
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +132,7 @@ class BaseAdapter(ABC):
 
         # Snapshot HTML/JSON gốc để debug (đợt 3) — None = tắt (CLI, test),
         # _snapshot() khi đó là no-op. scrapjd/api/crawl_runner.py gắn recorder thật.
-        self.snapshot_recorder = None
+        self.snapshot_recorder: Optional[SnapshotRecorder] = None
         # Các bất thường adapter tự phát hiện ở TRANG LISTING ĐẦU (vd trang
         # tải được nhưng parse ra 0 job). pipeline đọc cuối lượt để đánh dấu
         # degraded — KHÁC CrawlBlockedError (không tải được trang).
@@ -142,11 +143,11 @@ class BaseAdapter(ABC):
         # đếm; pipeline đọc cuối lượt để đưa vào stats.skipped_detail_unavailable.
         self.skipped_detail_unavailable_count: int = 0
 
-    def set_snapshot_recorder(self, recorder) -> None:
+    def set_snapshot_recorder(self, recorder: Optional[SnapshotRecorder]) -> None:
         """Gắn (hoặc gỡ bằng None) SnapshotRecorder cho lượt crawl này."""
         self.snapshot_recorder = recorder
 
-    def _snapshot(self, kind: str, url: str, body, reason: str = "sample") -> None:
+    def _snapshot(self, kind: str, url: str, body: Any, reason: str = "sample") -> None:
         """Đề nghị lưu snapshot gốc. No-op nếu chưa gắn recorder; recorder
         tự quyết định có giữ hay không (xem scrapjd/snapshots.py). Không bao giờ
         raise — debug không được làm hỏng crawl."""
@@ -311,7 +312,7 @@ class BaseAdapter(ABC):
     # giao thức khác hẳn GET-HTML (vd VietnamWorksAdapter._post_json()
     # cho API JSON riêng — vẫn tận dụng lại _throttle() dùng chung).
     # ------------------------------------------------------------------
-    def _throttle(self):
+    def _throttle(self) -> None:
         """Đảm bảo khoảng cách tối thiểu delay_seconds (+ jitter ngẫu
         nhiên nếu subclass truyền jitter_seconds > 0, vd TopCV) giữa MỌI
         request, bất kể listing/job detail/company profile."""

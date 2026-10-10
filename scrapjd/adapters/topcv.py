@@ -35,7 +35,7 @@ from urllib.parse import urljoin, urlsplit, urlunsplit, parse_qsl, urlencode
 # .text, .raise_for_status()) nên phần còn lại của file KHÔNG cần đổi gì
 # thêm ngoài import + cách khởi tạo Session.
 from curl_cffi import requests
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Tag
 
 from scrapjd.adapters.base import BaseAdapter, CrawlBlockedError
 from scrapjd.models import RawJobRecord
@@ -284,7 +284,7 @@ class TopCVAdapter(BaseAdapter):
                 company_url=company_url,
             )
 
-    def _find_card_container(self, anchor, all_job_links, max_levels: int = 6):
+    def _find_card_container(self, anchor: Tag, all_job_links: Any, max_levels: int = 6) -> Optional[Tag]:
         """
         Đi ngược lên cha, dừng lại ở cấp cha GẦN NHẤT mà chỉ chứa đúng 1
         link job (đúng chính anchor này). Nếu đi lên gặp cấp chứa >1 link
@@ -310,7 +310,9 @@ class TopCVAdapter(BaseAdapter):
                 break
         return last_good
 
-    def _extract_company(self, card, job_anchor):
+    # `card` thực chất là bs4.Tag, khai Any vì gắn Tag thì `a.get("href")` thành `str | AttributeValueList | None`
+    # và mypy đòi thêm cast vào thân hàm (ngoài phạm vi chỉ gắn kiểu).
+    def _extract_company(self, card: Any, job_anchor: Tag) -> tuple[str, str]:
         company_links = card.find_all(
             "a", href=re.compile(r"(/cong-ty/[^\"'#]+|/brand/[^\"'#/]+(?:\?|$))")
         )

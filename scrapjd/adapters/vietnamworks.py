@@ -82,7 +82,7 @@ import logging
 import re
 import time
 from datetime import datetime
-from typing import Iterator, Optional
+from typing import Any, Iterator, Optional
 from urllib.parse import urljoin, urlparse
 
 from curl_cffi import requests
@@ -120,7 +120,7 @@ _TYPE_WORKING_ID_MAP = {
 }
 
 
-def _work_type_text_from_id(type_working_id) -> str:
+def _work_type_text_from_id(type_working_id: Any) -> str:
     """0 hoặc None -> "" (VNW thật sự chưa set, đã xác nhận từ trước —
     giữ nguyên hành vi cũ, KHÔNG suy đoán 0 = FULL_TIME).
     1, 3 -> map trực tiếp (đã xác nhận chắc chắn).
@@ -139,7 +139,7 @@ def _work_type_text_from_id(type_working_id) -> str:
 ANOMALY_DETAIL_UNPARSABLE = "vnw_detail_unparsable"
 
 
-def _level_hint_from_job_level(job_level) -> str:
+def _level_hint_from_job_level(job_level: Any) -> str:
     """Nhãn jobLevel của VietnamWorks -> 1 giá trị trong normalize.LEVEL_ORDER,
     hoặc "" nếu không biết. Chỉ là dự phòng khi không đọc được số năm (xem
     normalize.infer_level). Nhãn ĐÃ THẤY trong dữ liệu thật (10/2026): "Fresher/
@@ -195,7 +195,7 @@ def _slugify_company_name(company_name: str) -> str:
     return re.sub(r"\s+", "-", cleaned.strip())
 
 
-def _build_company_url(company_name: str, company_id) -> str:
+def _build_company_url(company_name: str, company_id: Any) -> str:
     """company_url = BASE_URL + '/nha-tuyen-dung/<slug>-c<companyId>'.
     Trả rỗng nếu thiếu company_id (không đoán mò URL sai)."""
     if not company_id:
@@ -343,7 +343,7 @@ class VietnamWorksAdapter(BaseAdapter):
     # BaseAdapter._fetch_html() (nếu sửa 1 bên, nhớ sửa bên kia).
     # ------------------------------------------------------------------
     @staticmethod
-    def _json_text(data) -> str:
+    def _json_text(data: Any) -> str:
         """JSON -> text để lưu snapshot; lỗi serialize không được làm hỏng crawl."""
         try:
             return json.dumps(data, ensure_ascii=False)
@@ -412,7 +412,7 @@ class VietnamWorksAdapter(BaseAdapter):
     # Parse response search -> list job dict
     # ------------------------------------------------------------------
     @staticmethod
-    def _extract_job_list(data) -> list:
+    def _extract_job_list(data: Any) -> list:
         """Lấy list job từ response search. Vỏ response ĐÃ XÁC NHẬN
         (08/2026, xem docstring đầu file): {"meta": {...}, "data": [...]}
         -> key "data" là đường chính. Các key còn lại (hits/results/...)
@@ -851,7 +851,7 @@ class VietnamWorksAdapter(BaseAdapter):
         return ""
 
     @staticmethod
-    def _format_deadline(expired_on) -> str:
+    def _format_deadline(expired_on: Any) -> str:
         """Trả về text dạng 'dd/mm/yyyy' để tương thích thẳng với
         normalize.normalize_deadline() có sẵn (không sửa scrapjd/normalize.py).
         expiredOn ĐÃ XÁC NHẬN là chuỗi ISO 8601 có timezone, vd
@@ -880,7 +880,7 @@ class VietnamWorksAdapter(BaseAdapter):
         return ""
 
     @staticmethod
-    def _extract_skills(skills) -> list:
+    def _extract_skills(skills: Any) -> list:
         if not skills:
             return []
         if isinstance(skills, list):
@@ -896,7 +896,7 @@ class VietnamWorksAdapter(BaseAdapter):
         return []
 
     @classmethod
-    def _format_benefits(cls, benefits) -> str:
+    def _format_benefits(cls, benefits: Any) -> str:
         """Format field "benefits" (list[dict] — xem docstring đầu file
         để biết cấu trúc đã xác nhận) thành text sạch, mỗi phúc lợi 1
         dòng dạng "<benefitNameVI>: <benefitValue>". benefitValue có thể
@@ -920,7 +920,7 @@ class VietnamWorksAdapter(BaseAdapter):
         return "\n".join(lines)
 
     @classmethod
-    def _strip_html(cls, value) -> str:
+    def _strip_html(cls, value: Any) -> str:
         """jobDescription/jobRequirement/benefits có thể chứa HTML (thường
         gặp ở API tuyển dụng dùng rich-text editor) -> tách text sạch,
         giống cách TopCV lấy .get_text() từ soup thay vì lưu HTML thô.

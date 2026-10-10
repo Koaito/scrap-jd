@@ -21,7 +21,8 @@ Module `db` thật KHÔNG kế thừa Protocol (typing.Protocol là cấu trúc,
 không do test hợp đồng so chữ ký với hàm thật.
 """
 
-from typing import Optional, Protocol
+from datetime import date, datetime
+from typing import Any, Optional, Protocol
 
 from scrapjd.db.job_recrawl import RepostLink
 from scrapjd.db.pg_types import Conn
@@ -29,13 +30,16 @@ from scrapjd.db.pg_types import Conn
 
 class PipelineDB(Protocol):
     # ------------------------------------------------------------------ đọc
-    def get_job_probe_by_source_url(self, conn: Conn, source_url: str): ...
+    def get_job_probe_by_source_url(self, conn: Conn, source_url: str) -> Optional[tuple[Any, ...]]: ...
 
-    def job_needs_detail_enrichment(self, probe, *, now=None, recheck_days=None) -> bool: ...
+    def job_needs_detail_enrichment(
+        self, probe: Optional[tuple[Any, ...]], *, now: Optional[datetime] = None,
+        recheck_days: Optional[int] = None,
+    ) -> bool: ...
 
-    def find_company_probe(self, conn: Conn, company_name: str): ...
+    def find_company_probe(self, conn: Conn, company_name: str) -> Optional[tuple[Any, ...]]: ...
 
-    def probe_needs_enrichment(self, probe) -> bool: ...
+    def probe_needs_enrichment(self, probe: Optional[tuple[Any, ...]]) -> bool: ...
 
     def get_level_id(self, conn: Conn, level_code: str) -> Optional[int]: ...
 
@@ -66,7 +70,9 @@ class PipelineDB(Protocol):
         parsed_content: Optional[dict] = None,
     ) -> None: ...
 
-    def mark_source_detail_checked(self, conn: Conn, source_url: str, *, deadline=None) -> None: ...
+    def mark_source_detail_checked(
+        self, conn: Conn, source_url: str, *, deadline: Optional[date] = None,
+    ) -> None: ...
 
     def lock_job_dedup_key(
         self, conn: Conn, *, company_id: str, job_title: str, province_id: Optional[int],
@@ -75,7 +81,7 @@ class PipelineDB(Protocol):
 
     def link_repost_source(
         self, conn: Conn, job_id: str, *, source_name: str, source_url: str, raw_jd_content: str = "",
-        salary_raw_text: str = "", deadline=None, today=None,
+        salary_raw_text: str = "", deadline: Optional[date] = None, today: Optional[date] = None,
     ) -> RepostLink: ...
 
     def update_job_from_recrawl(
@@ -89,7 +95,7 @@ class PipelineDB(Protocol):
         self, conn: Conn, *, company_id: str, job_title: str, matching_industry: str,
         level_id: Optional[int], province_id: Optional[int], work_type: Optional[str],
         currency: str, salary_min: Optional[int], salary_max: Optional[int], salary_type: str,
-        source_url: str, source_name: str, salary_raw_text: str = "", deadline=None,
+        source_url: str, source_name: str, salary_raw_text: str = "", deadline: Optional[date] = None,
         parsed_content: Optional[dict] = None, raw_jd_content: str = "", salary_period: str = "MONTH",
         created_by: Optional[str] = None, detail_fetched: bool = False,
         level_source: Optional[str] = None, level_rule_version: Optional[int] = None,
