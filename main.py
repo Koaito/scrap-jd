@@ -32,6 +32,7 @@ import argparse
 import getpass
 import logging
 import sys
+from typing import Any
 
 from scrapjd import db
 from scrapjd.adapters.base import CrawlBlockedError
@@ -61,7 +62,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def cmd_init_db(args):
+def cmd_init_db(args: argparse.Namespace) -> None:
     """Dựng/cập nhật schema từ sql/schema.sql, rồi ghi nhận mọi migration (cũ migration_*.sql
     và mới NNNN_*.sql) hiện có là đã áp dụng (schema.sql đã chứa kết quả của chúng), để `migrate`
     về sau chỉ chạy các migration mới."""
@@ -89,7 +90,7 @@ _BASELINE_REQUIRED_TABLES = {
 }
 
 
-def _missing_baseline_tables(conn: Conn, except_files):
+def _missing_baseline_tables(conn: Conn, except_files: set[str]) -> list[str]:
     """Các bảng bắt buộc còn thiếu trong DB (sau khi trừ bảng sẽ được tạo bởi
     file nằm trong except_files)."""
     missing = []
@@ -101,7 +102,7 @@ def _missing_baseline_tables(conn: Conn, except_files):
     return missing
 
 
-def _cmd_migrate_baseline(conn: Conn, args):
+def _cmd_migrate_baseline(conn: Conn, args: argparse.Namespace) -> None:
     """`migrate --baseline`: ghi nhận migration chưa có log là đã áp dụng mà
     KHÔNG chạy SQL. Chỉ dùng khi DB đã ở trạng thái mới nhất."""
     except_files = set(args.except_files or [])
@@ -145,7 +146,7 @@ def _cmd_migrate_baseline(conn: Conn, args):
         print("   Chạy tiếp `python main.py migrate` để áp dụng các file còn lại.")
 
 
-def cmd_migrate(args):
+def cmd_migrate(args: argparse.Namespace) -> None:
     """Chạy MỌI migration (sql/: cũ migration_*.sql rồi mới NNNN_*.sql theo số) chưa được áp
     dụng cho DB đang kết nối — xem docstring db.apply_migrations()/db.connection để biết
     cơ chế tracking (bảng schema_migrations) và lý do an toàn chạy lại
@@ -193,33 +194,33 @@ def cmd_migrate(args):
         conn.close()
 
 
-def cmd_recompute_levels(args):
+def cmd_recompute_levels(args: argparse.Namespace) -> None:
     """Tính lại level cho job chưa đóng dấu / dấu cũ hơn LEVEL_RULE_VERSION, hoàn toàn
     trong DB. Mặc định chạy thử; --apply mới ghi. Xem docstring scrapjd/cli/recompute_levels.py."""
     sys.exit(recompute_levels.run_cli(args))
 
 
-def cmd_report_duplicates(args):
+def cmd_report_duplicates(args: argparse.Namespace) -> None:
     """Báo cáo job nghi trùng (Phần 3a), CHỈ ĐỌC. Xem docstring scrapjd/cli/duplicate_report.py."""
     sys.exit(duplicate_report.run_cli(args))
 
 
-def cmd_report_reposts(args):
+def cmd_report_reposts(args: argparse.Namespace) -> None:
     """Đo tỷ lệ gộp nhầm (A5), CHỈ ĐỌC. Xem docstring scrapjd/cli/repost_report.py."""
     sys.exit(repost_report.run_cli(args))
 
 
-def cmd_check_listing_derivation(args):
+def cmd_check_listing_derivation(args: argparse.Namespace) -> None:
     """So job suy ra từ listing với job đang lưu (C2), CHỈ ĐỌC. Xem docstring scrapjd/cli/check_listing_derivation.py."""
     sys.exit(check_listing_derivation.run_cli(args))
 
 
-def cmd_merge_duplicates(args):
+def cmd_merge_duplicates(args: argparse.Namespace) -> None:
     """Gộp job trùng (Phần 3b). Mặc định chạy thử; --apply mới gộp thật. Xem docstring scrapjd/cli/merge_duplicates.py."""
     sys.exit(merge_duplicates.run_cli(args))
 
 
-def cmd_create_admin(args):
+def cmd_create_admin(args: argparse.Namespace) -> None:
     """Tạo tài khoản ADMIN đầu tiên — chỉ dùng qua CLI (chạy trực tiếp
     trên máy/server có quyền truy cập DB), vì POST /auth/users trên API
     yêu cầu ĐÃ CÓ admin để gọi (require_admin) — "con gà quả trứng" lúc
@@ -262,7 +263,7 @@ def cmd_create_admin(args):
         conn.close()
 
 
-def cmd_crawl(args):
+def cmd_crawl(args: argparse.Namespace) -> None:
     if args.source not in SOURCES:
         print(f"❌ Source '{args.source}' không tồn tại. "
               f"Các source có sẵn: {list(SOURCES.keys())}")
@@ -347,7 +348,7 @@ def cmd_crawl(args):
         conn.close()
 
 
-def _crawl_untracked(args, source_cfg, effective_pages):
+def _crawl_untracked(args: argparse.Namespace, source_cfg: dict[str, Any], effective_pages: int) -> None:
     """Đường cũ: gọi thẳng run_pipeline(), KHÔNG ghi crawl_runs/snapshot. Dùng
     khi `--no-track` hoặc bảng crawl_runs chưa có."""
     conn = db.get_connection()
@@ -371,7 +372,7 @@ def _crawl_untracked(args, source_cfg, effective_pages):
         conn.close()
 
 
-def _print_crawl_result(conn: Conn, args, stats):
+def _print_crawl_result(conn: Conn, args: argparse.Namespace, stats: dict) -> None:
     print("\n===== KẾT QUẢ =====")
     if args.max_jobs is not None:
         print(f"(Giới hạn theo --max-jobs={args.max_jobs})")
@@ -407,7 +408,7 @@ def _print_crawl_result(conn: Conn, args, stats):
     print(f"Tổng job trong DB hiện tại: {db.count_jobs(conn)}")
 
 
-def cmd_snapshots(args):
+def cmd_snapshots(args: argparse.Namespace) -> None:
     """Liệt kê snapshot HTML/JSON gốc đã lưu (không kèm nội dung)."""
     conn = db.get_connection()
     try:
@@ -424,7 +425,7 @@ def cmd_snapshots(args):
         conn.close()
 
 
-def cmd_snapshot_export(args):
+def cmd_snapshot_export(args: argparse.Namespace) -> None:
     """Ghi nội dung 1 snapshot ra file — dùng để thay fixture tổng hợp trong
     tests/ bằng HTML/JSON thật (vd: snapshot-export 12 --out
     tests/fixture_careerviet_listing.html)."""
@@ -445,7 +446,7 @@ def cmd_snapshot_export(args):
         conn.close()
 
 
-def cmd_stats(args):
+def cmd_stats(args: argparse.Namespace) -> None:
     conn = db.get_connection()
     try:
         print(f"Tổng job trong DB: {db.count_jobs(conn)}")
@@ -453,7 +454,7 @@ def cmd_stats(args):
         conn.close()
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="TopCV job crawler cho team Student Success")
     sub = parser.add_subparsers(dest="command", required=True)
 
