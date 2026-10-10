@@ -13,7 +13,7 @@ exception tự nổi lên cho router rollback + trả lỗi (Requirement 6.2,
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from scrapjd import db as db_module
 from scrapjd.api.services import company_resolver, conflict_detector
@@ -302,7 +302,7 @@ def _expand_conflict_in_batch_resolutions(
     rows_by_index = {r["row_index"]: r for r in preview_rows}
     expanded = {key: dict(value) for key, value in resolutions.items()}
 
-    def _effective_self_action(raw_action) -> Optional[str]:
+    def _effective_self_action(raw_action: Any) -> Optional[str]:
         """Quy action bất kỳ (thuần hoặc lan truyền) về hiệu lực THẬT SỰ
         của nó lên chính dòng sở hữu action đó — dùng để so sánh 2 phía
         của 1 cặp có mâu thuẫn hay không. Trả None nếu raw_action không
@@ -422,7 +422,10 @@ def _expand_conflict_in_batch_resolutions(
     return expanded
 
 
-def _apply_conflict_action(conn: Conn, entity_type, data, existing, status, action, resolution, actor_id, summary):
+def _apply_conflict_action(
+    conn: Conn, entity_type: str, data: dict, existing: Any, status: str, action: str,
+    resolution: dict, actor_id: str, summary: ImportSummary,
+) -> None:
     if action == "skip":
         summary.skipped += 1
         return
@@ -512,7 +515,7 @@ def _apply_field_fixes(entity_type: str, row: dict, data: dict, resolution: dict
         raise RowResolutionError(err["message"])
 
 
-def _recheck_conflict(conn: Conn, entity_type, data) -> tuple[str, Optional[dict]]:
+def _recheck_conflict(conn: Conn, entity_type: str, data: dict) -> tuple[str, Optional[dict]]:
     if entity_type == "job":
         # Dùng TÊN CÔNG TY THẬT (tra theo company_id staff vừa chọn ở
         # bước preview, xem preview_manager.resolve_company_selection()),
@@ -548,7 +551,7 @@ def _recheck_conflict(conn: Conn, entity_type, data) -> tuple[str, Optional[dict
     return result["conflict_status"], result.get("existing_record")
 
 
-def _create_row(conn: Conn, entity_type, data, row, resolution, actor_id):
+def _create_row(conn: Conn, entity_type: str, data: dict, row: dict, resolution: dict, actor_id: str) -> str:
     if entity_type == "company":
         province_id = (
             db_module.get_or_create_province(conn, data["province_name"])
@@ -615,7 +618,7 @@ def _create_row(conn: Conn, entity_type, data, row, resolution, actor_id):
     raise ValueError(f"entity_type không hợp lệ: {entity_type!r}")
 
 
-def _resolve_company_id_for_create(conn: Conn, data, actor_id) -> str:
+def _resolve_company_id_for_create(conn: Conn, data: dict, actor_id: str) -> str:
     """Dòng Job/Contact ở trạng thái no_conflict — company đã resolved
     (exact match tax_id/tên) lúc build preview, company_id nằm trong
     company_resolution chứ không phải data['company_id'] trực tiếp (xem
@@ -627,7 +630,9 @@ def _resolve_company_id_for_create(conn: Conn, data, actor_id) -> str:
     )
 
 
-def _update_row(conn: Conn, entity_type, data, existing, resolution, actor_id, *, reactivate: bool):
+def _update_row(
+    conn: Conn, entity_type: str, data: dict, existing: Any, resolution: dict, actor_id: str, *, reactivate: bool,
+) -> Any:
     if entity_type == "company":
         company_id = existing[get_spec(entity_type).id_field]
         province_id = (

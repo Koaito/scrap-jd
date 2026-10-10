@@ -40,7 +40,8 @@ inactive" đã chốt, + "conflict_in_batch" thêm 08/2026):
                                   _expand_conflict_in_batch_resolutions().
 """
 
-from typing import Optional
+from datetime import date
+from typing import Optional, Union
 
 import psycopg2.extras
 from scrapjd.db.pg_types import Conn
@@ -77,7 +78,8 @@ def detect_company_conflict(conn: Conn, company_name: Optional[str], tax_id: Opt
     return {"conflict_status": status, "existing_record": dict(existing)}
 
 
-def detect_job_conflict(conn: Conn, company_name: Optional[str], job_title: Optional[str], deadline) -> dict:
+# deadline: lúc build preview là date, lúc confirm là chuỗi ISO (preview lưu JSON qua _jsonable); psycopg2 nhận cả hai.
+def detect_job_conflict(conn: Conn, company_name: Optional[str], job_title: Optional[str], deadline: Union[date, str, None]) -> dict:
     """Job: match (company_name AND job_title AND deadline). Match CẢ
     job không OPEN (EXPIRED/CLOSED) — giả định B: cảnh báo riêng thay vì
     âm thầm tạo job trùng mới khi job cũ đã đóng."""

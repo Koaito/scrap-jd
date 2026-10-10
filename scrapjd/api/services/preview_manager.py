@@ -58,7 +58,7 @@ Cấu trúc JSONB preview_data lưu trong DB:
 import json
 import uuid as uuid_module
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import pandas as pd
 import psycopg2.extras
@@ -735,7 +735,7 @@ def cleanup_expired_previews(conn: Conn) -> int:
         return cur.rowcount
 
 
-def _resolution_to_dict(resolution) -> dict:
+def _resolution_to_dict(resolution: company_resolver.CompanyResolution) -> dict:
     return {
         "status": resolution.status,
         "company_id": resolution.company_id,
@@ -753,7 +753,7 @@ def _resolution_to_dict(resolution) -> dict:
     }
 
 
-def _jsonable(value):
+def _jsonable(value: Any) -> Any:
     """Convert đệ quy value từ psycopg2/pandas (date, Decimal, UUID...)
     sang kiểu JSON-serializable thuần, để json.dumps() ở save_preview()
     không lỗi TypeError."""

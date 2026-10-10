@@ -46,7 +46,7 @@ kiểu string), mà là 1 case cần resolve/gợi ý riêng.
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import pandas as pd
 
@@ -91,7 +91,7 @@ def _parse_bool_value(raw: str) -> bool:
     raise ValueError(f"'{raw}' không phải giá trị boolean hợp lệ")
 
 
-def validate_single_field(spec: EntitySpec, field_name: str, val_str: str):
+def validate_single_field(spec: EntitySpec, field_name: str, val_str: str) -> tuple[Any, Optional[dict]]:
     """Convert 1 giá trị string (đã strip, KHÔNG rỗng) theo đúng type khai
     báo trong spec cho field_name. Trả (converted_value, error) — error là
     None khi hợp lệ, hoặc dict {"rule", "message"} (message KHÔNG kèm

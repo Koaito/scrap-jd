@@ -106,7 +106,7 @@ class EntitySpec:
     cross_field_rules: list[CrossFieldRule] = field(default_factory=list)
 
 
-def _check_job_salary_business_rules(data: dict, row_number, field_errors: dict) -> None:
+def _check_job_salary_business_rules(data: dict, row_number: object, field_errors: dict) -> None:
     """salary_min >= 0 (nếu có), salary_max >= salary_min (nếu cả 2 có) —
     Requirement business rule Job, xem design.md. Ghi thẳng vào
     field_errors (không reject cả file) — chỉ set khi salary_min/
@@ -278,7 +278,7 @@ def field_options(entity_type: str, field_name: str) -> Optional[list[str]]:
 # rule liên trường gì — thêm rule mới cho Company/Contact chỉ cần thêm 1
 # CrossFieldRule vào spec tương ứng (entity_specs.py), không phải sửa lại
 # 3 nơi gọi.
-def run_cross_field_rules(spec: EntitySpec, data: dict, row_number, field_errors: dict) -> None:
+def run_cross_field_rules(spec: EntitySpec, data: dict, row_number: object, field_errors: dict) -> None:
     """Chạy MỌI cross_field_rules của spec, MUTATE field_errors trực tiếp —
     dùng lúc build preview (validate_dataframe() đã có sẵn field_errors
     của dòng, chỉ cần bổ sung thêm lỗi liên trường nếu có)."""

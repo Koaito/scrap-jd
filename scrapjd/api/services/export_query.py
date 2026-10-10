@@ -246,7 +246,7 @@ def query_contacts_for_export(conn: Conn, filters: Optional[ExportFilters] = Non
 _EXPORT_DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
 
 
-def _format_export_value(val):
+def _format_export_value(val: Any) -> Any:
     """Giá trị 1 ô trong file export (đã loại None và bool).
 
     Thời điểm (datetime) xuất theo GIỜ VIỆT NAM, dạng "YYYY-MM-DD HH:MM:SS", đọc
