@@ -26,11 +26,12 @@ Logic quyết định là hàm THUẦN (không DB), có test ở tests/test_dupl
 nằm ở scrapjd/db/job_duplicates.py.
 """
 
+import argparse
 import csv
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, TextIO
 from urllib.parse import urlparse
 
 from scrapjd import db
@@ -285,11 +286,11 @@ class Summary:
 # ----------------------------------------------------------------------
 # Báo cáo
 # ----------------------------------------------------------------------
-def _short(job_id) -> str:
+def _short(job_id: object) -> str:
     return str(job_id)[:8]
 
 
-def _day(value) -> str:
+def _day(value: object) -> str:
     return str(value)[:10] if value else "—"
 
 
@@ -368,7 +369,7 @@ _CSV_HEADER = (
 )
 
 
-def write_csv(groups: list, fh) -> int:
+def write_csv(groups: list, fh: TextIO) -> int:
     """Ghi mọi nhóm ra `fh` (file mở sẵn, newline=''), mỗi job một dòng; trả số dòng job."""
     writer = csv.writer(fh)
     writer.writerow(_CSV_HEADER)
@@ -416,7 +417,7 @@ def run(conn: Conn, *, show: int = DEFAULT_SHOW, csv_path: Optional[str] = None)
     return 0
 
 
-def run_cli(args) -> int:
+def run_cli(args: argparse.Namespace) -> int:
     """Điểm vào cho `python main.py report-duplicates` (args từ argparse trong main.py)."""
     if args.show < 0:
         print("❌ --show phải >= 0.")

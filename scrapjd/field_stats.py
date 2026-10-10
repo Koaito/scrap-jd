@@ -25,7 +25,7 @@ WARN_RATE chỉ để đánh dấu "đáng nhìn lại" trong log.
 """
 
 import logging
-from typing import Iterable
+from typing import Any, Iterable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ CRITICAL_FIELDS = {
 PLACEHOLDER_VALUES = frozenset({"chưa xác định"})
 
 
-def is_empty(value) -> bool:
+def is_empty(value: Any) -> bool:
     if value is None:
         return True
     if isinstance(value, str):
@@ -77,7 +77,7 @@ def is_empty(value) -> bool:
     return False
 
 
-def _read(obj, name: str):
+def _read(obj: Any, name: str) -> Any:
     if isinstance(obj, dict):
         return obj.get(name)
     return getattr(obj, name, None)
@@ -87,11 +87,11 @@ class EmptyFieldCounter:
     """Đếm số lần mỗi field bị rỗng, theo nhóm. Dùng 1 instance cho 1 lượt
     run_pipeline(); không thread-safe (pipeline chạy tuần tự)."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         # group -> {"total": int, "empty": {field: int}}
         self._groups: dict = {}
 
-    def record(self, group: str, obj, fields: Iterable[str]) -> None:
+    def record(self, group: str, obj: Any, fields: Iterable[str]) -> None:
         data = self._groups.setdefault(group, {"total": 0, "empty": {}})
         data["total"] += 1
         for name in fields:
@@ -100,10 +100,10 @@ class EmptyFieldCounter:
             if is_empty(_read(obj, name)):
                 counts[name] += 1
 
-    def record_listing(self, raw) -> None:
+    def record_listing(self, raw: Any) -> None:
         self.record("listing", raw, LISTING_FIELDS)
 
-    def record_detail(self, detail) -> None:
+    def record_detail(self, detail: Optional[dict]) -> None:
         """detail=None (fetch thất bại) bị bỏ qua có chủ đích, xem docstring
         module."""
         if detail is None:

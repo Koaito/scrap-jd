@@ -27,7 +27,7 @@ Chính sách giữ (để chặn dung lượng):
 
 import logging
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from scrapjd.config import SNAPSHOT_MAX_CHARS, SNAPSHOT_MAX_PER_RUN
 
@@ -56,7 +56,7 @@ class SnapshotRecorder:
         self._sampled_kinds: set = set()
         self._anomaly_counts: dict = {}
 
-    def offer(self, kind: str, url: str, body, reason: str = SAMPLE_REASON) -> bool:
+    def offer(self, kind: str, url: str, body: Any, reason: str = SAMPLE_REASON) -> bool:
         """Đề nghị giữ 1 snapshot. Trả True nếu được giữ. Không bao giờ raise."""
         try:
             if not body or not isinstance(body, str):

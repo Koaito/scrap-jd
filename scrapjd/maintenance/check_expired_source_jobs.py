@@ -147,7 +147,7 @@ class _Throttled404Checker:
             logger.warning("Lỗi fetch (fallback GET) %s: %s -> bỏ qua", url, exc)
             return None
 
-    def _throttle(self):
+    def _throttle(self) -> None:
         if self._last_request_time is None:
             return
         elapsed = time.monotonic() - self._last_request_time
@@ -250,7 +250,7 @@ def _expire_by_deadline(conn: Conn, by_job: dict, today: date, dry_run: bool, st
     return closed_jobs
 
 
-def _check_source_urls(conn: Conn, checker, by_job: dict, today: date, dry_run: bool, stats: dict) -> None:
+def _check_source_urls(conn: Conn, checker: _Throttled404Checker, by_job: dict, today: date, dry_run: bool, stats: dict) -> None:
     """Nhánh MẠNG (C3b), chạy trên LISTING: hỏi từng URL của MỌI listing OPEN/UNKNOWN của job OPEN (không chỉ
     URL hiện hành của job).
 
@@ -367,7 +367,7 @@ def run(limit: Optional[int] = None, check_deadline_only: bool = False,
     return stats
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Re-check job OPEN xem còn tồn tại ở nguồn (TopCV/VietnamWorks) không, "
                      "tự động chuyển CLOSED nếu nguồn xác nhận đã xoá (404/410) hoặc deadline đã qua."

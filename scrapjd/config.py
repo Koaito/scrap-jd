@@ -106,7 +106,7 @@ JOB_CATEGORIES: dict[str, dict[str, Any]] = {
 DEFAULT_CATEGORY = "data-analyst"
 
 
-def _categories_for_source(source_key):
+def _categories_for_source(source_key: str) -> dict[str, dict[str, Any]]:
     """Sinh view {category_key: {label, matching_industry, <field nguồn>}}
     từ JOB_CATEGORIES cho 1 nguồn cụ thể — chỉ gồm category mà nguồn đó
     THỰC SỰ có trong "sources" (xem docstring khối JOB_CATEGORIES ở

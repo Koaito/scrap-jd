@@ -31,6 +31,8 @@ báo nhãn hiển thị ở blueprints/crawl.py (_SOURCE_LABELS) — không trá
 gộp về 1 nguồn sự thật duy nhất.
 """
 
+from typing import Any
+
 from scrapjd.adapters.topcv import TopCVAdapter
 from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from scrapjd.adapters.careerviet import CareerVietAdapter
@@ -38,7 +40,7 @@ from scrapjd.config import TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES, CAREERVIET
 
 # Đăng ký nguồn crawl ở đây — thêm nguồn mới sau này (ITviec...) chỉ cần
 # thêm 1 dòng vào dict này (xem hướng dẫn ở docstring đầu file).
-SOURCES = {
+SOURCES: dict[str, dict[str, Any]] = {
     "topcv": {"adapter_cls": TopCVAdapter, "categories": TOPCV_CATEGORIES},
     "vietnamworks": {"adapter_cls": VietnamWorksAdapter, "categories": VIETNAMWORKS_CATEGORIES},
     "careerviet": {"adapter_cls": CareerVietAdapter, "categories": CAREERVIET_CATEGORIES},

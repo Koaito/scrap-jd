@@ -75,6 +75,7 @@ nằm ở scrapjd/db/job_merge.py; hàm run() ở dưới điều phối (đọc
 từng nhóm -> báo cáo).
 """
 
+import argparse
 import csv
 import dataclasses
 import io
@@ -82,11 +83,11 @@ import logging
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, TextIO
 
 from scrapjd import db
 from scrapjd.cli import duplicate_report as dr
-from scrapjd.db.job_derivation import derive_job_from_listings
+from scrapjd.db.job_derivation import DerivedJob, derive_job_from_listings
 from scrapjd.db.job_sync import diff_job_from_derived
 from scrapjd.db.pg_types import Conn
 
@@ -288,7 +289,7 @@ class MergePlan:
         return "deadline" in self.changes or "deadline" in (self.derived_changes or {})
 
 
-def _short(job_id) -> str:
+def _short(job_id: object) -> str:
     return str(job_id)[:8]
 
 
@@ -312,7 +313,7 @@ class _Changes:
         self._keeper = keeper
         self.data: dict = {}
 
-    def set(self, column: str, value) -> None:
+    def set(self, column: str, value: Any) -> None:
         if self._keeper.get(column) != value:
             self.data[column] = {"old": self._keeper.get(column), "new": value}
 
@@ -354,7 +355,8 @@ def _merged_listings(keeper: dict, donors: list, child: "ChildPlan") -> list:
     return list(keeper["logs"]) + [x for d in donors for x in d["logs"] if x["log_id"] in moved]
 
 
-def _plan_protected_manual(keeper: dict, pool: list, derived, ch: _Changes, notes: list, warnings: list) -> dict:
+def _plan_protected_manual(keeper: dict, pool: list, derived: Optional[DerivedJob], ch: _Changes, notes: list,
+                           warnings: list) -> dict:
     """Job giữ NHẬP TAY (bạn chốt 09/10, phương án a): giữ nguyên trạng thái, hạn, source_url của nó. Trả
     listing_actions để listing theo kịp, nhờ đó lần đồng bộ sau (derive) vẫn ra đúng các giá trị đó:
       - job giữ CLOSED: listing còn sống chuyển sang bị đóng theo job (luật 2);
@@ -672,7 +674,7 @@ _CSV_HEADER = (
 )
 
 
-def write_csv(plans: list, fh) -> int:
+def write_csv(plans: list, fh: TextIO) -> int:
     """Ghi mỗi nhóm sẽ gộp một dòng ra `fh` (file mở sẵn, newline=''); trả số dòng."""
     writer = csv.writer(fh)
     writer.writerow(_CSV_HEADER)
@@ -930,7 +932,7 @@ def run(conn: Conn, *, only: Optional[OnlySpec] = None, show: int = DEFAULT_SHOW
     return EXIT_PARTIAL if (result.stale or result.failed or result.aborted) else EXIT_OK
 
 
-def run_cli(args) -> int:
+def run_cli(args: argparse.Namespace) -> int:
     """Điểm vào cho `python main.py merge-duplicates` (args từ argparse trong main.py)."""
     if args.show < 0:
         print("❌ --show phải >= 0.")

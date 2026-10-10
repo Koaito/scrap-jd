@@ -184,7 +184,7 @@ def _throttle(last_time: Optional[float]) -> float:
 _GEMINI_MAX_RETRIES = 2
 
 
-def _call_gemini_with_retry(gemini_client, prompt: str, company_name: str):
+def _call_gemini_with_retry(gemini_client: Any, prompt: str, company_name: str) -> Any:
     """Gọi Gemini generate_content, tự thử lại khi gặp 429 thoáng qua.
     Đọc 'retryDelay' Google trả về trong lỗi nếu có (đáng tin hơn đoán
     mò), fallback về ENRICH_REQUEST_DELAY_SECONDS * 2 nếu không đọc
@@ -384,7 +384,7 @@ def _tavily_search(tavily_client: TavilyClient, query: str, company_name: str, p
     return resp.get("results", []) if isinstance(resp, dict) else []
 
 
-def enrich_one_company(tavily_client: TavilyClient, gemini_client, company_name: str) -> dict:
+def enrich_one_company(tavily_client: TavilyClient, gemini_client: Any, company_name: str) -> dict:
     """Trả về dict {"website": str, "tax_id": str} — CHỈ chứa field đã
     qua kiểm tra an toàn (confidence RIÊNG của field đó đủ cao + đúng
     định dạng), field nào không đạt sẽ vắng mặt trong dict trả về (không
@@ -560,7 +560,7 @@ def run(limit: Optional[int] = None) -> dict:
     return stats
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Vá website/tax_id công ty còn thiếu, qua Tavily search + Gemini trích xuất"
     )

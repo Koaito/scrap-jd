@@ -37,6 +37,7 @@ AN TOÀN:
     bỏ qua và báo số lượng, không đè dữ liệu mới.
 """
 
+import argparse
 import logging
 from collections import Counter
 from dataclasses import dataclass
@@ -175,7 +176,7 @@ def to_change(row: dict, plan: Plan, level_ids: dict, rule_version: int) -> dict
 # ----------------------------------------------------------------------
 # Báo cáo
 # ----------------------------------------------------------------------
-def _short(job_id) -> str:
+def _short(job_id: object) -> str:
     return str(job_id)[:8]
 
 
@@ -313,7 +314,7 @@ def run(conn: Conn, *, apply: bool, limit: Optional[int] = None, batch_size: int
     return 0
 
 
-def run_cli(args) -> int:
+def run_cli(args: argparse.Namespace) -> int:
     """Điểm vào cho `python main.py recompute-levels` (args từ argparse trong main.py)."""
     if args.batch_size < 1:
         print("❌ --batch-size phải >= 1.")

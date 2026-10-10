@@ -81,7 +81,7 @@ _DOMAIN_ADAPTERS: dict[str, type[BaseAdapter]] = {
 }
 
 
-def _adapter_for_url(url: str):
+def _adapter_for_url(url: str) -> Optional[BaseAdapter]:
     """Trả về INSTANCE adapter phù hợp với domain của url, hoặc None nếu
     domain không khớp adapter nào đã biết (không raise — để caller tự
     quyết định bỏ qua company đó, không dừng cả batch vì 1 URL lạ)."""
@@ -101,7 +101,7 @@ def run(limit: Optional[int] = None) -> dict:
     # pooling/cookie của curl_cffi, không cần thiết).
     adapter_cache: dict = {}
 
-    def get_adapter(url: str):
+    def get_adapter(url: str) -> Optional[BaseAdapter]:
         netloc = urlsplit(url).netloc.lower().removeprefix("www.")
         for domain, adapter_cls in _DOMAIN_ADAPTERS.items():
             if netloc == domain or netloc.endswith("." + domain):
@@ -183,7 +183,7 @@ def run(limit: Optional[int] = None) -> dict:
     return stats
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Backfill lại industry/company_size/address/website cho công ty đã "
                     "có source_profile_url, bằng cách gọi lại fetch_company_profile() — "

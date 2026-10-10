@@ -50,8 +50,18 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 # M2: các module đã gắn đủ type hint cho mọi hàm. Thiếu hint ở đây thì mypy báo lỗi (no-untyped-def). Thêm module vào
-# danh sách này khi dọn xong; M2f gom thành cấu hình chung cho cả repo. Hiện có toàn bộ scrapjd/db/ (M2a, M2b).
+# danh sách này khi dọn xong; M2f gom thành cấu hình chung cho cả repo. Hiện có toàn bộ scrapjd/db/ (M2a, M2b), scrapjd/cli/,
+# scrapjd/maintenance/ và các module lẻ của scrapjd/ đã đủ hint (M2c nửa 1/2).
 module = [
+    "scrapjd",
+    "scrapjd.cli",
+    "scrapjd.cli.check_listing_derivation",
+    "scrapjd.cli.duplicate_report",
+    "scrapjd.cli.merge_duplicates",
+    "scrapjd.cli.recompute_levels",
+    "scrapjd.cli.repost_report",
+    "scrapjd.config",
+    "scrapjd.constants",
     "scrapjd.db",
     "scrapjd.db.applications",
     "scrapjd.db.audit_logs",
@@ -85,6 +95,19 @@ module = [
     "scrapjd.db.messages",
     "scrapjd.db.pg_types",
     "scrapjd.db.stats",
+    "scrapjd.field_stats",
+    "scrapjd.maintenance",
+    "scrapjd.maintenance.backfill_company_profiles",
+    "scrapjd.maintenance.check_expired_source_jobs",
+    "scrapjd.maintenance.enrich_company_profile_from_website",
+    "scrapjd.maintenance.enrich_company_web_info",
+    "scrapjd.maintenance.get_company_fb_linkedin_link",
+    "scrapjd.models",
+    "scrapjd.normalize",
+    "scrapjd.pipeline_stats",
+    "scrapjd.province_alias",
+    "scrapjd.snapshots",
+    "scrapjd.sources_registry",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

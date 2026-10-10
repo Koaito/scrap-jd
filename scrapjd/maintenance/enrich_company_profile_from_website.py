@@ -60,7 +60,7 @@ import json
 import logging
 import re
 import time
-from typing import Optional
+from typing import Any, Optional
 from urllib.parse import urljoin
 
 from curl_cffi import requests
@@ -181,7 +181,7 @@ class _PageFetcher:
             logger.warning("Lỗi fetch %s: %s -> bỏ qua", url, exc)
             return None
 
-    def _throttle(self):
+    def _throttle(self) -> None:
         if self._last_request_time is None:
             return
         elapsed = time.monotonic() - self._last_request_time
@@ -229,7 +229,7 @@ def _parse_gemini_json(text: str) -> Optional[dict]:
 _GEMINI_MAX_RETRIES = 2
 
 
-def _call_gemini_with_retry(gemini_client, prompt: str, company_name: str):
+def _call_gemini_with_retry(gemini_client: Any, prompt: str, company_name: str) -> Any:
     """Giống hệt pattern _call_gemini_with_retry() trong
     scrapjd/maintenance/enrich_company_web_info.py — tự thử lại khi Gemini trả 429 thoáng qua."""
     for attempt in range(_GEMINI_MAX_RETRIES + 1):
@@ -251,7 +251,7 @@ def _call_gemini_with_retry(gemini_client, prompt: str, company_name: str):
     return None
 
 
-def _throttle_gemini(last_request_time):
+def _throttle_gemini(last_request_time: Optional[float]) -> float:
     if last_request_time is not None:
         elapsed = time.monotonic() - last_request_time
         remaining = ENRICH_REQUEST_DELAY_SECONDS - elapsed
@@ -376,7 +376,7 @@ def run(limit: Optional[int] = None) -> dict:
     return stats
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Vá companies.industry cho công ty đã có website nhưng còn thiếu, "
                     "bằng cách đọc website + Gemini phân loại (không dùng Tavily)."

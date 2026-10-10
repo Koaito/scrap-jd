@@ -36,13 +36,14 @@ GIỚI HẠN (nói rõ để không đọc số quá mức):
 Phần SQL nằm ở scrapjd/db/job_reposts.py.
 """
 
+import argparse
 import csv
 import re
 import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from itertools import combinations
-from typing import Optional
+from typing import Any, Callable, Optional, TextIO
 from urllib.parse import urlparse
 
 from scrapjd import db
@@ -284,7 +285,7 @@ class Summary:
     hist: list
 
 
-def _suspect_split(results: list, predicate) -> tuple:
+def _suspect_split(results: list, predicate: Callable[[Any], bool]) -> tuple:
     subset = [r for r in results if r.pairs and predicate(r.worst)]
     return len(subset), sum(1 for r in subset if r.klass == CLASS_SUSPECT)
 
@@ -319,7 +320,7 @@ def _pct(part: int, whole: int) -> str:
     return f"{100 * part / whole:.1f}%" if whole else "—"
 
 
-def _day(value) -> str:
+def _day(value: object) -> str:
     return str(value)[:10] if value else "—"
 
 
@@ -411,7 +412,7 @@ _CSV_HEADER = (
 )
 
 
-def write_csv(results: list, fh) -> int:
+def write_csv(results: list, fh: TextIO) -> int:
     """Ghi mọi cặp tin so được ra `fh` (file mở sẵn, newline=''), mỗi cặp một dòng; trả số dòng.
     Job điểm thấp nhất trước, trong job cặp thấp nhất trước."""
     writer = csv.writer(fh)
@@ -456,7 +457,7 @@ def run(conn: Conn, *, show: int = DEFAULT_SHOW, csv_path: Optional[str] = None,
     return 0
 
 
-def run_cli(args) -> int:
+def run_cli(args: argparse.Namespace) -> int:
     """Điểm vào cho `python main.py report-reposts` (args từ argparse trong main.py)."""
     if args.show < 0:
         print("❌ --show phải >= 0.")

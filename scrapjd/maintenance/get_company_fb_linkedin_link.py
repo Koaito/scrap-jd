@@ -409,7 +409,7 @@ class SocialLinkFetcher:
             logger.warning("Lỗi fetch %s: %s -> bỏ qua", url, exc)
             return None
 
-    def _throttle(self):
+    def _throttle(self) -> None:
         if self._last_request_time is None:
             return
         elapsed = time.monotonic() - self._last_request_time
@@ -418,7 +418,7 @@ class SocialLinkFetcher:
             time.sleep(remaining)
 
 
-def _try_fallback_subpages(fetcher: SocialLinkFetcher, website: str):
+def _try_fallback_subpages(fetcher: SocialLinkFetcher, website: str) -> tuple[str, str, bool, str]:
     """Tầng 1, case #2: nhiều công ty chỉ gắn social link ở trang Liên
     hệ/Giới thiệu, không phải trang chủ. Thử tối đa _MAX_SUBPAGE_TRIES URL
     con đoán được (theo thứ tự _FALLBACK_SUBPATHS) TRƯỚC KHI kết luận
@@ -600,7 +600,7 @@ def run(limit: Optional[int] = None) -> dict:
     return stats
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Điền companies.fanpage_url / linkedin_url bằng cách crawl website công ty"
     )

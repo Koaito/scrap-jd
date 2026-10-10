@@ -20,10 +20,12 @@ khi chạy xong, vì lúc này lệch là thông tin chứ chưa phải lỗi.
 Hàm so (compare_job) và phân loại là hàm THUẦN, có test ở tests/test_check_listing_derivation.py.
 """
 
+import argparse
 import csv
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from datetime import date
+from typing import Any, Optional, TextIO
 
 from scrapjd import db
 from scrapjd.db.job_derivation import DerivedJob, derive_job_from_listings
@@ -68,7 +70,7 @@ def _kind_status(stored: str, derived: str) -> str:
             else "job CLOSED nhưng có listing OPEN hoặc UNKNOWN")
 
 
-def _kind_deadline(stored, derived) -> str:
+def _kind_deadline(stored: Optional[date], derived: Optional[date]) -> str:
     if stored is None:
         return "job không có hạn, listing có"
     if derived is None:
@@ -121,7 +123,7 @@ def _pct(part: int, whole: int) -> str:
     return f"{part * 100 / whole:.1f}%" if whole else "-"
 
 
-def _short(value, width: int = 70) -> str:
+def _short(value: object, width: int = 70) -> str:
     text = "(trống)" if value is None else str(value)
     return text if len(text) <= width else text[: width - 1] + "…"
 
@@ -157,7 +159,7 @@ def print_report(rep: Report, *, show: int) -> None:
             print(f"      đang lưu: {_short(m.stored)}   suy ra: {_short(m.derived)}")
 
 
-def write_csv(rep: Report, fh) -> int:
+def write_csv(rep: Report, fh: TextIO) -> int:
     w = csv.writer(fh)
     w.writerow(["job_id", "cong_ty", "tieu_de", "truong", "loai", "dang_luu", "suy_ra", "so_listing"])
     for m in rep.mismatches:
@@ -179,7 +181,7 @@ def run(conn: Conn, *, show: int = DEFAULT_SHOW, csv_path: Optional[str] = None,
     return 2 if strict and rep.mismatches else 0
 
 
-def run_cli(args) -> int:
+def run_cli(args: argparse.Namespace) -> int:
     """Điểm vào cho `python main.py check-listing-derivation` (args từ argparse trong main.py)."""
     if args.show < 0:
         print("❌ --show phải >= 0.")
