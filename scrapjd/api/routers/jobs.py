@@ -15,7 +15,7 @@ from scrapjd.api.schemas import JobApplicantOut, JobCreate, JobCreateResult, Job
 # mà hằng số này vẫn là dict thật — cùng cách contacts.py import ContactHasLinksError.
 from scrapjd.db.job_dedup_lock import JobDedupLockTimeout
 from scrapjd.db.jobs import JOB_CLEARABLE_FIELD_TO_COLUMN
-from scrapjd.db.pg_types import Conn
+from scrapjd.db.pg_types import Conn, Row
 
 router = APIRouter(prefix="/jobs", tags=["jobs"])
 
@@ -85,7 +85,7 @@ def list_jobs(
                     "nhau ở frontend (xem PaginatedJobs.next_cursor).",
     ),
     conn: Conn = Depends(get_db),
-):
+) -> PaginatedJobs:
     """Danh sách job, hỗ trợ filter + phân trang. Không filter gì -> trả
     toàn bộ job, mới nhất trước.
 
@@ -170,7 +170,7 @@ def list_jobs(
 
 @router.get("/data-health", response_model=JobDataHealth)
 @limiter.limit("60/minute")
-def get_job_data_health(request: Request, conn: Conn = Depends(get_db)):
+def get_job_data_health(request: Request, conn: Conn = Depends(get_db)) -> dict:
     """GET /jobs/data-health — thay thế cho việc frontend
     (blueprints/crawl_status.py bên mindx-jobs, tab "Tình trạng dữ
     liệu") từng phải gọi list_all_jobs(include_content=True) — kéo
@@ -207,14 +207,14 @@ def get_job_data_health(request: Request, conn: Conn = Depends(get_db)):
 # chỉ đổi path. PHẢI khai báo TRƯỚC GET /{job_id} bên dưới cùng lý do
 # /data-health ở trên — "applications" không phải UUID hợp lệ nhưng vẫn
 # cần path cố định này được match trước khi rơi vào {job_id}.
-@router.get("/applications/{application_id}/cv-url")
+@router.get("/applications/{application_id}/cv-url", response_model=None)
 @limiter.limit("30/minute", key_func=get_user_id_or_ip)
 def get_cv_signed_url(
     request: Request,
     application_id: str,
     user: dict = Depends(require_role("ss_team")),  # Chỉ Staff / Admin mới có quyền lấy
     conn: Conn = Depends(get_db),
-):
+) -> dict:
     """Staff lấy Signed URL để tải và xem CV học viên.
 
     Rate limit 30/minute theo user_id (thêm 08/2026) — mỗi lần gọi tốn
@@ -237,7 +237,7 @@ def get_cv_signed_url(
 
 
 @router.get("/{job_id}", response_model=JobDetailOut)
-def get_job(job_id: str, conn: Conn = Depends(get_db)):
+def get_job(job_id: str, conn: Conn = Depends(get_db)) -> Row:
     if not db_module.is_valid_uuid(job_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.JOB_JOB_ID_INVALID_UUID, "message": f"job_id '{job_id}' không đúng định dạng UUID.", "params": {"value": job_id}})
     row = db_module.get_job_by_id(conn, job_id)
@@ -251,7 +251,7 @@ def create_job(
     payload: JobCreate,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> dict:
     """Tạo 1 job THỦ CÔNG (không qua crawl) — company_id PHẢI đã tồn tại
     trong DB (dùng GET /companies?keyword= để tìm, hoặc POST /companies
     để tạo mới trước nếu công ty chưa có). Route KHÔNG tự tạo company
@@ -388,7 +388,7 @@ def patch_job(
     payload: JobUpdate,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> Optional[Row]:
     """Sửa TỰ DO các field của 1 job đã tồn tại (crawl hay nhập tay đều
     được — team không phân quyền chi tiết hơn theo route này, chỉ cần
     role 'ss_team' trở lên, xem API_README.md). Chỉ field có mặt trong
@@ -526,7 +526,7 @@ def list_job_applications(
     job_id: str,
     user: dict = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     """Ai đã ứng tuyển job này — role 'ss_team' trở lên (giống contacts,
     thông tin full_name/email người ứng tuyển được coi là nhạy cảm
     tương tự HR contact, 'user' không thấy được đơn của người khác, chỉ
@@ -544,7 +544,7 @@ def list_job_savers(
     job_id: str,
     user: dict = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     """Thêm 08/2026 — mirror ĐÚNG list_job_applications() ở trên nhưng
     cho chiều 'lưu' thay vì 'ứng tuyển': ai đã lưu (bookmark) job này,
     role 'ss_team' trở lên. Trước đây saved_jobs cố ý bị coi là riêng

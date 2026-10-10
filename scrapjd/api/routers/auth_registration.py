@@ -67,7 +67,7 @@ def _generate_verify_token() -> str:
 # 5 lần/giờ/IP — đủ cho người dùng thật đăng ký lại nếu gõ sai vài lần,
 # chặn được script tạo tài khoản rác hàng loạt (xem scrapjd/api/rate_limit.py).
 @limiter.limit("5/hour")
-def register(payload: RegisterRequest, request: Request, conn: Conn = Depends(get_db)):
+def register(payload: RegisterRequest, request: Request, conn: Conn = Depends(get_db)) -> RegisterOut:
     """Tự đăng ký — luôn tạo role='user' (thấp nhất, xem
     scrapjd.api.deps.ROLE_HIERARCHY), KHÔNG cho tự chọn role qua request (khác
     POST /auth/users admin-only có thể chọn role). Muốn lên 'ss_team'
@@ -113,7 +113,7 @@ def register(payload: RegisterRequest, request: Request, conn: Conn = Depends(ge
     return RegisterOut(ss_user_id=ss_user_id, email=payload.email)
 
 
-@public_router.get("/verify-email")
+@public_router.get("/verify-email", response_model=None)
 # 30/hour theo IP — thêm cùng đợt rà soát rate-limit (trước đó route
 # này KHÔNG có giới hạn nào, khác 3 route "chị em" resend-verification/
 # forgot-password/reset-password đã có từ đầu). Token 32 byte urlsafe
@@ -123,7 +123,7 @@ def register(payload: RegisterRequest, request: Request, conn: Conn = Depends(ge
 # link 1 lần trước khi người dùng bấm) mà vẫn chặn được request lặp bất
 # thường.
 @limiter.limit("30/hour")
-def verify_email(token: str, request: Request, conn: Conn = Depends(get_db)):
+def verify_email(token: str, request: Request, conn: Conn = Depends(get_db)) -> RedirectResponse:
     """Endpoint người dùng BẤM TỪ EMAIL (không phải gọi qua code/frontend
     — xem scrapjd/api/email_service.py dựng link này). Route này KHÔNG tự vẽ
     giao diện — chỉ xử lý token rồi redirect(302) NGAY về trang
@@ -160,7 +160,7 @@ def verify_email(token: str, request: Request, conn: Conn = Depends(get_db)):
 # 3 lần/giờ/IP — thấp hơn register vì route này trigger gửi email ngay
 # lập tức mỗi lần gọi, dễ bị lợi dụng "bomb" email tới 1 địa chỉ.
 @limiter.limit("3/hour")
-def resend_verification(payload: ResendVerificationRequest, request: Request, conn: Conn = Depends(get_db)):
+def resend_verification(payload: ResendVerificationRequest, request: Request, conn: Conn = Depends(get_db)) -> MessageOut:
     """Xin gửi lại email xác thực — dùng khi token cũ hết hạn (24h) hoặc
     email thất lạc. LUÔN trả cùng 1 message dù email có tồn tại hay
     không, và dù tài khoản đã verify từ trước hay chưa (giống nguyên tắc
@@ -199,7 +199,7 @@ def resend_verification(payload: ResendVerificationRequest, request: Request, co
 # 3 lần/giờ/IP — cùng lý do resend_verification() ở trên (gửi email
 # thật mỗi lần gọi, cùng nguy cơ bị lợi dụng "bomb" email).
 @limiter.limit("3/hour")
-def forgot_password(payload: ForgotPasswordRequest, request: Request, conn: Conn = Depends(get_db)):
+def forgot_password(payload: ForgotPasswordRequest, request: Request, conn: Conn = Depends(get_db)) -> MessageOut:
     """Xin link đặt lại mật khẩu — LUÔN trả cùng 1 message dù email có
     tồn tại hay không (giống hệt nguyên tắc resend_verification() ở
     trên — chống dò email hàng loạt: kẻ tấn công không phân biệt được
@@ -244,7 +244,7 @@ def forgot_password(payload: ForgotPasswordRequest, request: Request, conn: Conn
 # phòng thủ thêm chống dò token (token 32 byte urlsafe gần như không
 # thể đoán được trong phạm vi 10 lần, xem docstring scrapjd/api/rate_limit.py).
 @limiter.limit("10/hour")
-def reset_password(payload: ResetPasswordRequest, request: Request, conn: Conn = Depends(get_db)):
+def reset_password(payload: ResetPasswordRequest, request: Request, conn: Conn = Depends(get_db)) -> MessageOut:
     """Đặt mật khẩu mới bằng token nhận từ email — token dùng ĐÚNG 1 LẦN
     (xoá ngay sau khi dùng, xem db.reset_password_with_token()).
 

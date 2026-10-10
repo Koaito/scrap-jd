@@ -143,6 +143,7 @@ router.add_api_route(
     _get_cv_signed_url,
     methods=["GET"],
     include_in_schema=False,
+    response_model=None,
 )
 
 

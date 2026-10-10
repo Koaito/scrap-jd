@@ -51,7 +51,7 @@ ignore_missing_imports = true
 [[tool.mypy.overrides]]
 # M2: các module đã gắn đủ type hint cho mọi hàm. Thiếu hint ở đây thì mypy báo lỗi (no-untyped-def). Thêm module vào
 # danh sách này khi dọn xong; M2f gom thành cấu hình chung cho cả repo. Hiện có toàn bộ scrapjd/db/ (M2a, M2b), scrapjd/cli/,
-# scrapjd/maintenance/, scrapjd/adapters/ và các module lẻ của scrapjd/ đã đủ hint (M2c nửa 1/2 và nửa 2/2), cùng scrapjd/api/ ngoài routers/ (M2d nửa 1/2 và nửa 2/2) và 9 router của scrapjd/api/routers/ (M2e nửa 1/2).
+# scrapjd/maintenance/, scrapjd/adapters/ và các module lẻ của scrapjd/ đã đủ hint (M2c nửa 1/2 và nửa 2/2), cùng scrapjd/api/ ngoài routers/ (M2d nửa 1/2 và nửa 2/2) và toàn bộ scrapjd/api/routers/ (M2e nửa 1/2 và nửa 2/2).
 module = [
     "scrapjd",
     "scrapjd.adapters",
@@ -73,13 +73,19 @@ module = [
     "scrapjd.api.routers",
     "scrapjd.api.routers.audit_logs",
     "scrapjd.api.routers.auth",
+    "scrapjd.api.routers.auth_registration",
+    "scrapjd.api.routers.auth_session",
+    "scrapjd.api.routers.auth_users",
     "scrapjd.api.routers.companies",
     "scrapjd.api.routers.contacts",
     "scrapjd.api.routers.crawl",
     "scrapjd.api.routers.dashboard",
     "scrapjd.api.routers.email_templates",
+    "scrapjd.api.routers.import_export",
+    "scrapjd.api.routers.jobs",
     "scrapjd.api.routers.maintenance",
     "scrapjd.api.routers.me",
+    "scrapjd.api.routers.messages",
     "scrapjd.api.routers.meta",
     "scrapjd.api.run_log",
     "scrapjd.api.schemas",

@@ -15,6 +15,7 @@ from datetime import date, datetime, timezone
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
+from fastapi.responses import StreamingResponse
 
 from scrapjd import db as db_module
 from scrapjd.api import error_codes
@@ -187,7 +188,7 @@ def export_preview(
     filter_params: dict = Depends(_export_filter_params),
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> ExportPreviewResponse:
     _check_entity_type(entity_type)
     filters = _build_export_filters(entity_type, **filter_params)
 
@@ -216,14 +217,14 @@ def export_preview(
     )
 
 
-@router.get("/export/{entity_type}")
+@router.get("/export/{entity_type}", response_model=None)
 def export_entity(
     entity_type: str,
     format: Literal["csv", "xlsx"] = Query("csv", description="csv | xlsx"),
     filter_params: dict = Depends(_export_filter_params),
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> StreamingResponse:
     _check_entity_type(entity_type)
     filters = _build_export_filters(entity_type, **filter_params)
 
@@ -235,7 +236,6 @@ def export_entity(
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     filename = f"{entity_type}_export_{timestamp}.{format}"
 
-    from fastapi.responses import StreamingResponse
     return StreamingResponse(
         buffer,
         media_type=file_parser.content_type_for_format(format),
@@ -255,7 +255,7 @@ async def import_preview(
     file: UploadFile = File(...),
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> ImportUploadResponse:
     """Rate limit 20/hour theo user_id (thêm 08/2026) — mỗi lần gọi
     parse file (tới 5000 dòng) + build_preview() (nhiều query DB để đối
     chiếu công ty/job trùng) tốn CPU/DB đáng kể hơn 1 GET thông thường.
@@ -312,7 +312,7 @@ def get_import_preview(
     preview_id: str,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> ImportUploadResponse:
     _check_entity_type(entity_type)
     preview_row = _load_owned_preview(conn, preview_id, user["sub"])
 
@@ -334,7 +334,7 @@ def get_company_suggestions(
     row_index: int = Query(..., ge=0),
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> CompanySuggestionsResponse:
     """Gợi ý company tương tự cho 1 dòng cụ thể — dùng khi staff muốn xem
     lại/đổi ý ở dòng đã ở trạng thái pending_company_resolution (danh
     sách gợi ý đã lưu sẵn lúc build preview, route này chủ yếu tiện cho
@@ -372,7 +372,7 @@ def verify_field(
     payload: FieldVerifyRequest,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> FieldVerifyResponse:
     """Staff sửa 1 ô lỗi trên bảng preview, bấm nút "Xác nhận" cạnh ô đó
     -> re-validate format field_name NGAY + (contact) re-check trùng mờ
     ngay tại đó, KHÔNG đợi tới bước confirm cuối cùng mới biết (xem
@@ -412,7 +412,7 @@ def resolve_company(
     payload: ResolveCompanyRequest,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> ResolveCompanyResponse:
     """Staff chọn 1 công ty (hoặc "Tạo công ty mới") trong modal chọn công
     ty ở bước preview -> re-check conflict NGAY với company_id thật vừa
     chọn (xem preview_manager.resolve_company_selection() cho toàn bộ
@@ -452,7 +452,7 @@ def import_confirm(
     payload: ImportConfirmRequest,
     conn: Conn = Depends(get_db),
     user: dict = Depends(require_role("ss_team")),
-):
+) -> ImportConfirmResult:
     _check_entity_type(entity_type)
     preview_row = _load_owned_preview(conn, payload.preview_id, user["sub"])
 

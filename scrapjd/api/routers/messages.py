@@ -18,6 +18,8 @@ viên, nhưng SS thì không) — check role thủ công trong từng handler
 thay vì ở tầng dependency.
 """
 
+from typing import Optional, Union
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
 
@@ -34,7 +36,7 @@ from scrapjd.api.schemas import (
     RelationshipOut,
     UnreadCountOut,
 )
-from scrapjd.db.pg_types import Conn
+from scrapjd.db.pg_types import Conn, Row
 
 router = APIRouter(prefix="/messages", tags=["messages"])
 
@@ -61,7 +63,7 @@ def _require_valid_uuid(value: str, label: str) -> None:
         )
 
 
-def _resolve_student_ss_pair(sender_id: str, sender_role: str, receiver_id: str, receiver_role: str):
+def _resolve_student_ss_pair(sender_id: str, sender_role: str, receiver_id: str, receiver_role: str) -> Optional[tuple[str, str]]:
     """Suy ra (student_id, ss_id) từ 1 cặp gửi/nhận theo role thật —
     dùng ở mọi chỗ cần tra/tạo chat_relationships. Trả None nếu cặp
     này là SS-SS (không qua state machine, xem §1 phạm vi MVP)."""
@@ -72,14 +74,14 @@ def _resolve_student_ss_pair(sender_id: str, sender_role: str, receiver_id: str,
     return None
 
 
-@router.post("", status_code=201)
+@router.post("", status_code=201, response_model=None)
 @limiter.limit("1/second;20/minute", key_func=get_user_id_or_ip)
 def send_message(
     request: Request,
     payload: MessageCreate,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> Union[ChatMessageOut, JSONResponse]:
     """Gửi 1 tin nhắn. sender_id LUÔN lấy từ JWT (user['sub']), KHÔNG
     bao giờ nhận từ body — chặn giả mạo người gửi.
 
@@ -202,7 +204,7 @@ def list_conversations(
     request: Request,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     return db_module.list_conversations(conn, user["sub"])
 
 
@@ -213,7 +215,7 @@ def get_conversation(
     partner_id: str,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> Row:
     """Tra đúng 1 người đối thoại — tên, role, relationship_status,
     relationship_id — kể cả khi 2 bên CHƯA từng nhắn (khi đó
     last_message_* = null, unread_count = 0, relationship_* = null nếu
@@ -238,7 +240,7 @@ def list_pending_requests(
     request: Request,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     """Mục "Yêu cầu đang chờ" riêng cho SS — học viên pending mà chưa
     từng nhắn tin nên không xuất hiện trong /conversations."""
     if not _is_ss(user["role"]):
@@ -256,7 +258,7 @@ def unread_count(
     response: Response,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> dict:
     # Thêm khi migrate Next.js (Phần 5 mục 15 của plan): route polling này
     # tự set Cache-Control: no-store ngay tại nguồn — trước đây thiếu,
     # phải để Flask/proxy tự vá thêm header này ở tầng trung gian. Dùng
@@ -274,7 +276,7 @@ def search_people(
     q: str = Query(..., min_length=1, max_length=100),
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     """Chỉ trả id/full_name/role — KHÔNG email/phone. Học viên chỉ
     thấy role ss_team/admin; SS/admin thấy mọi role."""
     return db_module.search_people(conn, q, requester_role=user["role"])
@@ -289,7 +291,7 @@ def get_history(
     limit: int = Query(50, ge=1, le=100),
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     """Lịch sử đầy đủ, phân trang cursor. Cho xem kể cả khi quan hệ
     đang declined/blocked (chỉ chặn GỬI, không chặn XEM) — không cần
     check state machine ở đây, chỉ cần current_user là 1 trong 2 người
@@ -312,7 +314,7 @@ def get_new_messages(
     after_id: int = Query(..., ge=0, le=db_module.MAX_MESSAGE_ID),
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     """Polling nhẹ trong lúc mở khung chat — chỉ trả tin id > after_id.
 
     Thêm khi migrate Next.js (Phần 5 mục 15 của plan): tự set header
@@ -326,14 +328,14 @@ def get_new_messages(
     return db_module.get_messages_since(conn, user["sub"], partner_id, after_id)
 
 
-@router.post("/read/{partner_id}")
+@router.post("/read/{partner_id}", response_model=None)
 @limiter.limit("20/minute", key_func=get_user_id_or_ip)
 def mark_read(
     request: Request,
     partner_id: str,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> dict:
     _require_valid_uuid(partner_id, "partner_id")
     updated = db_module.mark_read(conn, user["sub"], partner_id)
     conn.commit()
@@ -347,7 +349,7 @@ def cancel_my_pending_request(
     ss_id: str,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> Row:
     """Học viên TỰ HUỶ request đang 'pending' do chính mình tạo với
     ss_id này (gửi nhầm SS / đổi ý) — xem db.cancel_pending_request()
     và backend-scrap-jd-nhan-tin.md §2 transition (h).
@@ -405,7 +407,7 @@ def accept_request(
     relationship_id: str,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> Optional[Row]:
     if not _is_ss(user["role"]):
         raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_ONLY_SS_ADMIN_CAN_ACCEPT, "message": "Chỉ SS/admin mới có quyền chấp nhận yêu cầu."})
     _require_valid_uuid(relationship_id, "relationship_id")
@@ -427,7 +429,7 @@ def decline_request(
     relationship_id: str,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> Optional[Row]:
     if not _is_ss(user["role"]):
         raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_ONLY_SS_ADMIN_CAN_REJECT, "message": "Chỉ SS/admin mới có quyền từ chối yêu cầu."})
     _require_valid_uuid(relationship_id, "relationship_id")
@@ -449,7 +451,7 @@ def block_by_relationship(
     relationship_id: str,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> Optional[Row]:
     if not _is_ss(user["role"]):
         raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_ONLY_SS_ADMIN_CAN_BLOCK, "message": "Chỉ SS/admin mới có quyền chặn."})
     _require_valid_uuid(relationship_id, "relationship_id")
@@ -467,7 +469,7 @@ def block_student(
     student_id: str,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> Optional[Row]:
     """Biến thể block theo student_id trực tiếp — cho trường hợp SS
     muốn chặn TRƯỚC 1 học viên chưa từng có quan hệ nào (chưa có
     relationship_id để gọi route trên)."""
@@ -489,7 +491,7 @@ def unblock_request(
     relationship_id: str,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> Optional[Row]:
     if not _is_ss(user["role"]):
         raise HTTPException(status_code=403, detail={"error_code": error_codes.MESSAGE_ONLY_SS_ADMIN_CAN_UNBLOCK, "message": "Chỉ SS/admin mới có quyền bỏ chặn."})
     _require_valid_uuid(relationship_id, "relationship_id")

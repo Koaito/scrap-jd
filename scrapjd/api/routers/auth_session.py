@@ -19,6 +19,7 @@ auth_registration.py (public_router, KHÔNG cần X-API-Key).
 
 import logging
 from datetime import datetime, timezone
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -31,14 +32,14 @@ from scrapjd.api.schemas import (
     AccessTokenOut, ChangePasswordRequest, LoginRequest, RefreshRequest,
     TokenPairOut, UserOut, UserProfileUpdate,
 )
-from scrapjd.db.pg_types import Conn
+from scrapjd.db.pg_types import Conn, Row
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-def _issue_token_pair(conn: Conn, user_row, request: Request, session_id: str) -> tuple[str, str]:
+def _issue_token_pair(conn: Conn, user_row: Row, request: Request, session_id: str) -> tuple[str, str]:
     """Sinh CẢ access token lẫn refresh token mới cho 1 user — dùng
     chung cho login lẫn refresh (rotation), tránh lặp code.
 
@@ -67,7 +68,7 @@ def _issue_token_pair(conn: Conn, user_row, request: Request, session_id: str) -
 
 @router.post("/login", response_model=TokenPairOut)
 @limiter.limit("20/minute")
-def login(payload: LoginRequest, request: Request, conn: Conn = Depends(get_db)):
+def login(payload: LoginRequest, request: Request, conn: Conn = Depends(get_db)) -> TokenPairOut:
     """20/minute theo IP — thêm 08/2026 cùng đợt rà soát rate-limit tổng
     thể (xem scrapjd/api/rate_limit.py). Route công khai duy nhất KHÔNG có giới
     hạn nào trước đó ngoài khoá tài khoản is_account_locked() — nhưng
@@ -168,7 +169,7 @@ def login(payload: LoginRequest, request: Request, conn: Conn = Depends(get_db))
 # (access token 30 phút mới hết hạn 1 lần, không ai cần refresh nhanh
 # hơn thế nhiều).
 @limiter.limit("30/minute")
-def refresh(payload: RefreshRequest, request: Request, conn: Conn = Depends(get_db)):
+def refresh(payload: RefreshRequest, request: Request, conn: Conn = Depends(get_db)) -> AccessTokenOut:
     """Xoay vòng refresh token: đổi lấy 1 CẶP token mới (cả access lẫn
     refresh), thu hồi token cũ ngay lập tức. Nếu token gửi lên là 1 token
     ĐÃ BỊ THU HỒI TỪ TRƯỚC (revoked_at đã có giá trị) — đây là dấu hiệu
@@ -298,11 +299,11 @@ def refresh(payload: RefreshRequest, request: Request, conn: Conn = Depends(get_
     return AccessTokenOut(access_token=access_token, refresh_token=new_refresh_token)
 
 
-@router.post("/logout", status_code=204)
+@router.post("/logout", status_code=204, response_model=None)
 # 30/minute theo IP — cùng lý do refresh() ở trên (chặn gọi lặp vô ích,
 # không phải vì token đoán được).
 @limiter.limit("30/minute")
-def logout(request: Request, payload: RefreshRequest, conn: Conn = Depends(get_db)):
+def logout(request: Request, payload: RefreshRequest, conn: Conn = Depends(get_db)) -> None:
     """Đăng xuất — thu hồi ĐÚNG refresh token gửi lên (không đụng tới
     token của thiết bị khác). Không lỗi nếu token không tồn tại/đã thu
     hồi từ trước (đăng xuất nhiều lần vẫn coi là thành công, tránh lộ
@@ -321,7 +322,7 @@ def logout(request: Request, payload: RefreshRequest, conn: Conn = Depends(get_d
 
 
 @router.get("/me", response_model=UserOut)
-def get_me(user: dict = Depends(get_current_user), conn: Conn = Depends(get_db)):
+def get_me(user: dict = Depends(get_current_user), conn: Conn = Depends(get_db)) -> Row:
     """Thông tin user hiện tại — JWT chỉ chứa sub/role/email, nên vẫn
     cần 1 lượt query DB để lấy đủ field khác (full_name, is_active mới
     nhất...) cho frontend hiển thị, KHÔNG tin tưởng field nào ngoài
@@ -340,7 +341,7 @@ def update_me(
     payload: UserProfileUpdate,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> Optional[Row]:
     """User TỰ sửa hồ sơ của CHÍNH MÌNH (full_name/phone/track) — thêm
     08/2026 cùng đợt làm trang cá nhân phía frontend. KHÔNG sửa email/
     role/is_active/password (đổi mật khẩu vẫn qua POST /change-password
@@ -381,7 +382,7 @@ def change_password(
     payload: ChangePasswordRequest,
     user: dict = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-):
+) -> Optional[Row]:
     """Tự đổi mật khẩu. Nếu tài khoản đang must_change_password=True
     (mới tạo/vừa bị reset), CHO PHÉP bỏ qua old_password (người dùng chỉ
     có mật khẩu tạm admin đưa, không có 'mật khẩu cũ của riêng họ' theo

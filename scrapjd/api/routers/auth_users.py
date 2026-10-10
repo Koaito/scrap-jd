@@ -14,6 +14,8 @@ Tất cả route ở đây đều yêu cầu ít nhất require_role("ss_team"),
 lớn require_admin — không có route công khai nào.
 """
 
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
 
 from scrapjd import db as db_module
@@ -24,7 +26,7 @@ from scrapjd.api.schemas import (
     JobApplicationOut, SavedJobOut, UserActiveStatusUpdate,
     UserCreateByAdmin, UserCreatedOut, UserOut, UserRoleUpdate,
 )
-from scrapjd.db.pg_types import Conn
+from scrapjd.db.pg_types import Conn, Row
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -34,7 +36,7 @@ def create_user(
     payload: UserCreateByAdmin,
     admin: dict = Depends(require_admin),
     conn: Conn = Depends(get_db),
-):
+) -> dict:
     """CHỈ admin gọi được (require_admin). Mật khẩu TẠM được server tự
     sinh, trả về ĐÚNG 1 LẦN trong response này — admin tự đưa cho người
     dùng qua kênh khác (Slack/nói miệng), KHÔNG có luồng gửi email (xem
@@ -70,7 +72,7 @@ def create_user(
 def list_users(
     user: dict = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     """Danh sách toàn bộ tài khoản (thêm 08/2026) — ss_team trở lên xem
     được (khác POST /auth/users tạo tài khoản, vẫn admin-only), dùng cho
     mục "xem danh sách tài khoản" trong dashboard ss_team đã thống nhất."""
@@ -82,7 +84,7 @@ def get_user(
     ss_user_id: str,
     user: dict = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-):
+) -> Row:
     """Thêm 10/2026 — xem đúng 1 tài khoản, shape GIỐNG HỆT 1 phần tử của
     GET /auth/users, cùng quyền (ss_team trở lên, ss_team xem được cả
     admin như ở danh sách). Thay cho việc frontend (trang /staff-activity/
@@ -104,7 +106,7 @@ def list_applications_of_user(
     ss_user_id: str,
     user: dict = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     """Thêm 08/2026 — chiều "1 học viên đã ứng tuyển job nào", để bổ
     sung cho GET /jobs/{job_id}/applications (chiều ngược lại, "1 job
     có ai ứng tuyển") đã có sẵn — SS team/admin cần cả 2 chiều để theo
@@ -128,7 +130,7 @@ def list_saved_jobs_of_user(
     ss_user_id: str,
     user: dict = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-):
+) -> list[Row]:
     """Thêm 08/2026 — mirror ĐÚNG list_applications_of_user() ở trên
     nhưng cho chiều "lưu" thay vì "ứng tuyển": 1 học viên đã lưu
     (bookmark) job nào, để bổ sung cho GET /jobs/{job_id}/saved-jobs
@@ -150,7 +152,7 @@ def update_user_role(
     payload: UserRoleUpdate,
     admin: dict = Depends(require_admin),
     conn: Conn = Depends(get_db),
-):
+) -> Optional[Row]:
     """CHỈ admin gọi được. Đổi role của 1 user khác — CHẶN admin tự đổi
     role CHÍNH MÌNH (tránh tự khoá mình khỏi quyền admin do bấm nhầm;
     muốn đổi role của chính mình thì nhờ admin khác, hoặc sửa thẳng
@@ -182,7 +184,7 @@ def update_user_active_status(
     payload: UserActiveStatusUpdate,
     admin: dict = Depends(require_admin),
     conn: Conn = Depends(get_db),
-):
+) -> Optional[Row]:
     """CHỈ admin gọi được. Khoá/mở khoá VĨNH VIỄN 1 tài khoản khác —
     CHẶN admin tự khoá CHÍNH MÌNH (cùng lý do với update_user_role() ở
     trên — tránh tự khoá mình khỏi hệ thống do bấm nhầm, đặc biệt nguy
