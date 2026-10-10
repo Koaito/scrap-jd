@@ -60,11 +60,11 @@ def trigger_crawl(
     tốn network + CPU thật vài phút — giới hạn này để chặn spam gây tải
     server ngoài ý muốn, 10 lượt/giờ vẫn dư cho vận hành thực tế (nhiều
     nguồn x nhiều category)."""
-    if payload.source not in crawl_runner._SOURCE_ADAPTERS:
+    if payload.source not in crawl_runner.available_sources():
         raise HTTPException(
             status_code=400,
             detail={"error_code": error_codes.CRAWL_NOT_FOUND, "message": f"Source '{payload.source}' không tồn tại. "
-                   f"Có sẵn: {list(crawl_runner._SOURCE_ADAPTERS.keys())}"},
+                   f"Có sẵn: {crawl_runner.available_sources()}"},
         )
     categories = _CATEGORIES_BY_SOURCE[payload.source]
     if payload.category not in categories:
@@ -116,11 +116,11 @@ def trigger_crawl_batch(
     (cùng key_func, cùng limiter instance — slowapi đếm theo path riêng
     từng route nên thực chất đây là 2 hạn mức 10/hour độc lập, xem ghi
     chú thêm ở POST /crawl phía trên nếu cần biết lý do chọn mốc này)."""
-    if payload.source not in crawl_runner._SOURCE_ADAPTERS:
+    if payload.source not in crawl_runner.available_sources():
         raise HTTPException(
             status_code=400,
             detail={"error_code": error_codes.CRAWL_NOT_FOUND, "message": f"Source '{payload.source}' không tồn tại. "
-                   f"Có sẵn: {list(crawl_runner._SOURCE_ADAPTERS.keys())}"},
+                   f"Có sẵn: {crawl_runner.available_sources()}"},
         )
     valid_categories = _CATEGORIES_BY_SOURCE[payload.source]
     unknown = [c for c in payload.categories if c not in valid_categories]

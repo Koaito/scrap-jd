@@ -18,7 +18,7 @@ import psycopg2
 import pytest
 
 from scrapjd import db
-from scrapjd.db.job_recrawl import AUTO_REOPEN_REASONS
+from scrapjd.db.listing_state import AUTO_REOPEN_REASONS
 from scrapjd.db.job_sync import SKIP_UPDATED_AT_SETTING, sync_job_from_listings
 
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")

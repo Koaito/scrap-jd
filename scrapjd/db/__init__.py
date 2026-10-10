@@ -82,11 +82,11 @@ from scrapjd.db.job_recrawl import (
     link_repost_source,
     RepostLink,
     find_repost_candidate,
-    AUTO_REOPEN_REASONS,
     find_jobs_by_source_url_regex,
     update_job_from_recrawl,
 )
 from scrapjd.db.listing_state import (
+    AUTO_REOPEN_REASONS,
     close_expired_listings,
     close_listing_dead,
     mark_listing_seen,

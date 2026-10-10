@@ -121,6 +121,13 @@ from scrapjd.db.pg_types import Conn, Row
 logger = logging.getLogger(__name__)
 
 
+def available_sources() -> list[str]:
+    """Tên các nguồn crawl chạy được qua API (theo thứ tự khai báo ở sources_registry). Router dùng hàm này để kiểm tra
+    nguồn có tồn tại, thay vì đọc thẳng tên private `_SOURCE_ADAPTERS` của module này. Đọc `_SOURCE_ADAPTERS` MỖI LẦN gọi
+    (không lưu bản sao) để test vẫn patch được `crawl_runner._SOURCE_ADAPTERS`."""
+    return list(_SOURCE_ADAPTERS.keys())
+
+
 def get_run(run_id: str) -> Optional[dict]:
     """Đọc 1 lượt crawl từ bảng crawl_runs — dùng cho GET /crawl/{run_id}.
     Mượn/trả connection từ pool chung (xem docstring module ở đầu file,

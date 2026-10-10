@@ -14,7 +14,7 @@ from typing import Optional
 from scrapjd.db.audit_logs import log_action
 from scrapjd.db.job_levels import _derived_level_assignments
 from scrapjd.db.job_sync import sync_job_from_listings
-from scrapjd.db.listing_state import AUTO_REOPEN_REASONS, CONFLICT_URL, insert_listing  # noqa: F401  (re-export)
+from scrapjd.db.listing_state import CONFLICT_URL, insert_listing
 from scrapjd.db.pg_types import Conn
 
 logger = logging.getLogger(__name__)

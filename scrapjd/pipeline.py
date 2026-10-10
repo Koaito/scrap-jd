@@ -11,7 +11,7 @@ from typing import Any, Callable, Optional
 
 from scrapjd.adapters.base import DEFAULT_DEDUP_RESOLVERS, BaseAdapter, CrawlBlockedError
 from scrapjd import db
-from scrapjd.db.job_recrawl import AUTO_REOPEN_REASONS
+from scrapjd.db.listing_state import AUTO_REOPEN_REASONS
 from scrapjd import normalize
 from scrapjd.normalize import NormalizedSalary
 from scrapjd.config import DEGRADED_EMPTY_RATE
