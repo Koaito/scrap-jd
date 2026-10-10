@@ -79,7 +79,7 @@ def run(apply: bool = False) -> dict:
     return stats
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Chuẩn hoá lại dữ liệu company_size cũ trong DB — bỏ hậu tố "
                     "'nhân viên' để đồng nhất format giữa các nguồn crawl."

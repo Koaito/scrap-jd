@@ -49,7 +49,7 @@ import argparse
 import logging
 import os
 from collections import Counter
-from typing import Optional
+from typing import Callable, Optional
 
 from scrapjd import db
 from scrapjd import normalize
@@ -144,7 +144,7 @@ def plan_level(row: dict, label: Optional[str]) -> dict:
 
 
 class Summary:
-    def __init__(self):
+    def __init__(self) -> None:
         self.selected = 0
         self.title_decided = 0
         self.fetched_ok = 0
@@ -160,7 +160,7 @@ class Summary:
         self.samples: list = []
 
 
-def process_job(conn: Conn, adapter, row: dict, *, apply: bool, level_ids: dict,
+def process_job(conn: Conn, adapter: Optional[TopCVAdapter], row: dict, *, apply: bool, level_ids: dict,
                 summary: Summary) -> bool:
     """Xử lý một job. Trả True khi job đã xong chắc chắn và nên ghi vào file tiến
     độ (chỉ khi --apply)."""
@@ -220,8 +220,8 @@ def process_job(conn: Conn, adapter, row: dict, *, apply: bool, level_ids: dict,
     return True
 
 
-def run(conn: Conn, adapter, rows: list, *, apply: bool, level_ids: dict,
-        on_done=None) -> Summary:
+def run(conn: Conn, adapter: Optional[TopCVAdapter], rows: list, *, apply: bool, level_ids: dict,
+        on_done: Optional[Callable[[str], None]] = None) -> Summary:
     """Duyệt danh sách job. Lỗi một job chỉ đếm rồi đi tiếp; bị chặn thì dừng;
     Ctrl+C dừng êm (job đã xong vẫn còn nguyên)."""
     summary = Summary()
@@ -291,7 +291,7 @@ def print_report(summary: Summary, *, apply: bool, fetch: bool, dup_before: int,
         print("\nĐây là chạy thử. Thêm --apply để ghi thật.")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Vá level Senior -> Lead cho job TopCV nhãn \"Trên 5 năm\" đã lưu")
     parser.add_argument("--apply", action="store_true", help="ghi vào DB (mặc định chỉ chạy thử)")
@@ -330,7 +330,7 @@ def main():
         adapter = None if args.no_fetch else TopCVAdapter()
         state_fh = open(args.state_file, "a", encoding="utf-8") if args.apply else None
         try:
-            def on_done(job_id):
+            def on_done(job_id: str) -> None:
                 assert state_fh is not None  # on_done chỉ được truyền khi --apply, lúc đó file tiến độ đã mở
                 state_fh.write(f"{job_id}\n")
                 state_fh.flush()

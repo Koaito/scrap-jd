@@ -60,7 +60,7 @@ import argparse
 import logging
 import os
 from collections import Counter
-from typing import Optional
+from typing import Callable, Optional
 
 from scrapjd import db
 from scrapjd import normalize
@@ -129,7 +129,7 @@ def count_duplicate_groups(conn: Conn) -> int:
     return n
 
 
-def _update_raw_jd(conn: Conn, job_id, source_url: str, raw_jd: str) -> None:
+def _update_raw_jd(conn: Conn, job_id: str, source_url: str, raw_jd: str) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE job_sources_log SET raw_jd_content = %s WHERE job_id = %s AND source_url = %s",
@@ -182,7 +182,7 @@ def plan_job(row: dict, refreshed: dict) -> dict:
 
 
 class Summary:
-    def __init__(self):
+    def __init__(self) -> None:
         self.selected = 0
         self.ok = 0
         self.unavailable = 0
@@ -199,7 +199,7 @@ class Summary:
         self.samples: list = []
 
 
-def process_job(conn: Conn, adapter, row: dict, *, apply: bool, level_ids: dict,
+def process_job(conn: Conn, adapter: VietnamWorksAdapter, row: dict, *, apply: bool, level_ids: dict,
                 summary: Summary) -> bool:
     """Xử lý một job. Trả True khi job đã xử lý xong và nên ghi vào file tiến độ
     (đã ghi DB thành công, hoặc không còn gì để vá)."""
@@ -262,8 +262,8 @@ def process_job(conn: Conn, adapter, row: dict, *, apply: bool, level_ids: dict,
     return True
 
 
-def run(conn: Conn, adapter, rows: list, *, apply: bool, level_ids: dict,
-        on_done=None) -> Summary:
+def run(conn: Conn, adapter: VietnamWorksAdapter, rows: list, *, apply: bool, level_ids: dict,
+        on_done: Optional[Callable[[str], None]] = None) -> Summary:
     """Duyệt danh sách job. Lỗi một job chỉ đếm rồi đi tiếp; bị chặn thì dừng;
     Ctrl+C dừng êm (job đã xong vẫn còn nguyên)."""
     summary = Summary()
@@ -331,7 +331,7 @@ def print_report(summary: Summary, *, apply: bool, dup_before: int, dup_after: O
         print("\nĐây là chạy thử. Thêm --apply để ghi thật.")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(description="Vá JD đầy đủ + level cho job VietnamWorks đã lưu")
     parser.add_argument("--apply", action="store_true", help="ghi vào DB (mặc định chỉ chạy thử)")
     parser.add_argument("--limit", type=int, default=None, help="chỉ xử lý N job đầu")
@@ -367,7 +367,7 @@ def main():
         adapter = VietnamWorksAdapter()
         state_fh = open(args.state_file, "a", encoding="utf-8") if args.apply else None
         try:
-            def on_done(job_id):
+            def on_done(job_id: str) -> None:
                 assert state_fh is not None  # on_done chỉ được truyền khi --apply, lúc đó file tiến độ đã mở
                 state_fh.write(f"{job_id}\n")
                 state_fh.flush()
