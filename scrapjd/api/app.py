@@ -50,9 +50,10 @@ khi đang cần debug tạm thời.
 
 import logging
 import os
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
@@ -86,7 +87,7 @@ _docs_enabled = os.getenv("ENABLE_DOCS", "").strip().lower() == "true"
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Khởi tạo connection pool (db.py) 1 LẦN lúc app khởi động, đóng lại
     khi app tắt — thay cho mở/đóng connection Postgres thật ở MỖI
     request (08/2026, xem db.py mục "CONNECTION POOL"). Dùng lifespan
@@ -234,7 +235,7 @@ app.add_middleware(
 #     hạ tầng KHÔNG luôn có HTTPS thì cần bỏ header này trước, nếu không
 #     người dùng cũ (đã có header) sẽ không truy cập được qua HTTP nữa.
 @app.middleware("http")
-async def add_security_headers(request, call_next):
+async def add_security_headers(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
@@ -268,7 +269,7 @@ async def add_security_headers(request, call_next):
 # tấn công cố ý né Content-Length. Có thể siết thêm bằng ASGI middleware
 # đếm byte qua stream nếu sau này thấy cần, không làm sớm.
 @app.middleware("http")
-async def reject_oversized_request(request, call_next):
+async def reject_oversized_request(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     content_length = request.headers.get("content-length")
     if content_length is not None:
         try:
@@ -312,8 +313,8 @@ app.include_router(messages.router, dependencies=_require_key)
 app.include_router(auth.public_router)
 
 
-@app.get("/health", tags=["meta"], dependencies=_require_key)
-def health_check():
+@app.get("/health", tags=["meta"], dependencies=_require_key, response_model=None)
+def health_check() -> dict[str, str]:
     """Kiểm tra server sống. LƯU Ý: endpoint này CŨNG yêu cầu API key
     (khai báo trực tiếp qua dependencies= ở decorator này, vì /health
     định nghĩa thẳng trên `app`, không qua include_router()) — nếu dùng

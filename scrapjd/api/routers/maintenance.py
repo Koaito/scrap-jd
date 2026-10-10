@@ -120,7 +120,7 @@ def list_maintenance_runs(
         job_type=job_type, status=status, triggered_by=triggered_by,
         limit=limit, offset=offset,
     )
-    return PaginatedMaintenanceRuns(total=total, limit=limit, offset=offset, items=rows)
+    return PaginatedMaintenanceRuns(total=total, limit=limit, offset=offset, items=rows)  # type: ignore[arg-type]  # Pydantic tự validate dict thành model
 
 
 @router.get("/latest-log-runs", response_model=dict)
@@ -212,4 +212,4 @@ def get_maintenance_logs(
         raise HTTPException(status_code=400, detail={"error_code": error_codes.MAINTENANCE_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID.", "params": {"value": run_id}})
     items = maintenance_runner.get_logs(run_id, after_id=after_id, limit=limit)
     last_id = items[-1]["id"] if items else after_id
-    return MaintenanceLogsOut(last_id=last_id, items=items)
+    return MaintenanceLogsOut(last_id=last_id, items=items)  # type: ignore[arg-type]  # Pydantic tự validate dict thành model

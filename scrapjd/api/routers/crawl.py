@@ -179,7 +179,7 @@ def list_crawl_batches(
         source=source, status=status, triggered_by=triggered_by,
         limit=limit, offset=offset,
     )
-    return PaginatedCrawlBatches(total=total, limit=limit, offset=offset, items=rows)
+    return PaginatedCrawlBatches(total=total, limit=limit, offset=offset, items=rows)  # type: ignore[arg-type]  # Pydantic tự validate dict thành model
 
 
 @router.get("/batch/{batch_id}", response_model=CrawlBatchStatusOut)
@@ -222,7 +222,7 @@ def list_crawl_runs(
         source=source, status=status, triggered_by=triggered_by,
         limit=limit, offset=offset,
     )
-    return PaginatedCrawlRuns(total=total, limit=limit, offset=offset, items=rows)
+    return PaginatedCrawlRuns(total=total, limit=limit, offset=offset, items=rows)  # type: ignore[arg-type]  # Pydantic tự validate dict thành model
 
 
 @router.get("/latest-log-run", response_model=Optional[CrawlStatusOut])
@@ -277,4 +277,4 @@ def get_crawl_logs(
         raise HTTPException(status_code=400, detail={"error_code": error_codes.CRAWL_RUN_ID_INVALID_UUID, "message": f"run_id '{run_id}' không đúng định dạng UUID.", "params": {"value": run_id}})
     items = crawl_runner.get_logs(run_id, after_id=after_id, limit=limit)
     last_id = items[-1]["id"] if items else after_id
-    return CrawlLogsOut(last_id=last_id, items=items)
+    return CrawlLogsOut(last_id=last_id, items=items)  # type: ignore[arg-type]  # Pydantic tự validate dict thành model

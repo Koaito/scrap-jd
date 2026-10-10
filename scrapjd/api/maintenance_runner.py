@@ -68,6 +68,7 @@ from scrapjd import db as db_module
 
 from scrapjd.api.concurrency import GLOBAL_JOB_SEMAPHORE
 from scrapjd.api.run_log import capture_run_logs
+from scrapjd.db.pg_types import Row
 
 from scrapjd.maintenance import backfill_company_profiles
 from scrapjd.maintenance import enrich_company_profile_from_website
@@ -102,7 +103,7 @@ def get_run(run_id: str) -> Optional[dict]:
 
 
 def list_runs(*, job_type: Optional[str] = None, status: Optional[str] = None,
-               triggered_by: Optional[str] = None, limit: int = 50, offset: int = 0):
+               triggered_by: Optional[str] = None, limit: int = 50, offset: int = 0) -> tuple[list[Row], int]:
     """Đọc danh sách lịch sử — dùng cho GET /maintenance. Mượn/trả
     connection từ pool chung (xem docstring module ở đầu file)."""
     conn = db_module.get_pooled_connection()
@@ -128,7 +129,7 @@ def get_latest_run_per_job_type() -> dict:
         db_module.release_connection(conn)
 
 
-def get_logs(run_id: str, after_id: int = 0, limit: int = 500):
+def get_logs(run_id: str, after_id: int = 0, limit: int = 500) -> list[Row]:
     """Đọc các dòng log MỚI (id > after_id) của 1 lượt chạy — dùng cho
     GET /maintenance/{run_id}/logs?after_id=N. Mượn/trả connection từ
     pool chung (xem docstring module ở đầu file)."""

@@ -6,7 +6,7 @@ api/schemas.py (08/2026) — xem docstring scrapjd/api/schemas/__init__.py.
 
 import re
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
@@ -109,7 +109,7 @@ class UserOut(BaseModel):
     track: Optional[str] = None
 
     @model_validator(mode="after")
-    def _hide_phone_track_for_staff(self):
+    def _hide_phone_track_for_staff(self) -> Self:
         if self.role != "user":
             self.phone = None
             self.track = None
@@ -181,7 +181,7 @@ class RegisterRequest(BaseModel):
     phone: Optional[str] = Field(default=None, max_length=30)
     track: Optional[str] = Field(default=None, max_length=100)
 
-    def model_post_init(self, __context) -> None:
+    def model_post_init(self, __context: Any) -> None:
         # Pydantic v2: EmailStr cần cài thêm 'email-validator' (chưa có
         # trong requirements.txt) — tự viết regex đơn giản để KHÔNG
         # thêm dependency mới cho 1 việc nhỏ. Không cần chuẩn RFC 5322

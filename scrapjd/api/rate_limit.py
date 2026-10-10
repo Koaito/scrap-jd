@@ -44,6 +44,7 @@ import ipaddress
 
 from slowapi import Limiter
 from slowapi.util import get_remote_address
+from starlette.requests import Request
 
 from scrapjd.api import security
 from scrapjd.api.auth import has_valid_api_key_header
@@ -53,7 +54,7 @@ from scrapjd.api.auth import has_valid_api_key_header
 CLIENT_IP_HEADER = "x-client-ip"
 
 
-def get_client_ip(request) -> str:
+def get_client_ip(request: Request) -> str:
     """IP dùng làm khoá đếm rate limit.
 
     Tin header X-Client-IP CHỈ KHI request mang X-API-Key hợp lệ (chỉ
@@ -81,7 +82,7 @@ def get_client_ip(request) -> str:
 limiter = Limiter(key_func=get_client_ip)
 
 
-def get_user_id_or_ip(request) -> str:
+def get_user_id_or_ip(request: Request) -> str:
     """Key function riêng cho route ĐÃ đăng nhập (vd /me/applications,
     /me/saved-jobs) — thêm 08/2026 cùng đợt rate-limit /auth/login.
 

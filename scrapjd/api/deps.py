@@ -43,7 +43,7 @@ thread có thể mượn/trả connection đồng thời, pool dùng
 ThreadedConnectionPool (không phải SimpleConnectionPool) — xem db.py.
 """
 
-from typing import Iterator, Optional
+from typing import Callable, Iterator, Optional
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -197,7 +197,7 @@ def get_current_user(
 ROLE_HIERARCHY: dict[Optional[str], int] = {"user": 0, "ss_team": 1, "admin": 2}
 
 
-def require_role(min_role: str):
+def require_role(min_role: str) -> Callable[[dict], dict]:
     """Trả về 1 dependency FastAPI chặn nếu role của user (lấy từ DB ở
     request hiện tại qua get_current_user, không phải role cũ trong JWT)
     thấp hơn min_role theo ROLE_HIERARCHY. Dùng

@@ -116,7 +116,7 @@ from scrapjd.api.run_log import capture_run_logs
 # đăng ký thủ công ở đúng dict này), xem docstring scrapjd/sources_registry.py
 # để biết đầy đủ lý do refactor + cách thêm nguồn crawl mới sau này.
 from scrapjd.sources_registry import SOURCE_ADAPTERS as _SOURCE_ADAPTERS
-from scrapjd.db.pg_types import Conn
+from scrapjd.db.pg_types import Conn, Row
 
 logger = logging.getLogger(__name__)
 
@@ -133,7 +133,7 @@ def get_run(run_id: str) -> Optional[dict]:
 
 
 def list_runs(*, source: Optional[str] = None, status: Optional[str] = None,
-               triggered_by: Optional[str] = None, limit: int = 50, offset: int = 0):
+               triggered_by: Optional[str] = None, limit: int = 50, offset: int = 0) -> tuple[list[Row], int]:
     """Đọc danh sách lịch sử crawl — dùng cho GET /crawl. Mượn/trả
     connection từ pool chung (xem docstring module ở đầu file)."""
     conn = db_module.get_pooled_connection()
@@ -160,7 +160,7 @@ def get_latest_run() -> Optional[dict]:
         db_module.release_connection(conn)
 
 
-def get_logs(run_id: str, after_id: int = 0, limit: int = 500):
+def get_logs(run_id: str, after_id: int = 0, limit: int = 500) -> list[Row]:
     """Đọc các dòng log MỚI (id > after_id) của 1 lượt crawl — dùng cho
     GET /crawl/{run_id}/logs?after_id=N (xem db.get_crawl_run_logs).
     Mượn/trả connection từ pool chung (xem docstring module ở đầu
@@ -221,7 +221,7 @@ def start_crawl(source: str, category: str, pages: Optional[int],
 
 def start_batch(source: str, categories: list, pages: Optional[int],
                  max_jobs: Optional[int] = None,
-                 triggered_by: Optional[str] = None):
+                 triggered_by: Optional[str] = None) -> tuple[str, str]:
     """08/2026 (xem docstring sql/migration_add_crawl_batches.sql) —
     "crawl nhiều category liên tục": tạo 1 crawl_batches mới + 1 dòng
     crawl_runs ĐẦU TIÊN (category đầu tiên trong `categories`,
@@ -286,7 +286,7 @@ def get_batch(batch_id: str) -> Optional[dict]:
 
 
 def list_batches(*, source: Optional[str] = None, status: Optional[str] = None,
-                  triggered_by: Optional[str] = None, limit: int = 50, offset: int = 0):
+                  triggered_by: Optional[str] = None, limit: int = 50, offset: int = 0) -> tuple[list[Row], int]:
     """Đọc danh sách lịch sử batch — dùng cho GET /crawl/batch. Mượn/trả
     connection từ pool chung (xem docstring module ở đầu file)."""
     conn = db_module.get_pooled_connection()

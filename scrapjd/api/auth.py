@@ -32,7 +32,7 @@ NÂNG CẤP SAU (chỉ làm khi thật sự cần, đừng làm sớm):
 import os
 import secrets
 
-from fastapi import HTTPException, Security
+from fastapi import HTTPException, Request, Security
 from scrapjd.api import error_codes
 from fastapi.security import APIKeyHeader, APIKeyQuery
 
@@ -48,7 +48,7 @@ _header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 _query_scheme = APIKeyQuery(name="api_key", auto_error=False)
 
 
-def has_valid_api_key_header(request) -> bool:
+def has_valid_api_key_header(request: Request) -> bool:
     """True nếu request mang header X-API-Key ĐÚNG giá trị API_KEY. Chỉ
     đọc HEADER (không đọc ?api_key= trên query string) và không raise gì
     — dành cho scrapjd/api/rate_limit.py quyết định có tin header X-Client-IP hay
