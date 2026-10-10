@@ -83,7 +83,7 @@ import logging
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, TextIO
+from typing import Any, Callable, Optional, TextIO, cast
 
 from scrapjd import db
 from scrapjd.cli import duplicate_report as dr
@@ -282,7 +282,7 @@ class MergePlan:
 
     @property
     def revives(self) -> bool:
-        return (self.derived_changes or {}).get("job_status", {}).get("new") == "OPEN"
+        return cast(bool, (self.derived_changes or {}).get("job_status", {}).get("new") == "OPEN")
 
     @property
     def deadline_changed(self) -> bool:

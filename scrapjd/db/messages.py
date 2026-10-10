@@ -19,7 +19,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.extras
-from scrapjd.db.pg_types import Conn, fetch_all_rows, fetch_scalar
+from scrapjd.db.pg_types import Conn, fetch_all_rows, fetch_count, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +72,7 @@ def count_pending_for_student(conn: Conn, student_id: str) -> int:
             "SELECT COUNT(*) FROM chat_relationships WHERE student_id = %s AND status = 'pending'",
             (student_id,),
         )
-        return fetch_scalar(cur)
+        return fetch_count(cur)
 
 
 def create_pending_request(conn: Conn, student_id: str, ss_id: str) -> str:
@@ -337,7 +337,7 @@ def get_unread_count(conn: Conn, current_user_id: str) -> int:
             "SELECT COUNT(*) FROM messages WHERE receiver_id = %s AND read_at IS NULL",
             (current_user_id,),
         )
-        return fetch_scalar(cur)
+        return fetch_count(cur)
 
 
 def list_conversations(conn: Conn, current_user_id: str) -> list[dict]:

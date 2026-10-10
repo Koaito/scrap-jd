@@ -48,7 +48,7 @@ def get_connection() -> Conn:
 
     Muốn dùng pool (traffic lặp lại nhiều lần/giây, như API layer) ->
     dùng get_pooled_connection() + release_connection() bên dưới."""
-    conn = psycopg2.connect(**DB_CONFIG)
+    conn: Conn = psycopg2.connect(**DB_CONFIG)
     conn.autocommit = False
     return conn
 

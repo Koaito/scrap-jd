@@ -67,7 +67,7 @@ from scrapjd import normalize
 from scrapjd.adapters.base import CrawlBlockedError
 from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from scrapjd.pipeline import _build_parsed_content_and_raw  # cùng cách dựng parsed_content như crawl
-from scrapjd.db.pg_types import Conn, fetch_scalar
+from scrapjd.db.pg_types import Conn, fetch_count
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                      datefmt="%H:%M:%S")
@@ -124,7 +124,7 @@ def select_jobs(conn: Conn, *, all_jobs: bool, include_closed: bool, limit: Opti
 def count_duplicate_groups(conn: Conn) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM v_duplicate_job_candidates")
-        n = fetch_scalar(cur)
+        n = fetch_count(cur)
     conn.rollback()
     return n
 

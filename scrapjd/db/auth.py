@@ -104,7 +104,7 @@ def record_failed_login(conn: Conn, ss_user_id: str, *, lock_threshold: int, loc
 def is_account_locked(user_row: Optional[Row]) -> bool:
     """Kiểm tra thuần Python (không query thêm) — user_row lấy từ
     get_user_by_email()/get_user_by_id(), đọc field locked_until có sẵn."""
-    locked_until = user_row.get("locked_until") if user_row else None
+    locked_until: Optional[datetime] = user_row.get("locked_until") if user_row else None
     if locked_until is None:
         return False
     now = datetime.now(timezone.utc)

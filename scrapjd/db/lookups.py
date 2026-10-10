@@ -3,7 +3,7 @@ db.lookups — tách từ db.py (God module) theo domain.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, cast
 
 from scrapjd.province_alias import resolve_province_alias
 from scrapjd.db.pg_types import Conn
@@ -52,7 +52,7 @@ def get_province_id(conn: Conn, province_name: str) -> Optional[int]:
         )
         row = cur.fetchone()
         if row:
-            return row[0]
+            return cast(int, row[0])
 
         aliased_name = resolve_province_alias(province_name)
         if aliased_name and aliased_name != province_name:
@@ -67,7 +67,7 @@ def get_province_id(conn: Conn, province_name: str) -> Optional[int]:
                     "nhập) -> quy đổi về tỉnh mới %r.",
                     province_name, aliased_name,
                 )
-                return row[0]
+                return cast(int, row[0])
 
         if province_name:
             logger.warning(

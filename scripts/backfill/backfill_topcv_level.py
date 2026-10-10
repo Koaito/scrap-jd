@@ -49,13 +49,13 @@ import argparse
 import logging
 import os
 from collections import Counter
-from typing import Callable, Optional
+from typing import Callable, Optional, cast
 
 from scrapjd import db
 from scrapjd import normalize
 from scrapjd.adapters.base import CrawlBlockedError
 from scrapjd.adapters.topcv import TopCVAdapter
-from scrapjd.db.pg_types import Conn, fetch_scalar
+from scrapjd.db.pg_types import Conn, fetch_count
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                     datefmt="%H:%M:%S")
@@ -110,7 +110,7 @@ def select_jobs(conn: Conn, *, include_closed: bool, limit: Optional[int],
 def count_duplicate_groups(conn: Conn) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM v_duplicate_job_candidates")
-        n = fetch_scalar(cur)
+        n = fetch_count(cur)
     conn.rollback()
     return n
 
@@ -201,7 +201,7 @@ def process_job(conn: Conn, adapter: Optional[TopCVAdapter], row: dict, *, apply
     if not apply:
         return False
     if not plan["level_changed"]:
-        return plan["confirmed"]
+        return cast(bool, plan["confirmed"])
 
     new_level_id = level_ids.get(plan["new_level"])
     if new_level_id is None:

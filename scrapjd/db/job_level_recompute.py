@@ -12,7 +12,7 @@ import json
 from typing import Optional
 
 from scrapjd.db.job_levels import _derived_level_assignments
-from scrapjd.db.pg_types import Conn, fetch_scalar
+from scrapjd.db.pg_types import Conn, fetch_count
 
 # Tên cờ phiên mà trg_set_updated_at() đọc (sql/migration_add_skip_updated_at_flag.sql).
 SKIP_UPDATED_AT_SETTING = "app.skip_updated_at"
@@ -107,7 +107,7 @@ def count_duplicate_job_groups(conn: Conn) -> int:
     """Số nhóm trong v_duplicate_job_candidates (job nghi trùng)."""
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM v_duplicate_job_candidates")
-        n = fetch_scalar(cur)
+        n = fetch_count(cur)
     conn.rollback()
     return n
 

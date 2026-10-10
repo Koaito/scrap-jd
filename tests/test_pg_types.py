@@ -19,6 +19,7 @@ from scrapjd.db.pg_types import (
     fetch_all_rows,
     fetch_one_row,
     fetch_optional_row,
+    fetch_count,
     fetch_scalar,
 )
 
@@ -38,6 +39,16 @@ def test_fetch_scalar_keeps_falsy_first_column():
     # count(*) = 0 và NULL đều là giá trị hợp lệ, không được nhầm với "không có dòng".
     assert fetch_scalar(_cursor(one=(0,))) == 0
     assert fetch_scalar(_cursor(one=(None,))) is None
+
+
+def test_fetch_count_returns_first_column_as_is():
+    assert fetch_count(_cursor(one=(7,))) == 7
+    assert fetch_count(_cursor(one=(0,))) == 0  # count(*) = 0 là giá trị hợp lệ
+
+
+def test_fetch_count_without_row_raises_assertion_error():
+    with pytest.raises(AssertionError, match="đúng 1 dòng"):
+        fetch_count(_cursor(one=None))
 
 
 def test_fetch_scalar_without_row_raises_assertion_error():

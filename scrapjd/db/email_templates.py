@@ -9,7 +9,7 @@ gọi log_action() TRƯỚC khi xoá — xem scrapjd/api/routers/email_templates
 """
 
 import logging
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import psycopg2
 import psycopg2.extras
@@ -85,7 +85,7 @@ def create_email_template(
             "VALUES (%s, %s, %s, %s::contact_status_enum[], %s, %s, %s) RETURNING template_id",
             (title, description, body, recommended_for, display_order, created_by, created_by),
         )
-        return fetch_scalar(cur)
+        return cast(str, fetch_scalar(cur))
 
 
 def patch_email_template(

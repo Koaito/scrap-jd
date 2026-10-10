@@ -16,6 +16,7 @@ Hàm đọc dòng: bọc `fetchone()` / `fetchall()` của psycopg2, trả ĐÚN
 psycopg2 trả (không sao chép, không đổi kiểu lúc chạy). Việc duy nhất chúng làm
 thêm là nói cho mypy biết điều câu SQL đã bảo đảm, nên chỗ gọi khỏi lặp
 `assert row is not None`:
+- fetch_count: như fetch_scalar nhưng khai kiểu int, dành riêng cho `SELECT count(*)` (luôn đúng 1 dòng, cột int).
 - fetch_scalar / fetch_one_row: dùng cho câu SQL CHẮC CHẮN trả đúng 1 dòng
   (`INSERT ... RETURNING`, `SELECT count(*)` không GROUP BY, `current_setting()`).
   Nếu không có dòng thì raise AssertionError kèm lời nhắc, thay cho
@@ -47,6 +48,12 @@ def fetch_scalar(cur: cursor) -> Any:
     row = cur.fetchone()
     assert row is not None, "câu SQL phải trả đúng 1 dòng nhưng không có dòng nào"
     return row[0]
+
+
+def fetch_count(cur: cursor) -> int:
+    """Kết quả của `SELECT count(*) ...` vừa chạy (luôn đúng 1 dòng, cột đầu là int). Trả đúng giá trị psycopg2 trả,
+    chỉ nói cho mypy biết đó là int; không chuyển đổi hay kiểm tra kiểu lúc chạy."""
+    return cast(int, fetch_scalar(cur))
 
 
 def fetch_one_row(cur: RealDictCursor) -> Row:

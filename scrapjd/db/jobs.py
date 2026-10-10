@@ -22,7 +22,7 @@ from scrapjd.db.listing_state import (
     sync_listings_after_job_update,
 )
 from scrapjd.normalize import LEVEL_SOURCE_MANUAL
-from scrapjd.db.pg_types import Conn, fetch_scalar
+from scrapjd.db.pg_types import Conn, fetch_count, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -162,6 +162,7 @@ def job_needs_detail_enrichment(probe: Optional[tuple[Any, ...]], *, now: Option
       ngày sau job được vá. recheck_days=0 -> luôn True (hành vi cũ)."""
     if probe is None:
         return True
+    checked_at: Optional[datetime]
     _, work_type, deadline, parsed_content, checked_at = probe
     if work_type and deadline and parsed_content:
         return False
@@ -287,7 +288,7 @@ def insert_job(conn: Conn, *, company_id: str, job_title: str, matching_industry
 def count_jobs(conn: Conn) -> int:
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM job_postings")
-        return fetch_scalar(cur)
+        return fetch_count(cur)
 
 
 def find_manual_job_duplicate(conn: Conn, *, company_id: str, job_title: str,

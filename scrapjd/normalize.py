@@ -306,7 +306,7 @@ def _title_level_matches(title: str) -> list:
     return sorted(spans)
 
 
-def _analyze_title(job_title: str) -> tuple:
+def _analyze_title(job_title: str) -> tuple[Optional[str], frozenset[str]]:
     """Phân tích từ khoá cấp bậc trong tiêu đề -> (level, khoảng).
 
     - level: cấp do tiêu đề quyết định, hoặc None.
@@ -489,7 +489,7 @@ def _near_experience_word(text: str, start: int, end: int) -> bool:
     return _EXPERIENCE_WORD_RE.search(window) is not None
 
 
-def _year_candidates(text: str) -> list:
+def _year_candidates(text: str) -> list[tuple[int, int]]:
     """Các mức số năm kinh nghiệm đọc được trong `text`: list (vị trí, số năm),
     chưa sắp xếp. Chỉ tính con số đứng gần chữ \"kinh nghiệm\"/\"experience\"."""
     candidates = []  # (vị trí, số năm)
