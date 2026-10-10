@@ -640,7 +640,7 @@ def resolve_company_selection(
 
     preview_data = preview_row["preview_data"]
     rows = preview_data["rows"]
-    row = next((r for r in rows if r["row_index"] == row_index), None)
+    row: Optional[dict[str, Any]] = next((r for r in rows if r["row_index"] == row_index), None)
     if row is None:
         raise ValueError(f"row_index {row_index} không có trong preview này.")
 

@@ -175,7 +175,7 @@ class _PageFetcher:
             if resp.status_code >= 400:
                 logger.warning("HTTP %d tại %s -> bỏ qua", resp.status_code, url)
                 return None
-            return resp.text
+            return resp.text  # type: ignore[no-any-return]  # curl_cffi Session chưa tham số hoá (M3e): gỡ ignore này khi đó
         except requests.exceptions.RequestException as exc:
             self._last_request_time = time.monotonic()
             logger.warning("Lỗi fetch %s: %s -> bỏ qua", url, exc)
@@ -220,7 +220,7 @@ def _parse_gemini_json(text: str) -> Optional[dict]:
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned)
     try:
-        return json.loads(cleaned)
+        return json.loads(cleaned)  # type: ignore[no-any-return]  # json.loads trả Any; nơi gọi giả định kết quả là dict
     except (json.JSONDecodeError, ValueError):
         logger.warning("Gemini trả về không phải JSON hợp lệ: %r", text[:200])
         return None

@@ -130,7 +130,7 @@ class _Throttled404Checker:
             # sống) -> fallback GET trước khi kết luận gì từ mã lỗi này.
             if resp.status_code == 405:
                 return self._get_fallback(url)
-            return resp.status_code
+            return resp.status_code  # type: ignore[no-any-return]  # curl_cffi Session chưa tham số hoá (M3e): gỡ ignore này khi đó
         except requests.exceptions.RequestException as exc:
             self._last_request_time = time.monotonic()
             logger.warning("Lỗi fetch %s: %s -> bỏ qua, không kết luận", url, exc)
@@ -141,7 +141,7 @@ class _Throttled404Checker:
         try:
             resp = self.session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=True)
             self._last_request_time = time.monotonic()
-            return resp.status_code
+            return resp.status_code  # type: ignore[no-any-return]  # curl_cffi Session chưa tham số hoá (M3e): gỡ ignore này khi đó
         except requests.exceptions.RequestException as exc:
             self._last_request_time = time.monotonic()
             logger.warning("Lỗi fetch (fallback GET) %s: %s -> bỏ qua", url, exc)

@@ -99,7 +99,7 @@ def run(limit: Optional[int] = None) -> dict:
     # Cache adapter theo class -> tái dùng 1 Session/adapter cho cả batch
     # thay vì tạo mới mỗi công ty (session mới = mất lợi ích connection
     # pooling/cookie của curl_cffi, không cần thiết).
-    adapter_cache: dict = {}
+    adapter_cache: dict[type[BaseAdapter], BaseAdapter] = {}
 
     def get_adapter(url: str) -> Optional[BaseAdapter]:
         netloc = urlsplit(url).netloc.lower().removeprefix("www.")

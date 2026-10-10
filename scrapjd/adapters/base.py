@@ -376,7 +376,7 @@ class BaseAdapter(ABC):
                 resp.raise_for_status()
                 self._last_request_time = time.monotonic()
                 self._note_fetch_success()
-                return resp.text
+                return resp.text  # type: ignore[no-any-return]  # curl_cffi Session chưa tham số hoá (M3e): gỡ ignore này khi đó
             except curl_requests.exceptions.RequestException as exc:
                 # Retry cả lỗi kết nối không có status code (vd HTTP/2
                 # stream reset, timeout...), không bỏ cuộc ngay ở lần

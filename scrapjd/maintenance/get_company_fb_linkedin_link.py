@@ -403,7 +403,7 @@ class SocialLinkFetcher:
             if resp.status_code >= 400:
                 logger.warning("HTTP %d tại %s -> bỏ qua", resp.status_code, url)
                 return None
-            return resp.text
+            return resp.text  # type: ignore[no-any-return]  # curl_cffi Session chưa tham số hoá (M3e): gỡ ignore này khi đó
         except requests.exceptions.RequestException as exc:
             self._last_request_time = time.monotonic()
             logger.warning("Lỗi fetch %s: %s -> bỏ qua", url, exc)

@@ -24,7 +24,7 @@ from typing import Any, Optional
 import psycopg2.extras
 
 from scrapjd.api.services.entity_specs import get_spec
-from scrapjd.db.pg_types import Conn, fetch_all_rows, fetch_scalar
+from scrapjd.db.pg_types import Conn, fetch_all_rows, fetch_count
 
 
 # Việt Nam dùng UTC+7 quanh năm (không có giờ mùa hè từ 1975) nên dùng offset cố
@@ -309,7 +309,7 @@ def count_rows_for_export(conn: Conn, entity_type: str, filters: ExportFilters) 
     )
     with conn.cursor() as cur:
         cur.execute(f"SELECT COUNT(*) FROM {table} {where}", params)
-        return fetch_scalar(cur)
+        return fetch_count(cur)
 
 
 QUERY_FUNCS = {

@@ -82,7 +82,7 @@ import logging
 import re
 import time
 from datetime import datetime
-from typing import Any, Iterator, Optional
+from typing import Any, Iterator, Optional, cast
 from urllib.parse import urljoin, urlparse
 
 from curl_cffi import requests
@@ -223,7 +223,7 @@ class VietnamWorksAdapter(BaseAdapter):
         # Cache job detail đã có sẵn từ fetch_jobs() (search API trả kèm
         # jobDescription/jobRequirement luôn) -> fetch_job_full_detail()
         # dùng lại, KHÔNG gọi thêm request nào. Key = source_url.
-        self._detail_cache: dict = {}
+        self._detail_cache: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Public API (bắt buộc theo BaseAdapter)
@@ -385,7 +385,7 @@ class VietnamWorksAdapter(BaseAdapter):
                     self._note_fetch_failure(url, "response không phải JSON")
                     return None
                 self._note_fetch_success()
-                return data
+                return data  # type: ignore[no-any-return]  # JSON của API VietnamWorks, kiểu do bên thứ ba quyết định
             except requests.exceptions.RequestException as exc:
                 # Trước đây trả None ngay ở lần lỗi đầu tiên (bug mà
                 # BaseAdapter._fetch_html() đã sửa cho GET) -> 1 lần
@@ -943,7 +943,7 @@ class VietnamWorksAdapter(BaseAdapter):
             value = str(value)
         if "<" in value and ">" in value:
             return BeautifulSoup(value, "html.parser").get_text("\n", strip=True)
-        return value.strip()
+        return cast(str, value.strip())
 
     # Nhãn dùng để biết khi nào dừng gộp nhiều dòng lại (giống TopCV)
     _KNOWN_LABELS = ["Quy mô", "Lĩnh vực", "Về chúng tôi", "Website", "Địa chỉ"]

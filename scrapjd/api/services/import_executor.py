@@ -13,7 +13,7 @@ exception tự nổi lên cho router rollback + trả lỗi (Requirement 6.2,
 """
 
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from scrapjd import db as db_module
 from scrapjd.api.services import company_resolver, conflict_detector
@@ -310,7 +310,7 @@ def _expand_conflict_in_batch_resolutions(
         action hợp lệ thông thường ở execute_import() xử lý, hàm này
         không cần tự báo lỗi thay."""
         if raw_action in ("skip", "create", "update"):
-            return raw_action
+            return cast(str, raw_action)
         if raw_action in BATCH_PROPAGATING_ACTIONS:
             return BATCH_PROPAGATING_ACTIONS[raw_action]["self"]
         return None

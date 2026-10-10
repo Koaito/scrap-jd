@@ -9,7 +9,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 from scrapjd.db.audit_logs import log_action
 from scrapjd.db.job_levels import _derived_level_assignments
@@ -188,7 +188,7 @@ def find_repost_candidate(conn: Conn, *, company_id: str, job_title: str, provin
             "deadline": row[3], "closed_reason": row[4]}
 
 
-def find_jobs_by_source_url_regex(conn: Conn, *, source_name: str, url_regex: str) -> list:
+def find_jobs_by_source_url_regex(conn: Conn, *, source_name: str, url_regex: str) -> list[tuple[Any, ...]]:
     """Các job đã có ÍT NHẤT MỘT nguồn (job_sources_log) của source_name với
     source_url khớp url_regex (regex POSIX của Postgres). Dùng để tìm job cùng
     mã số ở nguồn mà URL đổi theo tiêu đề (VietnamWorks: ...-<mã>-jv, nhà tuyển

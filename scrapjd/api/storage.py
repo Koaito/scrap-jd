@@ -90,7 +90,7 @@ def get_signed_url(cv_path: str, expires_in: int = 3600) -> Optional[str]:
             timeout=_TIMEOUT,
         )
         if res.status_code == 200:
-            signed = res.json().get("signedURL", "")  # type: ignore[no-untyped-call]  # curl_cffi Response.json chưa có kiểu
+            signed: str = res.json().get("signedURL", "")  # type: ignore[no-untyped-call]  # curl_cffi Response.json chưa có kiểu
             if signed:
                 if signed.startswith("/"):
                     # Supabase trả về path KHÔNG có tiền tố "/storage/v1"

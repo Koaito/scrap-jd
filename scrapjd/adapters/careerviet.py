@@ -234,7 +234,7 @@ class CareerVietAdapter(BaseAdapter):
         # fetch_jobs() gần nhất) VẪN fetch sống được bình thường, vì
         # CareerViet là trang SSR thường (không phải API riêng biệt như
         # VietnamWorks) -> luôn có thể fetch lại bằng source_url.
-        self._detail_cache: dict = {}
+        self._detail_cache: dict[str, dict[str, Any]] = {}
 
     # ------------------------------------------------------------------
     # Public API (bắt buộc theo BaseAdapter)
