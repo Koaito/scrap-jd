@@ -98,3 +98,22 @@ module = [
     "scrapjd.db.stats",
 ]
 disallow_any_generics = true
+
+[[tool.mypy.overrides]]
+# M3d nửa 1/2 (xong): `disallow_any_generics` cho 6 module lá của scrapjd/ (`models`, `snapshots`, `pipeline_stats`, `normalize`,
+# `field_stats`, `pipeline_db`) và 5 module vốn đã sạch (gói `scrapjd`, `config`, `constants`, `province_alias`, `sources_registry`).
+# Nửa 2/2 thêm `scrapjd.pipeline`, scripts/ và main.py. M3e đến M3j thêm phần còn lại của repo; M3k xoá khối này và bật `strict = true`.
+module = [
+    "scrapjd",
+    "scrapjd.config",
+    "scrapjd.constants",
+    "scrapjd.field_stats",
+    "scrapjd.models",
+    "scrapjd.normalize",
+    "scrapjd.pipeline_db",
+    "scrapjd.pipeline_stats",
+    "scrapjd.province_alias",
+    "scrapjd.snapshots",
+    "scrapjd.sources_registry",
+]
+disallow_any_generics = true

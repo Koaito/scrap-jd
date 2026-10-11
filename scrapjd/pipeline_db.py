@@ -46,9 +46,9 @@ class PipelineDB(Protocol):
     def find_repost_candidate(
         self, conn: Conn, *, company_id: str, job_title: str, province_id: Optional[int],
         level_id: Optional[int] = None,
-    ) -> Optional[dict]: ...
+    ) -> Optional[dict[str, Any]]: ...
 
-    def find_jobs_by_source_url_regex(self, conn: Conn, *, source_name: str, url_regex: str) -> list: ...
+    def find_jobs_by_source_url_regex(self, conn: Conn, *, source_name: str, url_regex: str) -> list[tuple[Any, ...]]: ...
 
     # ------------------------------------------------------------------ ghi
     # (kể cả hàm chỉ giữ transaction mở như lock_job_dedup_key: nhánh nào gọi phải tự commit)
@@ -67,7 +67,7 @@ class PipelineDB(Protocol):
 
     def update_job_fields(
         self, conn: Conn, job_id: str, *, work_type: Optional[str] = None,
-        parsed_content: Optional[dict] = None,
+        parsed_content: Optional[dict[str, Any]] = None,
     ) -> None: ...
 
     def mark_source_detail_checked(
@@ -86,9 +86,9 @@ class PipelineDB(Protocol):
 
     def update_job_from_recrawl(
         self, conn: Conn, job_id: str, *, job_title: str, level_id: Optional[int] = None,
-        work_type: Optional[str] = None, parsed_content: Optional[dict] = None,
-        salary: Optional[dict] = None, level_source: Optional[str] = None,
-        level_rule_version: Optional[int] = None, level_signals: Optional[dict] = None,
+        work_type: Optional[str] = None, parsed_content: Optional[dict[str, Any]] = None,
+        salary: Optional[dict[str, Any]] = None, level_source: Optional[str] = None,
+        level_rule_version: Optional[int] = None, level_signals: Optional[dict[str, Any]] = None,
     ) -> bool: ...
 
     def insert_job(
@@ -96,10 +96,10 @@ class PipelineDB(Protocol):
         level_id: Optional[int], province_id: Optional[int], work_type: Optional[str],
         currency: str, salary_min: Optional[int], salary_max: Optional[int], salary_type: str,
         source_url: str, source_name: str, salary_raw_text: str = "", deadline: Optional[date] = None,
-        parsed_content: Optional[dict] = None, raw_jd_content: str = "", salary_period: str = "MONTH",
+        parsed_content: Optional[dict[str, Any]] = None, raw_jd_content: str = "", salary_period: str = "MONTH",
         created_by: Optional[str] = None, detail_fetched: bool = False,
         level_source: Optional[str] = None, level_rule_version: Optional[int] = None,
-        level_signals: Optional[dict] = None,
+        level_signals: Optional[dict[str, Any]] = None,
     ) -> str: ...
 
 

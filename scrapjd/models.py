@@ -8,6 +8,7 @@ list[RawJobRecord], KHÔNG cần sửa gì ở scrapjd/normalize.py / db.py / sc
 """
 
 from dataclasses import dataclass, field
+from typing import Any
 
 
 @dataclass
@@ -29,7 +30,7 @@ class RawJobRecord:
 
     # --- Optional, thông tin bổ sung ---
     company_url: str = ""
-    raw_tags: list = field(default_factory=list)  # các tag phụ tìm thấy trên card
+    raw_tags: list[Any] = field(default_factory=list)  # các tag phụ tìm thấy trên card
     # Nhãn cấp bậc nguồn tự gán, đã đổi sang 1 giá trị trong
     # normalize.LEVEL_ORDER (vd VietnamWorks jobLevel "Manager" -> "Manager").
     # CHỈ dùng làm dự phòng khi không đọc được số năm, xem normalize.infer_level().

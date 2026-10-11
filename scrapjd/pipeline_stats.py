@@ -14,6 +14,7 @@ chỉ xảy ra ở 1 chỗ là PipelineStats.to_dict().
 """
 
 from dataclasses import dataclass, fields
+from typing import Any
 
 # Khoá chỉ xuất hiện trong to_dict() khi có giá trị (khác rỗng/0/False).
 _OPTIONAL_KEYS = frozenset({
@@ -83,16 +84,16 @@ class PipelineStats:
     # Mục dưới CHỈ xuất hiện trong to_dict() khi có giá trị (giống hành vi cũ:
     # dict không có khoá này nếu không có gì để báo), để frontend phân biệt
     # "không có" với "có nhưng rỗng".
-    field_empty: dict | None = None  # tỷ lệ trường rỗng, xem scrapjd/field_stats.py
-    degraded: dict | None = None  # {"reasons": [...]}, xem pipeline._finalize_stats
+    field_empty: dict[str, Any] | None = None  # tỷ lệ trường rỗng, xem scrapjd/field_stats.py
+    degraded: dict[str, Any] | None = None  # {"reasons": [...]}, xem pipeline._finalize_stats
     blocked: bool = False  # bị chặn (trang đầu thất bại hoặc ngắt mạch)
 
-    def progress(self) -> dict:
+    def progress(self) -> dict[str, int]:
         """Dict nhỏ cho heartbeat on_progress. Mỗi lần gọi trả bản mới, người
         nhận sửa thoải mái cũng không ảnh hưởng stats."""
         return {"fetched": self.fetched, "inserted": self.inserted}
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         """Dict JSON-serializable, cùng tập khoá với stats dict trước đây."""
         data = {}
         for f in fields(self):

@@ -89,7 +89,7 @@ class EmptyFieldCounter:
 
     def __init__(self) -> None:
         # group -> {"total": int, "empty": {field: int}}
-        self._groups: dict = {}
+        self._groups: dict[str, dict[str, Any]] = {}
 
     def record(self, group: str, obj: Any, fields: Iterable[str]) -> None:
         data = self._groups.setdefault(group, {"total": 0, "empty": {}})
@@ -103,14 +103,14 @@ class EmptyFieldCounter:
     def record_listing(self, raw: Any) -> None:
         self.record("listing", raw, LISTING_FIELDS)
 
-    def record_detail(self, detail: Optional[dict]) -> None:
+    def record_detail(self, detail: Optional[dict[str, Any]]) -> None:
         """detail=None (fetch thất bại) bị bỏ qua có chủ đích, xem docstring
         module."""
         if detail is None:
             return
         self.record("detail", detail, DETAIL_FIELDS)
 
-    def summary(self) -> dict:
+    def summary(self) -> dict[str, dict[str, Any]]:
         """JSON-serializable, gọn, để nhét thẳng vào crawl_runs.stats:
 
             {"listing": {"total": 40,
@@ -157,7 +157,8 @@ class EmptyFieldCounter:
                     )
 
 
-def degraded_reasons(summary: dict, *, rate_threshold: float, min_samples: int = WARN_MIN_SAMPLES) -> list:
+def degraded_reasons(summary: dict[str, dict[str, Any]], *, rate_threshold: float,
+                     min_samples: int = WARN_MIN_SAMPLES) -> list[dict[str, Any]]:
     """Danh sách field BẮT BUỘC (CRITICAL_FIELDS) có tỷ lệ rỗng >= rate_threshold
     trong summary() — rỗng nghĩa là lượt crawl vẫn 'done' nhưng dữ liệu nhiều
     khả năng sai (selector hỏng âm thầm), cần người xem lại.

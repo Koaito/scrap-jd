@@ -10,7 +10,7 @@ import logging
 import unicodedata
 from dataclasses import dataclass
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -284,7 +284,7 @@ _LEVEL_RANGE_SEPARATOR = re.compile(r"^\s*(?:[/,&|+\-\u2013\u2014]|\b(?:or|and|t
 _TITLE_LEVEL_PRIORITY = ("Intern", "Fresher", "Lead", "Manager", "Senior", "Junior")
 
 
-def _title_level_matches(title: str) -> list:
+def _title_level_matches(title: str) -> list[tuple[int, int, str]]:
     """Mọi từ khoá cấp bậc trong tiêu đề (đã lower, đã cắt cụm "trợ lý ...")
     dạng [(start, end, level)], sắp theo vị trí. Có cả "Middle" (chỉ để nhận ra
     tiêu đề liệt kê khoảng cấp; tiêu đề chỉ có "Middle" thì KHÔNG quyết định
@@ -426,7 +426,7 @@ def infer_level(experience_text: str, job_title: str = "", level_hint: str = "")
     return derive_level(experience_text, job_title, level_hint).level
 
 
-def build_level_signals(experience_text: str = "", level_hint: str = "") -> dict:
+def build_level_signals(experience_text: str = "", level_hint: str = "") -> dict[str, str]:
     """Dựng dict tín hiệu thô để lưu vào job_postings.level_signals: đúng hai chuỗi
     mà derive_level() nhận, KHÔNG sửa gì (để tính lại ra đúng kết quả lúc crawl, kể cả
     khi chuỗi có khoảng trắng thừa). Luôn đủ cả hai khoá, rỗng nghĩa là nguồn không có tín hiệu đó. Phân biệt
@@ -438,7 +438,7 @@ def build_level_signals(experience_text: str = "", level_hint: str = "") -> dict
     }
 
 
-def derive_level_from_signals(job_title: str, signals: Optional[dict]) -> LevelDecision:
+def derive_level_from_signals(job_title: str, signals: Optional[dict[str, Any]]) -> LevelDecision:
     """Tính lại level từ tiêu đề hiện tại + tín hiệu đã lưu (build_level_signals).
     Cùng kết quả với derive_level() lúc crawl nếu tiêu đề không đổi và cùng
     LEVEL_RULE_VERSION. signals None (job chưa lưu tín hiệu) vẫn gọi được nhưng
@@ -724,7 +724,7 @@ def normalize_company_size(company_size_text: Optional[str]) -> str:
 MIN_TITLE_OVERLAP = 0.5
 
 
-def _title_tokens(title: str) -> set:
+def _title_tokens(title: str) -> set[str]:
     text = unicodedata.normalize("NFKD", (title or "").lower().replace("đ", "d"))
     text = "".join(ch for ch in text if not unicodedata.combining(ch))
     return {t for t in re.findall(r"\w+", text) if len(t) > 1}

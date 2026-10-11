@@ -53,8 +53,8 @@ class SnapshotRecorder:
         self.max_items = SNAPSHOT_MAX_PER_RUN if max_items is None else max_items
         self.max_chars = SNAPSHOT_MAX_CHARS if max_chars is None else max_chars
         self.items: List[Snapshot] = []
-        self._sampled_kinds: set = set()
-        self._anomaly_counts: dict = {}
+        self._sampled_kinds: set[str] = set()
+        self._anomaly_counts: dict[tuple[str, str], int] = {}
 
     def offer(self, kind: str, url: str, body: Any, reason: str = SAMPLE_REASON) -> bool:
         """Đề nghị giữ 1 snapshot. Trả True nếu được giữ. Không bao giờ raise."""
