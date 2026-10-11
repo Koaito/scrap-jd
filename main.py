@@ -372,7 +372,7 @@ def _crawl_untracked(args: argparse.Namespace, source_cfg: dict[str, Any], effec
         conn.close()
 
 
-def _print_crawl_result(conn: Conn, args: argparse.Namespace, stats: dict) -> None:
+def _print_crawl_result(conn: Conn, args: argparse.Namespace, stats: dict[str, Any]) -> None:
     print("\n===== KẾT QUẢ =====")
     if args.max_jobs is not None:
         print(f"(Giới hạn theo --max-jobs={args.max_jobs})")

@@ -60,7 +60,7 @@ import argparse
 import logging
 import os
 from collections import Counter
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from scrapjd import db
 from scrapjd import normalize
@@ -105,7 +105,7 @@ LIMIT %(limit)s
 # DB
 # ----------------------------------------------------------------------
 def select_jobs(conn: Conn, *, all_jobs: bool, include_closed: bool, limit: Optional[int],
-                before: Optional[str] = None) -> list:
+                before: Optional[str] = None) -> list[dict[str, Any]]:
     """Danh sách job cần vá, CŨ NHẤT TRƯỚC (job cũ mới là thứ cần vá; job crawl sau
     bản sửa đã đúng, xử lý chúng chỉ tốn request). `before` (YYYY-MM-DD) chỉ lấy
     job tạo trước ngày đó. Mỗi job một dòng (URL VietnamWorks đầu tiên của job đó,
@@ -149,7 +149,7 @@ def _update_raw_jd(conn: Conn, job_id: str, source_url: str, raw_jd: str) -> Non
 # ----------------------------------------------------------------------
 # Logic thuần (không DB, không mạng) — có test
 # ----------------------------------------------------------------------
-def plan_job(row: dict, refreshed: dict) -> dict:
+def plan_job(row: dict[str, Any], refreshed: dict[str, Any]) -> dict[str, Any]:
     """Từ dòng DB + dữ liệu vừa tải về, tính thứ cần ghi.
 
     Trả dict: new_level, new_level_source, new_level_signals, level_changed, parsed_content (None nếu không có gì để
@@ -195,11 +195,12 @@ class Summary:
         self.unchanged = 0
         self.blocked = False
         self.interrupted = False
-        self.transitions: Counter = Counter()
-        self.samples: list = []
+        self.transitions: Counter[tuple[str, str]] = Counter()
+        self.samples: list[tuple[str, Any, str]] = []
 
 
-def process_job(conn: Conn, adapter: VietnamWorksAdapter, row: dict, *, apply: bool, level_ids: dict,
+def process_job(conn: Conn, adapter: VietnamWorksAdapter, row: dict[str, Any], *, apply: bool,
+                level_ids: dict[str, Optional[int]],
                 summary: Summary) -> bool:
     """Xử lý một job. Trả True khi job đã xử lý xong và nên ghi vào file tiến độ
     (đã ghi DB thành công, hoặc không còn gì để vá)."""
@@ -262,7 +263,8 @@ def process_job(conn: Conn, adapter: VietnamWorksAdapter, row: dict, *, apply: b
     return True
 
 
-def run(conn: Conn, adapter: VietnamWorksAdapter, rows: list, *, apply: bool, level_ids: dict,
+def run(conn: Conn, adapter: VietnamWorksAdapter, rows: list[dict[str, Any]], *, apply: bool,
+        level_ids: dict[str, Optional[int]],
         on_done: Optional[Callable[[str], None]] = None) -> Summary:
     """Duyệt danh sách job. Lỗi một job chỉ đếm rồi đi tiếp; bị chặn thì dừng;
     Ctrl+C dừng êm (job đã xong vẫn còn nguyên)."""
@@ -293,7 +295,7 @@ def run(conn: Conn, adapter: VietnamWorksAdapter, rows: list, *, apply: bool, le
 # ----------------------------------------------------------------------
 # File tiến độ + báo cáo + CLI
 # ----------------------------------------------------------------------
-def load_done(path: str) -> set:
+def load_done(path: str) -> set[str]:
     if not os.path.exists(path):
         return set()
     with open(path, encoding="utf-8") as f:

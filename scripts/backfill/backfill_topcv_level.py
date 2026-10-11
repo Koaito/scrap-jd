@@ -49,7 +49,7 @@ import argparse
 import logging
 import os
 from collections import Counter
-from typing import Callable, Optional, cast
+from typing import Any, Callable, Optional, cast
 
 from scrapjd import db
 from scrapjd import normalize
@@ -93,7 +93,7 @@ LIMIT %(limit)s
 # DB
 # ----------------------------------------------------------------------
 def select_jobs(conn: Conn, *, include_closed: bool, limit: Optional[int],
-                before: Optional[str] = None) -> list:
+                before: Optional[str] = None) -> list[dict[str, Any]]:
     """Job TopCV đang Senior cần xét, CŨ NHẤT TRƯỚC, mỗi job một dòng (URL TopCV
     đầu tiên của job đó). Đóng transaction đọc trước khi trả về."""
     with conn.cursor() as cur:
@@ -118,7 +118,7 @@ def count_duplicate_groups(conn: Conn) -> int:
 # ----------------------------------------------------------------------
 # Logic thuần (không DB, không mạng) — có test
 # ----------------------------------------------------------------------
-def plan_level(row: dict, label: Optional[str]) -> dict:
+def plan_level(row: dict[str, Any], label: Optional[str]) -> dict[str, Any]:
     """Tính level mới cho một job từ dòng DB và nhãn kinh nghiệm đọc được trên
     trang (None nếu không có).
 
@@ -156,11 +156,12 @@ class Summary:
         self.errors = 0
         self.blocked = False
         self.interrupted = False
-        self.transitions: Counter = Counter()
-        self.samples: list = []
+        self.transitions: Counter[tuple[str, str, str]] = Counter()
+        self.samples: list[tuple[str, Any, str, str, Optional[str]]] = []
 
 
-def process_job(conn: Conn, adapter: Optional[TopCVAdapter], row: dict, *, apply: bool, level_ids: dict,
+def process_job(conn: Conn, adapter: Optional[TopCVAdapter], row: dict[str, Any], *, apply: bool,
+                level_ids: dict[str, Optional[int]],
                 summary: Summary) -> bool:
     """Xử lý một job. Trả True khi job đã xong chắc chắn và nên ghi vào file tiến
     độ (chỉ khi --apply)."""
@@ -220,7 +221,8 @@ def process_job(conn: Conn, adapter: Optional[TopCVAdapter], row: dict, *, apply
     return True
 
 
-def run(conn: Conn, adapter: Optional[TopCVAdapter], rows: list, *, apply: bool, level_ids: dict,
+def run(conn: Conn, adapter: Optional[TopCVAdapter], rows: list[dict[str, Any]], *, apply: bool,
+        level_ids: dict[str, Optional[int]],
         on_done: Optional[Callable[[str], None]] = None) -> Summary:
     """Duyệt danh sách job. Lỗi một job chỉ đếm rồi đi tiếp; bị chặn thì dừng;
     Ctrl+C dừng êm (job đã xong vẫn còn nguyên)."""
@@ -251,7 +253,7 @@ def run(conn: Conn, adapter: Optional[TopCVAdapter], rows: list, *, apply: bool,
 # ----------------------------------------------------------------------
 # File tiến độ + báo cáo + CLI
 # ----------------------------------------------------------------------
-def load_done(path: str) -> set:
+def load_done(path: str) -> set[str]:
     if not os.path.exists(path):
         return set()
     with open(path, encoding="utf-8") as f:

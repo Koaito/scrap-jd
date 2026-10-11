@@ -23,7 +23,7 @@ from scrapjd.db.pg_types import Conn
 logger = logging.getLogger(__name__)
 
 
-def _build_parsed_content_and_raw(job_detail: dict) -> tuple[Optional[dict], str]:
+def _build_parsed_content_and_raw(job_detail: dict[str, Any]) -> tuple[Optional[dict[str, Any]], str]:
     """Từ dict trả về bởi fetch_job_full_detail(), build:
     - parsed_content: dict gọn để lưu JSONB (job_postings.parsed_content)
     - raw_jd_content: text đã tách theo heading, nối lại làm bằng chứng
@@ -248,7 +248,7 @@ def _make_known_url_checker(
     return checker
 
 
-def _import_repost(conn: Conn, raw: RawJobRecord, candidate: dict, deadline: Optional[date],
+def _import_repost(conn: Conn, raw: RawJobRecord, candidate: dict[str, Any], deadline: Optional[date],
                     raw_jd_content: str, stats: PipelineStats) -> None:
     """Nhánh "tin đăng lại" (bước 3c): URL mới nhưng trùng company + title + province
     (không xét level, xét cả job đã CLOSED, xem db.find_repost_candidate) với job đã có
@@ -306,7 +306,7 @@ def _import_repost(conn: Conn, raw: RawJobRecord, candidate: dict, deadline: Opt
     )
 
 
-def _jd_looks_truncated(parsed_content: Optional[dict]) -> bool:
+def _jd_looks_truncated(parsed_content: Optional[dict[str, Any]]) -> bool:
     """True nếu mô tả/yêu cầu kết thúc bằng "..." — dấu hiệu bản JD bị API search
     của VietnamWorks cắt ngắn (đúng tiêu chí scripts/backfill/backfill_vnw_detail.py dùng để tìm
     JD cắt). Xảy ra khi trang chi tiết không giải mã được và adapter phải dùng
@@ -373,9 +373,9 @@ def _find_job_by_job_code(
 
 
 def _update_job_by_job_code(conn: Conn, raw: RawJobRecord, match: tuple[Any, ...], *, level_code: str,
-                             level_source: str, level_signals: dict, salary: NormalizedSalary,
+                             level_source: str, level_signals: dict[str, str], salary: NormalizedSalary,
                              work_type: Optional[str], deadline: Optional[date],
-                             parsed_content: Optional[dict], raw_jd_content: str,
+                             parsed_content: Optional[dict[str, Any]], raw_jd_content: str,
                              stats: PipelineStats) -> None:
     """Nhánh "cùng mã job, tiêu đề còn gần giống" (xem _find_job_by_job_code): cập
     nhật job cũ và ghi URL mới làm nguồn phụ, KHÔNG tạo job mới. Commit đúng 1 lần
@@ -451,8 +451,8 @@ def _update_job_by_job_code(conn: Conn, raw: RawJobRecord, match: tuple[Any, ...
 
 def _insert_new_job(conn: Conn, raw: RawJobRecord, *, company_id: str, level_id: Optional[int],
                      province_id: Optional[int], work_type: Optional[str], salary: NormalizedSalary,
-                     deadline: Optional[date], parsed_content: Optional[dict], raw_jd_content: str,
-                     level_code: str, level_source: str, level_signals: dict, company_name: str,
+                     deadline: Optional[date], parsed_content: Optional[dict[str, Any]], raw_jd_content: str,
+                     level_code: str, level_source: str, level_signals: dict[str, str], company_name: str,
                      stats: PipelineStats) -> None:
     """Bước 4: insert job mới (content_hash tự tính bởi trigger Postgres) rồi
     commit. Tách ra từ _process_jobs() (đợt B2), KHÔNG đổi hành vi."""
@@ -516,11 +516,11 @@ class _DedupContext:
     stats: PipelineStats
     level_code: str
     level_source: str
-    level_signals: dict
+    level_signals: dict[str, str]
     salary: NormalizedSalary
     work_type: Optional[str]
     deadline: Optional[date]
-    parsed_content: Optional[dict]
+    parsed_content: Optional[dict[str, Any]]
     raw_jd_content: str
     company_id: Optional[str] = None
     province_id: Optional[int] = None
@@ -801,7 +801,7 @@ def _process_jobs(adapter: BaseAdapter, conn: Conn, category_key: str, max_pages
 
 def run_pipeline(adapter: BaseAdapter, conn: Conn, category_key: str, max_pages: int,
                   max_jobs: "int | None" = None,
-                  on_progress: Optional[Callable[[dict], None]] = None) -> dict:
+                  on_progress: Optional[Callable[[dict[str, int]], None]] = None) -> dict[str, Any]:
     """
     max_jobs: giới hạn TỔNG SỐ JD sẽ crawl (đếm theo raw record nhận được
     từ adapter, không phân biệt sau đó có insert được hay không) — dùng

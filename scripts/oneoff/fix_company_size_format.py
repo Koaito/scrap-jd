@@ -34,7 +34,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-def run(apply: bool = False) -> dict:
+def run(apply: bool = False) -> dict[str, int]:
     stats = {"checked": 0, "changed": 0, "unchanged": 0}
 
     conn = db.get_connection()
