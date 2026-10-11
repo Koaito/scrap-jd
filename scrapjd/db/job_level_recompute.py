@@ -9,7 +9,7 @@ Luật đóng dấu/không đè 'manual' vẫn nằm ở MỘT chỗ là scrapjd
 """
 
 import json
-from typing import Optional
+from typing import Any, Optional
 
 from scrapjd.db.job_levels import _derived_level_assignments
 from scrapjd.db.pg_types import Conn, fetch_count
@@ -36,7 +36,8 @@ def skip_updated_at_supported(conn: Conn) -> bool:
     return row is not None and SKIP_UPDATED_AT_SETTING in row[0]
 
 
-def list_level_recompute_candidates(conn: Conn, rule_version: int, limit: Optional[int] = None) -> list:
+def list_level_recompute_candidates(conn: Conn, rule_version: int,
+                                    limit: Optional[int] = None) -> list[dict[str, Any]]:
     """Job cần xem lại level: chưa đóng dấu (level_source IS NULL) hoặc đóng dấu theo
     bộ quy tắc cũ hơn `rule_version`. Dòng 'manual' không bao giờ được chọn (version
     NULL nên không thoả điều kiện, và level_source <> NULL). Chọn theo dấu, không
@@ -64,7 +65,7 @@ def list_level_recompute_candidates(conn: Conn, rule_version: int, limit: Option
     return rows
 
 
-def compute_content_hashes_for_levels(conn: Conn, new_levels: dict) -> dict:
+def compute_content_hashes_for_levels(conn: Conn, new_levels: dict[str, int]) -> dict[str, Any]:
     """{job_id: content_hash sẽ có nếu job đổi sang level_id mới}, tính bằng chính
     hàm generate_job_hash của DB (cùng công thức với trigger set_job_hash), không
     ghi gì. `new_levels` là {job_id: level_id}."""
@@ -85,7 +86,7 @@ def compute_content_hashes_for_levels(conn: Conn, new_levels: dict) -> dict:
     return out
 
 
-def get_jobs_by_content_hashes(conn: Conn, hashes: list) -> dict:
+def get_jobs_by_content_hashes(conn: Conn, hashes: list[Any]) -> dict[str, dict[str, Any]]:
     """{content_hash: {job_id: job_title}} cho các job HIỆN CÓ mang một trong các hash
     đó (để biết nhóm trùng trước/sau khi đổi level)."""
     hashes = [h for h in set(hashes) if h]
@@ -96,7 +97,7 @@ def get_jobs_by_content_hashes(conn: Conn, hashes: list) -> dict:
             "SELECT content_hash, job_id, job_title FROM job_postings WHERE content_hash = ANY(%s)",
             (hashes,),
         )
-        out: dict = {}
+        out: dict[str, dict[str, Any]] = {}
         for content_hash, job_id, title in cur.fetchall():
             out.setdefault(content_hash, {})[str(job_id)] = title
     conn.rollback()
@@ -112,7 +113,7 @@ def count_duplicate_job_groups(conn: Conn) -> int:
     return n
 
 
-def write_recomputed_levels(conn: Conn, changes: list) -> tuple:
+def write_recomputed_levels(conn: Conn, changes: list[dict[str, Any]]) -> tuple[int, list[Any]]:
     """Ghi một lô level tính lại trong transaction HIỆN TẠI (nơi gọi commit/rollback).
     Trả (số dòng đã ghi, danh sách job_id bị bỏ qua vì đã đổi giữa lúc chọn và lúc ghi).
 

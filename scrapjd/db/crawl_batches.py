@@ -18,7 +18,7 @@ tiếp là gì".
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2.extras
 
@@ -28,7 +28,7 @@ from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_
 logger = logging.getLogger(__name__)
 
 
-def create_batch(conn: Conn, *, source: str, categories: list, pages: int,
+def create_batch(conn: Conn, *, source: str, categories: list[str], pages: int,
                   max_jobs: Optional[int], triggered_by: Optional[str]) -> str:
     """Tạo 1 dòng crawl_batches mới (status='running'), trả về batch_id
     (str). Gọi TRƯỚC KHI tạo run đầu tiên (xem
@@ -133,7 +133,7 @@ _BATCH_FROM_JOINS = """
 """
 
 
-def get_batch(conn: Conn, batch_id: str) -> Optional[dict]:
+def get_batch(conn: Conn, batch_id: str) -> Optional[Row]:
     """Trả 1 dict crawl_batches (KHÔNG kèm items — dùng nội bộ trong
     advance_batch(), nhẹ hơn get_batch_with_items() cho router) hoặc
     None nếu không tồn tại."""
@@ -145,7 +145,7 @@ def get_batch(conn: Conn, batch_id: str) -> Optional[dict]:
         return cur.fetchone()
 
 
-def get_batch_with_items(conn: Conn, batch_id: str) -> Optional[dict]:
+def get_batch_with_items(conn: Conn, batch_id: str) -> Optional[Row]:
     """Trả 1 dict crawl_batches KÈM "items" (list các crawl_runs con,
     sắp theo batch_position tăng dần) + "total"/"completed" (số category
     đã done/error, KHÔNG tính category đang 'queued'/'running') — dùng
@@ -186,7 +186,7 @@ def list_batches(conn: Conn, *, source: Optional[str] = None,
     batch, đối xứng GET /crawl cho run đơn lẻ). Cùng shape
     (total/limit/offset/items) với list_crawl_runs()."""
     conditions = []
-    params: list = []
+    params: list[Any] = []
 
     if source:
         conditions.append("cb.source = %s")

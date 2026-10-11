@@ -57,3 +57,32 @@ show_error_codes = true
 # Hai thư viện không có type hint kèm theo (không có py.typed, không có gói stubs chính thức).
 module = ["apscheduler.*", "tavily.*"]
 ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+# M3c (đang làm): `disallow_any_generics` (dict/list/tuple trần phải có tham số kiểu) bật dần theo module cho scrapjd/db/; module nào
+# thêm vào đây thì dict/list/tuple trần mới ở đó làm CI đỏ. Nửa 1/2: `scrapjd.db` (gói) và `applications` đến `job_levels`. Nửa 2/2 thêm
+# `job_merge` đến `stats`; M3d đến M3j thêm phần còn lại; M3k xoá khối này và bật `strict = true` ở [tool.mypy].
+module = [
+    "scrapjd.db",
+    "scrapjd.db.applications",
+    "scrapjd.db.audit_logs",
+    "scrapjd.db.auth",
+    "scrapjd.db.companies",
+    "scrapjd.db.company_analytics",
+    "scrapjd.db.company_enrichment",
+    "scrapjd.db.company_queries",
+    "scrapjd.db.connection",
+    "scrapjd.db.contacts",
+    "scrapjd.db.crawl_batches",
+    "scrapjd.db.crawl_runs",
+    "scrapjd.db.crawl_snapshots",
+    "scrapjd.db.dashboard",
+    "scrapjd.db.email_templates",
+    "scrapjd.db.job_dedup_lock",
+    "scrapjd.db.job_derivation",
+    "scrapjd.db.job_duplicates",
+    "scrapjd.db.job_health",
+    "scrapjd.db.job_level_recompute",
+    "scrapjd.db.job_levels",
+]
+disallow_any_generics = true

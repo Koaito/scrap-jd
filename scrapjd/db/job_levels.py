@@ -9,7 +9,7 @@ các hàm này để luật "ghi tự động không đè level người đã s�
 """
 
 import json
-from typing import Optional
+from typing import Any, Optional
 
 from scrapjd.normalize import LEVEL_SIGNAL_KEYS, LEVEL_SOURCE_MANUAL, LEVEL_SOURCES
 
@@ -17,7 +17,7 @@ _DERIVED_LEVEL_SOURCES = frozenset(LEVEL_SOURCES) - {LEVEL_SOURCE_MANUAL}
 
 
 def _check_level_stamp(level_id: Optional[int], level_source: Optional[str],
-                        level_rule_version: Optional[int]) -> tuple:
+                        level_rule_version: Optional[int]) -> tuple[Optional[str], Optional[int]]:
     """Kiểm tra cặp (level_source, level_rule_version) cho level_id sắp ghi, trả
     lại (level_source, level_rule_version). Cùng luật với CHECK ở DB nhưng báo lỗi
     sớm, rõ nguyên nhân (lỗi lập trình, không phải lỗi dữ liệu người dùng):
@@ -44,7 +44,8 @@ def _check_level_stamp(level_id: Optional[int], level_source: Optional[str],
     return level_source, int(level_rule_version)
 
 
-def _check_level_signals(level_source: Optional[str], level_signals: Optional[dict]) -> Optional[dict]:
+def _check_level_signals(level_source: Optional[str],
+                         level_signals: Optional[dict[str, Any]]) -> Optional[dict[str, Any]]:
     """Kiểm tra level_signals (tín hiệu thô, xem normalize.build_level_signals) cho
     level sắp ghi tự động. None hợp lệ (= chưa biết tín hiệu). Có giá trị thì phải
     là dict đúng các khoá LEVEL_SIGNAL_KEYS, giá trị là chuỗi, và đi kèm một căn cứ do
@@ -63,7 +64,7 @@ def _check_level_signals(level_source: Optional[str], level_signals: Optional[di
 
 def _derived_level_assignments(level_id: int, level_source: Optional[str],
                                 level_rule_version: Optional[int],
-                                level_signals: Optional[dict] = None) -> tuple:
+                                level_signals: Optional[dict[str, Any]] = None) -> tuple[list[str], list[Any]]:
     """Các vế SET (và giá trị) để GHI LEVEL TỰ ĐỘNG vào job_postings: level_id +
     cặp đóng dấu + tín hiệu thô. Dòng đã là 'manual' thì cả bốn cột giữ nguyên (CASE
     tính theo giá trị CŨ của dòng), nên ghi tự động không bao giờ đè lên level người

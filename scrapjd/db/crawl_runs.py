@@ -17,7 +17,7 @@ crawl) thì trạng thái đã ghi trước đó vẫn không bị mất/rollbac
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2.extras
 from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_scalar
@@ -86,7 +86,7 @@ def create_run(conn: Conn, *, source: str, category: str, pages: int,
     return run_id
 
 
-def update_progress(conn: Conn, run_id: str, progress: dict) -> None:
+def update_progress(conn: Conn, run_id: str, progress: dict[str, Any]) -> None:
     """Ghi ĐÈ (không cộng dồn) snapshot tiến độ mới nhất — gọi liên tục
     (mỗi trang fetch xong 1 lần) trong lúc execute() đang chạy pipeline
     thật, xem docstring migration_add_crawl_progress_logs.sql.
@@ -171,7 +171,7 @@ def mark_running(conn: Conn, run_id: str) -> None:
     conn.commit()
 
 
-def mark_done(conn: Conn, run_id: str, stats: dict) -> None:
+def mark_done(conn: Conn, run_id: str, stats: dict[str, Any]) -> None:
     """Đổi status -> 'done', điền stats + finished_at — gọi khi
     run_pipeline() trả về thành công."""
     with conn.cursor() as cur:
@@ -190,7 +190,7 @@ def mark_done(conn: Conn, run_id: str, stats: dict) -> None:
     conn.commit()
 
 
-def mark_error(conn: Conn, run_id: str, error: str, stats: Optional[dict] = None) -> None:
+def mark_error(conn: Conn, run_id: str, error: str, stats: Optional[dict[str, Any]] = None) -> None:
     """Đổi status -> 'error', điền error + finished_at — gọi khi
     run_pipeline() raise exception, hoặc source không có adapter đăng ký
     (lỗi xảy ra TRƯỚC khi kịp mark_running(), vẫn hợp lệ đi thẳng từ
@@ -222,7 +222,7 @@ def mark_error(conn: Conn, run_id: str, error: str, stats: Optional[dict] = None
     conn.commit()
 
 
-def get_recent_blocked_run(conn: Conn, source: str, within_minutes: int) -> Optional[dict]:
+def get_recent_blocked_run(conn: Conn, source: str, within_minutes: int) -> Optional[dict[str, Any]]:
     """Lượt crawl GẦN NHẤT của `source` bị chặn (status='error' và
     stats.blocked = true) trong `within_minutes` phút qua, hoặc None. Dùng để
     cảnh báo trong log lúc bắt đầu lượt mới — KHÔNG dùng để chặn bấm chạy."""
@@ -259,7 +259,7 @@ _CRAWL_RUN_FROM_JOINS = """
 """
 
 
-def get_latest_run(conn: Conn) -> Optional[dict]:
+def get_latest_run(conn: Conn) -> Optional[Row]:
     """Trả 1 dict crawl_runs GẦN NHẤT theo started_at (bất kể status —
     queued/running/done/error đều tính), hoặc None nếu chưa từng crawl
     lần nào — dùng cho GET /crawl/latest-log-run (08/2026, xem lịch sử
@@ -278,7 +278,7 @@ def get_latest_run(conn: Conn) -> Optional[dict]:
         return cur.fetchone()
 
 
-def get_run(conn: Conn, run_id: str) -> Optional[dict]:
+def get_run(conn: Conn, run_id: str) -> Optional[Row]:
     """Trả 1 dict crawl_runs đầy đủ hoặc None — dùng cho GET
     /crawl/{run_id} (poll tiến độ)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -298,7 +298,7 @@ def list_runs(conn: Conn, *, source: Optional[str] = None,
     crawl"), sắp mới nhất trước. Cùng shape (total/limit/offset/items)
     với list_audit_logs() để frontend dùng chung 1 kiểu phân trang."""
     conditions = []
-    params: list = []
+    params: list[Any] = []
 
     if source:
         conditions.append("cr.source = %s")

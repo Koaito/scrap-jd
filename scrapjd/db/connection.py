@@ -207,7 +207,7 @@ def _ensure_schema_migrations_table(conn: Conn) -> None:
 _NUMBERED_MIGRATION_RE = re.compile(r"^(\d{4})_[a-z0-9]+(?:_[a-z0-9]+)*\.sql$")
 
 
-def _list_migration_files(migrations_dir: str = _MIGRATIONS_DIR) -> list:
+def _list_migration_files(migrations_dir: str = _MIGRATIONS_DIR) -> list[str]:
     """Tên các file migration trong `migrations_dir`, theo thứ tự CHẠY:
 
       1. `migration_*.sql` (file cũ, baseline) — sắp theo TÊN. Tên kiểu cũ
@@ -222,7 +222,7 @@ def _list_migration_files(migrations_dir: str = _MIGRATIONS_DIR) -> list:
     khớp hai kiểu trên bị bỏ qua (không phải migration)."""
     names = os.listdir(migrations_dir)
     legacy = sorted(f for f in names if f.startswith("migration_") and f.endswith(".sql"))
-    numbered: list = []
+    numbered: list[tuple[int, str]] = []
     for f in names:
         m = _NUMBERED_MIGRATION_RE.match(f)
         if m:
@@ -234,7 +234,7 @@ def _list_migration_files(migrations_dir: str = _MIGRATIONS_DIR) -> list:
     return legacy + [f for _, f in numbered]
 
 
-def list_pending_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
+def list_pending_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR) -> list[str]:
     """Tên các file migration (cũ `migration_*.sql` và mới `NNNN_*.sql`, theo thứ tự chạy,
     xem _list_migration_files) CHƯA có trong schema_migrations của
     DB đang kết nối — dùng để kiểm tra TRƯỚC khi deploy (vd hiện cảnh
@@ -246,7 +246,7 @@ def list_pending_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR) -
     return [f for f in _list_migration_files(migrations_dir) if f not in applied]
 
 
-def apply_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
+def apply_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR) -> list[str]:
     """Chạy MỌI migration (cũ và mới) chưa được ghi log áp dụng cho DB đang kết
     nối, mỗi file trong 1 transaction riêng (lỗi ở file nào dừng lại ở
     đó — KHÔNG rollback các file trước đã chạy + ghi log thành công,
@@ -272,7 +272,7 @@ def apply_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR) -> list:
 
 
 def baseline_migrations(conn: Conn, migrations_dir: str = _MIGRATIONS_DIR,
-                        except_files: Iterable[str] = ()) -> list:
+                        except_files: Iterable[str] = ()) -> list[str]:
     """Ghi vào schema_migrations mọi migration CHƯA có log, KHÔNG chạy SQL
     của chúng. Dùng khi DB đã ở trạng thái mới nhất nhưng bảng
     schema_migrations còn thiếu/trống (xem khối chú thích "Migration

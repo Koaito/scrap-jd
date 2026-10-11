@@ -3,7 +3,7 @@ db.company_queries — truy vấn ĐỌC danh sách / chi tiết công ty cho AP
 (tách từ scrapjd/db/companies.py, 10/2026). Chỉ SELECT, không ghi.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2.extras
 from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_optional_row
@@ -50,7 +50,7 @@ def list_companies(conn: Conn, *, keyword: Optional[str] = None,
     company_contacts. True -> xem cả company đã xoá mềm (vd trang xem
     lại lịch sử/audit log cần hiển thị tên company dù đã bị xoá)."""
     conditions = []
-    params: list = []
+    params: list[Any] = []
 
     if keyword:
         conditions.append("c.company_name ILIKE %s")

@@ -13,12 +13,13 @@ from typing import Iterable, Optional
 import psycopg2.extras
 
 from scrapjd.config import SNAPSHOT_RETENTION_DAYS
-from scrapjd.db.pg_types import Conn, fetch_optional_row
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_optional_row
+from scrapjd.snapshots import Snapshot
 
 logger = logging.getLogger(__name__)
 
 
-def save_snapshots(conn: Conn, run_id: str, source: str, items: Iterable,
+def save_snapshots(conn: Conn, run_id: str, source: str, items: Iterable[Snapshot],
                    retention_days: int = SNAPSHOT_RETENTION_DAYS) -> int:
     """Lưu các Snapshot (xem scrapjd/snapshots.py) của 1 lượt crawl, rồi xoá bản ghi
     cũ hơn retention_days. Trả số bản ghi đã lưu.
@@ -59,7 +60,7 @@ def save_snapshots(conn: Conn, run_id: str, source: str, items: Iterable,
 
 
 def list_snapshots(conn: Conn, *, run_id: Optional[str] = None,
-                   source: Optional[str] = None, limit: int = 50) -> list:
+                   source: Optional[str] = None, limit: int = 50) -> list[Row]:
     """Liệt kê snapshot (KHÔNG kèm nội dung), mới nhất trước — dùng cho CLI
     `main.py snapshots` để chọn id cần xuất."""
     conditions, params = [], []
@@ -76,10 +77,10 @@ def list_snapshots(conn: Conn, *, run_id: Optional[str] = None,
             f"FROM crawl_snapshots {where} ORDER BY created_at DESC, id DESC LIMIT %s",
             params + [limit],
         )
-        return cur.fetchall()
+        return fetch_all_rows(cur)
 
 
-def get_snapshot(conn: Conn, snapshot_id: int) -> Optional[dict]:
+def get_snapshot(conn: Conn, snapshot_id: int) -> Optional[Row]:
     """Đọc 1 snapshot kèm nội dung đã giải nén ("body": str), hoặc None."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(

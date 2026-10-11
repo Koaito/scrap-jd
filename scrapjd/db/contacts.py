@@ -4,7 +4,7 @@ db.contacts — tách từ db.py (God module) theo domain.
 
 import logging
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2
 import psycopg2.extras
@@ -61,7 +61,7 @@ def list_all_contacts(
         "JOIN companies c ON c.company_id = cc.company_id "
         "WHERE 1=1"
     )
-    params: list = []
+    params: list[Any] = []
 
     if not include_inactive:
         query += " AND cc.is_active = true"

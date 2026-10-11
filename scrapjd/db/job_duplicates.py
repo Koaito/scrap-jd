@@ -11,6 +11,8 @@ DB (lower + gộp khoảng trắng), tính ngay trong SQL để không lệch do
 và Python.
 """
 
+from typing import Any
+
 from scrapjd.db.pg_types import Conn
 
 # Cùng biểu thức với job_dedup_key() (và generate_job_hash()) trong sql/schema.sql.
@@ -24,7 +26,7 @@ _COLUMNS = (
 )
 
 
-def list_duplicate_job_rows(conn: Conn) -> list:
+def list_duplicate_job_rows(conn: Conn) -> list[dict[str, Any]]:
     """Mọi job nằm trong một nhóm nghi trùng (>= 2 job cùng company_id và cùng tiêu đề
     chuẩn hoá), MỌI trạng thái (OPEN/CLOSED), mỗi job một dict gồm _COLUMNS:
 

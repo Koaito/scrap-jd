@@ -44,7 +44,7 @@ class DerivedJob:
     source_url: Optional[str]
 
 
-def _latest(listings: list[dict], key: Callable[[dict], Any]) -> dict:
+def _latest(listings: list[dict[str, Any]], key: Callable[[dict[str, Any]], Any]) -> dict[str, Any]:
     """Phần tử có `key` lớn nhất; hòa thì lấy URL nhỏ nhất theo thứ tự chữ (xác định, không phụ thuộc thứ
     tự dòng đọc ra)."""
     best = max(key(l) for l in listings)
@@ -52,14 +52,14 @@ def _latest(listings: list[dict], key: Callable[[dict], Any]) -> dict:
     return min(tied, key=lambda l: l.get("source_url") or "")
 
 
-def _closed_sort_key(listing: dict) -> tuple:
+def _closed_sort_key(listing: dict[str, Any]) -> tuple[bool, float, int]:
     closed_at = listing.get("closed_at")
     priority = _REASON_PRIORITY.get(listing.get("closed_reason"), len(_REASON_PRIORITY))
     # max(): closed_at lớn hơn thắng (NULL = cũ nhất), hòa thì priority nhỏ hơn thắng
     return (closed_at is not None, closed_at.timestamp() if closed_at is not None else 0.0, -priority)
 
 
-def derive_job_from_listings(listings: list) -> Optional[DerivedJob]:
+def derive_job_from_listings(listings: list[dict[str, Any]]) -> Optional[DerivedJob]:
     """Giá trị job suy ra từ danh sách listing (mỗi phần tử là dict có các khoá listing_status, deadline,
     first_seen_at, last_seen_at, closed_reason, closed_at, source_url). Danh sách rỗng thì trả None."""
     if not listings:
@@ -92,7 +92,7 @@ _LISTING_COLUMNS = ("job_id", "source_url", "listing_status", "deadline", "first
                     "closed_reason", "closed_at")
 
 
-def list_jobs_with_listings(conn: Conn) -> list:
+def list_jobs_with_listings(conn: Conn) -> list[dict[str, Any]]:
     """[{**cột job (_JOB_COLUMNS, job_id là str), "listings": [dict (_LISTING_COLUMNS)]}] cho MỌI job, kể cả
     job chưa có listing (listings = []). Sắp theo job_id; listing sắp theo first_seen_at, source_url. CHỈ
     ĐỌC; không lấy raw_jd_content (nặng, không cần); đóng transaction đọc trước khi trả."""
@@ -130,7 +130,7 @@ def list_jobs_with_listings(conn: Conn) -> list:
     return jobs
 
 
-def list_checkable_listings(conn: Conn) -> list:
+def list_checkable_listings(conn: Conn) -> list[tuple[Any, ...]]:
     """Listing mà check_expired_source_jobs còn phải kiểm tra (C3a): listing OPEN hoặc UNKNOWN của job đang
     OPEN. Listing CLOSED không cần kiểm lại; listing của job đã đóng cũng không (job CLOSED thì mọi listing
     đã CLOSED, xem db.listing_state). Gồm cả listing của job nhập tay (URL dạng manual://uuid): chúng có thể

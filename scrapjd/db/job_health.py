@@ -4,7 +4,7 @@ dữ liệu (tách từ scrapjd/db/jobs.py, 10/2026). Chỉ SELECT, không ghi.
 """
 
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2.extras
 from scrapjd.db.pg_types import Conn, Row, fetch_one_row
@@ -64,7 +64,7 @@ _JOB_FLAGS_CTE = """
 """
 
 
-def _job_health_rows_from_counts(row: Row) -> list:
+def _job_health_rows_from_counts(row: Row) -> list[dict[str, Any]]:
     """Dựng list[{"field","label","missing","total","pct_missing"}] từ 1
     RealDictRow có cột total + missing_<field> — dùng chung cho tổng
     field health lẫn từng nhóm breakdown theo nguồn (job_health_by_source)."""
@@ -80,7 +80,7 @@ def _job_health_rows_from_counts(row: Row) -> list:
     return rows
 
 
-def get_job_data_health(conn: Conn, today: Optional[date] = None) -> dict:
+def get_job_data_health(conn: Conn, today: Optional[date] = None) -> dict[str, Any]:
     """Thay thế cho việc frontend (blueprints/crawl_status.py bên
     mindx-jobs) từng phải gọi list_all_jobs(include_content=True) — kéo
     TOÀN BỘ job + cột parsed_content (JSONB dài) của cả hệ thống về
@@ -197,7 +197,7 @@ def get_job_data_health(conn: Conn, today: Optional[date] = None) -> dict:
         )
         dup_rows = cur.fetchall()
 
-    def _job_row_out(row: Row) -> dict:
+    def _job_row_out(row: Row) -> dict[str, Any]:
         return {
             "id": row["job_id"], "position": row["job_title"],
             "company": row["company_name"], "deadline": row["deadline"],
@@ -215,7 +215,7 @@ def get_job_data_health(conn: Conn, today: Optional[date] = None) -> dict:
 
     expired_open_jobs = [_job_row_out(r) for r in expired_rows]
 
-    dup_groups: dict = {}
+    dup_groups: dict[tuple[Any, Any], dict[str, Any]] = {}
     for r in dup_rows:
         key = (r["company_id"], r["position_key"])
         dup_groups.setdefault(key, {

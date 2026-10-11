@@ -198,7 +198,7 @@ def set_application_cv_url(conn: Conn, application_id: str, cv_url: str) -> None
         )
 
 
-def get_application_with_job_info(conn: Conn, *, ss_user_id: str, job_id: str) -> Optional[dict]:
+def get_application_with_job_info(conn: Conn, *, ss_user_id: str, job_id: str) -> Optional[Row]:
     """Đơn ứng tuyển của 1 học viên cho 1 job, kèm job_title/company_id để
     ghi audit log và đường dẫn CV để dọn file khi huỷ ứng tuyển. Trả None nếu
     học viên chưa ứng tuyển job này. Gọi TRƯỚC delete_job_application() vì

@@ -3,7 +3,7 @@ db.company_analytics — tín hiệu "Tiềm năng hợp tác" và thống kê "
 dữ liệu" của công ty (tách từ scrapjd/db/companies.py, 10/2026). Chỉ SELECT.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2.extras
 from scrapjd.db.pg_types import Conn, fetch_one_row
@@ -34,7 +34,8 @@ _TARGET_INDUSTRIES = (
 _RESPONDED_CONTACT_STATUSES = ("RESPONDED", "IN_PARTNERSHIP")
 
 
-def get_partnership_signals(conn: Conn, company_ids: Optional[list] = None) -> dict:
+def get_partnership_signals(conn: Conn,
+                            company_ids: Optional[list[Any]] = None) -> dict[Any, dict[str, bool]]:
     """Tính sẵn (bằng SQL GROUP BY, KHÔNG kéo full job/contact object về
     Python) 2 tín hiệu cần cho gợi ý "Tiềm năng hợp tác"
     (potential_score.suggest_partnership_potential() bên Flask) mà
@@ -66,7 +67,7 @@ def get_partnership_signals(conn: Conn, company_ids: Optional[list] = None) -> d
     trong dict (coi như False cả 3, nơi gọi tự .get(id, default) khi
     build gợi ý)."""
     company_filter = ""
-    base_params: list = []
+    base_params: list[Any] = []
     if company_ids is not None:
         if not company_ids:
             return {}
@@ -95,7 +96,7 @@ def get_partnership_signals(conn: Conn, company_ids: Optional[list] = None) -> d
         job_rows = cur.fetchall()
 
         contact_filter = ""
-        contact_params: list = []
+        contact_params: list[Any] = []
         if company_ids is not None:
             contact_filter = "AND cc.company_id = ANY(%s::uuid[])"
             contact_params = [list(company_ids)]
@@ -111,7 +112,7 @@ def get_partnership_signals(conn: Conn, company_ids: Optional[list] = None) -> d
         )
         contact_rows = cur.fetchall()
 
-    signals: dict = {}
+    signals: dict[Any, dict[str, bool]] = {}
     for row in job_rows:
         signals[row["company_id"]] = {
             "has_open_entry_job": bool(row["has_open_entry_job"]),
@@ -146,7 +147,7 @@ _COMPANY_HEALTH_FIELDS = [
 ]
 
 
-def get_company_data_health(conn: Conn) -> dict:
+def get_company_data_health(conn: Conn) -> dict[str, Any]:
     """Thay thế cho việc frontend (blueprints/crawl_status.py bên
     mindx-jobs) từng phải gọi list_all_companies() + list_all_contacts()
     (kéo TOÀN BỘ company/contact về Flask rồi tự đếm field rỗng bằng

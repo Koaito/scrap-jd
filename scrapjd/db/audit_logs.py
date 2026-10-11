@@ -15,7 +15,7 @@ from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_
 logger = logging.getLogger(__name__)
 
 
-ACTION_LOG_RULES: dict[str, dict] = {
+ACTION_LOG_RULES: dict[str, dict[str, bool]] = {
     "CREATE_JOB":     {"is_manual_log": False, "note_required": False},
     "UPDATE_JOB":     {"is_manual_log": True,  "note_required": False},
     "DELETE_JOB":     {"is_manual_log": True,  "note_required": False},
@@ -120,7 +120,8 @@ def _json_friendly(value: Any) -> Any:
     return value
 
 
-def diff_changed_fields(old_row: dict, payload_fields: dict) -> dict:
+def diff_changed_fields(old_row: dict[str, Any],
+                        payload_fields: dict[str, Any]) -> dict[str, dict[str, Any]]:
     """So sánh giá trị CŨ (old_row, lấy từ get_job_by_id()/get_company_by_id()/
     get_company_contact_by_id()) với các field THỰC SỰ có mặt trong request
     (payload_fields — dùng payload.model_dump(exclude_unset=True) ở router,
@@ -144,7 +145,7 @@ def log_action(conn: Conn, *, actor_id: Optional[str], action_type: str,
                 entity_type: str, entity_id: str,
                 entity_label: Optional[str] = None,
                 company_id: Optional[str] = None,
-                changes: Optional[dict] = None,
+                changes: Optional[dict[str, Any]] = None,
                 note: Optional[str] = None) -> str:
     """Ghi 1 dòng audit_logs — gọi TRONG CÙNG transaction với thao tác
     chính (TRƯỚC conn.commit() của route, dùng CHUNG connection `conn`),
@@ -228,7 +229,7 @@ def list_audit_logs(conn: Conn, *, manual_only: bool = False,
     (đang chờ ai đó điền) — dùng cho badge nhắc nhở ở UI, chỉ có ý
     nghĩa khi manual_only=True (log tự động không có khái niệm note)."""
     conditions = []
-    params: list = []
+    params: list[Any] = []
 
     if manual_only:
         conditions.append("al.is_manual_log = true")
