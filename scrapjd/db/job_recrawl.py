@@ -123,7 +123,8 @@ def link_repost_source(conn: Conn, job_id: str, *, source_name: str, source_url:
     return RepostLink(inserted=inserted, reopened=reopened, deadline_extended=deadline_extended)
 
 
-def _log_reopen_for_repost(conn: Conn, job_id: str, before: tuple, changes: dict) -> None:
+def _log_reopen_for_repost(conn: Conn, job_id: str, before: tuple[Any, ...],
+                           changes: dict[str, tuple[Any, Any]]) -> None:
     """Job vừa sống lại nhờ listing của tin đăng lại: giữ hành vi A2 (trước đây do hàm riêng làm). updated_at nhảy
     (sync_job_from_listings cố ý không làm nhảy, nhưng mở lại là thay đổi thật nên như trước vẫn nhảy) và ghi
     audit REOPEN_JOB với đủ bốn trường cũ/mới, kể cả trường không đổi."""
@@ -143,7 +144,7 @@ def _log_reopen_for_repost(conn: Conn, job_id: str, before: tuple, changes: dict
 
 
 def find_repost_candidate(conn: Conn, *, company_id: str, job_title: str, province_id: Optional[int],
-                          level_id: Optional[int] = None) -> Optional[dict]:
+                          level_id: Optional[int] = None) -> Optional[dict[str, Any]]:
     """Tìm job đã có để coi tin vừa crawl là ĐĂNG LẠI của nó (Phần 3c). Tra theo khoá chống trùng
     job_postings.dedup_key (công ty + tiêu đề chuẩn hoá + tỉnh, A3, xem sql/0039_add_job_dedup_key.sql),
     cùng khoá mà find_manual_job_duplicate() và báo cáo job trùng dùng. Khác find_manual_job_duplicate()
@@ -220,11 +221,11 @@ def find_jobs_by_source_url_regex(conn: Conn, *, source_name: str, url_regex: st
 def update_job_from_recrawl(conn: Conn, job_id: str, *, job_title: str,
                              level_id: Optional[int] = None,
                              work_type: Optional[str] = None,
-                             parsed_content: Optional[dict] = None,
-                             salary: Optional[dict] = None,
+                             parsed_content: Optional[dict[str, Any]] = None,
+                             salary: Optional[dict[str, Any]] = None,
                              level_source: Optional[str] = None,
                              level_rule_version: Optional[int] = None,
-                             level_signals: Optional[dict] = None) -> bool:
+                             level_signals: Optional[dict[str, Any]] = None) -> bool:
     """Cập nhật 1 job ĐÃ CÓ bằng dữ liệu vừa crawl lại (tin đã đổi tiêu đề nên URL
     mới, xem pipeline._update_job_by_job_code). Ghi:
       - job_title: luôn ghi;

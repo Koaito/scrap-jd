@@ -16,7 +16,7 @@ lý do.
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2.extras
 from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_scalar
@@ -34,7 +34,7 @@ class ActiveMaintenanceRunExistsError(Exception):
     bắt CẢ 2 loại lỗi (xem scrapjd/api/routers/maintenance.py)."""
 
 
-def create_run(conn: Conn, *, job_type: str, params: dict,
+def create_run(conn: Conn, *, job_type: str, params: dict[str, Any],
                 triggered_by: Optional[str]) -> str:
     """Tạo 1 dòng maintenance_runs mới, status='queued', trả về run_id
     (str). Tự commit ngay — gọi TRƯỚC KHI add background task, đối xứng
@@ -95,7 +95,8 @@ def get_logs(conn: Conn, run_id: str, after_id: int = 0, limit: int = 500) -> li
         return fetch_all_rows(cur)
 
 
-def get_logs_batch(conn: Conn, run_after_ids: dict, limit: int = 500) -> dict:
+def get_logs_batch(conn: Conn, run_after_ids: dict[str, int],
+                   limit: int = 500) -> dict[str, list[dict[str, Any]]]:
     """Trả {run_id: list[dict]} — log MỚI (id > after_id riêng của TỪNG
     run_id) cho NHIỀU run_id trong 1 lần gọi, gộp bằng 1 query duy nhất
     (UNION ALL qua VALUES) thay vì N query riêng lẻ — dùng cho GET
@@ -121,7 +122,7 @@ def get_logs_batch(conn: Conn, run_after_ids: dict, limit: int = 500) -> dict:
         # 1 dòng, LATERAL join để limit riêng theo TỪNG run_id (không
         # để 1 run_id log nhiều đè hết limit chung của round-trip).
         values_sql = ", ".join(["(%s::uuid, %s::bigint)"] * len(run_after_ids))
-        params: list = []
+        params: list[Any] = []
         for rid, after_id in run_after_ids.items():
             params.extend([rid, after_id])
         params.append(limit)
@@ -143,7 +144,7 @@ def get_logs_batch(conn: Conn, run_after_ids: dict, limit: int = 500) -> dict:
         )
         rows = cur.fetchall()
 
-    result: dict = {rid: [] for rid in run_after_ids}
+    result: dict[str, list[dict[str, Any]]] = {rid: [] for rid in run_after_ids}
     for row in rows:
         result[row["run_id"]].append(
             {"id": row["id"], "level": row["level"], "message": row["message"], "created_at": row["created_at"]}
@@ -162,7 +163,7 @@ def mark_running(conn: Conn, run_id: str) -> None:
     conn.commit()
 
 
-def mark_done(conn: Conn, run_id: str, stats: dict) -> None:
+def mark_done(conn: Conn, run_id: str, stats: dict[str, Any]) -> None:
     """Đổi status -> 'done', điền stats + finished_at — gọi khi run()
     trả về thành công."""
     with conn.cursor() as cur:
@@ -208,7 +209,7 @@ _MAINTENANCE_RUN_FROM_JOINS = """
 """
 
 
-def get_run(conn: Conn, run_id: str) -> Optional[dict]:
+def get_run(conn: Conn, run_id: str) -> Optional[Row]:
     """Trả 1 dict maintenance_runs đầy đủ hoặc None — dùng cho GET
     /maintenance/{run_id} (poll tiến độ)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -227,7 +228,7 @@ def list_runs(conn: Conn, *, job_type: Optional[str] = None,
     """Trả (list[dict], total) — dùng cho GET /maintenance (trang lịch
     sử), sắp mới nhất trước — đối xứng db.crawl_runs.list_runs()."""
     conditions = []
-    params: list = []
+    params: list[Any] = []
 
     if job_type:
         conditions.append("mr.job_type = %s")
@@ -258,7 +259,7 @@ def list_runs(conn: Conn, *, job_type: Optional[str] = None,
     return rows, total
 
 
-def get_latest_run_per_job_type(conn: Conn) -> dict:
+def get_latest_run_per_job_type(conn: Conn) -> dict[str, Row]:
     """Trả {job_type: dict|None} — 1 dict maintenance_runs GẦN NHẤT
     theo started_at cho MỖI job_type (bất kể status), hoặc None nếu
     job_type đó chưa từng chạy lần nào. Dùng cho khung "Log live" ở

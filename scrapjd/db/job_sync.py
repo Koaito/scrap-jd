@@ -23,6 +23,7 @@ QUY ƯỚC
 """
 
 import logging
+from typing import Any
 
 from scrapjd.db.job_derivation import _LISTING_COLUMNS, DerivedJob, derive_job_from_listings
 from scrapjd.db.pg_types import Conn, fetch_scalar
@@ -32,7 +33,7 @@ logger = logging.getLogger(__name__)
 SKIP_UPDATED_AT_SETTING = "app.skip_updated_at"
 
 
-def diff_job_from_derived(stored: dict, derived: DerivedJob) -> dict:
+def diff_job_from_derived(stored: dict[str, Any], derived: DerivedJob) -> dict[str, tuple[Any, Any]]:
     """{cột: (giá trị đang lưu, giá trị suy ra)} của các cột job LỆCH so với giá trị suy ra. Hàm thuần, không
     DB. `stored` cần các khoá job_status, closed_reason, deadline, source_url. Đây là MỘT nơi duy nhất quyết
     định cột nào phải ghi: sync_job_from_listings ghi theo nó, và kế hoạch gộp job (merge_duplicates, C3c)
@@ -40,7 +41,7 @@ def diff_job_from_derived(stored: dict, derived: DerivedJob) -> dict:
 
     closed_reason chỉ có mặt khi job suy ra là CLOSED (job OPEN thì trigger trg_set_job_closed_state tự xoá lý
     do)."""
-    changes: dict = {}
+    changes: dict[str, tuple[Any, Any]] = {}
     if stored["job_status"] != derived.job_status:
         changes["job_status"] = (stored["job_status"], derived.job_status)
     if derived.job_status == "CLOSED" and (
@@ -53,7 +54,7 @@ def diff_job_from_derived(stored: dict, derived: DerivedJob) -> dict:
     return changes
 
 
-def sync_job_from_listings(conn: Conn, job_id: str) -> dict:
+def sync_job_from_listings(conn: Conn, job_id: str) -> dict[str, tuple[Any, Any]]:
     """Xem docstring module. Trả {} nếu không có gì đổi hoặc job không tồn tại hoặc chưa có listing."""
     with conn.cursor() as cur:
         cur.execute(

@@ -3,15 +3,16 @@ db.stats — tách từ db.py (God module) theo domain.
 """
 
 import logging
+from typing import Any
 
 import psycopg2
 import psycopg2.extras
-from scrapjd.db.pg_types import Conn, fetch_all_rows, fetch_one_row
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row
 
 logger = logging.getLogger(__name__)
 
 
-def get_stats_summary(conn: Conn) -> dict:
+def get_stats_summary(conn: Conn) -> dict[str, Any]:
     """Số liệu tổng quan cho dashboard — GET /stats."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT count(*) AS total_jobs FROM job_postings")
@@ -82,7 +83,7 @@ def get_stats_summary(conn: Conn) -> dict:
     }
 
 
-def get_job_engagement_counts(conn: Conn) -> list[dict]:
+def get_job_engagement_counts(conn: Conn) -> list[Row]:
     """Đếm số lượt lưu + ứng tuyển của TỪNG job đang OPEN, gộp sẵn 1
     lần cho toàn bộ hệ thống — dùng cho dashboard frontend (nhóm "JD
     ế": job đăng lâu nhưng 0 lượt quan tâm). Trước đây không có cách
@@ -122,7 +123,7 @@ def get_job_engagement_counts(conn: Conn) -> list[dict]:
         return fetch_all_rows(cur)
 
 
-def get_monthly_engagement_stats(conn: Conn) -> dict:
+def get_monthly_engagement_stats(conn: Conn) -> dict[str, Any]:
     """So sánh số ứng tuyển/lưu job THÁNG NÀY vs THÁNG TRƯỚC (theo
     calendar month, dùng applied_at/created_at thật của từng dòng) —
     dùng cho tab "Báo cáo tháng" bên frontend. GET /stats hiện có chỉ

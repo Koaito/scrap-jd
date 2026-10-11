@@ -36,13 +36,13 @@ _LOG_COLUMNS = ("log_id", "source_url", "listing_status", "deadline", "first_see
                 "closed_reason", "closed_at")
 
 
-def _fetch_merge_job_details(conn: Conn, job_ids: list) -> dict:
+def _fetch_merge_job_details(conn: Conn, job_ids: list[Any]) -> dict[str, dict[str, Any]]:
     """Thân của list_merge_job_details, KHÔNG đóng transaction (merge_job_group dùng trong khi
     đang giữ khoá dòng). Xem list_merge_job_details cho định dạng kết quả."""
     ids = [str(j) for j in dict.fromkeys(job_ids)]
     if not ids:
         return {}
-    out: dict = {}
+    out: dict[str, dict[str, Any]] = {}
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -115,7 +115,7 @@ def _fetch_merge_job_details(conn: Conn, job_ids: list) -> dict:
     return out
 
 
-def list_merge_job_details(conn: Conn, job_ids: list) -> dict:
+def list_merge_job_details(conn: Conn, job_ids: list[Any]) -> dict[str, dict[str, Any]]:
     """{job_id (str): dict} cho các job trong `job_ids`, mỗi dict gồm:
 
       - _JOB_COLUMNS (has_editor = updated_by IS NOT NULL; has_notes = ss_team_notes không rỗng);
@@ -150,14 +150,14 @@ def merge_job_enum_supported(conn: Conn) -> bool:
     return found
 
 
-def list_active_runs(conn: Conn) -> list:
+def list_active_runs(conn: Conn) -> list[dict[str, Any]]:
     """Các lượt crawl (crawl_runs) và bảo trì (maintenance_runs) đang 'queued'/'running', mỗi
     phần tử {kind, run_id, label, status, age_minutes}. Bảng chưa tồn tại (DB chưa migrate) thì
     bỏ qua bảng đó. CHỈ ĐỌC; đóng transaction đọc trước khi trả.
 
     Lưu ý: dòng 'running' mà process đã chết (vd CLI bị tắt máy) vẫn nằm đó tới khi watchdog của
     API dọn (30 phút); age_minutes giúp nhận ra trường hợp này."""
-    out: list = []
+    out: list[dict[str, Any]] = []
     with conn.cursor() as cur:
         for kind, table, label_sql in (
             ("crawl", "crawl_runs", "source || ' / ' || category"),
@@ -228,7 +228,7 @@ def _rows_by_job(cur: cursor, sql: str, donors: list[str]) -> list[tuple[str, st
     return [(str(r[0]), str(r[1]), r[2]) for r in cur.fetchall()]
 
 
-def _check_children_covered(table: str, db_ids: set, plan_ids: list) -> None:
+def _check_children_covered(table: str, db_ids: set[str], plan_ids: list[str]) -> None:
     """Mọi dòng con của job phụ phải nằm đúng một lần trong kế hoạch (chuyển hoặc bỏ)."""
     if len(plan_ids) != len(set(plan_ids)) or set(plan_ids) != db_ids:
         raise MergeIntegrityError(
@@ -236,17 +236,20 @@ def _check_children_covered(table: str, db_ids: set, plan_ids: list) -> None:
             f"(DB {len(db_ids)} dòng, kế hoạch {len(plan_ids)} dòng)")
 
 
-def _split(rows: list, donor: str, move_ids: list, drop_ids: list) -> tuple:
+def _split(rows: list[tuple[str, str, Any]], donor: str, move_ids: list[str],
+           drop_ids: list[str]) -> tuple[list[str], list[Any]]:
     """([id chuyển], [dòng bị bỏ]) của riêng một job phụ, từ rows = [(job_id, id, dòng)]."""
     move, drop = set(move_ids), set(drop_ids)
     return ([i for j, i, _ in rows if j == donor and i in move],
             [r for j, i, r in rows if j == donor and i in drop])
 
 
-def merge_job_group(conn: Conn, *, keeper_id: str, donor_ids: list, expected: dict, changes: dict,
-                    child: dict, derived_changes: Optional[dict], conflicts: Optional[list] = None,
-                    notes: Optional[list] = None, listing_actions: Optional[dict] = None,
-                    actor_id: Optional[str] = None, lock_timeout_ms: int = 10_000) -> dict:
+def merge_job_group(conn: Conn, *, keeper_id: str, donor_ids: list[Any],
+                    expected: dict[str, dict[str, Any]], changes: dict[str, dict[str, Any]],
+                    child: dict[str, Any], derived_changes: Optional[dict[str, dict[str, Any]]],
+                    conflicts: Optional[list[Any]] = None, notes: Optional[list[Any]] = None,
+                    listing_actions: Optional[dict[str, Any]] = None,
+                    actor_id: Optional[str] = None, lock_timeout_ms: int = 10_000) -> dict[str, Any]:
     """Gộp MỘT nhóm job trùng vào job giữ, trong transaction HIỆN TẠI của `conn`. KHÔNG commit
     và KHÔNG rollback ở đây: nơi gọi commit khi hàm trả về, rollback nếu hàm raise (mọi bước bên
     dưới nằm chung một transaction nên lỗi ở bất cứ bước nào đều không để lại gì).
@@ -415,7 +418,7 @@ def merge_job_group(conn: Conn, *, keeper_id: str, donor_ids: list, expected: di
             _expect_rows(cur, len(gone), "bỏ job_contact_links trùng")
 
         # --- 4d. listing rồi job giữ theo luật suy ra (C3c). Listing của job phụ đã nằm ở job giữ.
-        listing_log: dict = {}
+        listing_log: dict[str, Any] = {}
         if "close_listings" in listing_actions:
             closed = close_job_listings(conn, keeper_id)
             if closed != listing_actions["close_listings"]:

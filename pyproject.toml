@@ -59,9 +59,9 @@ module = ["apscheduler.*", "tavily.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# M3c (đang làm): `disallow_any_generics` (dict/list/tuple trần phải có tham số kiểu) bật dần theo module cho scrapjd/db/; module nào
-# thêm vào đây thì dict/list/tuple trần mới ở đó làm CI đỏ. Nửa 1/2: `scrapjd.db` (gói) và `applications` đến `job_levels`. Nửa 2/2 thêm
-# `job_merge` đến `stats`; M3d đến M3j thêm phần còn lại; M3k xoá khối này và bật `strict = true` ở [tool.mypy].
+# M3c (xong): `disallow_any_generics` (dict/list/tuple trần phải có tham số kiểu) cho TOÀN BỘ scrapjd/db/ (gói và 32 module); module nào
+# có tên ở đây thì dict/list/tuple trần mới ở đó làm CI đỏ. Nửa 1/2: `scrapjd.db` (gói) và `applications` đến `job_levels`. Nửa 2/2:
+# `job_merge` đến `stats`. M3d đến M3j thêm phần còn lại của repo; M3k xoá khối này và bật `strict = true` ở [tool.mypy].
 module = [
     "scrapjd.db",
     "scrapjd.db.applications",
@@ -84,5 +84,17 @@ module = [
     "scrapjd.db.job_health",
     "scrapjd.db.job_level_recompute",
     "scrapjd.db.job_levels",
+    "scrapjd.db.job_merge",
+    "scrapjd.db.job_queries",
+    "scrapjd.db.job_recrawl",
+    "scrapjd.db.job_reposts",
+    "scrapjd.db.job_sync",
+    "scrapjd.db.jobs",
+    "scrapjd.db.listing_state",
+    "scrapjd.db.lookups",
+    "scrapjd.db.maintenance_runs",
+    "scrapjd.db.messages",
+    "scrapjd.db.pg_types",
+    "scrapjd.db.stats",
 ]
 disallow_any_generics = true

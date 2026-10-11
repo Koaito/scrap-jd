@@ -16,6 +16,8 @@ Không dùng dedup_key (A3): báo cáo phải đo đúng thứ đã xảy ra, kh
 định nghĩa lại sau này.
 """
 
+from typing import Any
+
 from scrapjd.db.pg_types import Conn
 
 _LOG_COLUMNS = (
@@ -25,7 +27,7 @@ _LOG_COLUMNS = (
 )
 
 
-def list_multi_source_job_logs(conn: Conn) -> list:
+def list_multi_source_job_logs(conn: Conn) -> list[dict[str, Any]]:
     """Mọi dòng job_sources_log của các job có >= 2 dòng log, mỗi dòng một dict gồm _LOG_COLUMNS
     (job_id, company_id, log_id là str). Sắp theo công ty, job, rồi tin cũ nhất trước
     (collected_date, log_id) — thứ tự này xác định nên báo cáo chạy lại cho cùng kết quả.
@@ -47,7 +49,7 @@ def list_multi_source_job_logs(conn: Conn) -> list:
             ORDER BY c.company_name, jp.job_id, s.collected_date, s.log_id
             """
         )
-        rows = []
+        rows: list[dict[str, Any]] = []
         for r in cur.fetchall():
             row = dict(zip(_LOG_COLUMNS, r))
             for key in ("job_id", "company_id", "log_id"):
@@ -57,7 +59,7 @@ def list_multi_source_job_logs(conn: Conn) -> list:
     return rows
 
 
-def list_merge_log_origins(conn: Conn) -> dict:
+def list_merge_log_origins(conn: Conn) -> dict[str, Any]:
     """Dấu vết các lần merge-duplicates --apply, đọc từ audit_logs (action MERGE_JOB của job phụ,
     nhận ra bằng changes.merged_into). Trả dict:
 
@@ -68,7 +70,7 @@ def list_merge_log_origins(conn: Conn) -> dict:
 
     So khớp action bằng ::text nên chạy được cả khi DB chưa có nhãn MERGE_JOB trong enum (khi đó
     không có dòng nào). CHỈ ĐỌC; đóng transaction đọc trước khi trả."""
-    moved: dict = {}
+    moved: dict[str, dict[str, Any]] = {}
     dropped = 0
     with conn.cursor() as cur:
         cur.execute(

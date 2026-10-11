@@ -19,7 +19,7 @@ from typing import Optional
 
 import psycopg2
 import psycopg2.extras
-from scrapjd.db.pg_types import Conn, fetch_all_rows, fetch_count, fetch_scalar
+from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_count, fetch_scalar
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ MAX_MESSAGE_ID = 9_223_372_036_854_775_807
 # chat_relationships — state machine
 # ============================================================
 
-def get_relationship(conn: Conn, student_id: str, ss_id: str) -> Optional[dict]:
+def get_relationship(conn: Conn, student_id: str, ss_id: str) -> Optional[Row]:
     """Trả row chat_relationships giữa 1 cặp student/ss cụ thể, hoặc
     None nếu chưa từng có quan hệ nào (chưa ai nhắn/request)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -55,7 +55,7 @@ def get_relationship(conn: Conn, student_id: str, ss_id: str) -> Optional[dict]:
         return cur.fetchone()
 
 
-def get_relationship_by_id(conn: Conn, relationship_id: str) -> Optional[dict]:
+def get_relationship_by_id(conn: Conn, relationship_id: str) -> Optional[Row]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM chat_relationships WHERE id = %s", (relationship_id,))
         return cur.fetchone()
@@ -262,7 +262,7 @@ def insert_message(conn: Conn, sender_id: str, receiver_id: str, content: str) -
         return str(fetch_scalar(cur))
 
 
-def get_message_by_id(conn: Conn, message_id: str) -> Optional[dict]:
+def get_message_by_id(conn: Conn, message_id: str) -> Optional[Row]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT * FROM messages WHERE id = %s", (message_id,))
         return cur.fetchone()
@@ -270,7 +270,7 @@ def get_message_by_id(conn: Conn, message_id: str) -> Optional[dict]:
 
 def get_messages_between(
     conn: Conn, user_a: str, user_b: str, *, before_id: Optional[int] = None, limit: int = 50
-) -> list[dict]:
+) -> list[Row]:
     """Lịch sử đầy đủ giữa 2 người, mới nhất trước, phân trang cursor
     bằng before_id (id < before_id nếu có). Gọi CHỈ SAU KHI router đã
     xác nhận current_user thuộc về (user_a, user_b) — hàm này không tự
@@ -301,7 +301,7 @@ def get_messages_between(
         return fetch_all_rows(cur)
 
 
-def get_messages_since(conn: Conn, user_a: str, user_b: str, after_id: int) -> list[dict]:
+def get_messages_since(conn: Conn, user_a: str, user_b: str, after_id: int) -> list[Row]:
     """Polling nhẹ: chỉ tin có id > after_id giữa 2 người, cũ nhất
     trước (đúng thứ tự xuất hiện khi FE append vào khung chat)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -340,7 +340,7 @@ def get_unread_count(conn: Conn, current_user_id: str) -> int:
         return fetch_count(cur)
 
 
-def list_conversations(conn: Conn, current_user_id: str) -> list[dict]:
+def list_conversations(conn: Conn, current_user_id: str) -> list[Row]:
     """Danh sách hội thoại của current_user_id: mỗi partner từng nhắn
     qua lại, kèm tin nhắn cuối + unread_count + relationship_status +
     relationship_id (NULL nếu là cặp SS-SS, không qua state machine).
@@ -406,7 +406,7 @@ def list_conversations(conn: Conn, current_user_id: str) -> list[dict]:
 
 
 def get_conversation_with(conn: Conn, current_user_id: str, requester_is_ss: bool,
-                          partner_id: str) -> Optional[dict]:
+                          partner_id: str) -> Optional[Row]:
     """Tra đúng 1 người đối thoại (Phần 5 mục 9 của plan Next.js) — cùng
     shape với 1 dòng của list_conversations(), nhưng KHÔNG đòi hỏi 2 bên
     đã từng nhắn: chưa có tin thì last_message_* = NULL, unread_count = 0;
@@ -460,7 +460,7 @@ def get_conversation_with(conn: Conn, current_user_id: str, requester_is_ss: boo
         return cur.fetchone()
 
 
-def list_pending_requests_for_ss(conn: Conn, ss_id: str) -> list[dict]:
+def list_pending_requests_for_ss(conn: Conn, ss_id: str) -> list[Row]:
     """Mục riêng "Yêu cầu đang chờ" cho SS — học viên nào đang pending
     với ss_id này, chưa từng nhắn nên KHÔNG nằm trong list_conversations()
     ở trên (list_conversations chỉ suy từ bảng messages đã có tin)."""
@@ -479,7 +479,7 @@ def list_pending_requests_for_ss(conn: Conn, ss_id: str) -> list[dict]:
         return fetch_all_rows(cur)
 
 
-def search_people(conn: Conn, query: str, *, requester_role: str) -> list[dict]:
+def search_people(conn: Conn, query: str, *, requester_role: str) -> list[Row]:
     """Tìm người để bắt đầu hội thoại — CHỈ trả id/full_name/role,
     KHÔNG email/phone (xem backend-scrap-jd-nhan-tin.md §3, §4). Học
     viên ('user') chỉ thấy role ss_team/admin; SS/admin thấy mọi role."""

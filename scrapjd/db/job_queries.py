@@ -44,7 +44,7 @@ def list_jobs(conn: Conn, *, industry: Optional[str] = None, province_name: Opti
               keyword: Optional[str] = None, job_status: Optional[str] = None,
               created_by: Optional[str] = None, ids: Optional[list[str]] = None,
               limit: int = 50, offset: int = 0,
-              cursor: Optional[tuple] = None,
+              cursor: Optional[tuple[Any, Any]] = None,
               include_content: bool = False) -> tuple[list[Row], int, Optional[tuple[Any, Any]]]:
     """Trả (list[dict] job, total_count, next_cursor) — dùng cho GET
     /jobs. `next_cursor` là tuple (created_at, job_id) của dòng cuối
@@ -109,7 +109,7 @@ def list_jobs(conn: Conn, *, industry: Optional[str] = None, province_name: Opti
     limit đủ lớn nếu muốn lấy đủ toàn bộ id đã liệt kê trong 1 lần gọi,
     hàm này giữ nguyên hành vi limit/offset/cursor như filter khác."""
     conditions = []
-    params: list = []
+    params: list[Any] = []
 
     if industry:
         conditions.append("jp.matching_industry = %s")

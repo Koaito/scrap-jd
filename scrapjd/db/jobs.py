@@ -187,7 +187,7 @@ def mark_source_detail_checked(conn: Conn, source_url: str, *, deadline: Optiona
 
 
 def update_job_fields(conn: Conn, job_id: str, *, work_type: Optional[str] = None,
-                       parsed_content: Optional[dict] = None) -> None:
+                       parsed_content: Optional[dict[str, Any]] = None) -> None:
     """Vá thêm work_type/parsed_content cho 1 job ĐÃ TỒN TẠI (chỉ
     ghi đè field nào có giá trị mới, không xóa dữ liệu cũ nếu lần crawl
     sau không lấy được field đó) — dùng cho job cũ crawl từ trước khi có
@@ -219,14 +219,14 @@ def insert_job(conn: Conn, *, company_id: str, job_title: str, matching_industry
                 salary_min: Optional[int], salary_max: Optional[int],
                 salary_type: str, source_url: str, source_name: str,
                 salary_raw_text: str = "", deadline: Optional[date] = None,
-                parsed_content: Optional[dict] = None,
+                parsed_content: Optional[dict[str, Any]] = None,
                 raw_jd_content: str = "",
                 salary_period: str = "MONTH",
                 created_by: Optional[str] = None,
                 detail_fetched: bool = False,
                 level_source: Optional[str] = None,
                 level_rule_version: Optional[int] = None,
-                level_signals: Optional[dict] = None) -> str:
+                level_signals: Optional[dict[str, Any]] = None) -> str:
     """Insert 1 job_postings + 1 job_sources_log tương ứng. content_hash được
     trigger Postgres tự tính (xem sql/schema.sql mục 5).
 
@@ -333,7 +333,7 @@ def find_manual_job_duplicate(conn: Conn, *, company_id: str, job_title: str,
 
 def find_similar_open_jobs(conn: Conn, *, company_id: str, job_title: str,
                            province_id: Optional[int],
-                           exclude_job_id: Optional[str] = None) -> list:
+                           exclude_job_id: Optional[str] = None) -> list[dict[str, Any]]:
     """Các job CHƯA đóng cùng khoá chống trùng (dedup_key) với job vừa nhập, mọi level, để POST /jobs
     cảnh báo "đã có job giống" cho nhân viên. Chỉ đọc, không đóng transaction.
 
@@ -370,7 +370,7 @@ def create_manual_job(conn: Conn, *, job_title: str, company_id: str,
                        salary_type: str = "NEGOTIABLE",
                        salary_period: str = "MONTH",
                        deadline: Optional[date] = None,
-                       parsed_content: Optional[dict] = None,
+                       parsed_content: Optional[dict[str, Any]] = None,
                        created_by: Optional[str] = None) -> str:
     """Tạo 1 job NHẬP TAY từ frontend (không qua crawl/adapter). Tái dùng
     thẳng insert_job() đã có sẵn cho pipeline crawl — cùng 1 hàm ghi, chỉ
@@ -469,12 +469,12 @@ def update_job(conn: Conn, job_id: str, *, job_title: Optional[str] = None,
                job_status: Optional[str] = None,
                closed_reason: Optional[str] = None,
                ss_team_notes: Optional[str] = None,
-               parsed_content: Optional[dict] = None,
+               parsed_content: Optional[dict[str, Any]] = None,
                updated_by: Optional[str] = None,
                clear_fields: Optional[Iterable[str]] = None,
                level_source: Any = _UNSET,
                level_rule_version: Optional[int] = None,
-               level_signals: Optional[dict] = None) -> bool:
+               level_signals: Optional[dict[str, Any]] = None) -> bool:
     """Sửa TỰ DO các field của 1 job đã tồn tại — dùng cho PATCH /jobs/{id}
     phía frontend. KHÔNG phân biệt job crawl hay job nhập tay (team không
     cần phân quyền, mọi người dùng nội bộ ngang quyền — xem quyết định
