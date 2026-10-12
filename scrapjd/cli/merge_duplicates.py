@@ -122,9 +122,9 @@ SKIP_VANISHED = "một job của nhóm không còn trong DB lúc đọc chi ti�
 @dataclass
 class OnlySpec:
     """Danh sách đã duyệt tay từ file --only."""
-    job_ids: set = field(default_factory=set)       # mọi job_id có trong file (chữ thường)
-    keepers: set = field(default_factory=set)       # job_id được đánh dấu giữ (cột de_xuat_giu = 'x')
-    invalid_lines: list = field(default_factory=list)  # dòng không có UUID hợp lệ (số dòng, nội dung)
+    job_ids: set[str] = field(default_factory=set)       # mọi job_id có trong file (chữ thường)
+    keepers: set[str] = field(default_factory=set)       # job_id được đánh dấu giữ (cột de_xuat_giu = 'x')
+    invalid_lines: list[tuple[int, str]] = field(default_factory=list)  # dòng không có UUID hợp lệ (số dòng, nội dung)
 
 
 def parse_only(text: str) -> OnlySpec:
@@ -194,7 +194,7 @@ def auto_skip_reason(g: dr.Group) -> Optional[str]:
     return None
 
 
-def _select_from_file(g: dr.Group, only: OnlySpec) -> tuple:
+def _select_from_file(g: dr.Group, only: OnlySpec) -> tuple[Optional[Selection], Optional[str]]:
     """(Selection | None, lý do bỏ qua | None) cho một nhóm có ít nhất một job trong file."""
     ids = [m["job_id"].lower() for m in g.members]
     if not all(i in only.job_ids for i in ids):
@@ -211,13 +211,15 @@ def _select_from_file(g: dr.Group, only: OnlySpec) -> tuple:
     return Selection(g, g.keeper_id, KEEPER_FROM_RULE), None
 
 
-def select_groups(groups: list, only: Optional[OnlySpec] = None) -> tuple:
+def select_groups(groups: list[dr.Group], only: Optional[OnlySpec] = None
+                  ) -> tuple[list[Selection], list[tuple[dr.Group, Optional[str]]], list[str], int]:
     """(selections, skipped, unknown_ids, not_in_file).
 
     selections: [Selection] cần gộp; skipped: [(Group, lý do)]; unknown_ids: job_id trong
     file --only không thuộc nhóm nghi trùng nào (sai id, hoặc job đã hết trùng);
     not_in_file: số nhóm không được nhắc trong file (chỉ có nghĩa khi dùng --only)."""
-    selections, skipped = [], []
+    selections: list[Selection] = []
+    skipped: list[tuple[dr.Group, Optional[str]]] = []
     not_in_file = 0
     for g in groups:
         if only is None:
@@ -225,7 +227,7 @@ def select_groups(groups: list, only: Optional[OnlySpec] = None) -> tuple:
             if reason:
                 skipped.append((g, reason))
             else:
-                selections.append(Selection(g, g.keeper_id, KEEPER_FROM_RULE))
+                selections.append(Selection(g, cast(str, g.keeper_id), KEEPER_FROM_RULE))
             continue
         if not any(m["job_id"].lower() in only.job_ids for m in g.members):
             not_in_file += 1
@@ -246,14 +248,14 @@ def select_groups(groups: list, only: Optional[OnlySpec] = None) -> tuple:
 @dataclass
 class ChildPlan:
     """Việc cần làm với dữ liệu con của các job bị gộp (id của dòng con)."""
-    logs_move: list = field(default_factory=list)       # log_id đổi sang job giữ
-    logs_drop: list = field(default_factory=list)       # log_id trùng URL với job giữ -> bỏ
-    saved_move: list = field(default_factory=list)      # saved_job_id
-    saved_drop: list = field(default_factory=list)
-    apps_move: list = field(default_factory=list)       # application_id
-    apps_drop: list = field(default_factory=list)       # đơn trùng người dùng -> bỏ (CV có thể mất)
-    links_move: list = field(default_factory=list)      # link_id đổi sang job giữ
-    links_merge: list = field(default_factory=list)     # {donor_link_id, keeper_link_id, n_interactions}
+    logs_move: list[str] = field(default_factory=list)       # log_id đổi sang job giữ
+    logs_drop: list[str] = field(default_factory=list)       # log_id trùng URL với job giữ -> bỏ
+    saved_move: list[str] = field(default_factory=list)      # saved_job_id
+    saved_drop: list[str] = field(default_factory=list)
+    apps_move: list[str] = field(default_factory=list)       # application_id
+    apps_drop: list[str] = field(default_factory=list)       # đơn trùng người dùng -> bỏ (CV có thể mất)
+    links_move: list[str] = field(default_factory=list)      # link_id đổi sang job giữ
+    links_merge: list[dict[str, Any]] = field(default_factory=list)     # {donor_link_id, keeper_link_id, n_interactions}
 
 
 @dataclass
@@ -261,23 +263,23 @@ class MergePlan:
     group: dr.Group
     keeper_id: str
     keeper_source: str
-    donor_ids: list                      # job bị gộp (xoá sau khi snapshot), theo thứ tự xếp hạng
-    changes: dict                        # {cột: {"old": .., "new": ..}} áp lên job giữ
-    notes: list                          # lý do từng thay đổi (tiếng Việt)
-    conflicts: list                      # bản lệch bị bỏ lại, sẽ ghi vào audit
-    warnings: list
+    donor_ids: list[str]                 # job bị gộp (xoá sau khi snapshot), theo thứ tự xếp hạng
+    changes: dict[str, dict[str, Any]]   # {cột: {"old": .., "new": ..}} áp lên job giữ
+    notes: list[str]                     # lý do từng thay đổi (tiếng Việt)
+    conflicts: list[dict[str, Any]]      # bản lệch bị bỏ lại, sẽ ghi vào audit
+    warnings: list[str]
     child: ChildPlan
     apps_with_cv_dropped: int = 0        # đơn bị bỏ có đính CV (cần nhắc: file CV trong storage)
     # Chi tiết các job của nhóm LÚC lập kế hoạch ({job_id: dict}, từ db.list_merge_job_details).
     # --apply so lại với dữ liệu đọc dưới khoá; khác thì nhóm bị bỏ qua (stale).
-    expected: dict = field(default_factory=dict)
+    expected: dict[str, dict[str, Any]] = field(default_factory=dict)
     # C3c. `changes` chỉ còn các cột GHI TRỰC TIẾP (lương, level, ghi chú, và hạn trống của job giữ nhập
     # tay). Trạng thái / lý do đóng / hạn / source_url theo luật suy ra nằm riêng ở đây: {cột: {"old",
     # "new"}} mà sync_job_from_listings sẽ ghi (--apply đối chiếu kết quả thật với dự đoán này).
     # None = job giữ nhập tay, KHÔNG đồng bộ (luật suy ra không đè được nó).
-    derived_changes: Optional[dict] = field(default_factory=dict)
+    derived_changes: Optional[dict[str, dict[str, Any]]] = field(default_factory=dict)
     # Chỉ có với job giữ nhập tay: {"close_listings": N, "stamp_deadline": ngày} (xem db.merge_job_group).
-    listing_actions: dict = field(default_factory=dict)
+    listing_actions: dict[str, Any] = field(default_factory=dict)
     protected_manual: bool = False
 
     @property
@@ -293,15 +295,15 @@ def _short(job_id: object) -> str:
     return str(job_id)[:8]
 
 
-def _has_salary(row: dict) -> bool:
+def _has_salary(row: dict[str, Any]) -> bool:
     return row.get("salary_min") is not None or row.get("salary_max") is not None
 
 
-def _salary_view(row: dict) -> dict:
+def _salary_view(row: dict[str, Any]) -> dict[str, Any]:
     return {c: row.get(c) for c in SALARY_COLUMNS}
 
 
-def _level_authoritative(row: dict) -> bool:
+def _level_authoritative(row: dict[str, Any]) -> bool:
     """Level do người đặt/sửa: level_source='manual' hoặc job từng có người sửa (updated_by)."""
     return row.get("level_id") is not None and (row.get("level_source") == "manual" or bool(row.get("has_editor")))
 
@@ -309,20 +311,21 @@ def _level_authoritative(row: dict) -> bool:
 class _Changes:
     """Gom thay đổi áp lên job giữ; bỏ qua cột mà giá trị mới bằng giá trị hiện tại."""
 
-    def __init__(self, keeper: dict):
+    def __init__(self, keeper: dict[str, Any]):
         self._keeper = keeper
-        self.data: dict = {}
+        self.data: dict[str, dict[str, Any]] = {}
 
     def set(self, column: str, value: Any) -> None:
         if self._keeper.get(column) != value:
             self.data[column] = {"old": self._keeper.get(column), "new": value}
 
-    def set_block(self, columns: tuple, source: dict) -> None:
+    def set_block(self, columns: tuple[str, ...], source: dict[str, Any]) -> None:
         for col in columns:
             self.set(col, source.get(col))
 
 
-def _plan_salary(keeper: dict, donors: list, ch: _Changes, notes: list, conflicts: list) -> None:
+def _plan_salary(keeper: dict[str, Any], donors: list[dict[str, Any]], ch: _Changes, notes: list[str],
+                 conflicts: list[dict[str, Any]]) -> None:
     pool = [d for d in donors if _has_salary(d)]
     if not pool:
         return
@@ -342,21 +345,21 @@ def _plan_salary(keeper: dict, donors: list, ch: _Changes, notes: list, conflict
                               "other_job_id": d["job_id"], "other": _salary_view(d)})
 
 
-def is_manual_job(row: dict) -> bool:
+def is_manual_job(row: dict[str, Any]) -> bool:
     """Job nhập tay: có ít nhất một listing và MỌI listing đều là manual://<uuid> (POST /jobs ghi như vậy).
     Job crawl từng nhận thêm tin đăng lại (có URL thật) thì không còn là job nhập tay."""
     logs = row.get("logs") or []
     return bool(logs) and all((x.get("source_url") or "").startswith(MANUAL_URL_PREFIX) for x in logs)
 
 
-def _merged_listings(keeper: dict, donors: list, child: "ChildPlan") -> list:
+def _merged_listings(keeper: dict[str, Any], donors: list[dict[str, Any]], child: "ChildPlan") -> list[dict[str, Any]]:
     """Các listing của job giữ SAU khi gộp: của chính nó cộng listing của job phụ được chuyển sang."""
     moved = set(child.logs_move)
     return list(keeper["logs"]) + [x for d in donors for x in d["logs"] if x["log_id"] in moved]
 
 
-def _plan_protected_manual(keeper: dict, pool: list, derived: Optional[DerivedJob], ch: _Changes, notes: list,
-                           warnings: list) -> dict:
+def _plan_protected_manual(keeper: dict[str, Any], pool: list[dict[str, Any]], derived: Optional[DerivedJob],
+                           ch: _Changes, notes: list[str], warnings: list[str]) -> dict[str, Any]:
     """Job giữ NHẬP TAY (bạn chốt 09/10, phương án a): giữ nguyên trạng thái, hạn, source_url của nó. Trả
     listing_actions để listing theo kịp, nhờ đó lần đồng bộ sau (derive) vẫn ra đúng các giá trị đó:
       - job giữ CLOSED: listing còn sống chuyển sang bị đóng theo job (luật 2);
@@ -364,7 +367,7 @@ def _plan_protected_manual(keeper: dict, pool: list, derived: Optional[DerivedJo
         khi nhân viên sửa hạn qua update_job;
       - job giữ chưa có hạn: điền hạn suy ra (điền chỗ trống, không phải ghi đè).
     source_url KHÔNG thể giữ lâu dài (không có cột đánh dấu): lần đồng bộ sau suy ra lại theo listing."""
-    actions: dict = {}
+    actions: dict[str, Any] = {}
     closed = keeper.get("job_status") == "CLOSED"
     alive = [x for x in pool if x["listing_status"] != "CLOSED"]
     if closed and alive:
@@ -387,8 +390,9 @@ def _plan_protected_manual(keeper: dict, pool: list, derived: Optional[DerivedJo
     return actions
 
 
-def _plan_status_deadline_source(keeper: dict, donors: list, child: "ChildPlan", ch: _Changes,
-                                 notes: list, warnings: list) -> tuple:
+def _plan_status_deadline_source(keeper: dict[str, Any], donors: list[dict[str, Any]], child: "ChildPlan",
+                                 ch: _Changes, notes: list[str], warnings: list[str]
+                                 ) -> tuple[Optional[dict[str, dict[str, Any]]], dict[str, Any], bool]:
     """(derived_changes, listing_actions, protected_manual) của job giữ (C3c, xem docstring module).
 
     Không nhập tay: giá trị job giữ = giá trị suy ra từ listing sau gộp (derive_job_from_listings), dự đoán
@@ -417,7 +421,8 @@ def _plan_status_deadline_source(keeper: dict, donors: list, child: "ChildPlan",
     return {c: {"old": o, "new": n} for c, (o, n) in diff.items()}, {}, False
 
 
-def _plan_level(keeper: dict, donors: list, ch: _Changes, notes: list, conflicts: list) -> None:
+def _plan_level(keeper: dict[str, Any], donors: list[dict[str, Any]], ch: _Changes, notes: list[str],
+                conflicts: list[dict[str, Any]]) -> None:
     auth = [d for d in donors if _level_authoritative(d)]
     if _level_authoritative(keeper):
         for d in auth:
@@ -440,7 +445,8 @@ def _plan_level(keeper: dict, donors: list, ch: _Changes, notes: list, conflicts
                               "other_job_id": d["job_id"], "other": d.get("level_code")})
 
 
-def _plan_notes(keeper: dict, donors: list, ch: _Changes, notes: list, conflicts: list) -> None:
+def _plan_notes(keeper: dict[str, Any], donors: list[dict[str, Any]], ch: _Changes, notes: list[str],
+                conflicts: list[dict[str, Any]]) -> None:
     with_notes = [d for d in donors if d.get("has_notes")]
     if not with_notes:
         return
@@ -458,7 +464,7 @@ def _plan_notes(keeper: dict, donors: list, ch: _Changes, notes: list, conflicts
                               "other_job_id": d["job_id"], "other": d["ss_team_notes"]})
 
 
-def _plan_children(keeper: dict, donors: list) -> tuple:
+def _plan_children(keeper: dict[str, Any], donors: list[dict[str, Any]]) -> tuple[ChildPlan, int]:
     """(ChildPlan, số đơn ứng tuyển có CV bị bỏ). Xử lý theo thứ tự xếp hạng, và dòng đã quyết
     chuyển sang job giữ cũng chiếm chỗ, để hai job bị gộp cùng có một khoá không cùng chuyển."""
     plan = ChildPlan()
@@ -499,7 +505,7 @@ def _plan_children(keeper: dict, donors: list) -> tuple:
     return plan, cv_dropped
 
 
-def plan_merge(selection: Selection, details: dict) -> MergePlan:
+def plan_merge(selection: Selection, details: dict[str, dict[str, Any]]) -> MergePlan:
     """Kế hoạch gộp MỘT nhóm. `details` = {job_id: dict} từ db.list_merge_job_details, phải có đủ
     mọi job của nhóm (nơi gọi kiểm tra trước). Không DB, không ghi."""
     g = selection.group
@@ -509,9 +515,9 @@ def plan_merge(selection: Selection, details: dict) -> MergePlan:
     donors = [r for r in ranked if r["job_id"] != selection.keeper_id]
 
     ch = _Changes(keeper)
-    notes: list = []
-    conflicts: list = []
-    warnings: list = []
+    notes: list[str] = []
+    conflicts: list[dict[str, Any]] = []
+    warnings: list[str] = []
     _plan_salary(keeper, donors, ch, notes, conflicts)
     child, cv_dropped = _plan_children(keeper, donors)
     derived_changes, listing_actions, protected = _plan_status_deadline_source(
@@ -541,8 +547,9 @@ def plan_merge(selection: Selection, details: dict) -> MergePlan:
 class Summary:
     """Số liệu tổng hợp từ các kế hoạch + nhóm bị bỏ qua."""
 
-    def __init__(self, plans: list, skipped: list, *, total_groups: int, only: bool,
-                 unknown_ids: list, not_in_file: int, invalid_lines: list):
+    def __init__(self, plans: list[MergePlan], skipped: list[tuple[dr.Group, Optional[str]]], *,
+                 total_groups: int, only: bool, unknown_ids: list[str], not_in_file: int,
+                 invalid_lines: list[tuple[int, str]]):
         self.total_groups = total_groups
         self.only = only
         self.unknown_ids = unknown_ids
@@ -552,7 +559,7 @@ class Summary:
         self.jobs_deleted = sum(len(p.donor_ids) for p in plans)
         self.skipped = Counter(reason for _, reason in skipped)
         self.skipped_total = len(skipped)
-        self.field_counts: Counter = Counter()
+        self.field_counts: Counter[str] = Counter()
         for p in plans:
             if any(c in p.changes for c in SALARY_COLUMNS):
                 self.field_counts["lương lấy từ job bị gộp"] += 1
@@ -568,9 +575,9 @@ class Summary:
                 self.field_counts["level lấy từ job có người đặt"] += 1
             if "ss_team_notes" in p.changes:
                 self.field_counts["ghi chú lấy từ job bị gộp"] += 1
-        self.conflicts: Counter = Counter(c["field"] for p in plans for c in p.conflicts)
-        self.by_confidence: Counter = Counter(p.group.confidence for p in plans)
-        self.by_tier: Counter = Counter(p.group.tier for p in plans)
+        self.conflicts: Counter[str] = Counter(c["field"] for p in plans for c in p.conflicts)
+        self.by_confidence: Counter[str] = Counter(p.group.confidence for p in plans)
+        self.by_tier: Counter[str] = Counter(p.group.tier for p in plans)
         c = [p.child for p in plans]
         self.children = {
             "job_sources_log": (sum(len(x.logs_move) for x in c), sum(len(x.logs_drop) for x in c)),
@@ -605,8 +612,8 @@ def _print_plan(no: int, p: MergePlan) -> None:
         print(f"      ! {w}")
 
 
-def print_report(summary: Summary, plans: list, skipped: list, *, show: int = DEFAULT_SHOW,
-                 apply: bool = False) -> None:
+def print_report(summary: Summary, plans: list[MergePlan], skipped: list[tuple[dr.Group, Optional[str]]], *,
+                 show: int = DEFAULT_SHOW, apply: bool = False) -> None:
     s = summary
     scope = "theo file --only (đã duyệt tay)" if s.only else "mặc định (chỉ nhóm độ chắc 'cao')"
     if apply:
@@ -674,7 +681,7 @@ _CSV_HEADER = (
 )
 
 
-def write_csv(plans: list, fh: TextIO) -> int:
+def write_csv(plans: list[MergePlan], fh: TextIO) -> int:
     """Ghi mỗi nhóm sẽ gộp một dòng ra `fh` (file mở sẵn, newline=''); trả số dòng."""
     writer = csv.writer(fh)
     writer.writerow(_CSV_HEADER)
@@ -691,7 +698,7 @@ def write_csv(plans: list, fh: TextIO) -> int:
     return len(plans)
 
 
-def export_csv(plans: list, path: str) -> int:
+def export_csv(plans: list[MergePlan], path: str) -> int:
     with open(path, "w", encoding="utf-8-sig", newline="") as fh:   # utf-8-sig: Excel đọc đúng tiếng Việt
         return write_csv(plans, fh)
 
@@ -715,12 +722,14 @@ EXIT_PARTIAL = 2        # đã chạy nhưng có nhóm stale hoặc lỗi (các 
 EXIT_INTERRUPTED = 130  # Ctrl+C (nhóm đã gộp xong vẫn được giữ)
 
 
-def build_plans(conn: Conn, selections: list) -> tuple:
+def build_plans(conn: Conn, selections: list[Selection]
+                ) -> tuple[list[MergePlan], list[tuple[dr.Group, Optional[str]]]]:
     """(plans, skipped_thêm): đọc chi tiết các job của nhóm được chọn rồi lập kế hoạch. Nhóm có
     job biến mất giữa hai lần đọc thì bỏ qua với lý do SKIP_VANISHED."""
     ids = [m["job_id"] for sel in selections for m in sel.group.members]
     details = db.list_merge_job_details(conn, ids)
-    plans, skipped = [], []
+    plans: list[MergePlan] = []
+    skipped: list[tuple[dr.Group, Optional[str]]] = []
     for sel in selections:
         if any(m["job_id"] not in details for m in sel.group.members):
             skipped.append((sel.group, SKIP_VANISHED))
@@ -748,12 +757,12 @@ def _check_ready(conn: Conn, *, apply: bool) -> Optional[str]:
     return None
 
 
-def _describe_runs(runs: list) -> str:
+def _describe_runs(runs: list[dict[str, Any]]) -> str:
     return "; ".join(f"{r['kind']} {r['label']} ({r['status']}, {r['age_minutes']} phút, {r['run_id'][:8]})"
                      for r in runs)
 
 
-def _print_apply_intro(plans: list) -> None:
+def _print_apply_intro(plans: list[MergePlan]) -> None:
     jobs = sum(len(p.donor_ids) for p in plans)
     print(f"\n⚠️  SẮP GỘP THẬT {len(plans)} nhóm, XOÁ THẬT {jobs} job phụ khỏi job_postings.")
     print("   Mỗi job phụ được chụp nguyên dòng vào audit_logs (MERGE_JOB) trước khi xoá, nhưng "
@@ -770,14 +779,15 @@ def _ask_confirm(confirm: Callable[[str], str]) -> bool:
 
 @dataclass
 class ApplyResult:
-    merged: list = field(default_factory=list)      # [(MergePlan, kết quả của db.merge_job_group)]
-    stale: list = field(default_factory=list)       # [(MergePlan, lý do)]
-    failed: list = field(default_factory=list)      # [(MergePlan, lỗi)]
+    merged: list[tuple[MergePlan, dict[str, Any]]] = field(default_factory=list)  # [(MergePlan, kết quả của db.merge_job_group)]
+    stale: list[tuple[MergePlan, str]] = field(default_factory=list)       # [(MergePlan, lý do)]
+    failed: list[tuple[MergePlan, str]] = field(default_factory=list)      # [(MergePlan, lỗi)]
     aborted: Optional[str] = None                   # lý do dừng sớm (crawl bắt đầu, mất kết nối)
     not_run: int = 0                                # số nhóm chưa chạy do dừng sớm
 
 
-def _apply_plans(conn: Conn, plans: list, *, force: bool, actor_id: Optional[str] = None) -> ApplyResult:
+def _apply_plans(conn: Conn, plans: list[MergePlan], *, force: bool,
+                 actor_id: Optional[str] = None) -> ApplyResult:
     """Gộp lần lượt từng nhóm, mỗi nhóm một transaction. Nhóm stale/lỗi bị bỏ qua, chạy tiếp."""
     result = ApplyResult()
     total = len(plans)
@@ -836,7 +846,7 @@ def print_apply_result(result: ApplyResult, *, planned: int, jobs_before: int, j
             if show > 0 and len(rows) > show:
                 print(f"  ... và {len(rows) - show} nhóm nữa")
     if r.merged:
-        totals: Counter = Counter()
+        totals: Counter[str] = Counter()
         for _, x in r.merged:
             for table, (moved, dropped) in x["children"].items():
                 totals[f"{table}.chuyển"] += moved
