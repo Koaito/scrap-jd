@@ -12,7 +12,7 @@ scrapjd/api/services/preview_manager.py để hiểu đầy đủ cấu trúc pr
 """
 
 from datetime import date, datetime, timezone
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
@@ -164,7 +164,7 @@ def _export_filter_params(
                      "áp SAU khi lọc theo các filter khác (nếu có), sắp theo "
                      "created_at giảm dần.",
     ),
-) -> dict:
+) -> dict[str, Any]:
     """Gom mọi query param filter thành 1 dict — dùng làm dependency chung
     cho cả 2 route preview/export bên dưới, tránh khai trùng 7 Query(...)
     y hệt nhau 2 lần (dễ lệch default/description nếu sửa 1 chỗ quên chỗ kia)."""
@@ -185,9 +185,9 @@ _PREVIEW_SAMPLE_SIZE = 20
 @router.get("/export/{entity_type}/preview", response_model=ExportPreviewResponse)
 def export_preview(
     entity_type: str,
-    filter_params: dict = Depends(_export_filter_params),
+    filter_params: dict[str, Any] = Depends(_export_filter_params),
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> ExportPreviewResponse:
     _check_entity_type(entity_type)
     filters = _build_export_filters(entity_type, **filter_params)
@@ -221,9 +221,9 @@ def export_preview(
 def export_entity(
     entity_type: str,
     format: Literal["csv", "xlsx"] = Query("csv", description="csv | xlsx"),
-    filter_params: dict = Depends(_export_filter_params),
+    filter_params: dict[str, Any] = Depends(_export_filter_params),
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> StreamingResponse:
     _check_entity_type(entity_type)
     filters = _build_export_filters(entity_type, **filter_params)
@@ -254,7 +254,7 @@ async def import_preview(
     entity_type: str,
     file: UploadFile = File(...),
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> ImportUploadResponse:
     """Rate limit 20/hour theo user_id (thêm 08/2026) — mỗi lần gọi
     parse file (tới 5000 dòng) + build_preview() (nhiều query DB để đối
@@ -311,7 +311,7 @@ def get_import_preview(
     entity_type: str,
     preview_id: str,
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> ImportUploadResponse:
     _check_entity_type(entity_type)
     preview_row = _load_owned_preview(conn, preview_id, user["sub"])
@@ -333,7 +333,7 @@ def get_company_suggestions(
     preview_id: str,
     row_index: int = Query(..., ge=0),
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> CompanySuggestionsResponse:
     """Gợi ý company tương tự cho 1 dòng cụ thể — dùng khi staff muốn xem
     lại/đổi ý ở dòng đã ở trạng thái pending_company_resolution (danh
@@ -371,7 +371,7 @@ def verify_field(
     row_index: int,
     payload: FieldVerifyRequest,
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> FieldVerifyResponse:
     """Staff sửa 1 ô lỗi trên bảng preview, bấm nút "Xác nhận" cạnh ô đó
     -> re-validate format field_name NGAY + (contact) re-check trùng mờ
@@ -411,7 +411,7 @@ def resolve_company(
     row_index: int,
     payload: ResolveCompanyRequest,
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> ResolveCompanyResponse:
     """Staff chọn 1 công ty (hoặc "Tạo công ty mới") trong modal chọn công
     ty ở bước preview -> re-check conflict NGAY với company_id thật vừa
@@ -451,7 +451,7 @@ def import_confirm(
     entity_type: str,
     payload: ImportConfirmRequest,
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> ImportConfirmResult:
     _check_entity_type(entity_type)
     preview_row = _load_owned_preview(conn, payload.preview_id, user["sub"])
@@ -521,7 +521,7 @@ def import_confirm(
     )
 
 
-def _load_owned_preview(conn: Conn, preview_id: str, requesting_user_id: str) -> dict:
+def _load_owned_preview(conn: Conn, preview_id: str, requesting_user_id: str) -> dict[str, Any]:
     if not db_module.is_valid_uuid(preview_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.IMPORT_PREVIEW_ID_INVALID_UUID, "message": f"preview_id '{preview_id}' không đúng định dạng UUID.", "params": {"value": preview_id}})
     try:

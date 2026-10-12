@@ -19,7 +19,7 @@ auth_registration.py (public_router, KHÔNG cần X-API-Key).
 
 import logging
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -322,7 +322,7 @@ def logout(request: Request, payload: RefreshRequest, conn: Conn = Depends(get_d
 
 
 @router.get("/me", response_model=UserOut)
-def get_me(user: dict = Depends(get_current_user), conn: Conn = Depends(get_db)) -> Row:
+def get_me(user: dict[str, Any] = Depends(get_current_user), conn: Conn = Depends(get_db)) -> Row:
     """Thông tin user hiện tại — JWT chỉ chứa sub/role/email, nên vẫn
     cần 1 lượt query DB để lấy đủ field khác (full_name, is_active mới
     nhất...) cho frontend hiển thị, KHÔNG tin tưởng field nào ngoài
@@ -339,7 +339,7 @@ def get_me(user: dict = Depends(get_current_user), conn: Conn = Depends(get_db))
 def update_me(
     request: Request,
     payload: UserProfileUpdate,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     """User TỰ sửa hồ sơ của CHÍNH MÌNH (full_name/phone/track) — thêm
@@ -380,7 +380,7 @@ def update_me(
 def change_password(
     request: Request,
     payload: ChangePasswordRequest,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     """Tự đổi mật khẩu. Nếu tài khoản đang must_change_password=True

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 
@@ -30,7 +30,7 @@ def trigger_crawl(
     request: Request,
     payload: CrawlRequest,
     background_tasks: BackgroundTasks,
-    user: dict = Depends(require_admin),
+    user: dict[str, Any] = Depends(require_admin),
 ) -> CrawlAccepted:
     """Kích hoạt 1 lượt crawl CHẠY NỀN — trả về run_id ngay, KHÔNG chờ
     crawl xong (crawl thật có thể mất vài phút - vài chục phút). Dùng
@@ -92,7 +92,7 @@ def trigger_crawl_batch(
     request: Request,
     payload: CrawlBatchRequest,
     background_tasks: BackgroundTasks,
-    user: dict = Depends(require_admin),
+    user: dict[str, Any] = Depends(require_admin),
 ) -> CrawlBatchAccepted:
     """08/2026 (xem docstring sql/migration_add_crawl_batches.sql) —
     "crawl nhiều category liên tục": tick nhiều category cùng lúc cho 1
@@ -134,8 +134,8 @@ def trigger_crawl_batch(
     # Loại category trùng lặp (giữ đúng thứ tự xuất hiện đầu tiên) —
     # người dùng tick nhầm trùng 1 ô trên UI không phải lỗi cần chặn cả
     # request, chỉ cần âm thầm crawl 1 lần cho category đó.
-    seen: set = set()
-    categories: list = []
+    seen: set[str] = set()
+    categories: list[str] = []
     for c in payload.categories:
         if c not in seen:
             seen.add(c)
@@ -160,7 +160,7 @@ def list_crawl_batches(
     triggered_by: Optional[str] = Query(None, description="Lọc theo ss_user_id admin đã bấm"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> PaginatedCrawlBatches:
     """Lịch sử batch — đối xứng GET /crawl (lịch sử run đơn lẻ). ĐẶT
     TRƯỚC GET /{run_id} không bắt buộc về mặt kỹ thuật (khác số lượng
@@ -183,7 +183,7 @@ def list_crawl_batches(
 
 
 @router.get("/batch/{batch_id}", response_model=CrawlBatchStatusOut)
-def get_crawl_batch(batch_id: str, user: dict = Depends(require_role("ss_team"))) -> dict:
+def get_crawl_batch(batch_id: str, user: dict[str, Any] = Depends(require_role("ss_team"))) -> dict[str, Any]:
     """Poll tiến độ TỔNG của 1 batch — trả kèm "items" (từng run con
     theo đúng thứ tự category) + "total"/"completed" để frontend hiện
     kiểu "2/6 category xong" mà không cần tự đếm lại từ GET /crawl."""
@@ -202,7 +202,7 @@ def list_crawl_runs(
     triggered_by: Optional[str] = Query(None, description="Lọc theo ss_user_id admin đã bấm"),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> PaginatedCrawlRuns:
     """Trang "Lịch sử crawl" — 08/2026, xem sql/migration_add_crawl_runs.sql.
 
@@ -226,7 +226,7 @@ def list_crawl_runs(
 
 
 @router.get("/latest-log-run", response_model=Optional[CrawlStatusOut])
-def get_latest_log_run(user: dict = Depends(require_role("ss_team"))) -> Optional[dict]:
+def get_latest_log_run(user: dict[str, Any] = Depends(require_role("ss_team"))) -> Optional[dict[str, Any]]:
     """Trả lượt crawl GẦN NHẤT (bất kể status) — khung "Log live" ở
     frontend gọi endpoint này lúc mở trang /crawl để luôn có 1 run_id
     hiện log, kể cả khi không có lượt nào đang chạy (hiện log của lượt
@@ -244,7 +244,7 @@ def get_latest_log_run(user: dict = Depends(require_role("ss_team"))) -> Optiona
 
 
 @router.get("/{run_id}", response_model=CrawlStatusOut)
-def get_crawl_status(run_id: str, user: dict = Depends(require_role("ss_team"))) -> dict:
+def get_crawl_status(run_id: str, user: dict[str, Any] = Depends(require_role("ss_team"))) -> dict[str, Any]:
     """Poll tiến độ/kết quả 1 lượt crawl.
 
     08/2026: THÊM yêu cầu đăng nhập tối thiểu 'ss_team' — trước đây
@@ -264,7 +264,7 @@ def get_crawl_logs(
     run_id: str,
     after_id: int = Query(0, ge=0, description="Chỉ lấy dòng log có id > after_id (poll tăng dần)"),
     limit: int = Query(500, ge=1, le=2000),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> CrawlLogsOut:
     """Khu "Xem log live" ở trang /crawl — poll endpoint này lặp lại
     (vd mỗi 2 giây) với after_id = last_id của lần gọi trước, để chỉ

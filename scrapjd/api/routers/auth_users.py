@@ -14,7 +14,7 @@ Tất cả route ở đây đều yêu cầu ít nhất require_role("ss_team"),
 lớn require_admin — không có route công khai nào.
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -34,9 +34,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 @router.post("/users", response_model=UserCreatedOut, status_code=201)
 def create_user(
     payload: UserCreateByAdmin,
-    admin: dict = Depends(require_admin),
+    admin: dict[str, Any] = Depends(require_admin),
     conn: Conn = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """CHỈ admin gọi được (require_admin). Mật khẩu TẠM được server tự
     sinh, trả về ĐÚNG 1 LẦN trong response này — admin tự đưa cho người
     dùng qua kênh khác (Slack/nói miệng), KHÔNG có luồng gửi email (xem
@@ -70,7 +70,7 @@ def create_user(
 
 @router.get("/users", response_model=list[UserOut])
 def list_users(
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     """Danh sách toàn bộ tài khoản (thêm 08/2026) — ss_team trở lên xem
@@ -82,7 +82,7 @@ def list_users(
 @router.get("/users/{ss_user_id}", response_model=UserOut)
 def get_user(
     ss_user_id: str,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> Row:
     """Thêm 10/2026 — xem đúng 1 tài khoản, shape GIỐNG HỆT 1 phần tử của
@@ -104,7 +104,7 @@ def get_user(
 @router.get("/users/{ss_user_id}/applications", response_model=list[JobApplicationOut])
 def list_applications_of_user(
     ss_user_id: str,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     """Thêm 08/2026 — chiều "1 học viên đã ứng tuyển job nào", để bổ
@@ -128,7 +128,7 @@ def list_applications_of_user(
 @router.get("/users/{ss_user_id}/saved-jobs", response_model=list[SavedJobOut])
 def list_saved_jobs_of_user(
     ss_user_id: str,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     """Thêm 08/2026 — mirror ĐÚNG list_applications_of_user() ở trên
@@ -150,7 +150,7 @@ def list_saved_jobs_of_user(
 def update_user_role(
     ss_user_id: str,
     payload: UserRoleUpdate,
-    admin: dict = Depends(require_admin),
+    admin: dict[str, Any] = Depends(require_admin),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     """CHỈ admin gọi được. Đổi role của 1 user khác — CHẶN admin tự đổi
@@ -182,7 +182,7 @@ def update_user_role(
 def update_user_active_status(
     ss_user_id: str,
     payload: UserActiveStatusUpdate,
-    admin: dict = Depends(require_admin),
+    admin: dict[str, Any] = Depends(require_admin),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     """CHỈ admin gọi được. Khoá/mở khoá VĨNH VIỄN 1 tài khoản khác —
