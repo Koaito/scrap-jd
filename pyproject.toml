@@ -36,19 +36,13 @@ exclude_also = [
 [tool.mypy]
 python_version = "3.12"
 files = ["scrapjd", "scripts", "main.py"]
-check_untyped_defs = true   # kiểm cả thân hàm chưa có type hint (mặc định mypy bỏ qua)
-disallow_untyped_defs = true     # mọi hàm phải có type hint cho tham số và kiểu trả về
-disallow_incomplete_defs = true  # hàm đã có hint thì phải đủ, không chú thích nửa vời
-# M3 (đang bật dần tới `strict = true`, xem ghi chú M3 trong kế hoạch): các cờ của strict đã sạch, bật sẵn để khoá lại
-disallow_subclassing_any = true
-disallow_untyped_decorators = true
-disallow_untyped_calls = true
-warn_return_any = true
-no_implicit_reexport = true
-strict_equality = true
-extra_checks = true
-warn_unused_ignores = true  # "# type: ignore" thừa thì báo, tránh ignore nằm lại sau khi lỗi đã hết
-warn_redundant_casts = true
+# M3k (đang làm, nửa 1/2 xong): `strict = true` bật gộp 13 cờ của mypy (--disallow-any-generics, --disallow-subclassing-any,
+# --disallow-untyped-calls, --disallow-untyped-defs, --disallow-incomplete-defs, --check-untyped-defs, --disallow-untyped-decorators,
+# --warn-redundant-casts, --warn-unused-ignores, --warn-return-any, --no-implicit-reexport, --strict-equality, --extra-checks) cho cả
+# repo, thay cho các cờ lẻ trước đây. Danh sách này theo mypy ghim ở requirements-dev.txt; nâng mypy có thể thêm cờ mới vào `strict`
+# và làm CI đỏ dù code không đổi, khi đó sửa hint cho khớp hoặc tạm ghim bản cũ. Nửa 2/2 xoá các khối override `disallow_any_generics`
+# (M3c đến M3j) bên dưới vì `strict` đã bao trùm.
+strict = true
 no_implicit_optional = true
 warn_unused_configs = true
 show_error_codes = true
