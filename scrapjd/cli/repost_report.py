@@ -43,7 +43,7 @@ import unicodedata
 from collections import Counter
 from dataclasses import dataclass, field
 from itertools import combinations
-from typing import Any, Callable, Optional, TextIO
+from typing import Any, Callable, Optional, TextIO, cast
 from urllib.parse import urlparse
 
 from scrapjd import db
@@ -101,20 +101,20 @@ def role_text(raw: Optional[str]) -> str:
     return "\n".join(p for p in parts if p)
 
 
-def tokenize(text: str) -> list:
+def tokenize(text: str) -> list[str]:
     """Từ của `text`: NFC + chữ thường, bỏ dấu câu, GIỮ dấu tiếng Việt (bỏ dấu sẽ làm "quản lý"
     và "quan ly" trùng nhau, không có lợi gì khi so JD cùng nguồn gốc)."""
     return _WORD_RE.findall(_norm(text))
 
 
-def shingles(tokens: list, size: int = SHINGLE_SIZE) -> frozenset:
+def shingles(tokens: list[str], size: int = SHINGLE_SIZE) -> frozenset[str]:
     """Tập cụm `size` từ liên tiếp. Rỗng nếu ít từ hơn `size`."""
     if len(tokens) < size:
         return frozenset()
     return frozenset(" ".join(tokens[i:i + size]) for i in range(len(tokens) - size + 1))
 
 
-def jaccard(a: frozenset, b: frozenset) -> float:
+def jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     """|A giao B| / |A hợp B|. Hai tập rỗng: 0.0 (không có gì để nói là giống)."""
     union = len(a | b)
     return len(a & b) / union if union else 0.0
@@ -154,7 +154,7 @@ class LogInfo:
     donor_job_id: Optional[str]     # chỉ có khi origin = ORIGIN_MERGE
     n_words: int                    # số từ của văn bản so
     snippet: str
-    shingle_set: frozenset = field(default_factory=frozenset, repr=False)
+    shingle_set: frozenset[str] = field(default_factory=frozenset, repr=False)
 
     @property
     def comparable(self) -> bool:
@@ -185,8 +185,8 @@ class JobResult:
     province_name: Optional[str]
     job_status: str
     n_logs: int                     # số log của job trong DB
-    logs: list                      # LogInfo của các log được xét (<= MAX_LOGS_PER_JOB)
-    pairs: list = field(default_factory=list)   # Pair của mọi cặp so được, đã sắp thấp trước
+    logs: list[LogInfo]             # LogInfo của các log được xét (<= MAX_LOGS_PER_JOB)
+    pairs: list[Pair] = field(default_factory=list)   # Pair của mọi cặp so được, đã sắp thấp trước
     klass: str = CLASS_NOT_COMPARABLE
 
     @property
@@ -206,7 +206,7 @@ class JobResult:
         return self.pairs[0].similarity if self.pairs else None
 
 
-def build_log_info(row: dict, origins_moved: dict) -> LogInfo:
+def build_log_info(row: dict[str, Any], origins_moved: dict[str, dict[str, Any]]) -> LogInfo:
     text = role_text(row.get("raw_jd_content"))
     tokens = tokenize(text)
     moved = origins_moved.get(row["log_id"])
@@ -219,13 +219,13 @@ def build_log_info(row: dict, origins_moved: dict) -> LogInfo:
     )
 
 
-def build_results(rows: list, origins_moved: Optional[dict] = None,
-                  suspect_below: float = DEFAULT_SUSPECT_BELOW) -> list:
+def build_results(rows: list[dict[str, Any]], origins_moved: Optional[dict[str, dict[str, Any]]] = None,
+                  suspect_below: float = DEFAULT_SUSPECT_BELOW) -> list[JobResult]:
     """Từ các dòng db.list_multi_source_job_logs (đã sắp theo job rồi tin cũ nhất trước) dựng
     JobResult cho từng job, theo thứ tự xuất hiện. Job có nhiều hơn MAX_LOGS_PER_JOB tin chỉ xét
     các tin cũ nhất."""
     origins_moved = origins_moved or {}
-    grouped: dict = {}
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(row["job_id"], []).append(row)
 
@@ -249,13 +249,13 @@ def build_results(rows: list, origins_moved: Optional[dict] = None,
     return results
 
 
-def reclassify(results: list, suspect_below: float) -> None:
+def reclassify(results: list[JobResult], suspect_below: float) -> None:
     """Gán lại nhãn theo ngưỡng mới (không so lại độ giống)."""
     for r in results:
-        r.klass = classify(r.score, suspect_below) if r.pairs else CLASS_NOT_COMPARABLE
+        r.klass = classify(cast(float, r.score), suspect_below) if r.pairs else CLASS_NOT_COMPARABLE
 
 
-def histogram(results: list, bins: int = 10) -> list:
+def histogram(results: list[JobResult], bins: int = 10) -> list[int]:
     """Số job theo điểm giống thấp nhất, chia `bins` khoảng đều trên [0, 1]; điểm 1.0 vào khoảng
     cuối. Chỉ tính job so được."""
     counts = [0] * bins
@@ -276,21 +276,21 @@ class Summary:
     n_logs_unusable: int            # log (trong job so được hoặc không) thiếu nội dung
     merge_logs_moved: int
     merge_logs_dropped: int
-    by_class: Counter
+    by_class: Counter[str]
     # (tổng so được, số nghi gộp nhầm) theo từng cách tách
-    split_same_site: tuple
-    split_cross_site: tuple
-    split_with_merge: tuple
-    split_without_merge: tuple
-    hist: list
+    split_same_site: tuple[int, int]
+    split_cross_site: tuple[int, int]
+    split_with_merge: tuple[int, int]
+    split_without_merge: tuple[int, int]
+    hist: list[int]
 
 
-def _suspect_split(results: list, predicate: Callable[[Any], bool]) -> tuple:
+def _suspect_split(results: list[JobResult], predicate: Callable[[Any], bool]) -> tuple[int, int]:
     subset = [r for r in results if r.pairs and predicate(r.worst)]
     return len(subset), sum(1 for r in subset if r.klass == CLASS_SUSPECT)
 
 
-def summarize(results: list, *, total_jobs: int, merge_moved: int = 0, merge_dropped: int = 0) -> Summary:
+def summarize(results: list[JobResult], *, total_jobs: int, merge_moved: int = 0, merge_dropped: int = 0) -> Summary:
     comparable = [r for r in results if r.pairs]
     return Summary(
         total_jobs=total_jobs, n_multi=len(results), n_comparable=len(comparable),
@@ -307,7 +307,7 @@ def summarize(results: list, *, total_jobs: int, merge_moved: int = 0, merge_dro
     )
 
 
-def suspects(results: list) -> list:
+def suspects(results: list[JobResult]) -> list[JobResult]:
     """Job nghi gộp nhầm, điểm thấp nhất trước (bằng điểm thì theo công ty rồi job_id)."""
     return sorted((r for r in results if r.klass == CLASS_SUSPECT),
                   key=lambda r: (r.score, r.company_name, r.job_id))
@@ -350,7 +350,7 @@ def _print_job(no: int, r: JobResult) -> None:
         print(f"          \"{log.snippet}\"")
 
 
-def print_report(summary: Summary, results: list, *, show: int, suspect_below: float) -> None:
+def print_report(summary: Summary, results: list[JobResult], *, show: int, suspect_below: float) -> None:
     s = summary
     print("=" * 78)
     print("BÁO CÁO ĐO TỶ LỆ GỘP NHẦM (chỉ đọc)")
@@ -412,7 +412,7 @@ _CSV_HEADER = (
 )
 
 
-def write_csv(results: list, fh: TextIO) -> int:
+def write_csv(results: list[JobResult], fh: TextIO) -> int:
     """Ghi mọi cặp tin so được ra `fh` (file mở sẵn, newline=''), mỗi cặp một dòng; trả số dòng.
     Job điểm thấp nhất trước, trong job cặp thấp nhất trước."""
     writer = csv.writer(fh)
@@ -430,7 +430,7 @@ def write_csv(results: list, fh: TextIO) -> int:
     return n
 
 
-def export_csv(results: list, path: str) -> int:
+def export_csv(results: list[JobResult], path: str) -> int:
     # utf-8-sig: Excel mở tiếng Việt đúng dấu.
     with open(path, "w", encoding="utf-8-sig", newline="") as fh:
         return write_csv(results, fh)

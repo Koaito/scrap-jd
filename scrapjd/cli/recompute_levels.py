@@ -41,7 +41,7 @@ import argparse
 import logging
 from collections import Counter
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 from scrapjd import db
 from scrapjd import normalize
@@ -72,13 +72,13 @@ class Plan:
     action: str
     new_level: Optional[str] = None
     new_source: Optional[str] = None
-    new_signals: Optional[dict] = None
+    new_signals: Optional[dict[str, Any]] = None
 
 
 # ----------------------------------------------------------------------
 # Logic thuần (không DB, không mạng) — có test
 # ----------------------------------------------------------------------
-def plan_job(row: dict, rule_version: int = normalize.LEVEL_RULE_VERSION) -> Plan:
+def plan_job(row: dict[str, Any], rule_version: int = normalize.LEVEL_RULE_VERSION) -> Plan:
     """Quyết định việc cần làm cho MỘT job (dict từ db.list_level_recompute_candidates)."""
     has_stamp = row.get("level_source") is not None
     if not has_stamp and row.get("has_editor"):
@@ -100,12 +100,12 @@ def plan_job(row: dict, rule_version: int = normalize.LEVEL_RULE_VERSION) -> Pla
                 decision.level, decision.source, signals)
 
 
-def build_plans(rows: list, rule_version: int = normalize.LEVEL_RULE_VERSION) -> list:
+def build_plans(rows: list[dict[str, Any]], rule_version: int = normalize.LEVEL_RULE_VERSION) -> list[tuple[dict[str, Any], Plan]]:
     """[(row, Plan)] cho mọi job được chọn, giữ thứ tự."""
     return [(row, plan_job(row, rule_version)) for row in rows]
 
 
-def simulate_group_effects(members: dict, moves: list) -> dict:
+def simulate_group_effects(members: dict[str, dict[str, Any]], moves: list[dict[str, Any]]) -> dict[str, Any]:
     """Ảnh hưởng của việc đổi level lên nhóm cùng content_hash (khoá cũ, còn gồm level; không còn là
     tiêu chí job trùng từ A3, chỉ để tham khảo).
 
@@ -143,13 +143,13 @@ def simulate_group_effects(members: dict, moves: list) -> dict:
 class Summary:
     """Số liệu tổng hợp từ danh sách (row, Plan) để in báo cáo."""
 
-    def __init__(self, plans: list):
+    def __init__(self, plans: list[tuple[dict[str, Any], Plan]]):
         self.selected = len(plans)
-        self.by_action: Counter = Counter(plan.action for _, plan in plans)
+        self.by_action: Counter[str] = Counter(plan.action for _, plan in plans)
         self.with_signals = sum(1 for row, _ in plans if row.get("level_signals") is not None)
-        self.transitions: Counter = Counter()   # (cũ, mới, căn cứ) -> số job
-        self.stamps: Counter = Counter()        # căn cứ -> số job chỉ đóng dấu
-        self.samples: dict = {a: [] for a in (ACTION_CHANGE, ACTION_SKIP_EDITED)}
+        self.transitions: Counter[tuple[str, Optional[str], Optional[str]]] = Counter()   # (cũ, mới, căn cứ) -> số job
+        self.stamps: Counter[Optional[str]] = Counter()        # căn cứ -> số job chỉ đóng dấu
+        self.samples: dict[str, list[tuple[dict[str, Any], Plan]]] = {a: [] for a in (ACTION_CHANGE, ACTION_SKIP_EDITED)}
         for row, plan in plans:
             if plan.action == ACTION_CHANGE:
                 self.transitions[(row.get("level_code") or "(trống)", plan.new_level, plan.new_source)] += 1
@@ -159,7 +159,7 @@ class Summary:
                 self.samples[plan.action].append((row, plan))
 
 
-def to_change(row: dict, plan: Plan, level_ids: dict, rule_version: int) -> dict:
+def to_change(row: dict[str, Any], plan: Plan, level_ids: dict[Any, Any], rule_version: int) -> dict[str, Any]:
     """Dựng dict cho db.write_recomputed_levels từ một job + kế hoạch đã chọn."""
     new_level_id = level_ids.get(plan.new_level)
     if new_level_id is None:
@@ -180,8 +180,8 @@ def _short(job_id: object) -> str:
     return str(job_id)[:8]
 
 
-def print_report(summary: Summary, effects: Optional[dict], *, apply: bool, rule_version: int,
-                 show: int = DEFAULT_SHOW, written: Optional[int] = None, stale: Optional[list] = None,
+def print_report(summary: Summary, effects: Optional[dict[str, Any]], *, apply: bool, rule_version: int,
+                 show: int = DEFAULT_SHOW, written: Optional[int] = None, stale: Optional[list[Any]] = None,
                  dup_before: Optional[int] = None, dup_after: Optional[int] = None) -> None:
     mode = "ĐÃ GHI DB" if apply else "CHẠY THỬ (không ghi DB)"
     n = summary.by_action
@@ -256,7 +256,7 @@ def _check_ready(conn: Conn, *, apply: bool) -> Optional[str]:
     return None
 
 
-def analyze_duplicate_effects(conn: Conn, plans: list, level_ids: dict) -> dict:
+def analyze_duplicate_effects(conn: Conn, plans: list[tuple[dict[str, Any], Plan]], level_ids: dict[Any, Any]) -> dict[str, Any]:
     """Ảnh hưởng nhóm trùng của các job SẼ ĐỔI level (không tính job chỉ đóng dấu)."""
     changing = [(row, plan) for row, plan in plans if plan.action == ACTION_CHANGE]
     new_levels = {str(row["job_id"]): level_ids[plan.new_level] for row, plan in changing}

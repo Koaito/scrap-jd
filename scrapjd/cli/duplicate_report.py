@@ -31,7 +31,7 @@ import csv
 import logging
 from collections import Counter
 from dataclasses import dataclass, field
-from typing import Optional, TextIO
+from typing import Any, Optional, TextIO
 from urllib.parse import urlparse
 
 from scrapjd import db
@@ -71,7 +71,7 @@ def site_of_url(url: Optional[str]) -> str:
     return host or "?"
 
 
-def member_urls(row: dict) -> set:
+def member_urls(row: dict[str, Any]) -> set[str]:
     """Mọi URL nguồn đã biết của một job: job_postings.source_url và job_sources_log."""
     urls = set(row.get("log_urls") or [])
     if row.get("source_url"):
@@ -79,7 +79,7 @@ def member_urls(row: dict) -> set:
     return urls
 
 
-def primary_site(row: dict) -> str:
+def primary_site(row: dict[str, Any]) -> str:
     """Trang của job_postings.source_url (URL job đang trỏ tới, có thể đã đổi sang tin đăng
     lại, xem db.link_repost_source; không phải nguồn gốc bất biến); thiếu thì lấy URL log
     đầu tiên theo thứ tự chữ cái."""
@@ -87,7 +87,7 @@ def primary_site(row: dict) -> str:
     return site_of_url(url)
 
 
-def protection_labels(row: dict) -> list:
+def protection_labels(row: dict[str, Any]) -> list[str]:
     """Những dữ liệu do người dùng/nhân viên tạo đang gắn vào job (việc gộp phải giữ lại)."""
     out = []
     if row.get("has_editor"):
@@ -103,11 +103,11 @@ def protection_labels(row: dict) -> list:
     return out
 
 
-def is_protected(row: dict) -> bool:
+def is_protected(row: dict[str, Any]) -> bool:
     return bool(protection_labels(row))
 
 
-def classify_tier(members: list) -> str:
+def classify_tier(members: list[dict[str, Any]]) -> str:
     """strict: một tỉnh + một level; level: một tỉnh, nhiều level; province: nhiều tỉnh.
     (Tỉnh trống được coi là một giá trị.)"""
     provinces = {r.get("province_id") for r in members}
@@ -117,10 +117,10 @@ def classify_tier(members: list) -> str:
     return TIER_STRICT if len(levels) == 1 else TIER_LEVEL
 
 
-def has_shared_url(members: list) -> bool:
+def has_shared_url(members: list[dict[str, Any]]) -> bool:
     """Có URL nguồn nào xuất hiện ở >= 2 job trong nhóm không (cùng một tin gắn vào hai job:
     bằng chứng trùng mạnh nhất)."""
-    seen: Counter = Counter()
+    seen: Counter[str] = Counter()
     for r in members:
         for url in member_urls(r):
             seen[url] += 1
@@ -152,7 +152,7 @@ _KEEPER_CRITERIA = (
 )
 
 
-def _keeper_key(row: dict) -> tuple:
+def _keeper_key(row: dict[str, Any]) -> tuple[int, int, int, Any, Any]:
     deadline = row.get("deadline")
     return (
         0 if is_protected(row) else 1,
@@ -163,7 +163,7 @@ def _keeper_key(row: dict) -> tuple:
     )
 
 
-def propose_keeper(members: list) -> tuple:
+def propose_keeper(members: list[dict[str, Any]]) -> tuple[str, str]:
     """(job_id đề xuất giữ, lý do) theo luật v0. Lý do là tiêu chí đầu tiên làm job này hơn
     job đứng thứ hai. Nhóm chỉ có hai job giống hệt mọi tiêu chí: lấy job tạo sớm hơn."""
     ranked = sorted(members, key=_keeper_key)
@@ -175,7 +175,7 @@ def propose_keeper(members: list) -> tuple:
     return first["job_id"], "giống nhau mọi tiêu chí (kể cả thời điểm tạo), lấy theo job_id cho ổn định"
 
 
-def rank_members(members: list) -> list:
+def rank_members(members: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Các job của một nhóm theo luật chọn giữ v0, tốt nhất (nên giữ) trước. Dùng chung với
     scrapjd/cli/merge_duplicates.py (Phần 3b) để thứ tự job giữ / job bị gộp luôn khớp báo cáo."""
     return sorted(members, key=_keeper_key)
@@ -186,7 +186,7 @@ class Group:
     company_id: str
     company_name: str
     title: str
-    members: list
+    members: list[dict[str, Any]]
     tier: str
     confidence: str
     open_count: int
@@ -195,7 +195,7 @@ class Group:
     protected_count: int
     keeper_id: Optional[str]
     keeper_why: str
-    reasons: list = field(default_factory=list)
+    reasons: list[str] = field(default_factory=list)
 
     @property
     def size(self) -> int:
@@ -207,7 +207,7 @@ class Group:
         return self.protected_count >= 2
 
 
-def analyze_group(members: list) -> Group:
+def analyze_group(members: list[dict[str, Any]]) -> Group:
     """Phân loại một nhóm (>= 2 job cùng company_id + norm_title) từ các dict của
     db.list_duplicate_job_rows."""
     members = sorted(members, key=lambda r: (r["created_at"], r["job_id"]))
@@ -241,10 +241,10 @@ def analyze_group(members: list) -> Group:
     )
 
 
-def build_groups(rows: list) -> list:
+def build_groups(rows: list[dict[str, Any]]) -> list[Group]:
     """Gom các dòng thành nhóm nghi trùng (>= 2 job cùng company_id + norm_title). Sắp theo độ
     chắc (cao trước), rồi tầng, rồi nhóm lớn trước, rồi theo tên công ty/tiêu đề cho ổn định."""
-    by_key: dict = {}
+    by_key: dict[tuple[Any, Any], list[dict[str, Any]]] = {}
     for r in rows:
         by_key.setdefault((r["company_id"], r["norm_title"]), []).append(r)
     groups = [analyze_group(m) for m in by_key.values() if len(m) >= 2]
@@ -253,7 +253,7 @@ def build_groups(rows: list) -> list:
     return groups
 
 
-def count_key_groups(rows: list) -> int:
+def count_key_groups(rows: list[dict[str, Any]]) -> int:
     """Số dedup_key có >= 2 job trong `rows`: phải bằng số dòng của
     v_duplicate_job_candidates (dùng để đối chiếu hai cách đếm)."""
     return sum(1 for n in Counter(r["dedup_key"] for r in rows).values() if n >= 2)
@@ -262,16 +262,16 @@ def count_key_groups(rows: list) -> int:
 class Summary:
     """Số liệu tổng hợp từ danh sách nhóm để in báo cáo."""
 
-    def __init__(self, groups: list, *, total_jobs: int, jobs_in_groups: int,
+    def __init__(self, groups: list[Group], *, total_jobs: int, jobs_in_groups: int,
                  key_groups: int, view_groups: Optional[int]):
         self.total_jobs = total_jobs
         self.jobs_in_groups = jobs_in_groups
         self.groups = len(groups)
         self.key_groups = key_groups
         self.view_groups = view_groups
-        self.by_tier: Counter = Counter(g.tier for g in groups)
-        self.by_conf: Counter = Counter(g.confidence for g in groups)
-        self.by_size: Counter = Counter(g.size for g in groups)
+        self.by_tier: Counter[str] = Counter(g.tier for g in groups)
+        self.by_conf: Counter[str] = Counter(g.confidence for g in groups)
+        self.by_size: Counter[int] = Counter(g.size for g in groups)
         self.shared_url = sum(1 for g in groups if g.shared_url)
         self.cross_source = sum(1 for g in groups if g.cross_source)
         self.multi_open = sum(1 for g in groups if g.open_count >= 2)
@@ -294,7 +294,7 @@ def _day(value: object) -> str:
     return str(value)[:10] if value else "—"
 
 
-def _salary(row: dict) -> str:
+def _salary(row: dict[str, Any]) -> str:
     lo, hi = row.get("salary_min"), row.get("salary_max")
     if lo is None and hi is None:
         return "—"
@@ -318,7 +318,7 @@ def _print_group(no: int, g: Group) -> None:
         print("      Không đề xuất gộp (khác tỉnh: nhiều khả năng là tin riêng của từng chi nhánh).")
 
 
-def print_report(summary: Summary, groups: list, *, show: int = DEFAULT_SHOW) -> None:
+def print_report(summary: Summary, groups: list[Group], *, show: int = DEFAULT_SHOW) -> None:
     s = summary
     print("\n===== BÁO CÁO JOB NGHI TRÙNG (chỉ đọc, không ghi DB) =====")
     print(f"Tổng job trong DB: {s.total_jobs}")
@@ -369,7 +369,7 @@ _CSV_HEADER = (
 )
 
 
-def write_csv(groups: list, fh: TextIO) -> int:
+def write_csv(groups: list[Group], fh: TextIO) -> int:
     """Ghi mọi nhóm ra `fh` (file mở sẵn, newline=''), mỗi job một dòng; trả số dòng job."""
     writer = csv.writer(fh)
     writer.writerow(_CSV_HEADER)
@@ -391,7 +391,7 @@ def write_csv(groups: list, fh: TextIO) -> int:
     return n
 
 
-def export_csv(groups: list, path: str) -> int:
+def export_csv(groups: list[Group], path: str) -> int:
     # utf-8-sig: Excel mở tiếng Việt đúng dấu.
     with open(path, "w", encoding="utf-8-sig", newline="") as fh:
         return write_csv(groups, fh)

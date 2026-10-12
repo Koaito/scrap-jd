@@ -169,3 +169,16 @@ module = [
     "scrapjd.maintenance.get_company_fb_linkedin_link",
 ]
 disallow_any_generics = true
+
+[[tool.mypy.overrides]]
+# M3g (nửa 1/2): `disallow_any_generics` cho `scrapjd.cli` (gói vốn đã sạch và 4 module lá: `check_listing_derivation`, `duplicate_report`,
+# `recompute_levels`, `repost_report`). Nửa 2/2: `merge_duplicates` (gọi `duplicate_report`, nên làm sau). M3h đến M3j thêm phần còn
+# lại của repo; M3k xoá khối này và bật `strict = true`.
+module = [
+    "scrapjd.cli",
+    "scrapjd.cli.check_listing_derivation",
+    "scrapjd.cli.duplicate_report",
+    "scrapjd.cli.recompute_levels",
+    "scrapjd.cli.repost_report",
+]
+disallow_any_generics = true

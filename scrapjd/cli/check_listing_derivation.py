@@ -53,12 +53,12 @@ class Report:
     jobs_without_listings: int = 0
     jobs_compared: int = 0
     jobs_matching: int = 0
-    mismatches: list = field(default_factory=list)
+    mismatches: list[Mismatch] = field(default_factory=list)
 
-    def by_field(self) -> Counter:
+    def by_field(self) -> Counter[str]:
         return Counter(m.field for m in self.mismatches)
 
-    def by_kind(self) -> Counter:
+    def by_kind(self) -> Counter[tuple[str, str]]:
         return Counter((m.field, m.kind) for m in self.mismatches)
 
     def jobs_with_mismatch(self) -> int:
@@ -78,12 +78,12 @@ def _kind_deadline(stored: Optional[date], derived: Optional[date]) -> str:
     return "cả hai có hạn, job muộn hơn" if stored > derived else "cả hai có hạn, job sớm hơn"
 
 
-def _kind_url(stored: Optional[str], listing_urls: set) -> str:
+def _kind_url(stored: Optional[str], listing_urls: set[str]) -> str:
     return ("URL của job là một listing khác của job" if stored in listing_urls
             else "URL của job không có listing nào")
 
 
-def compare_job(job: dict, derived: DerivedJob) -> list:
+def compare_job(job: dict[str, Any], derived: DerivedJob) -> list[tuple[str, str, Any, Any]]:
     """Danh sách (trường, loại, giá trị đang lưu, giá trị suy ra) cho các trường lệch của một job."""
     out: list[tuple[str, str, Any, Any]] = []
     if job["job_status"] != derived.job_status:
@@ -100,7 +100,7 @@ def compare_job(job: dict, derived: DerivedJob) -> list:
     return out
 
 
-def build_report(jobs: list) -> Report:
+def build_report(jobs: list[dict[str, Any]]) -> Report:
     """Báo cáo từ kết quả db.list_jobs_with_listings(). Hàm thuần."""
     rep = Report(total_jobs=len(jobs))
     for job in jobs:
