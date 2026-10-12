@@ -6,7 +6,7 @@ api/schemas.py (08/2026) — xem docstring scrapjd/api/schemas/__init__.py.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from scrapjd.api.schemas.validators import validate_note_not_blank
@@ -51,7 +51,7 @@ class AuditLogOut(BaseModel):
         default=None, description="Tên company HIỆN TẠI (join sống) — có thể khác entity_label "
                                    "nếu action_type liên quan company và company đã đổi tên sau đó."
     )
-    changes: Optional[dict] = Field(
+    changes: Optional[dict[Any, Any]] = Field(
         default=None,
         description="{field: {old, new}} — chỉ gồm field THỰC SỰ đổi giá trị. Có ở "
                     "UPDATE_*, ASSIGN_CONTACT (field assigned_ss_user, giá trị là "

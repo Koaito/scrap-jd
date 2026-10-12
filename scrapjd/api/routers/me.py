@@ -27,7 +27,7 @@ saved-jobs cho phép cao hơn applications (30/minute vs 15/minute) vì
 khi ứng tuyển là hành động 1 chiều, ít lý do bấm nhiều lần liên tiếp.
 """
 
-from typing import Optional
+from typing import Any, Optional
 import psycopg2.errors
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File, Form
 
@@ -55,7 +55,7 @@ def apply_to_job(
     job_id: str = Form(...),
     note: Optional[str] = Form(None),
     cv_file: UploadFile = File(..., description="File PDF CV của học viên (max 5MB)"),
-    user: dict = Depends(require_role("user")),
+    user: dict[str, Any] = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
 ) -> Row:
     if not db_module.is_valid_uuid(job_id):
@@ -118,7 +118,7 @@ def apply_to_job(
 
 @router.get("/applications", response_model=list[JobApplicationOut])
 def list_my_applications(
-    user: dict = Depends(require_role("user")),
+    user: dict[str, Any] = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     return db_module.list_applications_for_user(conn, user["sub"])
@@ -157,7 +157,7 @@ def withdraw_application(
                     "team SS xem lại sau, KHÔNG lưu vào job_applications vì "
                     "record đó bị xoá thật ngay trong request này.",
     ),
-    user: dict = Depends(require_role("user")),
+    user: dict[str, Any] = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
 ) -> None:
     """Huỷ ứng tuyển (thêm 08/2026, xem db.delete_job_application()) —
@@ -203,7 +203,7 @@ def withdraw_application(
 def save_job(
     request: Request,
     payload: SavedJobCreate,
-    user: dict = Depends(require_role("user")),
+    user: dict[str, Any] = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
 ) -> Row:
     if not db_module.is_valid_uuid(payload.job_id):
@@ -235,7 +235,7 @@ def save_job(
 def toggle_saved_job(
     request: Request,
     payload: SavedJobCreate,
-    user: dict = Depends(require_role("user")),
+    user: dict[str, Any] = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
 ) -> SavedJobToggleResult:
     if not db_module.is_valid_uuid(payload.job_id):
@@ -261,7 +261,7 @@ def toggle_saved_job(
 
 @router.get("/saved-jobs", response_model=list[SavedJobOut])
 def list_my_saved_jobs(
-    user: dict = Depends(require_role("user")),
+    user: dict[str, Any] = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     return db_module.list_saved_jobs_for_user(conn, user["sub"])
@@ -270,7 +270,7 @@ def list_my_saved_jobs(
 @router.delete("/saved-jobs/{job_id}", status_code=204, response_model=None)
 def unsave_job(
     job_id: str,
-    user: dict = Depends(require_role("user")),
+    user: dict[str, Any] = Depends(require_role("user")),
     conn: Conn = Depends(get_db),
 ) -> None:
     if not db_module.is_valid_uuid(job_id):

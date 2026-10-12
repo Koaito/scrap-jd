@@ -7,7 +7,7 @@ source/category riêng cho crawl).
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -86,9 +86,9 @@ class MaintenanceAccepted(BaseModel):
 class MaintenanceStatusOut(BaseModel):
     run_id: str
     job_type: str
-    params: dict
+    params: dict[Any, Any]
     status: str  # "queued" | "running" | "done" | "error"
-    stats: Optional[dict] = None
+    stats: Optional[dict[Any, Any]] = None
     error: Optional[str] = None
     triggered_by: Optional[str] = None
     triggered_by_name: Optional[str] = Field(

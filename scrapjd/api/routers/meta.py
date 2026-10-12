@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import APIRouter, Depends
 
 from scrapjd import db as db_module
@@ -19,7 +21,7 @@ router = APIRouter(tags=["meta"])
 
 
 @router.get("/stats", response_model=StatsOut)
-def get_stats(conn: Conn = Depends(get_db)) -> dict:
+def get_stats(conn: Conn = Depends(get_db)) -> dict[str, Any]:
     """Số liệu tổng quan cho dashboard — tổng job, tổng công ty, tỷ lệ
     đã có social, phân bố theo ngành/nguồn, tổng đơn ứng tuyển (thêm
     08/2026), jobs_by_status và total_students (thêm 09/2026 — xem
@@ -28,7 +30,7 @@ def get_stats(conn: Conn = Depends(get_db)) -> dict:
 
 
 @router.get("/stats/engagement", response_model=EngagementStatsOut)
-def get_engagement_stats(conn: Conn = Depends(get_db)) -> dict:
+def get_engagement_stats(conn: Conn = Depends(get_db)) -> dict[str, Any]:
     """Thêm 08/2026 — riêng cho dashboard tab 'Gợi ý học viên' (JD
     "ế": đăng lâu mà 0 lượt lưu/ứng tuyển) và tab 'Báo cáo tháng' (%
     tăng/giảm học viên lưu/ứng tuyển so tháng trước).

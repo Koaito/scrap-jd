@@ -6,7 +6,7 @@ gợi ý công ty (suggest-companies). Tách từ api/schemas.py (08/2026) —
 xem docstring scrapjd/api/schemas/__init__.py.
 """
 
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from scrapjd.api.schemas.validators import validate_note_not_blank
@@ -43,13 +43,13 @@ class ImportUploadResponse(BaseModel):
     """
     preview_id: str
     entity_type: str
-    summary: dict  # {"total_rows", "new_records", "conflicts", "conflicts_inactive",
+    summary: dict[Any, Any]  # {"total_rows", "new_records", "conflicts", "conflicts_inactive",
                     #  "pending_company_resolution", "pending_level_resolution",
                     #  "id_field"} — xem
                     # scrapjd/api/services/preview_manager.py::build_preview() cho cấu
                     # trúc đầy đủ + comment đầu file (nguồn sự thật thật sự,
                     # dict comment ở đây chỉ để đọc lướt nhanh).
-    rows: list[dict]  # Chi tiết từng dòng import
+    rows: list[dict[Any, Any]]  # Chi tiết từng dòng import
 
 
 class RowResolution(BaseModel):
@@ -217,8 +217,8 @@ class FieldVerifyResponse(BaseModel):
     trong CHÍNH file — LƯU Ý: case duplicate_in_batch ảnh hưởng 2 CHIỀU,
     dòng other_row_index cũng vừa đổi trong preview đã lưu DB dù KHÔNG
     nằm trong response này)."""
-    row: dict
-    field_error: Optional[dict] = Field(
+    row: dict[Any, Any]
+    field_error: Optional[dict[Any, Any]] = Field(
         None, description="{'rule','message'} nếu vẫn lỗi, None nếu đã hợp lệ và đã lưu."
     )
 
@@ -247,7 +247,7 @@ class ResolveCompanyResponse(BaseModel):
     của dòng đó sau khi cập nhật (đúng cấu trúc 1 phần tử trong
     ImportUploadResponse.rows, cùng shape FieldVerifyResponse.row) — FE ghi
     đè PREVIEW_DATA[row_index] bằng row này rồi renderPage() lại."""
-    row: dict
+    row: dict[Any, Any]
 
 
 class ImportConfirmRequest(BaseModel):
@@ -317,7 +317,7 @@ class ExportPreviewResponse(BaseModel):
         ..., description="Số dòng THỰC TẾ sẽ có trong file (đã áp limit nếu có)."
     )
     columns: list[str]
-    sample_rows: list[dict] = Field(
+    sample_rows: list[dict[Any, Any]] = Field(
         default_factory=list,
         description="Tối đa 20 dòng đầu (theo created_at DESC, đã áp mọi filter "
                      "kể cả limit) để staff xem trước hình dạng dữ liệu.",

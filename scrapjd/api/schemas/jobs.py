@@ -6,7 +6,7 @@ mọi tên cũ, KHÔNG cần sửa `from scrapjd.api.schemas import X` ở nơi 
 """
 
 from datetime import date, datetime
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -56,7 +56,7 @@ class JobOut(BaseModel):
         description="ss_user_id người sửa job này GẦN NHẤT qua PATCH /jobs/{id}. "
                     "null = chưa từng bị sửa qua route có JWT.",
     )
-    parsed_content: Optional[dict] = Field(
+    parsed_content: Optional[dict[Any, Any]] = Field(
         default=None,
         description="Mô tả JD chi tiết (job_description/requirements/perks/required_skills). "
                     "CHỈ có giá trị khi GET /jobs được gọi kèm include_content=true — mặc "
@@ -69,7 +69,7 @@ class JobOut(BaseModel):
 
 
 class JobDetailOut(JobOut):
-    parsed_content: Optional[dict] = None
+    parsed_content: Optional[dict[Any, Any]] = None
     ss_team_notes: Optional[str] = None
 
 

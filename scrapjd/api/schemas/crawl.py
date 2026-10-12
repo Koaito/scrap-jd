@@ -4,7 +4,7 @@ Tách từ api/schemas.py (08/2026) — xem docstring scrapjd/api/schemas/__init
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -54,7 +54,7 @@ class CrawlStatusOut(BaseModel):
     )
     started_at: datetime
     finished_at: Optional[datetime] = None
-    stats: Optional[dict] = None
+    stats: Optional[dict[Any, Any]] = None
     error: Optional[str] = None
     # 08/2026 (xem sql/migration_add_crawl_progress_logs.sql) — snapshot
     # tiến độ MỚI NHẤT, ghi đè liên tục trong lúc status='running'
@@ -62,7 +62,7 @@ class CrawlStatusOut(BaseModel):
     # None khi chưa có heartbeat nào (vd status vẫn 'queued', hoặc lượt
     # crawl chạy TRƯỚC KHI tính năng này tồn tại) — frontend coi None
     # như "chưa có số liệu" chứ không phải lỗi.
-    progress: Optional[dict] = None
+    progress: Optional[dict[Any, Any]] = None
     # 08/2026 (xem sql/migration_add_crawl_batches.sql) — None nếu run
     # này KHÔNG thuộc batch nào (crawl đơn lẻ như trước giờ, đa số
     # run). batch_position: thứ tự category này trong batch (0-based),
