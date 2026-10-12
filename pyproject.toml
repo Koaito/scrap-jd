@@ -29,19 +29,19 @@ exclude_also = [
     "if TYPE_CHECKING:",
 ]
 
-# mypy (kiểm kiểu). Mức chung: kiểm cả hàm chưa có type hint, đã dọn sạch cảnh báo, và BẮT BUỘC type hint cho mọi hàm
-# (M2 xong 10/10: `disallow_untyped_defs`, bật cho cả repo; hàm mới thiếu hint ở bất kỳ file nào thì CI đỏ).
+# mypy (kiểm kiểu). Mức chung: `strict = true` cho cả repo (M2 và M3 xong: mọi hàm phải có type hint, dict/list/tuple/set trần
+# phải có tham số kiểu, `# type: ignore` và `cast` thừa bị báo); hàm thiếu hint hay dict trần mới ở bất kỳ file nào thì CI đỏ.
 # CI chạy `mypy` ở .github/workflows/test.yml và CHẶN khi có lỗi.
 # Chạy từ gốc repo: `mypy`. Phiên bản mypy và stubs ghim ở requirements-dev.txt.
 [tool.mypy]
 python_version = "3.12"
 files = ["scrapjd", "scripts", "main.py"]
-# M3k (đang làm, nửa 1/2 xong): `strict = true` bật gộp 13 cờ của mypy (--disallow-any-generics, --disallow-subclassing-any,
+# M3k (xong): `strict = true` bật gộp 13 cờ của mypy (--disallow-any-generics, --disallow-subclassing-any,
 # --disallow-untyped-calls, --disallow-untyped-defs, --disallow-incomplete-defs, --check-untyped-defs, --disallow-untyped-decorators,
 # --warn-redundant-casts, --warn-unused-ignores, --warn-return-any, --no-implicit-reexport, --strict-equality, --extra-checks) cho cả
-# repo, thay cho các cờ lẻ trước đây. Danh sách này theo mypy ghim ở requirements-dev.txt; nâng mypy có thể thêm cờ mới vào `strict`
-# và làm CI đỏ dù code không đổi, khi đó sửa hint cho khớp hoặc tạm ghim bản cũ. Nửa 2/2 xoá các khối override `disallow_any_generics`
-# (M3c đến M3j) bên dưới vì `strict` đã bao trùm.
+# repo, thay cho các cờ lẻ và 8 khối override `disallow_any_generics` (M3c đến M3j) trước đây. Danh sách này theo mypy ghim ở
+# requirements-dev.txt; nâng mypy có thể thêm cờ mới vào `strict` và làm CI đỏ dù code không đổi, khi đó sửa hint cho khớp hoặc tạm
+# ghim bản cũ. Ngoại lệ duy nhất còn lại là khối `ignore_missing_imports` bên dưới.
 strict = true
 no_implicit_optional = true
 warn_unused_configs = true
@@ -51,199 +51,3 @@ show_error_codes = true
 # Hai thư viện không có type hint kèm theo (không có py.typed, không có gói stubs chính thức).
 module = ["apscheduler.*", "tavily.*"]
 ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-# M3c (xong): `disallow_any_generics` (dict/list/tuple trần phải có tham số kiểu) cho TOÀN BỘ scrapjd/db/ (gói và 32 module); module nào
-# có tên ở đây thì dict/list/tuple trần mới ở đó làm CI đỏ. Nửa 1/2: `scrapjd.db` (gói) và `applications` đến `job_levels`. Nửa 2/2:
-# `job_merge` đến `stats`. M3d đến M3j thêm phần còn lại của repo; M3k xoá khối này và bật `strict = true` ở [tool.mypy].
-module = [
-    "scrapjd.db",
-    "scrapjd.db.applications",
-    "scrapjd.db.audit_logs",
-    "scrapjd.db.auth",
-    "scrapjd.db.companies",
-    "scrapjd.db.company_analytics",
-    "scrapjd.db.company_enrichment",
-    "scrapjd.db.company_queries",
-    "scrapjd.db.connection",
-    "scrapjd.db.contacts",
-    "scrapjd.db.crawl_batches",
-    "scrapjd.db.crawl_runs",
-    "scrapjd.db.crawl_snapshots",
-    "scrapjd.db.dashboard",
-    "scrapjd.db.email_templates",
-    "scrapjd.db.job_dedup_lock",
-    "scrapjd.db.job_derivation",
-    "scrapjd.db.job_duplicates",
-    "scrapjd.db.job_health",
-    "scrapjd.db.job_level_recompute",
-    "scrapjd.db.job_levels",
-    "scrapjd.db.job_merge",
-    "scrapjd.db.job_queries",
-    "scrapjd.db.job_recrawl",
-    "scrapjd.db.job_reposts",
-    "scrapjd.db.job_sync",
-    "scrapjd.db.jobs",
-    "scrapjd.db.listing_state",
-    "scrapjd.db.lookups",
-    "scrapjd.db.maintenance_runs",
-    "scrapjd.db.messages",
-    "scrapjd.db.pg_types",
-    "scrapjd.db.stats",
-]
-disallow_any_generics = true
-
-[[tool.mypy.overrides]]
-# M3d (xong): `disallow_any_generics` cho module lẻ của scrapjd/, scripts/ và main.py. Nửa 1/2: 6 module lá của scrapjd/ (`models`,
-# `snapshots`, `pipeline_stats`, `normalize`, `field_stats`, `pipeline_db`) và 5 module vốn đã sạch (gói `scrapjd`, `config`, `constants`,
-# `province_alias`, `sources_registry`). Nửa 2/2: `scrapjd.pipeline`, `main`, 2 script backfill và 1 script oneoff của scripts/ (cộng 3 gói
-# `scripts` vốn đã sạch). M3e đến M3j thêm phần còn lại của repo; M3k xoá khối này và bật `strict = true`.
-module = [
-    "main",
-    "scrapjd",
-    "scrapjd.config",
-    "scrapjd.constants",
-    "scrapjd.field_stats",
-    "scrapjd.models",
-    "scrapjd.normalize",
-    "scrapjd.pipeline",
-    "scrapjd.pipeline_db",
-    "scrapjd.pipeline_stats",
-    "scrapjd.province_alias",
-    "scrapjd.snapshots",
-    "scrapjd.sources_registry",
-    "scripts",
-    "scripts.backfill",
-    "scripts.backfill.backfill_topcv_level",
-    "scripts.backfill.backfill_vnw_detail",
-    "scripts.oneoff",
-    "scripts.oneoff.fix_company_size_format",
-]
-disallow_any_generics = true
-
-[[tool.mypy.overrides]]
-# M3e (xong): `disallow_any_generics` cho cả gói `scrapjd.adapters`. Nửa 1/2: gói (vốn sạch), lớp gốc `base` và nhóm VietnamWorks
-# (`vietnamworks_detail`, `vietnamworks`). Nửa 2/2: `careerviet` và `topcv`. M3f đến M3j thêm phần còn lại của repo; M3k xoá khối
-# này và bật `strict = true`.
-module = [
-    "scrapjd.adapters",
-    "scrapjd.adapters.base",
-    "scrapjd.adapters.careerviet",
-    "scrapjd.adapters.topcv",
-    "scrapjd.adapters.vietnamworks",
-    "scrapjd.adapters.vietnamworks_detail",
-]
-disallow_any_generics = true
-
-[[tool.mypy.overrides]]
-# M3f (xong): `disallow_any_generics` cho `scrapjd.maintenance` (gói và 5 module) và các module của `scrapjd.api` ngoài `routers/`,
-# `services/`, `schemas/` (gói và 12 module, trong đó `app`, `auth`, `concurrency`, `email_service`, `error_codes`, `rate_limit`, `run_log`
-# vốn đã sạch). Nửa 1/2: `check_expired_source_jobs`, `get_company_fb_linkedin_link`, `enrich_company_profile_from_website`,
-# `backfill_company_profiles`, `api.storage`. Nửa 2/2: `enrich_company_web_info`, `crawl_runner`, `maintenance_runner`, `deps`, `security`.
-# M3g đến M3j thêm phần còn lại của repo; M3k xoá khối này và bật `strict = true`.
-module = [
-    "scrapjd.api",
-    "scrapjd.api.app",
-    "scrapjd.api.auth",
-    "scrapjd.api.concurrency",
-    "scrapjd.api.crawl_runner",
-    "scrapjd.api.deps",
-    "scrapjd.api.email_service",
-    "scrapjd.api.error_codes",
-    "scrapjd.api.maintenance_runner",
-    "scrapjd.api.rate_limit",
-    "scrapjd.api.run_log",
-    "scrapjd.api.security",
-    "scrapjd.api.storage",
-    "scrapjd.maintenance",
-    "scrapjd.maintenance.backfill_company_profiles",
-    "scrapjd.maintenance.check_expired_source_jobs",
-    "scrapjd.maintenance.enrich_company_profile_from_website",
-    "scrapjd.maintenance.enrich_company_web_info",
-    "scrapjd.maintenance.get_company_fb_linkedin_link",
-]
-disallow_any_generics = true
-
-[[tool.mypy.overrides]]
-# M3g (xong): `disallow_any_generics` cho cả gói `scrapjd.cli` (gói và 5 module). Nửa 1/2: 4 module lá `check_listing_derivation`,
-# `duplicate_report`, `recompute_levels`, `repost_report`. Nửa 2/2: `merge_duplicates` (gọi `duplicate_report`, nên làm sau). M3h đến M3j
-# thêm phần còn lại của repo; M3k xoá khối này và bật `strict = true`.
-module = [
-    "scrapjd.cli",
-    "scrapjd.cli.check_listing_derivation",
-    "scrapjd.cli.duplicate_report",
-    "scrapjd.cli.merge_duplicates",
-    "scrapjd.cli.recompute_levels",
-    "scrapjd.cli.repost_report",
-]
-disallow_any_generics = true
-
-[[tool.mypy.overrides]]
-# M3h (xong): `disallow_any_generics` cho cả gói `scrapjd.api.services` (gói và 11 module). Nửa 1/2: gói (vốn sạch), 2 watchdog vốn sạch
-# (`crawl_watchdog`, `maintenance_watchdog`) và 6 module lá `entity_specs`, `company_resolver`, `conflict_detector`, `file_parser`,
-# `validation_engine`, `export_query`. Nửa 2/2: `import_executor`, `preview_manager` (gọi các module trên, nên làm sau) và
-# `preview_cleanup` (vốn sạch). M3i đến M3j thêm phần còn lại của repo; M3k xoá khối này và bật `strict = true`.
-module = [
-    "scrapjd.api.services",
-    "scrapjd.api.services.company_resolver",
-    "scrapjd.api.services.conflict_detector",
-    "scrapjd.api.services.crawl_watchdog",
-    "scrapjd.api.services.entity_specs",
-    "scrapjd.api.services.export_query",
-    "scrapjd.api.services.file_parser",
-    "scrapjd.api.services.import_executor",
-    "scrapjd.api.services.maintenance_watchdog",
-    "scrapjd.api.services.preview_cleanup",
-    "scrapjd.api.services.preview_manager",
-    "scrapjd.api.services.validation_engine",
-]
-disallow_any_generics = true
-
-[[tool.mypy.overrides]]
-# M3i (xong): `disallow_any_generics` cho `scrapjd.api.schemas` (gói và 14 module, đủ cả gói) và 5 router `jobs`, `maintenance`, `me`,
-# `messages`, `meta`, cùng gói `scrapjd.api.routers` và 2 router vốn sạch (`auth`, `auth_registration`). Nửa 1/2: toàn bộ `schemas/` (13
-# chỗ ở `audit_logs`, `crawl`, `import_export`, `jobs`, `maintenance`), gói `routers`, `auth`, `auth_registration`, `meta`, `maintenance`,
-# `me`. Nửa 2/2: `jobs` và `messages`. M3j thêm 9 router còn lại; M3k xoá khối này và bật `strict = true`.
-module = [
-    "scrapjd.api.routers",
-    "scrapjd.api.routers.auth",
-    "scrapjd.api.routers.auth_registration",
-    "scrapjd.api.routers.jobs",
-    "scrapjd.api.routers.maintenance",
-    "scrapjd.api.routers.me",
-    "scrapjd.api.routers.messages",
-    "scrapjd.api.routers.meta",
-    "scrapjd.api.schemas",
-    "scrapjd.api.schemas.applications",
-    "scrapjd.api.schemas.audit_logs",
-    "scrapjd.api.schemas.auth",
-    "scrapjd.api.schemas.companies",
-    "scrapjd.api.schemas.contacts",
-    "scrapjd.api.schemas.crawl",
-    "scrapjd.api.schemas.dashboard",
-    "scrapjd.api.schemas.email_templates",
-    "scrapjd.api.schemas.import_export",
-    "scrapjd.api.schemas.jobs",
-    "scrapjd.api.schemas.maintenance",
-    "scrapjd.api.schemas.messages",
-    "scrapjd.api.schemas.stats",
-    "scrapjd.api.schemas.validators",
-]
-disallow_any_generics = true
-
-[[tool.mypy.overrides]]
-# M3j (xong): `disallow_any_generics` cho 9 router còn lại của `scrapjd.api.routers`; cùng với khối M3i, cả gói `routers` (17 module) đã
-# bật cờ. Nửa 1/2: 5 router CRUD đơn giản `audit_logs`, `companies`, `contacts`, `dashboard`, `email_templates`. Nửa 2/2: `auth_session`,
-# `auth_users`, `crawl`, `import_export` (đăng nhập, người dùng, crawl và upload file). M3k xoá các khối này và bật `strict = true`.
-module = [
-    "scrapjd.api.routers.audit_logs",
-    "scrapjd.api.routers.auth_session",
-    "scrapjd.api.routers.auth_users",
-    "scrapjd.api.routers.companies",
-    "scrapjd.api.routers.contacts",
-    "scrapjd.api.routers.crawl",
-    "scrapjd.api.routers.dashboard",
-    "scrapjd.api.routers.email_templates",
-    "scrapjd.api.routers.import_export",
-]
-disallow_any_generics = true
