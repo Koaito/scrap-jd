@@ -83,8 +83,8 @@ def execute_import(
     conn: Conn,
     *,
     entity_type: str,
-    preview_rows: list[dict],
-    resolutions: dict[str, dict],
+    preview_rows: list[dict[str, Any]],
+    resolutions: dict[str, dict[str, Any]],
     actor_id: str,
 ) -> ImportSummary:
     """resolutions: {str(row_index): {"action": "skip"|"update"|"create"
@@ -257,8 +257,8 @@ def execute_import(
 
 
 def _expand_conflict_in_batch_resolutions(
-    preview_rows: list[dict], resolutions: dict[str, dict],
-) -> dict[str, dict]:
+    preview_rows: list[dict[str, Any]], resolutions: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
     """Giãn (expand) resolutions gốc từ staff/FE: mọi entry dùng 1 action
     LAN TRUYỀN trong BATCH_PROPAGATING_ACTIONS ("keep_this"/"keep_other"/
     "import_both") cho 1 dòng conflict_status="conflict_in_batch" sẽ được:
@@ -423,8 +423,8 @@ def _expand_conflict_in_batch_resolutions(
 
 
 def _apply_conflict_action(
-    conn: Conn, entity_type: str, data: dict, existing: Any, status: str, action: str,
-    resolution: dict, actor_id: str, summary: ImportSummary,
+    conn: Conn, entity_type: str, data: dict[str, Any], existing: Any, status: str, action: str,
+    resolution: dict[str, Any], actor_id: str, summary: ImportSummary,
 ) -> None:
     if action == "skip":
         summary.skipped += 1
@@ -455,7 +455,7 @@ def _apply_conflict_action(
     raise RowResolutionError(f"action '{action}' không hợp lệ (chỉ nhận skip/update/create)")
 
 
-def _apply_field_fixes(entity_type: str, row: dict, data: dict, resolution: dict) -> None:
+def _apply_field_fixes(entity_type: str, row: dict[str, Any], data: dict[str, Any], resolution: dict[str, Any]) -> None:
     """Re-validate resolution["field_fixes"] (giá trị staff sửa trực tiếp
     trên bảng preview cho dòng needs_field_fix) TRƯỚC KHI ghi vào `data`
     dùng để tạo/sửa record thật — KHÔNG tin ngầm FE đã validate đúng (dù
@@ -515,7 +515,7 @@ def _apply_field_fixes(entity_type: str, row: dict, data: dict, resolution: dict
         raise RowResolutionError(err["message"])
 
 
-def _recheck_conflict(conn: Conn, entity_type: str, data: dict) -> tuple[str, Optional[dict]]:
+def _recheck_conflict(conn: Conn, entity_type: str, data: dict[str, Any]) -> tuple[str, Optional[dict[str, Any]]]:
     if entity_type == "job":
         # Dùng TÊN CÔNG TY THẬT (tra theo company_id staff vừa chọn ở
         # bước preview, xem preview_manager.resolve_company_selection()),
@@ -551,7 +551,7 @@ def _recheck_conflict(conn: Conn, entity_type: str, data: dict) -> tuple[str, Op
     return result["conflict_status"], result.get("existing_record")
 
 
-def _create_row(conn: Conn, entity_type: str, data: dict, row: dict, resolution: dict, actor_id: str) -> str:
+def _create_row(conn: Conn, entity_type: str, data: dict[str, Any], row: dict[str, Any], resolution: dict[str, Any], actor_id: str) -> str:
     if entity_type == "company":
         province_id = (
             db_module.get_or_create_province(conn, data["province_name"])
@@ -618,7 +618,7 @@ def _create_row(conn: Conn, entity_type: str, data: dict, row: dict, resolution:
     raise ValueError(f"entity_type không hợp lệ: {entity_type!r}")
 
 
-def _resolve_company_id_for_create(conn: Conn, data: dict, actor_id: str) -> str:
+def _resolve_company_id_for_create(conn: Conn, data: dict[str, Any], actor_id: str) -> str:
     """Dòng Job/Contact ở trạng thái no_conflict — company đã resolved
     (exact match tax_id/tên) lúc build preview, company_id nằm trong
     company_resolution chứ không phải data['company_id'] trực tiếp (xem
@@ -631,7 +631,7 @@ def _resolve_company_id_for_create(conn: Conn, data: dict, actor_id: str) -> str
 
 
 def _update_row(
-    conn: Conn, entity_type: str, data: dict, existing: Any, resolution: dict, actor_id: str, *, reactivate: bool,
+    conn: Conn, entity_type: str, data: dict[str, Any], existing: Any, resolution: dict[str, Any], actor_id: str, *, reactivate: bool,
 ) -> Any:
     if entity_type == "company":
         company_id = existing[get_spec(entity_type).id_field]

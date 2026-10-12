@@ -100,7 +100,7 @@ class PreviewOwnershipError(Exception):
     điệp giống hệt PreviewNotFoundError ở tầng router)."""
 
 
-def build_preview(conn: Conn, entity_type: str, validation_result: ValidationResult) -> dict:
+def build_preview(conn: Conn, entity_type: str, validation_result: ValidationResult) -> dict[str, Any]:
     """Chạy company resolution (nếu cần) + conflict detection cho toàn bộ
     cleaned_rows, trả về dict preview_data đúng cấu trúc mô tả ở đầu file
     (CHƯA lưu DB — save_preview() lo phần lưu)."""
@@ -225,7 +225,7 @@ def build_preview(conn: Conn, entity_type: str, validation_result: ValidationRes
     return {"rows": rows_out, "summary": summary}
 
 
-def _count_summary_fields(rows: list[dict]) -> dict:
+def _count_summary_fields(rows: list[dict[str, Any]]) -> dict[str, int]:
     """Đếm các field summary phụ thuộc trực tiếp vào nội dung `rows`
     (conflict_status + needs_level_resolve/needs_field_fix) — TÁCH RIÊNG
     khỏi build_preview() để apply_field_fix() dùng LẠI được nguyên hàm
@@ -285,7 +285,7 @@ def _count_summary_fields(rows: list[dict]) -> dict:
     return counts
 
 
-def _needs_resolution(entry: dict) -> bool:
+def _needs_resolution(entry: dict[str, Any]) -> bool:
     """True nếu dòng preview còn BẤT KỲ việc gì staff cần xử lý trước khi
     confirm import — gộp 3 trục ĐỘC LẬP hiện có thành 1 field duy nhất để
     FE không phải tự lặp lại đúng công thức này ở nhiều nơi (list preview,
@@ -299,7 +299,7 @@ def _needs_resolution(entry: dict) -> bool:
     )
 
 
-def save_preview(conn: Conn, *, user_id: str, entity_type: str, preview_data: dict) -> str:
+def save_preview(conn: Conn, *, user_id: str, entity_type: str, preview_data: dict[str, Any]) -> str:
     now = datetime.now(timezone.utc)
     expires_at = now + PREVIEW_TTL
     with conn.cursor() as cur:
@@ -314,7 +314,7 @@ def save_preview(conn: Conn, *, user_id: str, entity_type: str, preview_data: di
         return str(fetch_scalar(cur))
 
 
-def get_preview(conn: Conn, preview_id: str, *, requesting_user_id: str) -> dict:
+def get_preview(conn: Conn, preview_id: str, *, requesting_user_id: str) -> dict[str, Any]:
     """Trả row đầy đủ (dict) của import_previews, đã check TTL + ownership.
     Raise PreviewNotFoundError/PreviewExpiredError/PreviewOwnershipError
     tương ứng — router quyết định mã lỗi HTTP."""
@@ -338,8 +338,8 @@ def get_preview(conn: Conn, preview_id: str, *, requesting_user_id: str) -> dict
 
 
 def apply_field_fix(
-    conn: Conn, preview_row: dict, *, row_index: int, field_name: str, raw_value: str,
-) -> dict:
+    conn: Conn, preview_row: dict[str, Any], *, row_index: int, field_name: str, raw_value: str,
+) -> dict[str, Any]:
     """Sửa TẠI CHỖ 1 field của 1 dòng trong preview_data đang lưu DB, rồi
     lưu lại ngay (KHÔNG đợi staff bấm "Xác nhận nhập dữ liệu" ở bước
     confirm) — dùng cho nút "Xác nhận" cạnh mỗi ô sửa trên bảng preview
@@ -594,8 +594,8 @@ def apply_field_fix(
 
 
 def resolve_company_selection(
-    conn: Conn, preview_row: dict, *, row_index: int, company_id: Optional[str],
-) -> dict:
+    conn: Conn, preview_row: dict[str, Any], *, row_index: int, company_id: Optional[str],
+) -> dict[str, Any]:
     """Staff chọn 1 công ty (hoặc "tạo công ty mới") trong modal chọn công
     ty ở bước preview cho dòng conflict_status="pending_company_resolution"
     (chỉ entity job/contact — xem build_preview()) -> re-check conflict
@@ -691,7 +691,7 @@ def resolve_company_selection(
     return row
 
 
-def _clear_batch_link(rows: list[dict], other_row_index: int, expect_pointer_to: int) -> None:
+def _clear_batch_link(rows: list[dict[str, Any]], other_row_index: int, expect_pointer_to: int) -> None:
     """Gỡ duplicate_in_batch phía DÒNG KIA khi dòng đang sửa KHÔNG còn
     trỏ tới nó nữa (dữ liệu vừa đổi khác đi, hoặc DB-match giờ được ưu
     tiên thay batch-match) — CHỈ gỡ nếu dòng kia ĐANG THẬT SỰ trỏ ngược
@@ -714,7 +714,7 @@ def _clear_batch_link(rows: list[dict], other_row_index: int, expect_pointer_to:
         other_row["conflict_status"] = "no_conflict"
 
 
-def _save_preview_data(conn: Conn, preview_id: str, preview_data: dict) -> None:
+def _save_preview_data(conn: Conn, preview_id: str, preview_data: dict[str, Any]) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "UPDATE import_previews SET preview_data = %s WHERE preview_id = %s",
@@ -735,7 +735,7 @@ def cleanup_expired_previews(conn: Conn) -> int:
         return cur.rowcount
 
 
-def _resolution_to_dict(resolution: company_resolver.CompanyResolution) -> dict:
+def _resolution_to_dict(resolution: company_resolver.CompanyResolution) -> dict[str, Any]:
     return {
         "status": resolution.status,
         "company_id": resolution.company_id,

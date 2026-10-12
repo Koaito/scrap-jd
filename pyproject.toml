@@ -185,10 +185,10 @@ module = [
 disallow_any_generics = true
 
 [[tool.mypy.overrides]]
-# M3h (đang làm, nửa 1/2 xong): `disallow_any_generics` cho `scrapjd.api.services`. Nửa 1/2: gói (vốn sạch), 2 watchdog vốn sạch
+# M3h (xong): `disallow_any_generics` cho cả gói `scrapjd.api.services` (gói và 11 module). Nửa 1/2: gói (vốn sạch), 2 watchdog vốn sạch
 # (`crawl_watchdog`, `maintenance_watchdog`) và 6 module lá `entity_specs`, `company_resolver`, `conflict_detector`, `file_parser`,
-# `validation_engine`, `export_query` (chỉ import `entity_specs`). Nửa 2/2: `import_executor`, `preview_manager` (gọi các module
-# trên, nên làm sau) và `preview_cleanup`. M3i đến M3j thêm phần còn lại của repo; M3k xoá khối này và bật `strict = true`.
+# `validation_engine`, `export_query`. Nửa 2/2: `import_executor`, `preview_manager` (gọi các module trên, nên làm sau) và
+# `preview_cleanup` (vốn sạch). M3i đến M3j thêm phần còn lại của repo; M3k xoá khối này và bật `strict = true`.
 module = [
     "scrapjd.api.services",
     "scrapjd.api.services.company_resolver",
@@ -197,7 +197,10 @@ module = [
     "scrapjd.api.services.entity_specs",
     "scrapjd.api.services.export_query",
     "scrapjd.api.services.file_parser",
+    "scrapjd.api.services.import_executor",
     "scrapjd.api.services.maintenance_watchdog",
+    "scrapjd.api.services.preview_cleanup",
+    "scrapjd.api.services.preview_manager",
     "scrapjd.api.services.validation_engine",
 ]
 disallow_any_generics = true
