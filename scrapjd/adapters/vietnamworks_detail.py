@@ -52,7 +52,7 @@ def _join_stream(html: str) -> Optional[str]:
     return "".join(parts) if parts else None
 
 
-def _split_rows(stream: str) -> dict:
+def _split_rows(stream: str) -> dict[str, tuple[str, str]]:
     """Luồng -> {id: ("T", văn bản) | ("J", chuỗi JSON/khác)}."""
     data = stream.encode("utf-8")
     rows = {}
@@ -83,7 +83,7 @@ def _split_rows(stream: str) -> dict:
     return rows
 
 
-def _resolve(value: Any, rows: dict, depth: int = 0) -> Any:
+def _resolve(value: Any, rows: dict[str, tuple[str, str]], depth: int = 0) -> Any:
     """Thay mọi chuỗi "$<id>" bằng nội dung dòng tương ứng (đệ quy)."""
     if depth > _MAX_REF_DEPTH:
         return value
@@ -141,7 +141,7 @@ def is_gone_page(html: str) -> bool:
     return bool(target and target.rstrip("/").endswith("/410"))
 
 
-def parse_detail_page(html: str) -> Optional[dict]:
+def parse_detail_page(html: str) -> Optional[dict[str, Any]]:
     """HTML trang chi tiết -> dict job đầy đủ (tên khoá như API search), hoặc
     None nếu không tìm thấy object job (trang đổi cấu trúc / không phải trang job).
 

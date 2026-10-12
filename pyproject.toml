@@ -126,3 +126,15 @@ module = [
     "scripts.oneoff.fix_company_size_format",
 ]
 disallow_any_generics = true
+
+[[tool.mypy.overrides]]
+# M3e nửa 1/2 (xong): `disallow_any_generics` cho gói `scrapjd.adapters` (vốn sạch) và 3 module nhóm VietnamWorks + lớp gốc: `base`,
+# `vietnamworks_detail`, `vietnamworks`. Nửa 2/2 thêm `careerviet` và `topcv`. M3f đến M3j thêm phần còn lại của repo; M3k xoá
+# khối này và bật `strict = true`.
+module = [
+    "scrapjd.adapters",
+    "scrapjd.adapters.base",
+    "scrapjd.adapters.vietnamworks",
+    "scrapjd.adapters.vietnamworks_detail",
+]
+disallow_any_generics = true

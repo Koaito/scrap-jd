@@ -49,7 +49,7 @@ class CrawlBlockedError(Exception):
     chặn...) vào đây trước khi raise tiếp, để execute() không làm mất con số
     đó khi ghi status='error'. None nếu lỗi raise từ adapter ngoài pipeline."""
 
-    stats: Optional[dict] = None
+    stats: Optional[dict[str, Any]] = None
 
 
 # Bộ resolver mặc định của BaseAdapter.dedup_resolvers(); tên khớp pipeline.DEDUP_RESOLVERS.
@@ -67,8 +67,8 @@ class BaseAdapter(ABC):
 
     def __init__(
         self,
-        session: Optional["curl_requests.Session"] = None,
-        headers: Optional[dict] = None,
+        session: Optional["curl_requests.Session[curl_requests.Response]"] = None,
+        headers: Optional[dict[str, str]] = None,
         delay_seconds: float = REQUEST_DELAY_SECONDS,
         jitter_seconds: float = 0.0,
     ):
@@ -136,7 +136,7 @@ class BaseAdapter(ABC):
         # Các bất thường adapter tự phát hiện ở TRANG LISTING ĐẦU (vd trang
         # tải được nhưng parse ra 0 job). pipeline đọc cuối lượt để đánh dấu
         # degraded — KHÁC CrawlBlockedError (không tải được trang).
-        self.listing_anomalies: list = []
+        self.listing_anomalies: list[str] = []
         # Số job adapter tự BỎ ngay trong fetch_jobs() vì không lấy/giải mã được
         # trang chi tiết (adapter nào tải chi tiết sớm: CareerViet, VietnamWorks).
         # Job bị bỏ kiểu này không bao giờ tới pipeline nên stats.fetched không
@@ -181,7 +181,7 @@ class BaseAdapter(ABC):
         logger.warning("Bỏ qua job (%s): %s", reason, url)
 
     @staticmethod
-    def _detail_is_blank(detail: Optional[dict]) -> bool:
+    def _detail_is_blank(detail: Optional[dict[str, Any]]) -> bool:
         """True nếu dict chi tiết job KHÔNG có chút nội dung nào (mô tả, yêu
         cầu, quyền lợi, kỹ năng đều rỗng) — dấu hiệu rõ nhất selector trang
         chi tiết đã hỏng, vì 1 tin tuyển dụng thật luôn có ít nhất 1 khối."""
@@ -257,7 +257,7 @@ class BaseAdapter(ABC):
         và chỉ dựng từ chữ số của mã, không chèn nguyên văn đoạn nào của URL."""
         return None
 
-    def dedup_resolvers(self) -> tuple:
+    def dedup_resolvers(self) -> tuple[str, ...]:
         """Các bước chống trùng cho job MỚI của nguồn này, THEO THỨ TỰ chạy (B1). Mỗi phần
         tử là tên một resolver đăng ký ở pipeline.DEDUP_RESOLVERS; bước nào khớp trước thì
         job được xử lý ở đó và các bước sau không chạy.
@@ -278,13 +278,13 @@ class BaseAdapter(ABC):
         """Trả về (yield) từng RawJobRecord tìm được cho category_key."""
         raise NotImplementedError
 
-    def fetch_company_profile(self, company_url: str) -> dict:
+    def fetch_company_profile(self, company_url: str) -> dict[str, Any]:
         """Optional: crawl sâu vào trang hồ sơ công ty để lấy thêm website
         thật, địa chỉ, quy mô, lĩnh vực. Mặc định trả dict rỗng (nguồn nào
         không hỗ trợ thì bỏ qua, pipeline vẫn chạy bình thường)."""
         return {}
 
-    def fetch_job_full_detail(self, source_url: str) -> Optional[dict]:
+    def fetch_job_full_detail(self, source_url: str) -> Optional[dict[str, Any]]:
         """Optional: crawl sâu vào trang chi tiết job để lấy thêm các field
         chỉ hiển thị ở đó (không có trên trang listing) — vd 'work_type'
         (Loại hình làm việc), 'deadline_text' (Hạn ứng tuyển), và nội dung
@@ -373,10 +373,10 @@ class BaseAdapter(ABC):
                     time.sleep(wait)
                     self._last_request_time = time.monotonic()
                     continue
-                resp.raise_for_status()
+                resp.raise_for_status()  # type: ignore[no-untyped-call]  # curl_cffi chưa gõ kiểu cho hàm này (kiểm ở bản 0.16.3)
                 self._last_request_time = time.monotonic()
                 self._note_fetch_success()
-                return resp.text  # type: ignore[no-any-return]  # curl_cffi Session chưa tham số hoá (M3e): gỡ ignore này khi đó
+                return resp.text
             except curl_requests.exceptions.RequestException as exc:
                 # Retry cả lỗi kết nối không có status code (vd HTTP/2
                 # stream reset, timeout...), không bỏ cuộc ngay ở lần

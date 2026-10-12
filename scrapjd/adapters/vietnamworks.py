@@ -209,11 +209,11 @@ def _build_company_url(company_name: str, company_id: Any) -> str:
 class VietnamWorksAdapter(BaseAdapter):
     source_name = "VietnamWorks"
 
-    def dedup_resolvers(self) -> tuple:
+    def dedup_resolvers(self) -> tuple[str, ...]:
         # Thứ tự quan trọng: mã job (job_code_url_regex) trước, đăng lại sau.
         return ("job_code", "repost")
 
-    def __init__(self, session: Optional[requests.Session] = None):
+    def __init__(self, session: Optional["requests.Session[requests.Response]"] = None):
         # Session curl_cffi + throttle/retry dùng chung giờ nằm ở
         # BaseAdapter.__init__() (xem scrapjd/adapters/base.py) — VietnamWorks
         # dùng đúng delay mặc định (REQUEST_DELAY_SECONDS), không cần
@@ -350,7 +350,7 @@ class VietnamWorksAdapter(BaseAdapter):
         except (TypeError, ValueError):
             return ""
 
-    def _post_json(self, url: str, body: dict, max_retries: int = 3) -> Optional[dict]:
+    def _post_json(self, url: str, body: dict[str, Any], max_retries: int = 3) -> Optional[dict[str, Any]]:
         """POST JSON tới API search — throttle + retry/backoff giống hệt
         BaseAdapter._fetch_html() (429/403 VÀ lỗi kết nối không có status
         code như HTTP/2 stream reset/timeout đều được thử lại; backoff
@@ -373,10 +373,10 @@ class VietnamWorksAdapter(BaseAdapter):
                     time.sleep(wait)
                     self._last_request_time = time.monotonic()
                     continue
-                resp.raise_for_status()
+                resp.raise_for_status()  # type: ignore[no-untyped-call]  # curl_cffi chưa gõ kiểu cho hàm này (kiểm ở bản 0.16.3)
                 self._last_request_time = time.monotonic()
                 try:
-                    data = resp.json()
+                    data = resp.json()  # type: ignore[no-untyped-call]  # curl_cffi chưa gõ kiểu cho hàm này (kiểm ở bản 0.16.3)
                 except (json.JSONDecodeError, ValueError):
                     # 200 nhưng không phải JSON: thường là trang chặn/challenge
                     # của WAF — tính như 1 lần thất bại cho ngắt mạch (không
@@ -412,7 +412,7 @@ class VietnamWorksAdapter(BaseAdapter):
     # Parse response search -> list job dict
     # ------------------------------------------------------------------
     @staticmethod
-    def _extract_job_list(data: Any) -> list:
+    def _extract_job_list(data: Any) -> list[Any]:
         """Lấy list job từ response search. Vỏ response ĐÃ XÁC NHẬN
         (08/2026, xem docstring đầu file): {"meta": {...}, "data": [...]}
         -> key "data" là đường chính. Các key còn lại (hits/results/...)
@@ -434,7 +434,7 @@ class VietnamWorksAdapter(BaseAdapter):
             )
         return []
 
-    def _parse_job(self, job: dict, matching_industry: str) -> Optional[RawJobRecord]:
+    def _parse_job(self, job: dict[str, Any], matching_industry: str) -> Optional[RawJobRecord]:
         job_title = (job.get("jobTitle") or "").strip()
         company_name = (job.get("companyName") or "").strip()
         source_url = (job.get("jobUrl") or "").strip()
@@ -495,7 +495,7 @@ class VietnamWorksAdapter(BaseAdapter):
     # ------------------------------------------------------------------
     # Trang chi tiết job (10/2026): bản đầy đủ của mô tả/yêu cầu + số năm
     # ------------------------------------------------------------------
-    def _enrich_from_detail_page(self, record: RawJobRecord, listing_job: dict) -> Optional[RawJobRecord]:
+    def _enrich_from_detail_page(self, record: RawJobRecord, listing_job: dict[str, Any]) -> Optional[RawJobRecord]:
         """Tải trang chi tiết của job MỚI, cập nhật record + cache bằng dữ liệu
         đầy đủ. Trả record đã cập nhật, hoặc None nếu KHÔNG tải được trang
         (lỗi mạng/bị chặn/404) -> bỏ job này lượt này, cùng quy ước với
@@ -537,7 +537,7 @@ class VietnamWorksAdapter(BaseAdapter):
         return record
 
     @classmethod
-    def _experience_fields(cls, job: dict) -> tuple:
+    def _experience_fields(cls, job: dict[str, Any]) -> tuple[str, str]:
         """(experience_text, level_hint) từ 1 dict job (search hoặc đã gộp chi
         tiết). Thứ tự: (1) yearsOfExperience > 0 (trường có cấu trúc, chỉ có số
         thật ở trang chi tiết); (2) số năm tối thiểu đọc từ jobRequirement (xem
@@ -557,7 +557,7 @@ class VietnamWorksAdapter(BaseAdapter):
         return ("Dưới 1 năm" if parsed == 0 else f"{parsed} năm"), level_hint
 
     @classmethod
-    def _detail_dict_from_job(cls, job: dict, work_type_text: str, deadline_text: str) -> dict:
+    def _detail_dict_from_job(cls, job: dict[str, Any], work_type_text: str, deadline_text: str) -> dict[str, Any]:
         return {
             "work_type": work_type_text,
             "deadline_text": deadline_text,
@@ -577,7 +577,7 @@ class VietnamWorksAdapter(BaseAdapter):
     # ------------------------------------------------------------------
     # fetch_job_full_detail — override để dùng cache thay vì fetch thêm
     # ------------------------------------------------------------------
-    def fetch_job_full_detail(self, source_url: str) -> Optional[dict]:
+    def fetch_job_full_detail(self, source_url: str) -> Optional[dict[str, Any]]:
         """Khác hẳn TopCV: dữ liệu này đã có sẵn từ lúc fetch_jobs() chạy
         (job mới: bản đầy đủ từ trang chi tiết, xem _enrich_from_detail_page();
         job đã biết: bản search, có thể bị cắt) -> trả từ cache, MIỄN PHÍ
@@ -610,7 +610,7 @@ class VietnamWorksAdapter(BaseAdapter):
     REFRESH_GONE = "gone"
     REFRESH_UNPARSABLE = "unparsable"
 
-    def fetch_refreshed_job(self, source_url: str) -> tuple:
+    def fetch_refreshed_job(self, source_url: str) -> tuple[str, Any]:
         """Tải trang chi tiết của một job VietnamWorks đã có trong DB và trả
         (trạng thái, dữ liệu) để vá JD bị cắt + level sai của job cũ.
 
@@ -684,7 +684,7 @@ class VietnamWorksAdapter(BaseAdapter):
     # ------------------------------------------------------------------
     # Company profile — trang SSR, dùng requests+BeautifulSoup như TopCV
     # ------------------------------------------------------------------
-    def fetch_company_profile(self, company_url: str) -> dict:
+    def fetch_company_profile(self, company_url: str) -> dict[str, Any]:
         result = {
             "tax_id": "",  # VNW không hiển thị mã số thuế công ty (đã xác nhận không thấy trong ảnh chụp)
             "real_website": "",
@@ -757,7 +757,7 @@ class VietnamWorksAdapter(BaseAdapter):
     # Helpers nhỏ
     # ------------------------------------------------------------------
     @staticmethod
-    def _extract_salary_text(job: dict) -> str:
+    def _extract_salary_text(job: dict[str, Any]) -> str:
         """Ưu tiên field "prettySalary" (text đã format sẵn kiểu VN, vd
         '10 - 20 triệu' / 'Tới 3,000 USD') vì như vậy TÁI DÙNG ĐƯỢC
         normalize.normalize_salary() có sẵn KHÔNG CẦN SỬA (module này parse
@@ -792,7 +792,7 @@ class VietnamWorksAdapter(BaseAdapter):
         return True
 
     @classmethod
-    def _extract_province_text(cls, job: dict) -> str:
+    def _extract_province_text(cls, job: dict[str, Any]) -> str:
         """XÁC NHẬN (08/2026) workingLocations là list[dict] (xem docstring
         đầu file) -> vấn đề còn lại KHÔNG phải cấu trúc, mà là field nào
         trong dict đó thật sự chứa tên tỉnh sạch — thử lần lượt 4 key
@@ -880,7 +880,7 @@ class VietnamWorksAdapter(BaseAdapter):
         return ""
 
     @staticmethod
-    def _extract_skills(skills: Any) -> list:
+    def _extract_skills(skills: Any) -> list[str]:
         if not skills:
             return []
         if isinstance(skills, list):
