@@ -211,11 +211,11 @@ def _is_non_company_website(url: str) -> bool:
 class CareerVietAdapter(BaseAdapter):
     source_name = "CareerViet"
 
-    def dedup_resolvers(self) -> tuple:
+    def dedup_resolvers(self) -> tuple[str, ...]:
         # URL CareerViet không có mã job ổn định theo tiêu đề: chỉ chống trùng kiểu đăng lại.
         return ("repost",)
 
-    def __init__(self, session: Optional["requests.Session"] = None):
+    def __init__(self, session: Optional["requests.Session[requests.Response]"] = None):
         # Session curl_cffi + throttle/retry dùng chung giờ nằm ở
         # BaseAdapter.__init__() (xem scrapjd/adapters/base.py) — impersonate=
         # "chrome124" vẫn dùng lại y hệt TopCV như quyết định đã chốt
@@ -250,7 +250,7 @@ class CareerVietAdapter(BaseAdapter):
         search_url = f"{BASE_URL}/viec-lam/{cat['keyword']}-k-vi.html"
         matching_industry = cat["matching_industry"]
 
-        seen_urls: set = set()
+        seen_urls: set[str] = set()
 
         for page in range(1, max_pages + 1):
             page_url = self._build_page_url(search_url, page)
@@ -327,7 +327,7 @@ class CareerVietAdapter(BaseAdapter):
                 page, new_count, known_count,
             )
 
-    def fetch_job_full_detail(self, source_url: str) -> Optional[dict]:
+    def fetch_job_full_detail(self, source_url: str) -> Optional[dict[str, Any]]:
         cached = self._detail_cache.get(source_url)
         if cached is not None:
             return cached
@@ -348,7 +348,7 @@ class CareerVietAdapter(BaseAdapter):
         self._detail_cache[source_url] = detail
         return detail
 
-    def fetch_company_profile(self, company_url: str) -> dict:
+    def fetch_company_profile(self, company_url: str) -> dict[str, Any]:
         """Viết lại 08/2026 dựa trên mẫu HTML thật (so2.txt, trang công
         ty "CÔNG TY CỔ PHẦN DƯỢC PHẨM FPT LONG CHÂU", fetch qua
         company_url lấy từ JSON-LD của 1 job JD thật) — thay THẲNG cho
@@ -418,7 +418,7 @@ class CareerVietAdapter(BaseAdapter):
             )
             return result
 
-        labels: dict = {}
+        labels: dict[str, str] = {}
         for strong in content.find_all("strong"):
             label = _clean(strong.get_text())
             sib = strong.find_next_sibling()
@@ -497,7 +497,7 @@ class CareerVietAdapter(BaseAdapter):
         return base_url
 
     @staticmethod
-    def _extract_job_detail_urls(html: str) -> list:
+    def _extract_job_detail_urls(html: str) -> list[str]:
         """Quét TOÀN BỘ response bằng regex bám pattern URL ổn định,
         KHÔNG cố định vào 1 khối DOM/class cụ thể nào của card -> ít bị
         vỡ nhất khi CareerViet đổi giao diện listing. Giữ đúng thứ tự
@@ -549,7 +549,7 @@ class CareerVietAdapter(BaseAdapter):
             raw_tags=parsed["required_skills"],
         )
 
-    def _snapshot_detail(self, url: str, html: str, parsed: Optional[dict]) -> None:
+    def _snapshot_detail(self, url: str, html: str, parsed: Optional[dict[str, Any]]) -> None:
         """Snapshot trang chi tiết (đợt 3): không parse được hoặc parse ra
         không có chút nội dung nào là bất thường đáng giữ nhất; ngoài ra giữ
         mẫu đầu tiên của lượt."""
@@ -561,7 +561,7 @@ class CareerVietAdapter(BaseAdapter):
             self._snapshot("detail", url, html)
 
     @staticmethod
-    def _detail_dict_from_parsed(parsed: dict) -> dict:
+    def _detail_dict_from_parsed(parsed: dict[str, Any]) -> dict[str, Any]:
         return {
             "work_type": parsed["work_type"],
             "deadline_text": parsed["deadline_text"],
@@ -571,7 +571,7 @@ class CareerVietAdapter(BaseAdapter):
             "required_skills": parsed["required_skills"],
         }
 
-    def _parse_detail_page(self, html: str, url: str) -> Optional[dict]:
+    def _parse_detail_page(self, html: str, url: str) -> Optional[dict[str, Any]]:
         soup = BeautifulSoup(html, "html.parser")
         jsonld = self._extract_job_posting_jsonld(soup) or {}
         section = soup.find("section", class_="job-detail-content")
@@ -671,7 +671,7 @@ class CareerVietAdapter(BaseAdapter):
     # JSON-LD helpers
     # ------------------------------------------------------------------
     @staticmethod
-    def _extract_job_posting_jsonld(soup: BeautifulSoup) -> Optional[dict]:
+    def _extract_job_posting_jsonld(soup: BeautifulSoup) -> Optional[dict[str, Any]]:
         """Quét TẤT CẢ <script type="application/ld+json"> trong trang
         (không bám id cụ thể — trang mẫu có ÍT NHẤT 2 script JSON-LD
         khác nhau: 1 cái "@type":"WebSite" cố định toàn site, 1 cái
@@ -695,7 +695,7 @@ class CareerVietAdapter(BaseAdapter):
         return None
 
     @staticmethod
-    def _extract_salary_from_jsonld(jsonld: dict) -> str:
+    def _extract_salary_from_jsonld(jsonld: dict[str, Any]) -> str:
         base = jsonld.get("baseSalary") or {}
         value = base.get("value")
         if not isinstance(value, dict):
@@ -717,14 +717,14 @@ class CareerVietAdapter(BaseAdapter):
     # HTML fallback helpers (section.job-detail-content)
     # ------------------------------------------------------------------
     @staticmethod
-    def _extract_info_box_labels(section: Optional[Tag]) -> dict:
+    def _extract_info_box_labels(section: Optional[Tag]) -> dict[str, str]:
         """Trang mẫu có 2 khối <div class="detail-box..."> LẶP LẠI nội
         dung giống hệt nhau (khả năng cao là biến thể responsive ẩn/hiện
         theo breakpoint, 1 khối có style="display:none") -> duyệt hết
         mọi <li> trong section, mỗi label GIỮ GIÁ TRỊ ĐẦU TIÊN gặp (dữ
         liệu 2 khối giống nhau nên không ảnh hưởng, nhưng phòng hờ khác
         nhau thì ưu tiên khối xuất hiện trước theo thứ tự DOM)."""
-        result: dict = {}
+        result: dict[str, str] = {}
         if section is None:
             return result
         for li in section.find_all("li"):
@@ -751,7 +751,7 @@ class CareerVietAdapter(BaseAdapter):
         return ""
 
     @staticmethod
-    def _extract_section_text(soup: BeautifulSoup, heading_options: set) -> str:
+    def _extract_section_text(soup: BeautifulSoup, heading_options: set[str]) -> str:
         for heading in soup.find_all(["h2", "h3"]):
             heading_text = _clean(heading.get_text()).lower()
             if heading_text not in heading_options:
@@ -808,7 +808,7 @@ def _clean_html_block(html_fragment: str) -> str:
     return _clean(inner.get_text("\n"))
 
 
-def _extract_employment_type_text(jsonld: dict) -> str:
+def _extract_employment_type_text(jsonld: dict[str, Any]) -> str:
     """employmentType JSON-LD có thể là list (đã thấy thật trong mẫu:
     ["\\"FULL_TIME\\""] — CÓ dấu ngoặc kép THỪA lồng bên trong chuỗi,
     khả năng cao là lỗi serialize phía CareerViet, KHÔNG phải chuẩn

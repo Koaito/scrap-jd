@@ -93,11 +93,11 @@ POSTED_PATTERN = re.compile(r"\u0110\u0103ng\s+.+?tr\u01b0\u1edbc")
 class TopCVAdapter(BaseAdapter):
     source_name = "TopCV"
 
-    def dedup_resolvers(self) -> tuple:
+    def dedup_resolvers(self) -> tuple[str, ...]:
         # URL TopCV không có mã job ổn định theo tiêu đề: chỉ chống trùng kiểu đăng lại.
         return ("repost",)
 
-    def __init__(self, session: Optional[requests.Session] = None):
+    def __init__(self, session: Optional["requests.Session[requests.Response]"] = None):
         # Session curl_cffi (impersonate="chrome124" -> giả lập TLS
         # fingerprint Chrome) + throttle/retry dùng chung giờ nằm ở
         # BaseAdapter.__init__() (xem docstring ở scrapjd/adapters/base.py) —
@@ -335,7 +335,7 @@ class TopCVAdapter(BaseAdapter):
                 return text, self._canonicalize_url(a.get("href", ""))
         return "", ""
 
-    def _extract_first(self, pattern: re.Pattern, text: str) -> str:
+    def _extract_first(self, pattern: re.Pattern[str], text: str) -> str:
         m = pattern.search(text)
         return m.group(0).strip() if m else ""
 
@@ -357,7 +357,7 @@ class TopCVAdapter(BaseAdapter):
     # Parser bám theo NHÃN TIẾNG VIỆT thay vì tên class CSS — bền hơn khi
     # TopCV đổi giao diện, giống logic đã dùng cho parser job.
     # ------------------------------------------------------------------
-    def fetch_company_profile(self, company_url: str) -> dict:
+    def fetch_company_profile(self, company_url: str) -> dict[str, Any]:
         """Trả về dict rỗng nếu không lấy được (không làm crash pipeline)."""
         result = {
             "tax_id": "",
@@ -572,7 +572,7 @@ class TopCVAdapter(BaseAdapter):
     # ĐÚNG với trang Brand Pro (khác với "chưa parse được"), không cố
     # suy luận thêm.
     # ------------------------------------------------------------------
-    def fetch_job_full_detail(self, source_url: str) -> Optional[dict]:
+    def fetch_job_full_detail(self, source_url: str) -> Optional[dict[str, Any]]:
         """Trả về dict CHỈ KHI fetch HTML thành công — dict khi đó vẫn có
         thể có field "" / [] cho khối nào trang không có (không phải JD
         nào cũng đủ mọi khối), đây KHÔNG coi là thất bại.
@@ -753,7 +753,7 @@ class TopCVAdapter(BaseAdapter):
                     break
         return None
 
-    def fetch_experience_label(self, source_url: str) -> tuple:
+    def fetch_experience_label(self, source_url: str) -> tuple[str, Optional[str]]:
         """Tải trang chi tiết job TopCV đã lưu và trả (trạng thái, nhãn).
         Trạng thái: REFRESH_OK (nhãn = chuỗi), REFRESH_UNAVAILABLE hoặc
         REFRESH_NO_LABEL (nhãn = None). CrawlBlockedError của BaseAdapter
