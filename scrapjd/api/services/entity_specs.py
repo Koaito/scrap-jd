@@ -13,7 +13,7 @@ headers matching the database schema field names") — CHỈ 2 ngoại lệ cố
 """
 
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from scrapjd.constants import LEVEL_CODE_VALUES
 
@@ -41,7 +41,7 @@ class CrossFieldRule:
         trực tiếp — giữ đúng chữ ký hàm rule salary cũ để hành vi không đổi.
     """
     fields: tuple[str, ...]
-    check: Callable[[dict, object, dict], None]
+    check: Callable[[dict[str, Any], object, dict[str, dict[str, Any]]], None]
 
 
 @dataclass
@@ -106,7 +106,9 @@ class EntitySpec:
     cross_field_rules: list[CrossFieldRule] = field(default_factory=list)
 
 
-def _check_job_salary_business_rules(data: dict, row_number: object, field_errors: dict) -> None:
+def _check_job_salary_business_rules(
+    data: dict[str, Any], row_number: object, field_errors: dict[str, dict[str, Any]],
+) -> None:
     """salary_min >= 0 (nếu có), salary_max >= salary_min (nếu cả 2 có) —
     Requirement business rule Job, xem design.md. Ghi thẳng vào
     field_errors (không reject cả file) — chỉ set khi salary_min/
@@ -278,7 +280,9 @@ def field_options(entity_type: str, field_name: str) -> Optional[list[str]]:
 # rule liên trường gì — thêm rule mới cho Company/Contact chỉ cần thêm 1
 # CrossFieldRule vào spec tương ứng (entity_specs.py), không phải sửa lại
 # 3 nơi gọi.
-def run_cross_field_rules(spec: EntitySpec, data: dict, row_number: object, field_errors: dict) -> None:
+def run_cross_field_rules(
+    spec: EntitySpec, data: dict[str, Any], row_number: object, field_errors: dict[str, dict[str, Any]],
+) -> None:
     """Chạy MỌI cross_field_rules của spec, MUTATE field_errors trực tiếp —
     dùng lúc build preview (validate_dataframe() đã có sẵn field_errors
     của dòng, chỉ cần bổ sung thêm lỗi liên trường nếu có)."""
@@ -286,7 +290,9 @@ def run_cross_field_rules(spec: EntitySpec, data: dict, row_number: object, fiel
         rule.check(data, row_number, field_errors)
 
 
-def check_cross_field_rules(spec: EntitySpec, data: dict, row_number: object = "?") -> dict:
+def check_cross_field_rules(
+    spec: EntitySpec, data: dict[str, Any], row_number: object = "?",
+) -> dict[str, dict[str, Any]]:
     """Như run_cross_field_rules() nhưng trả field_errors MỚI (rỗng nếu
     hợp lệ) thay vì mutate — dùng NGOÀI validate_dataframe(), ở nơi CHƯA
     có sẵn field_errors của dòng để mutate vào (preview_manager.py::
@@ -296,7 +302,7 @@ def check_cross_field_rules(spec: EntitySpec, data: dict, row_number: object = "
     row_number: mặc định "?" (context sửa 1 ô tại chỗ, không có ý nghĩa
     "dòng N trong file gốc"). Truyền số dòng thật (vd row_index + 1) khi
     gọi từ ngữ cảnh có biết rõ dòng nào trong file."""
-    field_errors: dict = {}
+    field_errors: dict[str, dict[str, Any]] = {}
     run_cross_field_rules(spec, data, row_number, field_errors)
     return field_errors
 

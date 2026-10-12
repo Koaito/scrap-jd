@@ -93,7 +93,7 @@ def _build_where(
     has_is_active: bool,
     company_column: Optional[str],
     date_table_alias: str,
-) -> tuple[str, list]:
+) -> tuple[str, list[Any]]:
     """Build "WHERE ..." (chuỗi rỗng nếu không filter nào) + params theo
     ĐÚNG thứ tự %s xuất hiện trong chuỗi — dùng chung cho preview lẫn
     export thật của 1 entity, gọi bởi query_*_for_export()/
@@ -137,7 +137,7 @@ def _build_where(
     return where, params
 
 
-def query_jobs_for_export(conn: Conn, filters: Optional[ExportFilters] = None) -> list[dict]:
+def query_jobs_for_export(conn: Conn, filters: Optional[ExportFilters] = None) -> list[dict[str, Any]]:
     """Không truyền filters (hoặc mọi field None) = lấy toàn bộ job mọi
     trạng thái — TRƯỚC ĐÂY hard-code WHERE job_status='OPEN', giờ 'OPEN'
     chỉ còn là 1 lựa chọn filters.status, KHÔNG còn mặc định ẩn (staff tự
@@ -176,7 +176,7 @@ def query_jobs_for_export(conn: Conn, filters: Optional[ExportFilters] = None) -
     return _format_rows(rows, "job")
 
 
-def query_companies_for_export(conn: Conn, filters: Optional[ExportFilters] = None) -> list[dict]:
+def query_companies_for_export(conn: Conn, filters: Optional[ExportFilters] = None) -> list[dict[str, Any]]:
     """Không filter is_active = lấy cả company đã soft-delete (giữ đúng
     hành vi cũ) — is_active có mặt trong export_columns để người xem
     file tự biết trạng thái; staff có thể tự lọc is_active=true ở bước
@@ -211,7 +211,7 @@ def query_companies_for_export(conn: Conn, filters: Optional[ExportFilters] = No
     return _format_rows(rows, "company")
 
 
-def query_contacts_for_export(conn: Conn, filters: Optional[ExportFilters] = None) -> list[dict]:
+def query_contacts_for_export(conn: Conn, filters: Optional[ExportFilters] = None) -> list[dict[str, Any]]:
     """Không filter is_active = lấy cả contact đã soft-delete (giữ đúng
     hành vi cũ)."""
     filters = filters or ExportFilters()
@@ -267,7 +267,7 @@ def _format_export_value(val: Any) -> Any:
     return val
 
 
-def _format_rows(rows: list[dict], entity_type: str) -> list[dict]:
+def _format_rows(rows: list[dict[str, Any]], entity_type: str) -> list[dict[str, Any]]:
     spec = get_spec(entity_type)
     out = []
     for row in rows:

@@ -24,7 +24,7 @@ nhiễu không giúp ích cho staff.
 """
 
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Optional
 
 import psycopg2.extras
 from scrapjd.db.pg_types import Conn
@@ -85,7 +85,7 @@ def resolve_company(conn: Conn, company_name: Optional[str], tax_id: Optional[st
     return CompanyResolution(status="needs_resolution", suggestions=suggestions)
 
 
-def get_company(conn: Conn, company_id: str) -> Optional[dict]:
+def get_company(conn: Conn, company_id: str) -> Optional[dict[str, Any]]:
     """Tra 1 company theo company_id — dùng cho resolve-company (staff tự
     chọn 1 công ty trong modal ở bước preview, xem preview_manager.py::
     resolve_company_selection()) khi cần biết TÊN THẬT của company vừa

@@ -41,13 +41,13 @@ inactive" đã chốt, + "conflict_in_batch" thêm 08/2026):
 """
 
 from datetime import date
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 import psycopg2.extras
 from scrapjd.db.pg_types import Conn
 
 
-def detect_company_conflict(conn: Conn, company_name: Optional[str], tax_id: Optional[str]) -> dict:
+def detect_company_conflict(conn: Conn, company_name: Optional[str], tax_id: Optional[str]) -> dict[str, Any]:
     """Company: match theo tax_id OR company_name — nếu CÙNG 1 record
     khớp cả 2 tiêu chí thì tính là 1 conflict duy nhất (Requirement 3.4).
     Match CẢ company đã is_active=false (giả định B: cảnh báo riêng thay
@@ -79,7 +79,9 @@ def detect_company_conflict(conn: Conn, company_name: Optional[str], tax_id: Opt
 
 
 # deadline: lúc build preview là date, lúc confirm là chuỗi ISO (preview lưu JSON qua _jsonable); psycopg2 nhận cả hai.
-def detect_job_conflict(conn: Conn, company_name: Optional[str], job_title: Optional[str], deadline: Union[date, str, None]) -> dict:
+def detect_job_conflict(
+    conn: Conn, company_name: Optional[str], job_title: Optional[str], deadline: Union[date, str, None],
+) -> dict[str, Any]:
     """Job: match (company_name AND job_title AND deadline). Match CẢ
     job không OPEN (EXPIRED/CLOSED) — giả định B: cảnh báo riêng thay vì
     âm thầm tạo job trùng mới khi job cũ đã đóng."""
@@ -107,7 +109,7 @@ def detect_job_conflict(conn: Conn, company_name: Optional[str], job_title: Opti
 
 def detect_contact_conflict(
     conn: Conn, company_id: Optional[str], contact_name: Optional[str], work_email: Optional[str],
-) -> dict:
+) -> dict[str, Any]:
     """Contact: match (company_id AND contact_name AND email). Match CẢ
     contact đã is_active=false (giả định B)."""
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -138,7 +140,7 @@ def find_duplicate_contacts(
     social_link: Optional[str],
     phone_number: Optional[str],
     exclude_contact_id: Optional[str] = None,
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Match MỜ (khác hẳn detect_contact_conflict ở trên vốn match cứng
     company_id + contact_name + email cho lần build preview đầu tiên) —
     dùng cho tính năng "cảnh báo trùng ngay khi staff sửa field lỗi tại
@@ -173,7 +175,7 @@ def find_duplicate_contacts(
         return []
 
     where_clauses = ["company_id = %s"]
-    params: list = [company_id]
+    params: list[Any] = [company_id]
 
     match_clauses = []
     if work_email:
@@ -215,12 +217,12 @@ def find_duplicate_contacts(
 
 
 def _score_contact_candidate(
-    candidate: dict,
+    candidate: dict[str, Any],
     *,
     work_email: Optional[str],
     social_link: Optional[str],
     phone_number: Optional[str],
-) -> Optional[dict]:
+) -> Optional[dict[str, Any]]:
     """So khớp 1 candidate (dict CÓ work_email/social_link/phone_number —
     có thể là 1 row từ bảng company_contacts, hoặc 1 row["data"] khác
     trong CHÍNH file đang import) với bộ 3 giá trị cần so — RULE DÙNG
@@ -247,14 +249,14 @@ def _score_contact_candidate(
 
 
 def find_duplicate_rows_in_batch(
-    rows: list[dict],
+    rows: list[dict[str, Any]],
     *,
     row_index: int,
     company_id: Optional[str],
     work_email: Optional[str],
     social_link: Optional[str],
     phone_number: Optional[str],
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """Match MỜ giữa 2 dòng TRONG CÙNG 1 file đang import (thuần Python,
     KHÔNG đụng DB) — khác find_duplicate_contacts() ở trên vốn so với
     record ĐÃ CÓ trong DB. Dùng cho case "việc số 4" (xem trao đổi thiết

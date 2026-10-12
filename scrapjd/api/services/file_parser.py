@@ -11,6 +11,7 @@ không đụng tới rule nghiệp vụ, và ngược lại).
 """
 
 from io import BytesIO
+from typing import Any
 
 import pandas as pd
 from fastapi import UploadFile
@@ -90,7 +91,7 @@ def parse_file(file: UploadFile, raw_bytes: bytes) -> pd.DataFrame:
     return df
 
 
-def generate_export_file(rows: list[dict], columns: list[str], file_format: str) -> BytesIO:
+def generate_export_file(rows: list[dict[str, Any]], columns: list[str], file_format: str) -> BytesIO:
     """Sinh file CSV/XLSX từ list[dict] record đã query từ DB.
 
     columns: thứ tự cột mong muốn trong file xuất ra (theo đúng tên cột

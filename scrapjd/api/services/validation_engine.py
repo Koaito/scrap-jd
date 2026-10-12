@@ -73,7 +73,7 @@ class ValidationResult:
     # DataFrame đã convert đúng kiểu (date -> date object, number -> int/float,
     # bool -> bool) — CHỈ có giá trị dùng được khi is_valid=True, để tầng
     # sau (conflict_detector/import_executor) không phải tự parse lại.
-    cleaned_rows: Optional[list[dict]] = None
+    cleaned_rows: Optional[list[dict[str, Any]]] = None
 
 
 def _parse_date_value(raw: str) -> Optional[date]:
@@ -91,7 +91,7 @@ def _parse_bool_value(raw: str) -> bool:
     raise ValueError(f"'{raw}' không phải giá trị boolean hợp lệ")
 
 
-def validate_single_field(spec: EntitySpec, field_name: str, val_str: str) -> tuple[Any, Optional[dict]]:
+def validate_single_field(spec: EntitySpec, field_name: str, val_str: str) -> tuple[Any, Optional[dict[str, str]]]:
     """Convert 1 giá trị string (đã strip, KHÔNG rỗng) theo đúng type khai
     báo trong spec cho field_name. Trả (converted_value, error) — error là
     None khi hợp lệ, hoặc dict {"rule", "message"} (message KHÔNG kèm
@@ -161,7 +161,7 @@ def validate_single_field(spec: EntitySpec, field_name: str, val_str: str) -> tu
 def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
     spec = get_spec(entity_type)
     errors: list[ValidationError] = []
-    cleaned_rows: list[dict] = []
+    cleaned_rows: list[dict[str, Any]] = []
 
     # Requirement 11.5: cột thừa không có trong schema -> bỏ qua, không lỗi.
     known_fields = set(spec.required_fields) | set(spec.enum_fields) | set(
@@ -192,13 +192,14 @@ def validate_dataframe(df: pd.DataFrame, entity_type: str) -> ValidationResult:
         # iterrows() gõ idx là Hashable; DataFrame do file_parser dựng có index số nguyên 0..n-1. Cast không đổi hành vi.
         row_idx = cast(int, idx)
         row_number = row_idx + 2  # +1 về 1-based, +1 vì header chiếm dòng 1
-        row_dict = row.to_dict()
-        cleaned: dict = {}
+        # to_dict() gõ khoá là Hashable; tên cột đã được file_parser ép str và df đã lọc theo known_fields (toàn str). Cast không đổi hành vi.
+        row_dict = cast(dict[str, Any], row.to_dict())
+        cleaned: dict[str, Any] = {}
         # field -> {"rule", "message"} — lỗi CỦA RIÊNG DÒNG NÀY, không còn
         # đẩy lên `errors` (list cấp file) như trước, xem docstring đầu
         # file. preview_manager.py đọc cleaned["_field_errors"] ra để đánh
         # dấu needs_field_fix.
-        field_errors: dict[str, dict] = {}
+        field_errors: dict[str, dict[str, Any]] = {}
 
         # file_parser.py đã convert MỌI cell thành string (đã strip).
         # Empty string sẽ được convert thành None tại đây.
