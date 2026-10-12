@@ -33,7 +33,7 @@ import secrets
 import hashlib
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Any, Optional
 
 import jwt
 from argon2 import PasswordHasher
@@ -174,7 +174,7 @@ def create_access_token(*, ss_user_id: str, role: str, email: str, session_id: s
     return jwt.encode(payload, _JWT_SECRET_KEY, algorithm=_JWT_ALGORITHM)
 
 
-def decode_access_token(token: str) -> Optional[dict]:
+def decode_access_token(token: str) -> Optional[dict[str, Any]]:
     """Trả payload (dict) nếu token hợp lệ + chưa hết hạn + đúng
     type='access' (chặn nhầm lẫn nếu ai đó lỡ đưa refresh token vào chỗ
     này). Trả None cho MỌI lỗi (hết hạn, sai chữ ký, sai định dạng...) —

@@ -62,7 +62,7 @@ migration + 1 entry label ở frontend, KHÔNG cần bảng/router mới.
 """
 
 import logging
-from typing import Optional
+from typing import Any, Optional
 
 from scrapjd import db as db_module
 
@@ -91,7 +91,7 @@ _JOB_RUNNERS = {
 }
 
 
-def get_run(run_id: str) -> Optional[dict]:
+def get_run(run_id: str) -> Optional[Row]:
     """Đọc 1 lượt chạy từ bảng maintenance_runs — dùng cho GET
     /maintenance/{run_id}. Mượn/trả connection từ pool chung (xem
     docstring module ở đầu file — hàm ngắn, tần suất poll cao)."""
@@ -116,7 +116,7 @@ def list_runs(*, job_type: Optional[str] = None, status: Optional[str] = None,
         db_module.release_connection(conn)
 
 
-def get_latest_run_per_job_type() -> dict:
+def get_latest_run_per_job_type() -> dict[str, Row]:
     """Đọc lượt chạy GẦN NHẤT của MỖI job_type (bất kể status) — dùng
     cho khung "Log live" ở trang web, mỗi card job_type tự có 1 run_id
     để hiện log ngay cả khi không có lượt nào đang chạy. Mượn/trả
@@ -140,7 +140,7 @@ def get_logs(run_id: str, after_id: int = 0, limit: int = 500) -> list[Row]:
         db_module.release_connection(conn)
 
 
-def get_logs_batch(run_after_ids: dict, limit: int = 500) -> dict:
+def get_logs_batch(run_after_ids: dict[str, int], limit: int = 500) -> dict[str, list[Row]]:
     """Đọc log MỚI cho NHIỀU run_id cùng lúc (mỗi run_id 1 after_id
     riêng) — dùng cho GET /maintenance/logs-batch (09/2026, xem lịch sử
     trao đổi "gộp 5 request logs.json thành 1"), đối xứng get_logs()
@@ -153,7 +153,7 @@ def get_logs_batch(run_after_ids: dict, limit: int = 500) -> dict:
         db_module.release_connection(conn)
 
 
-def start_run(job_type: str, params: dict, triggered_by: Optional[str] = None) -> str:
+def start_run(job_type: str, params: dict[str, Any], triggered_by: Optional[str] = None) -> str:
     """Tạo 1 run mới (INSERT vào maintenance_runs, status='queued'),
     trả về run_id NGAY (chưa chạy thật) — router chịu trách nhiệm add
     background task gọi execute() sau, đối xứng crawl_runner.start_crawl().

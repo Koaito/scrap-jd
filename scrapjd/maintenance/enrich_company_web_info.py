@@ -273,7 +273,7 @@ def _strip_diacritics(text: str) -> str:
     return "".join(c for c in normalized if unicodedata.category(c) != "Mn").replace("đ", "d").replace("Đ", "D")
 
 
-def _tokenize_company_name(name: str) -> set:
+def _tokenize_company_name(name: str) -> set[str]:
     """Tách tên công ty thành tập token "có ý nghĩa nhận diện" — bỏ dấu
     tiếng Việt (để so được với domain vốn luôn là ASCII), bỏ từ đệm loại
     hình DN + từ chung chung, bỏ token quá ngắn (<3 ký tự, thường là rác
@@ -283,7 +283,7 @@ def _tokenize_company_name(name: str) -> set:
     return {t for t in raw_tokens if t not in _GENERIC_NAME_WORDS and len(t) >= 3}
 
 
-def _tokenize_domain(url: str) -> set:
+def _tokenize_domain(url: str) -> set[str]:
     """Tách phần tên miền chính (bỏ scheme, www, TLD) thành token — vd
     'https://www.aeonmall-vietnam.com' -> {'aeonmall', 'vietnam'}."""
     from urllib.parse import urlsplit
@@ -308,7 +308,7 @@ def _website_matches_company_name(company_name: str, website: str) -> bool:
     return bool(company_tokens & domain_tokens)
 
 
-def _format_result_group(results: list, label: str, start_index: int = 1) -> tuple:
+def _format_result_group(results: list[dict[str, Any]], label: str, start_index: int = 1) -> tuple[str, int]:
     """Format 1 nhóm kết quả Tavily thành text, đánh số bắt đầu từ
     start_index (để đánh số liên tục xuyên suốt cả 2 nhóm khi ghép lại,
     tránh Gemini nhầm '[Kết quả 1]' của nhóm 2 với '[Kết quả 1]' của
@@ -324,7 +324,7 @@ def _format_result_group(results: list, label: str, start_index: int = 1) -> tup
     return "\n\n".join(parts), idx - start_index
 
 
-def _build_results_text(website_results: list, tax_id_results: list) -> str:
+def _build_results_text(website_results: list[dict[str, Any]], tax_id_results: list[dict[str, Any]]) -> str:
     """Ghép gọn kết quả từ 2 lần search Tavily (query tìm website riêng +
     query tìm tax_id riêng — xem docstring đầu file, mục "TÁCH 2 QUERY
     TAVILY") thành 1 khối text đưa vào prompt Gemini, đánh nhãn rõ nguồn
@@ -355,7 +355,7 @@ def _build_results_text(website_results: list, tax_id_results: list) -> str:
     return "\n\n".join(groups)
 
 
-def _parse_gemini_json(text: str) -> Optional[dict]:
+def _parse_gemini_json(text: str) -> Optional[dict[str, Any]]:
     """Gemini đôi khi vẫn bọc JSON trong ```json ... ``` dù đã dặn không
     làm vậy trong prompt — dọn qua trước khi parse, an toàn hơn là tin
     tuyệt đối vào việc model luôn tuân thủ đúng format yêu cầu."""
@@ -369,7 +369,7 @@ def _parse_gemini_json(text: str) -> Optional[dict]:
         return None
 
 
-def _tavily_search(tavily_client: TavilyClient, query: str, company_name: str, purpose: str) -> list:
+def _tavily_search(tavily_client: TavilyClient, query: str, company_name: str, purpose: str) -> list[dict[str, Any]]:
     """1 lần gọi Tavily search, trả list results (rỗng nếu lỗi/không có
     kết quả) — KHÔNG raise, để nơi gọi (enrich_one_company) tự quyết định
     có tiếp tục với bộ kết quả còn lại hay không thay vì crash cả công ty
@@ -384,7 +384,7 @@ def _tavily_search(tavily_client: TavilyClient, query: str, company_name: str, p
     return resp.get("results", []) if isinstance(resp, dict) else []
 
 
-def enrich_one_company(tavily_client: TavilyClient, gemini_client: Any, company_name: str) -> dict:
+def enrich_one_company(tavily_client: TavilyClient, gemini_client: Any, company_name: str) -> dict[str, Any]:
     """Trả về dict {"website": str, "tax_id": str} — CHỈ chứa field đã
     qua kiểm tra an toàn (confidence RIÊNG của field đó đủ cao + đúng
     định dạng), field nào không đạt sẽ vắng mặt trong dict trả về (không
@@ -474,7 +474,7 @@ def enrich_one_company(tavily_client: TavilyClient, gemini_client: Any, company_
     return result
 
 
-def run(limit: Optional[int] = None) -> dict:
+def run(limit: Optional[int] = None) -> dict[str, int]:
     stats = {
         "checked": 0, "updated": 0, "no_result": 0, "errors": 0,
         "website_name_mismatch": 0, "merged_duplicate_company": 0,

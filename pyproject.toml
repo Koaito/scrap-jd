@@ -142,17 +142,30 @@ module = [
 disallow_any_generics = true
 
 [[tool.mypy.overrides]]
-# M3f nửa 1/2 (xong): `disallow_any_generics` cho các module dùng `Session` của scrapjd/maintenance/ (`check_expired_source_jobs`,
-# `get_company_fb_linkedin_link`, `enrich_company_profile_from_website`), `backfill_company_profiles`, `scrapjd.api.storage` và hai gói
-# `scrapjd.maintenance`, `scrapjd.api` (vốn sạch). Nửa 2/2 thêm `enrich_company_web_info` và các module còn lại của scrapjd/api/ ngoài
-# `routers/`, `services/`, `schemas/`. M3g đến M3j thêm phần còn lại của repo; M3k xoá khối này và bật `strict = true`.
+# M3f (xong): `disallow_any_generics` cho `scrapjd.maintenance` (gói và 5 module) và các module của `scrapjd.api` ngoài `routers/`,
+# `services/`, `schemas/` (gói và 12 module, trong đó `app`, `auth`, `concurrency`, `email_service`, `error_codes`, `rate_limit`, `run_log`
+# vốn đã sạch). Nửa 1/2: `check_expired_source_jobs`, `get_company_fb_linkedin_link`, `enrich_company_profile_from_website`,
+# `backfill_company_profiles`, `api.storage`. Nửa 2/2: `enrich_company_web_info`, `crawl_runner`, `maintenance_runner`, `deps`, `security`.
+# M3g đến M3j thêm phần còn lại của repo; M3k xoá khối này và bật `strict = true`.
 module = [
     "scrapjd.api",
+    "scrapjd.api.app",
+    "scrapjd.api.auth",
+    "scrapjd.api.concurrency",
+    "scrapjd.api.crawl_runner",
+    "scrapjd.api.deps",
+    "scrapjd.api.email_service",
+    "scrapjd.api.error_codes",
+    "scrapjd.api.maintenance_runner",
+    "scrapjd.api.rate_limit",
+    "scrapjd.api.run_log",
+    "scrapjd.api.security",
     "scrapjd.api.storage",
     "scrapjd.maintenance",
     "scrapjd.maintenance.backfill_company_profiles",
     "scrapjd.maintenance.check_expired_source_jobs",
     "scrapjd.maintenance.enrich_company_profile_from_website",
+    "scrapjd.maintenance.enrich_company_web_info",
     "scrapjd.maintenance.get_company_fb_linkedin_link",
 ]
 disallow_any_generics = true

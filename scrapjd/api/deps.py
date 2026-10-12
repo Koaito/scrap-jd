@@ -43,7 +43,7 @@ thread có thể mượn/trả connection đồng thời, pool dùng
 ThreadedConnectionPool (không phải SimpleConnectionPool) — xem db.py.
 """
 
-from typing import Callable, Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -54,7 +54,7 @@ from scrapjd.api import security
 from scrapjd.db.pg_types import Conn
 
 
-def get_db() -> Iterator:
+def get_db() -> Iterator[Conn]:
     conn = db_module.get_pooled_connection()
     try:
         yield conn
@@ -89,7 +89,7 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 def get_current_user(
     credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
     conn: Conn = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """Verify JWT access token trong header `Authorization: Bearer
     <token>`, trả payload (dict có 'sub'=ss_user_id, 'role', 'email',
     'is_active') — 'role' và 'is_active' luôn là giá trị MỚI NHẤT đọc từ
@@ -197,7 +197,7 @@ def get_current_user(
 ROLE_HIERARCHY: dict[Optional[str], int] = {"user": 0, "ss_team": 1, "admin": 2}
 
 
-def require_role(min_role: str) -> Callable[[dict], dict]:
+def require_role(min_role: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
     """Trả về 1 dependency FastAPI chặn nếu role của user (lấy từ DB ở
     request hiện tại qua get_current_user, không phải role cũ trong JWT)
     thấp hơn min_role theo ROLE_HIERARCHY. Dùng
@@ -211,7 +211,7 @@ def require_role(min_role: str) -> Callable[[dict], dict]:
     qua nhầm."""
     required_level = ROLE_HIERARCHY[min_role]
 
-    def dependency(user: dict = Depends(get_current_user)) -> dict:
+    def dependency(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
         user_level = ROLE_HIERARCHY.get(user.get("role"), -1)
         if user_level < required_level:
             raise HTTPException(

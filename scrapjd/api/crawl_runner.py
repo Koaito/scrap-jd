@@ -128,7 +128,7 @@ def available_sources() -> list[str]:
     return list(_SOURCE_ADAPTERS.keys())
 
 
-def get_run(run_id: str) -> Optional[dict]:
+def get_run(run_id: str) -> Optional[Row]:
     """Đọc 1 lượt crawl từ bảng crawl_runs — dùng cho GET /crawl/{run_id}.
     Mượn/trả connection từ pool chung (xem docstring module ở đầu file,
     mục CONNECTION POOL — hàm ngắn, tần suất poll cao)."""
@@ -153,7 +153,7 @@ def list_runs(*, source: Optional[str] = None, status: Optional[str] = None,
         db_module.release_connection(conn)
 
 
-def get_latest_run() -> Optional[dict]:
+def get_latest_run() -> Optional[Row]:
     """Đọc lượt crawl GẦN NHẤT (bất kể status) — dùng cho GET
     /crawl/latest-log-run, để khung "Log live" ở frontend luôn có 1
     run_id để hiện log ngay cả khi không có lượt nào đang chạy (xem
@@ -226,7 +226,7 @@ def start_crawl(source: str, category: str, pages: Optional[int],
         db_module.release_connection(conn)
 
 
-def start_batch(source: str, categories: list, pages: Optional[int],
+def start_batch(source: str, categories: list[str], pages: Optional[int],
                  max_jobs: Optional[int] = None,
                  triggered_by: Optional[str] = None) -> tuple[str, str]:
     """08/2026 (xem docstring sql/migration_add_crawl_batches.sql) —
@@ -281,7 +281,7 @@ def start_batch(source: str, categories: list, pages: Optional[int],
         db_module.release_connection(conn)
 
 
-def get_batch(batch_id: str) -> Optional[dict]:
+def get_batch(batch_id: str) -> Optional[Row]:
     """Đọc 1 batch KÈM danh sách run con (đúng thứ tự) + tiến độ tổng
     (total/completed) — dùng cho GET /crawl/batch/{batch_id}. Mượn/trả
     connection từ pool chung (xem docstring module ở đầu file)."""
@@ -429,7 +429,7 @@ def _execute_one(run_id: str) -> Optional[str]:
                 # "treo lâu" (phút, không phải giây) nên 1 lần/giây là đủ mịn.
                 _last_write = {"t": 0.0}
 
-                def _on_progress(p: dict) -> None:
+                def _on_progress(p: dict[str, int]) -> None:
                     now = time.monotonic()
                     if now - _last_write["t"] < 1.0:
                         return
