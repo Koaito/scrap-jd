@@ -9,7 +9,7 @@ nhạy cảm (email/SĐT cá nhân của người liên hệ), 'user' KHÔNG đ�
 theo đúng thiết kế 3 role đã thống nhất (xem lịch sử trao đổi).
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -80,7 +80,7 @@ def list_all_contacts(
     assigned_ss_user: str | None = Query(
         None, description="Lọc contact đang được GIAO cho 1 thành viên cụ thể phụ trách (ss_user_id) — độc lập với created_by"
     ),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     """Danh sách contact GỘP TẤT CẢ công ty, kèm company_name — dùng cho
@@ -128,7 +128,7 @@ def list_contacts(
     include_inactive: bool = Query(
         False, description="true = xem cả contact đã xoá mềm (lịch sử liên hệ cũ)"
     ),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     if not db_module.is_valid_uuid(company_id):
@@ -143,7 +143,7 @@ def list_contacts(
 def create_contact(
     company_id: str,
     payload: CompanyContactCreate,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     if not db_module.is_valid_uuid(company_id):
@@ -188,7 +188,7 @@ def update_contact(
     company_id: str,
     contact_id: str,
     payload: CompanyContactUpdate,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     if not db_module.is_valid_uuid(contact_id):
@@ -252,7 +252,7 @@ def assign_contact(
     company_id: str,
     contact_id: str,
     payload: ContactAssignUpdate,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     """Gán (hoặc bỏ gán, khi assigned_ss_user=null trong body) người
@@ -312,7 +312,7 @@ def delete_contact(
     company_id: str,
     contact_id: str,
     payload: ContactDeleteRequest,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> None:
     """Xoá MỀM (is_active=false) — KHÔNG xoá thật, giữ lịch sử liên hệ
@@ -351,7 +351,7 @@ def hard_delete_contact(
     company_id: str,
     contact_id: str,
     payload: ContactDeleteRequest,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> None:
     """Xoá THẬT — chỉ dùng làm bước 2, sau khi contact ĐÃ soft-delete

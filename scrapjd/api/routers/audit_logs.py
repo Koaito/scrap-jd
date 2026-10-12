@@ -12,7 +12,7 @@ TOÀN BỘ route yêu cầu require_role("ss_team") — cùng lý do với
 có khái niệm này).
 """
 
-from typing import Literal, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -67,7 +67,7 @@ def list_audit_logs(
     ),
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> PaginatedAuditLogs:
     if entity_type is not None and entity_type not in _VALID_ENTITY_TYPES:
@@ -104,7 +104,7 @@ def list_audit_logs(
 def update_note(
     log_id: str,
     payload: AuditLogNoteUpdate,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     """Bổ sung/sửa note của 1 log đã tồn tại.

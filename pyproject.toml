@@ -236,3 +236,16 @@ module = [
     "scrapjd.api.schemas.validators",
 ]
 disallow_any_generics = true
+
+[[tool.mypy.overrides]]
+# M3j (đang làm, nửa 1/2 xong): `disallow_any_generics` cho 9 router còn lại của `scrapjd.api.routers`. Nửa 1/2: 5 router CRUD đơn
+# giản `audit_logs`, `companies`, `contacts`, `dashboard`, `email_templates`. Nửa 2/2: `crawl`, `auth_session`, `auth_users`,
+# `import_export` (đăng nhập và upload file, rủi ro hơn). M3k xoá các khối này và bật `strict = true`.
+module = [
+    "scrapjd.api.routers.audit_logs",
+    "scrapjd.api.routers.companies",
+    "scrapjd.api.routers.contacts",
+    "scrapjd.api.routers.dashboard",
+    "scrapjd.api.routers.email_templates",
+]
+disallow_any_generics = true

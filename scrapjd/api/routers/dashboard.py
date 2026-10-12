@@ -13,7 +13,7 @@ bộ yêu cầu ss_team trở lên — trang /dashboard vốn staff-only, và ta
 "Doanh nghiệp" chứa tên/ngày liên hệ của contact (dữ liệu nhạy cảm).
 """
 
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -48,9 +48,9 @@ def _pct_change(current: int, previous: int) -> Optional[int]:
 @limiter.limit("30/minute", key_func=get_user_id_or_ip)
 def get_student_insights(
     request: Request,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """Tab "Gợi ý học viên": JD sắp hết hạn cần đẩy (deadline còn 7-14
     ngày, chưa ai lưu/ứng tuyển), JD "ế" (thu thập >= 30 ngày, chưa ai
     quan tâm), top 10 kỹ năng 30 ngày gần đây, lương trung bình theo
@@ -72,9 +72,9 @@ def get_company_insights(
         description="Ngưỡng số ngày im lặng cho contacts_needing_followup — chỉ nhận "
                     "7 | 14 | 30 (mặc định 14), giá trị khác trả 400.",
     ),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """Tab "Doanh nghiệp": công ty tiềm năng cao thiếu/nguội contact,
     contact cần follow-up (im lặng >= followup_days), công ty đang "nở rộ"
     (>= 2 job trong 30 ngày) và công ty "im ắng" (job mới nhất > 75 ngày
@@ -104,9 +104,9 @@ def get_company_insights(
 @limiter.limit("30/minute", key_func=get_user_id_or_ip)
 def get_monthly_insights(
     request: Request,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """Tab "Báo cáo tháng": số job/công ty mới + % so với tháng trước, job
     hết hạn trong tháng, top 3 ngành + top 5 công ty tuyển nhiều nhất
     tháng này, số ứng tuyển/lưu job + %. "Tháng" theo lịch, giờ Việt Nam

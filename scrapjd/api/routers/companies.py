@@ -1,5 +1,5 @@
 import psycopg2.errors
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -67,7 +67,7 @@ def get_partnership_signals(
                     "Không truyền = tính cho TOÀN BỘ công ty trong DB.",
     ),
     conn: Conn = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """GET /companies/partnership-signals — thay thế cho việc frontend
     (blueprints/companies.py bên mindx-jobs) từng phải gọi
     list_all_jobs() + list_all_contacts() (kéo TOÀN BỘ job/contact về
@@ -99,8 +99,8 @@ def get_partnership_signals(
 def get_company_data_health(
     request: Request,
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
-) -> dict:
+    user: dict[str, Any] = Depends(require_role("ss_team")),
+) -> dict[str, Any]:
     """GET /companies/data-health — thay thế cho việc frontend
     (blueprints/crawl_status.py bên mindx-jobs, tab "Tình trạng dữ
     liệu") từng phải gọi list_all_companies() + list_all_contacts()
@@ -122,7 +122,7 @@ def get_company_data_health(
 
 
 @router.get("/{company_id}", response_model=CompanyDetailOut)
-def get_company(company_id: str, conn: Conn = Depends(get_db)) -> dict:
+def get_company(company_id: str, conn: Conn = Depends(get_db)) -> dict[str, Any]:
     if not db_module.is_valid_uuid(company_id):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.COMPANY_COMPANY_ID_INVALID_UUID, "message": f"company_id '{company_id}' không đúng định dạng UUID.", "params": {"value": company_id}})
     row = db_module.get_company_by_id(conn, company_id)
@@ -136,8 +136,8 @@ def get_company(company_id: str, conn: Conn = Depends(get_db)) -> dict:
 def create_company(
     payload: CompanyCreate,
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
-) -> dict:
+    user: dict[str, Any] = Depends(require_role("ss_team")),
+) -> dict[str, Any]:
     """Tạo công ty THỦ CÔNG — dùng trước POST /jobs khi công ty chưa có
     trong DB (GET /companies?keyword= tìm không ra). Nếu tax_id điền vào
     trùng với công ty đã crawl trước đó, tự động DÙNG LẠI company đã có
@@ -212,8 +212,8 @@ def patch_company(
     company_id: str,
     payload: CompanyUpdate,
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
-) -> dict:
+    user: dict[str, Any] = Depends(require_role("ss_team")),
+) -> dict[str, Any]:
     """Sửa TỰ DO các field của 1 company đã tồn tại (thêm 08/2026, xem
     lịch sử trao đổi). Chỉ field có mặt trong body mới bị ghi đè, field
     không gửi giữ nguyên giá trị cũ — giống PATCH /jobs/{id}.
@@ -292,7 +292,7 @@ def delete_company(
     company_id: str,
     payload: CompanyDeleteRequest,
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> None:
     """Xoá MỀM company (is_active=false) — thêm 08/2026, xem
     sql/migration_add_company_soft_delete.sql. Trước route này, company
