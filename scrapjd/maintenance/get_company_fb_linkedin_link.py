@@ -239,7 +239,7 @@ def _extract_facebook_plugin_href(url: str) -> Optional[str]:
     return _clean_social_url(href)
 
 
-def _pick_best_linkedin(candidates: list) -> tuple:
+def _pick_best_linkedin(candidates: list[str]) -> tuple[str, bool]:
     """Tầng 1, case #4: ưu tiên link '/company/...' (trang công ty thật)
     trong số các candidate LinkedIn tìm được trên trang. Nếu CHỈ tìm được
     '/in/...' (hồ sơ cá nhân, vd CEO/nhân viên) -> KHÔNG lưu làm
@@ -308,7 +308,7 @@ def _is_challenge_page(html: str) -> bool:
     return any(marker in lowered for marker in _CHALLENGE_PAGE_MARKERS)
 
 
-def find_social_links(html: str, page_url: str) -> tuple:
+def find_social_links(html: str, page_url: str) -> tuple[str, str, bool]:
     """Quét href/src trong trang tìm link Facebook/LinkedIn thật. Ưu tiên
     quét thẻ <a href> và <iframe src> trước (chính xác hơn regex trên raw
     HTML vì tránh dính link nằm trong script/comment không liên quan),
@@ -391,7 +391,7 @@ class SocialLinkFetcher:
     website doanh nghiệp cũng có Cloudflare/WAF cơ bản."""
 
     def __init__(self) -> None:
-        self.session: requests.Session = requests.Session(impersonate="chrome124")
+        self.session: "requests.Session[requests.Response]" = requests.Session(impersonate="chrome124")
         self.session.headers.update(DEFAULT_HEADERS)
         self._last_request_time: Optional[float] = None
 
@@ -403,7 +403,7 @@ class SocialLinkFetcher:
             if resp.status_code >= 400:
                 logger.warning("HTTP %d tại %s -> bỏ qua", resp.status_code, url)
                 return None
-            return resp.text  # type: ignore[no-any-return]  # curl_cffi Session chưa tham số hoá (M3e): gỡ ignore này khi đó
+            return resp.text
         except requests.exceptions.RequestException as exc:
             self._last_request_time = time.monotonic()
             logger.warning("Lỗi fetch %s: %s -> bỏ qua", url, exc)
@@ -451,7 +451,7 @@ def _try_fallback_subpages(fetcher: SocialLinkFetcher, website: str) -> tuple[st
     return "", "", False, ""
 
 
-def _handle_website_is_social_domain(website: str) -> tuple:
+def _handle_website_is_social_domain(website: str) -> tuple[str, str]:
     """Tầng 1, case #5: companies.website đã CHÍNH LÀ URL Facebook/
     LinkedIn (lỡ lọt qua bước enrich trước đó, vd scrapjd/maintenance/enrich_company_web_info.py
     trích xuất nhầm 1 fanpage thành "website chính thức"). KHÔNG crawl
@@ -479,7 +479,7 @@ def _handle_website_is_social_domain(website: str) -> tuple:
     return fanpage_url, linkedin_url
 
 
-def run(limit: Optional[int] = None) -> dict:
+def run(limit: Optional[int] = None) -> dict[str, int]:
     stats = {
         "checked": 0, "updated": 0, "no_link_found": 0,
         "likely_js_rendered": 0, "fetch_failed": 0,

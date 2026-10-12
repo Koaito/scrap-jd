@@ -90,7 +90,7 @@ import argparse
 import logging
 import time
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 from curl_cffi import requests
 
@@ -114,7 +114,7 @@ class _Throttled404Checker:
     ở đây, chỉ cần status_code."""
 
     def __init__(self) -> None:
-        self.session: requests.Session = requests.Session(impersonate="chrome124")
+        self.session: "requests.Session[requests.Response]" = requests.Session(impersonate="chrome124")
         self.session.headers.update(DEFAULT_HEADERS)
         self._last_request_time: Optional[float] = None
 
@@ -130,7 +130,7 @@ class _Throttled404Checker:
             # sống) -> fallback GET trước khi kết luận gì từ mã lỗi này.
             if resp.status_code == 405:
                 return self._get_fallback(url)
-            return resp.status_code  # type: ignore[no-any-return]  # curl_cffi Session chưa tham số hoá (M3e): gỡ ignore này khi đó
+            return resp.status_code
         except requests.exceptions.RequestException as exc:
             self._last_request_time = time.monotonic()
             logger.warning("Lỗi fetch %s: %s -> bỏ qua, không kết luận", url, exc)
@@ -141,7 +141,7 @@ class _Throttled404Checker:
         try:
             resp = self.session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=True)
             self._last_request_time = time.monotonic()
-            return resp.status_code  # type: ignore[no-any-return]  # curl_cffi Session chưa tham số hoá (M3e): gỡ ignore này khi đó
+            return resp.status_code
         except requests.exceptions.RequestException as exc:
             self._last_request_time = time.monotonic()
             logger.warning("Lỗi fetch (fallback GET) %s: %s -> bỏ qua", url, exc)
@@ -156,7 +156,7 @@ class _Throttled404Checker:
             time.sleep(remaining)
 
 
-def cleanup_cvs_of_closed_jobs(conn: Conn, dry_run: bool = False) -> dict:
+def cleanup_cvs_of_closed_jobs(conn: Conn, dry_run: bool = False) -> dict[str, int]:
     """Dọn CV (file PDF trên Supabase Storage + cv_url trong DB) của
     MỌI application thuộc job đang CLOSED — xem docstring đầu file mục
     "DỌN CV". Trả {"cv_cleaned": int, "cv_cleanup_errors": int}.
@@ -200,15 +200,16 @@ def cleanup_cvs_of_closed_jobs(conn: Conn, dry_run: bool = False) -> dict:
     return stats
 
 
-def _group_listings_by_job(listings: list) -> dict:
+def _group_listings_by_job(listings: list[tuple[Any, ...]]) -> dict[Any, list[tuple[Any, Any, Any]]]:
     """{job_id: [(job_title, source_url, deadline), ...]} giữ thứ tự job của list_checkable_listings."""
-    by_job: dict = {}
+    by_job: dict[Any, list[tuple[Any, Any, Any]]] = {}
     for job_id, job_title, source_url, deadline in listings:
         by_job.setdefault(job_id, []).append((job_title, source_url, deadline))
     return by_job
 
 
-def _expire_by_deadline(conn: Conn, by_job: dict, today: date, dry_run: bool, stats: dict) -> set:
+def _expire_by_deadline(conn: Conn, by_job: dict[Any, list[tuple[Any, Any, Any]]], today: date, dry_run: bool,
+                        stats: dict[str, int]) -> set[Any]:
     """Nhánh HẠN (C3a), chạy trên LISTING, không đụng mạng: mỗi listing OPEN/UNKNOWN có hạn đã qua thì đóng
     'expired_auto' (db.close_expired_listings), rồi đồng bộ job theo listing (db.sync_job_from_listings): job
     chỉ CLOSED khi không còn listing sống. Một job còn listing khác chưa hết hạn (hoặc không có hạn) vẫn OPEN.
@@ -217,7 +218,7 @@ def _expire_by_deadline(conn: Conn, by_job: dict, today: date, dry_run: bool, st
     listings_expired_by_deadline = số LISTING bị đóng vì hạn. Commit từng job (lỗi một job không kéo theo job
     khác). Trả tập job_id đã (hoặc, khi dry_run, SẼ) bị đóng.
     """
-    closed_jobs: set = set()
+    closed_jobs: set[Any] = set()
     for n, (job_id, listings) in enumerate(by_job.items(), 1):
         expired = [(url, dl) for _, url, dl in listings if dl is not None and dl < today]
         if not expired:
@@ -250,7 +251,8 @@ def _expire_by_deadline(conn: Conn, by_job: dict, today: date, dry_run: bool, st
     return closed_jobs
 
 
-def _check_source_urls(conn: Conn, checker: _Throttled404Checker, by_job: dict, today: date, dry_run: bool, stats: dict) -> None:
+def _check_source_urls(conn: Conn, checker: _Throttled404Checker, by_job: dict[Any, list[tuple[Any, Any, Any]]], today: date,
+                       dry_run: bool, stats: dict[str, int]) -> None:
     """Nhánh MẠNG (C3b), chạy trên LISTING: hỏi từng URL của MỌI listing OPEN/UNKNOWN của job OPEN (không chỉ
     URL hiện hành của job).
 
@@ -273,8 +275,8 @@ def _check_source_urls(conn: Conn, checker: _Throttled404Checker, by_job: dict, 
             for title, url, _deadline in listings if not url.startswith("manual://")]
     logger.info("Tìm thấy %d listing (của %d job OPEN) có URL để kiểm tra nguồn", len(todo), len(live))
 
-    dead_by_job: dict = {}
-    closed_jobs: set = set()
+    dead_by_job: dict[Any, set[str]] = {}
+    closed_jobs: set[Any] = set()
     for i, (job_id, job_title, url) in enumerate(todo, 1):
         logger.info("[%d/%d] %s (%s)", i, len(todo), job_title, job_id)
         status_code = checker.check(url)
@@ -313,7 +315,7 @@ def _check_source_urls(conn: Conn, checker: _Throttled404Checker, by_job: dict, 
 
 
 def run(limit: Optional[int] = None, check_deadline_only: bool = False,
-        dry_run: bool = False, skip_cv_cleanup: bool = False) -> dict:
+        dry_run: bool = False, skip_cv_cleanup: bool = False) -> dict[str, int]:
     stats = {
         "checked": 0, "expired_by_source_dead": 0, "expired_by_deadline": 0,
         # C3a: số listing đóng vì hạn (expired_by_deadline vẫn đếm JOB bị đóng, nên hai số này chỉ khác

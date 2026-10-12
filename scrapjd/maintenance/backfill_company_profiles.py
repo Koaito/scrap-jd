@@ -92,7 +92,7 @@ def _adapter_for_url(url: str) -> Optional[BaseAdapter]:
     return None
 
 
-def run(limit: Optional[int] = None) -> dict:
+def run(limit: Optional[int] = None) -> dict[str, int]:
     stats = {"checked": 0, "updated": 0, "unchanged": 0, "unknown_domain": 0, "errors": 0}
 
     conn = db.get_connection()

@@ -163,7 +163,7 @@ class _PageFetcher:
     đây để giữ script này tự chứa (xem docstring đầu file)."""
 
     def __init__(self) -> None:
-        self.session: requests.Session = requests.Session(impersonate="chrome124")
+        self.session: "requests.Session[requests.Response]" = requests.Session(impersonate="chrome124")
         self.session.headers.update(DEFAULT_HEADERS)
         self._last_request_time: Optional[float] = None
 
@@ -175,7 +175,7 @@ class _PageFetcher:
             if resp.status_code >= 400:
                 logger.warning("HTTP %d tại %s -> bỏ qua", resp.status_code, url)
                 return None
-            return resp.text  # type: ignore[no-any-return]  # curl_cffi Session chưa tham số hoá (M3e): gỡ ignore này khi đó
+            return resp.text
         except requests.exceptions.RequestException as exc:
             self._last_request_time = time.monotonic()
             logger.warning("Lỗi fetch %s: %s -> bỏ qua", url, exc)
@@ -215,7 +215,7 @@ def _get_page_text(fetcher: _PageFetcher, website: str) -> str:
     return ""
 
 
-def _parse_gemini_json(text: str) -> Optional[dict]:
+def _parse_gemini_json(text: str) -> Optional[dict[str, Any]]:
     cleaned = text.strip()
     cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
     cleaned = re.sub(r"\s*```$", "", cleaned)
@@ -260,7 +260,7 @@ def _throttle_gemini(last_request_time: Optional[float]) -> float:
     return time.monotonic()
 
 
-def run(limit: Optional[int] = None) -> dict:
+def run(limit: Optional[int] = None) -> dict[str, int]:
     stats = {
         "checked": 0, "updated": 0, "no_page_content": 0,
         "low_confidence": 0, "fetch_failed": 0, "errors": 0,

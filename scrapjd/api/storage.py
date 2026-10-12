@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 _TIMEOUT = 30  # seconds
 
 
-def _headers() -> dict:
+def _headers() -> dict[str, str]:
     """Tạo headers chung cho mọi request tới Supabase Storage."""
     return {
         "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
