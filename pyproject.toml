@@ -206,17 +206,18 @@ module = [
 disallow_any_generics = true
 
 [[tool.mypy.overrides]]
-# M3i (đang làm, nửa 1/2 xong): `disallow_any_generics` cho `scrapjd.api.schemas` (gói và 14 module, đủ cả gói) và phần đầu của
-# `scrapjd.api.routers`. Nửa 1/2: toàn bộ `schemas/` (13 chỗ ở `audit_logs`, `crawl`, `import_export`, `jobs`, `maintenance`), gói
-# `routers` và 2 router vốn sạch (`auth`, `auth_registration`), cùng 3 router đơn giản `meta`, `maintenance`, `me`. Nửa 2/2: `jobs`
-# và `messages` (router rủi ro hơn, `messages.send_message` trả `Union`). M3j thêm 9 router còn lại; M3k xoá khối này và bật
-# `strict = true`.
+# M3i (xong): `disallow_any_generics` cho `scrapjd.api.schemas` (gói và 14 module, đủ cả gói) và 5 router `jobs`, `maintenance`, `me`,
+# `messages`, `meta`, cùng gói `scrapjd.api.routers` và 2 router vốn sạch (`auth`, `auth_registration`). Nửa 1/2: toàn bộ `schemas/` (13
+# chỗ ở `audit_logs`, `crawl`, `import_export`, `jobs`, `maintenance`), gói `routers`, `auth`, `auth_registration`, `meta`, `maintenance`,
+# `me`. Nửa 2/2: `jobs` và `messages`. M3j thêm 9 router còn lại; M3k xoá khối này và bật `strict = true`.
 module = [
     "scrapjd.api.routers",
     "scrapjd.api.routers.auth",
     "scrapjd.api.routers.auth_registration",
+    "scrapjd.api.routers.jobs",
     "scrapjd.api.routers.maintenance",
     "scrapjd.api.routers.me",
+    "scrapjd.api.routers.messages",
     "scrapjd.api.routers.meta",
     "scrapjd.api.schemas",
     "scrapjd.api.schemas.applications",

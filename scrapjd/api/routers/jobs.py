@@ -1,7 +1,7 @@
 import base64
 import binascii
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -31,7 +31,7 @@ def _encode_cursor(created_at: datetime, job_id: str) -> str:
     return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("ascii")
 
 
-def _decode_cursor(cursor: str) -> tuple:
+def _decode_cursor(cursor: str) -> tuple[datetime, str]:
     """Ngược lại _encode_cursor() — raise ValueError nếu cursor sai
     định dạng (client tự chế/sửa tay chuỗi, hoặc cursor từ 1 phiên bản
     schema cũ/khác), router bắt ValueError để trả 422 rõ ràng thay vì
@@ -170,7 +170,7 @@ def list_jobs(
 
 @router.get("/data-health", response_model=JobDataHealth)
 @limiter.limit("60/minute")
-def get_job_data_health(request: Request, conn: Conn = Depends(get_db)) -> dict:
+def get_job_data_health(request: Request, conn: Conn = Depends(get_db)) -> dict[str, Any]:
     """GET /jobs/data-health — thay thế cho việc frontend
     (blueprints/crawl_status.py bên mindx-jobs, tab "Tình trạng dữ
     liệu") từng phải gọi list_all_jobs(include_content=True) — kéo
@@ -212,9 +212,9 @@ def get_job_data_health(request: Request, conn: Conn = Depends(get_db)) -> dict:
 def get_cv_signed_url(
     request: Request,
     application_id: str,
-    user: dict = Depends(require_role("ss_team")),  # Chỉ Staff / Admin mới có quyền lấy
+    user: dict[str, Any] = Depends(require_role("ss_team")),  # Chỉ Staff / Admin mới có quyền lấy
     conn: Conn = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     """Staff lấy Signed URL để tải và xem CV học viên.
 
     Rate limit 30/minute theo user_id (thêm 08/2026) — mỗi lần gọi tốn
@@ -250,8 +250,8 @@ def get_job(job_id: str, conn: Conn = Depends(get_db)) -> Row:
 def create_job(
     payload: JobCreate,
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
-) -> dict:
+    user: dict[str, Any] = Depends(require_role("ss_team")),
+) -> dict[str, Any]:
     """Tạo 1 job THỦ CÔNG (không qua crawl) — company_id PHẢI đã tồn tại
     trong DB (dùng GET /companies?keyword= để tìm, hoặc POST /companies
     để tạo mới trước nếu công ty chưa có). Route KHÔNG tự tạo company
@@ -387,7 +387,7 @@ def patch_job(
     job_id: str,
     payload: JobUpdate,
     conn: Conn = Depends(get_db),
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
 ) -> Optional[Row]:
     """Sửa TỰ DO các field của 1 job đã tồn tại (crawl hay nhập tay đều
     được — team không phân quyền chi tiết hơn theo route này, chỉ cần
@@ -524,7 +524,7 @@ def patch_job(
 @router.get("/{job_id}/applications", response_model=list[JobApplicantOut])
 def list_job_applications(
     job_id: str,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     """Ai đã ứng tuyển job này — role 'ss_team' trở lên (giống contacts,
@@ -542,7 +542,7 @@ def list_job_applications(
 @router.get("/{job_id}/saved-jobs", response_model=list[JobSaverOut])
 def list_job_savers(
     job_id: str,
-    user: dict = Depends(require_role("ss_team")),
+    user: dict[str, Any] = Depends(require_role("ss_team")),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     """Thêm 08/2026 — mirror ĐÚNG list_job_applications() ở trên nhưng

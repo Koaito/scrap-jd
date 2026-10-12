@@ -18,7 +18,7 @@ viên, nhưng SS thì không) — check role thủ công trong từng handler
 thay vì ở tầng dependency.
 """
 
-from typing import Optional, Union
+from typing import Any, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -79,7 +79,7 @@ def _resolve_student_ss_pair(sender_id: str, sender_role: str, receiver_id: str,
 def send_message(
     request: Request,
     payload: MessageCreate,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> Union[ChatMessageOut, JSONResponse]:
     """Gửi 1 tin nhắn. sender_id LUÔN lấy từ JWT (user['sub']), KHÔNG
@@ -202,7 +202,7 @@ def send_message(
 @limiter.limit("10/minute", key_func=get_user_id_or_ip)
 def list_conversations(
     request: Request,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     return db_module.list_conversations(conn, user["sub"])
@@ -213,7 +213,7 @@ def list_conversations(
 def get_conversation(
     request: Request,
     partner_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> Row:
     """Tra đúng 1 người đối thoại — tên, role, relationship_status,
@@ -238,7 +238,7 @@ def get_conversation(
 @limiter.limit("10/minute", key_func=get_user_id_or_ip)
 def list_pending_requests(
     request: Request,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     """Mục "Yêu cầu đang chờ" riêng cho SS — học viên pending mà chưa
@@ -256,9 +256,9 @@ def list_pending_requests(
 def unread_count(
     request: Request,
     response: Response,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     # Thêm khi migrate Next.js (Phần 5 mục 15 của plan): route polling này
     # tự set Cache-Control: no-store ngay tại nguồn — trước đây thiếu,
     # phải để Flask/proxy tự vá thêm header này ở tầng trung gian. Dùng
@@ -274,7 +274,7 @@ def unread_count(
 def search_people(
     request: Request,
     q: str = Query(..., min_length=1, max_length=100),
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     """Chỉ trả id/full_name/role — KHÔNG email/phone. Học viên chỉ
@@ -289,7 +289,7 @@ def get_history(
     partner_id: str,
     before_id: int | None = Query(None, ge=0, le=db_module.MAX_MESSAGE_ID),
     limit: int = Query(50, ge=1, le=100),
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     """Lịch sử đầy đủ, phân trang cursor. Cho xem kể cả khi quan hệ
@@ -312,7 +312,7 @@ def get_new_messages(
     response: Response,
     partner_id: str,
     after_id: int = Query(..., ge=0, le=db_module.MAX_MESSAGE_ID),
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> list[Row]:
     """Polling nhẹ trong lúc mở khung chat — chỉ trả tin id > after_id.
@@ -333,9 +333,9 @@ def get_new_messages(
 def mark_read(
     request: Request,
     partner_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
-) -> dict:
+) -> dict[str, Any]:
     _require_valid_uuid(partner_id, "partner_id")
     updated = db_module.mark_read(conn, user["sub"], partner_id)
     conn.commit()
@@ -347,7 +347,7 @@ def mark_read(
 def cancel_my_pending_request(
     request: Request,
     ss_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> Row:
     """Học viên TỰ HUỶ request đang 'pending' do chính mình tạo với
@@ -405,7 +405,7 @@ def cancel_my_pending_request(
 def accept_request(
     request: Request,
     relationship_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     if not _is_ss(user["role"]):
@@ -427,7 +427,7 @@ def accept_request(
 def decline_request(
     request: Request,
     relationship_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     if not _is_ss(user["role"]):
@@ -449,7 +449,7 @@ def decline_request(
 def block_by_relationship(
     request: Request,
     relationship_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     if not _is_ss(user["role"]):
@@ -467,7 +467,7 @@ def block_by_relationship(
 def block_student(
     request: Request,
     student_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     """Biến thể block theo student_id trực tiếp — cho trường hợp SS
@@ -489,7 +489,7 @@ def block_student(
 def unblock_request(
     request: Request,
     relationship_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict[str, Any] = Depends(get_current_user),
     conn: Conn = Depends(get_db),
 ) -> Optional[Row]:
     if not _is_ss(user["role"]):
