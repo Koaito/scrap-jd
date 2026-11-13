@@ -2,6 +2,8 @@
 # GEMINI_API_KEY thật). .env.example (không có giá trị thật) vẫn commit
 # bình thường, không nằm trong danh sách chặn này.
 .env
+.env.*
+!.env.example
 
 # Python
 __pycache__/
@@ -40,3 +42,11 @@ coverage.xml
 
 # Bộ nhớ đệm của mypy
 .mypy_cache/
+
+# Dữ liệu thật xuất ra từ DB/công cụ rà soát (có thể chứa tên công ty, người liên hệ, SĐT) — không commit.
+# Fixture test cần CSV thì đặt tên rõ và dùng `git add -f` có chủ đích, kèm dữ liệu giả.
+*.csv
+*.xlsx
+exports/
+*.dump
+*.sql.gz
