@@ -1,0 +1,67 @@
+name: CI
+
+# Chạy trên mọi PR và mọi push lên main. Một job duy nhất (typecheck -> lint ->
+# test -> build) để cache npm dùng chung; tách job khi Playwright vào (mục 2e).
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Quyền tối thiểu: CI chỉ cần đọc mã nguồn.
+permissions:
+  contents: read
+
+# PR đẩy commit mới thì huỷ lượt chạy cũ của cùng nhánh.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: tsc, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # Action ghim theo SHA đầy đủ của commit (chú thích bên phải là tag
+      # tương ứng). Dependabot (.github/dependabot.yml) tự đề xuất bản mới.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Cài phụ thuộc
+        run: npm ci
+
+      # lib/api/types.ts được SINH từ openapi/openapi.snapshot.json (bản copy snapshot của backend, cập nhật bằng
+      # `npm run sync:openapi`). Sinh lại rồi so với bản đã commit: ai sửa tay types.ts, hoặc đổi snapshot mà quên
+      # sinh lại, thì job đỏ ở đây thay vì lỗi kiểu khó hiểu ở bước sau. Đặt TRƯỚC typecheck vì lý do đó.
+      - name: Kiểm tra types.ts khớp snapshot OpenAPI
+        run: |
+          npm run gen:types
+          if ! git diff --exit-code -- lib/api/types.ts; then
+            echo "::error file=lib/api/types.ts::types.ts không khớp openapi/openapi.snapshot.json (xem diff ở trên). Chạy npm run gen:types rồi commit lại, và không sửa tay file này."
+            exit 1
+          fi
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test (Vitest)
+        run: npm test
+
+      # Biến môi trường GIẢ: build chỉ cần chúng tồn tại để bắt lỗi biên dịch,
+      # không gọi backend thật. Không đặt khoá thật vào workflow.
+      - name: Build
+        run: npm run build
+        env:
+          CRAWLER_API_URL: http://localhost:8000
+          CRAWLER_API_KEY: ci-dummy-key-not-a-secret
+          NEXT_PUBLIC_APP_URL: http://localhost:3000
+          NEXT_TELEMETRY_DISABLED: "1"
