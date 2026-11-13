@@ -1,0 +1,3 @@
+# Snapshot OpenAPI sinh tự động (python -m scrapjd.api.openapi_snapshot): luôn LF để giống nhau giữa các máy,
+# và gộp gọn khi xem diff trên GitHub.
+openapi.snapshot.json text eol=lf linguist-generated=true

@@ -318,6 +318,19 @@ type hint, báo `# type: ignore` thừa. Hiện sạch cảnh báo và CI chạy
 Chưa bắt buộc mọi hàm phải có type hint. Chỗ nào buộc phải bỏ qua thì dùng `# type: ignore[mã-lỗi]` kèm một dòng
 giải thích lý do.
 
+**Snapshot OpenAPI.** `openapi.snapshot.json` ở gốc repo là bản schema API đã commit; frontend (nextjs-job-post) sinh
+`lib/api/types.ts` từ file này. `tests/test_openapi_snapshot.py` so nó với API hiện tại, nên khi thêm/sửa/xoá route,
+tham số hay schema mà chưa sinh lại snapshot thì test đỏ và liệt kê endpoint/schema đã đổi. Không cần DB, không cần bật
+`ENABLE_DOCS`. Sinh lại rồi commit cùng thay đổi API:
+
+```bash
+python -m scrapjd.api.openapi_snapshot           # ghi lại openapi.snapshot.json
+python -m scrapjd.api.openapi_snapshot --check   # chỉ so, không ghi; lệch thì thoát mã 1
+```
+
+Kết quả phụ thuộc phiên bản fastapi/pydantic/starlette (chưa ghim ở requirements.txt): nâng các thư viện này có thể làm
+test đỏ dù code API không đổi. Khi đó xem phần tóm tắt trong lỗi, nếu chỉ là cách sinh schema đổi thì sinh lại snapshot.
+
 ---
 
 ## Quy trình đầu-cuối
