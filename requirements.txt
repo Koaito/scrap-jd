@@ -10,7 +10,7 @@
 curl_cffi==0.17.0
 beautifulsoup4>=4.12.0
 psycopg2-binary>=2.9.9
-python-dotenv>=1.0.0
+python-dotenv>=1.2.4
 
 # Dùng cho scrapjd/maintenance/enrich_company_web_info.py (script riêng, xem docstring đầu
 # file đó) — tra cứu website/tax_id công ty qua Tavily search + Gemini
