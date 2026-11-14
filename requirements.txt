@@ -16,7 +16,7 @@ python-dotenv>=1.0.0
 # file đó) — tra cứu website/tax_id công ty qua Tavily search + Gemini
 # trích xuất. Không cần nếu chỉ chạy pipeline crawl chính.
 tavily-python>=0.5.0
-google-genai>=1.0.0
+google-genai>=3.1.0
 
 # Dùng cho API layer (scrapjd/api/) — expose dữ liệu qua HTTP cho frontend.
 # Không cần nếu chỉ chạy pipeline crawl CLI (main.py) như cũ.
