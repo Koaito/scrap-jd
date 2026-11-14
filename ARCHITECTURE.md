@@ -143,7 +143,7 @@ Invariant cần giữ:
 
 1. **X-API-Key:** gateway client nội bộ, áp dụng router dữ liệu, login và health.
 2. **JWT:** xác minh user ở route yêu cầu login.
-3. **Refresh rotation + single session (đường JWT cũ) và session mờ (Mục 3):** hiện chạy SONG SONG. Refresh token hash trong DB, `active_session_id` vô hiệu phiên cũ; session mờ lưu ở `auth_sessions`, dùng chung `session_id` với `active_session_id`. Next.js chỉ dùng session mờ từ Pha B; Flask và `tools/hr_contact_tool.html` còn dùng JWT cho tới Pha C. Xem 17.6.
+3. **Refresh rotation + single session (đường JWT cũ) và session mờ (Mục 3):** hiện chạy SONG SONG. Refresh token hash trong DB, `active_session_id` vô hiệu phiên cũ; session mờ lưu ở `auth_sessions`, dùng chung `session_id` với `active_session_id`. Next.js chỉ dùng session mờ từ Pha B; Flask còn dùng JWT cho tới Pha C. Xem 17.6.
 4. **RBAC:** `user < ss_team < admin`, dependency `require_role()`/`require_admin()`.
 
 Register/verify/resend/forgot/reset là public có chủ đích để link email hoạt động; các route này rate-limit theo IP.
@@ -383,7 +383,7 @@ Thay dần JWT + refresh xoay vòng bằng một session token ngẫu nhiên, kh
 
 Thứ tự triển khai khi thêm migration: backup, `python main.py migrate`, rồi mới deploy code (code mới ghi vào `auth_sessions` lúc đăng nhập nên thiếu bảng là lỗi 500).
 
-Pha C (chưa làm, phá dữ liệu nên chạy sau cùng): xoá `auth_refresh_tokens`, cột `app_users.active_session_id`, route `/auth/refresh` và code JWT. Điều kiện trước khi làm: không còn client nào dùng JWT (Flask đóng băng, `tools/hr_contact_tool.html` chuyển sang session token, Next.js chạy ổn vài ngày).
+Pha C (chưa làm, phá dữ liệu nên chạy sau cùng): xoá `auth_refresh_tokens`, cột `app_users.active_session_id`, route `/auth/refresh` và code JWT. Điều kiện trước khi làm: không còn client nào dùng JWT (Flask đóng băng hẳn, Next.js chạy ổn vài ngày).
 
 ## 18. Crawler: debug và mở rộng
 

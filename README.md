@@ -293,8 +293,7 @@ TEST_DATABASE_URL=postgresql://postgres:mật_khẩu@localhost:5432/scrapjd_test
 ```
 
 **Đo độ phủ (coverage).** Thêm `--cov` để biết test chạy qua bao nhiêu phần trăm code và dòng nào chưa được
-chạm tới. Cấu hình ở `pyproject.toml` (mục `[tool.coverage.*]`: đo cả nhánh rẽ, đo từ gốc repo, bỏ `tests/` và
-`tools/`). Nên chạy cùng `TEST_DATABASE_URL`, vì phần lớn test của `scrapjd/db/` và `scrapjd/cli/` cần Postgres
+chạm tới. Cấu hình ở `pyproject.toml` (mục `[tool.coverage.*]`: đo cả nhánh rẽ, đo từ gốc repo, bỏ `tests/`). Nên chạy cùng `TEST_DATABASE_URL`, vì phần lớn test của `scrapjd/db/` và `scrapjd/cli/` cần Postgres
 thật; thiếu thì các test đó bị bỏ qua và số phần trăm thấp hơn thực tế:
 
 ```bash

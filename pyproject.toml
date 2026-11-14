@@ -17,7 +17,6 @@ branch = true
 source = ["."]
 omit = [
     "tests/*",  # code test không tính vào độ phủ của code chính
-    "tools/*",
     "*/__pycache__/*",
 ]
 
