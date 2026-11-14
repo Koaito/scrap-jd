@@ -373,10 +373,10 @@ class VietnamWorksAdapter(BaseAdapter):
                     time.sleep(wait)
                     self._last_request_time = time.monotonic()
                     continue
-                resp.raise_for_status()  # type: ignore[no-untyped-call]  # curl_cffi chưa gõ kiểu cho hàm này (kiểm ở bản 0.16.3)
+                resp.raise_for_status()  # type: ignore[no-untyped-call]  # curl_cffi chưa gõ kiểu cho hàm này (kiểm ở bản 0.17.0)
                 self._last_request_time = time.monotonic()
                 try:
-                    data = resp.json()  # type: ignore[no-untyped-call]  # curl_cffi chưa gõ kiểu cho hàm này (kiểm ở bản 0.16.3)
+                    data = resp.json()
                 except (json.JSONDecodeError, ValueError):
                     # 200 nhưng không phải JSON: thường là trang chặn/challenge
                     # của WAF — tính như 1 lần thất bại cho ngắt mạch (không

@@ -1,0 +1,10 @@
+# Dependabot: mở PR nâng thư viện Python để CI (mypy + pytest) kiểm trước khi merge.
+# Cần vì requirements.txt/requirements-dev.txt ghim phiên bản (curl_cffi, mypy, stubs): không còn
+# tự nâng ngầm làm CI đỏ, nhưng cũng không tự cập nhật nếu không có cơ chế này.
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 3

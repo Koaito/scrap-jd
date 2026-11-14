@@ -373,7 +373,7 @@ class BaseAdapter(ABC):
                     time.sleep(wait)
                     self._last_request_time = time.monotonic()
                     continue
-                resp.raise_for_status()  # type: ignore[no-untyped-call]  # curl_cffi chưa gõ kiểu cho hàm này (kiểm ở bản 0.16.3)
+                resp.raise_for_status()  # type: ignore[no-untyped-call]  # curl_cffi chưa gõ kiểu cho hàm này (kiểm ở bản 0.17.0)
                 self._last_request_time = time.monotonic()
                 self._note_fetch_success()
                 return resp.text

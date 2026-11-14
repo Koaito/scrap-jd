@@ -3,7 +3,11 @@
 # được), scrapjd/api/storage.py (gọi Supabase Storage) dùng chung cho đỡ phải giữ
 # hai thư viện. KHÔNG import `requests` trực tiếp (tests/test_http_library.py
 # chặn việc này).
-curl_cffi>=0.7.0
+# GHIM đúng phiên bản (không dùng >=): mypy strict báo `# type: ignore` thừa, nên mỗi bản curl_cffi thêm hoặc bớt
+# kiểu (vd 0.17.0 gõ kiểu cho Response.json) là làm CI đỏ dù code không đổi. Nâng bản: sửa số này, chạy `mypy` và
+# pytest, cập nhật các `# type: ignore` quanh curl_cffi cho khớp (xem `grep -rn "kiểm ở bản" scrapjd`). Dependabot
+# (.github/dependabot.yml) mở PR nâng bản để CI tự kiểm.
+curl_cffi==0.17.0
 beautifulsoup4>=4.12.0
 psycopg2-binary>=2.9.9
 python-dotenv>=1.0.0
