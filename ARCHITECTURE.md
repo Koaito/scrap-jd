@@ -121,7 +121,7 @@ Unique index chỉ cho một run active mỗi source. Batch chạy tuần tự; 
 | Nhóm | Bảng chính |
 | --- | --- |
 | Lookup | `provinces`, `levels` |
-| Identity | `app_users`, `auth_refresh_tokens` |
+| Identity | `app_users`, `auth_refresh_tokens` (JWT cũ, sẽ bỏ ở Pha C), `auth_sessions` (session mờ, Mục 3) |
 | Core | `companies`, `job_postings`, `company_contacts` |
 | Lineage | `job_sources_log`, `job_contact_links`, `job_contact_interactions` |
 | Engagement | `job_applications`, `saved_jobs` |
@@ -143,7 +143,7 @@ Invariant cần giữ:
 
 1. **X-API-Key:** gateway client nội bộ, áp dụng router dữ liệu, login và health.
 2. **JWT:** xác minh user ở route yêu cầu login.
-3. **Refresh rotation + single session:** refresh token hash trong DB; `active_session_id` vô hiệu phiên cũ.
+3. **Refresh rotation + single session (đường JWT cũ) và session mờ (Mục 3):** hiện chạy SONG SONG. Refresh token hash trong DB, `active_session_id` vô hiệu phiên cũ; session mờ lưu ở `auth_sessions`, dùng chung `session_id` với `active_session_id`. Next.js chỉ dùng session mờ từ Pha B; Flask và `tools/hr_contact_tool.html` còn dùng JWT cho tới Pha C. Xem 17.6.
 4. **RBAC:** `user < ss_team < admin`, dependency `require_role()`/`require_admin()`.
 
 Register/verify/resend/forgot/reset là public có chủ đích để link email hoạt động; các route này rate-limit theo IP.
@@ -329,8 +329,8 @@ Các luồng đều hash password trước khi ghi DB:
 | Register public | hash trước khi tạo account chờ verify email |
 | Admin tạo user | server sinh temporary password 16 ký tự, chỉ trả rõ đúng một lần |
 | create-admin CLI | password prompt rồi hash |
-| Change password | verify old password, hash password mới, revoke refresh token |
-| Reset password | hash password mới, xoá reset token, revoke toàn bộ refresh token |
+| Change password | verify old password, hash password mới, revoke refresh token và mọi session mờ của tài khoản |
+| Reset password | hash password mới, xoá reset token, revoke toàn bộ refresh token và session mờ |
 
 ### 17.3 Password policy và hardening kế tiếp
 
@@ -366,6 +366,24 @@ Lockout theo account có thể bị abuse để lock một account nếu attacke
 Access token mang sub, role, email, session id, issued/expiry và type. Session id được đối chiếu với active_session_id để single-session: login mới, password change hoặc reset sẽ làm token phiên cũ không dùng được ở request sau.
 
 Refresh token sống 30 ngày, có rotation. Grace window 10 giây chỉ cho race refresh hợp lệ; sau logout, login ở nơi khác hoặc đổi password, token đã revoke nên grace không bypass được.
+
+### 17.6 Session mờ lưu DB (Mục 3, đang chuyển tiếp)
+
+Thay dần JWT + refresh xoay vòng bằng một session token ngẫu nhiên, không chứa nội dung. Trạng thái: **Pha A (backend) và Pha B nửa đầu (Next.js) đã xong; Pha C (gỡ JWT) chưa làm.**
+
+| Mục | Giá trị |
+| --- | --- |
+| Token | `s1.` + 48 byte ngẫu nhiên; JWT luôn bắt đầu bằng `eyJ` nên `get_current_user` phân biệt bằng tiền tố |
+| Lưu trong DB | chỉ SHA-256 của token (`auth_sessions`); CHECK chặn ghi nhầm token thô |
+| Hạn | tuyệt đối 30 ngày (`SESSION_ABSOLUTE_DAYS`), trượt 7 ngày nhàn rỗi (`SESSION_IDLE_DAYS`); CHECK hạn trượt không dài hơn hạn tuyệt đối |
+| Single-session | giữ nguyên: login mới thu hồi phiên cũ (`replaced`); đổi/đặt lại mật khẩu và khoá tài khoản thu hồi toàn bộ |
+| Một lần đăng nhập, một `session_id` | dùng chung cho session token, claim `sid` của JWT và `active_session_id`, nên thu hồi bằng đường nào cũng làm chết cả hai |
+| Thời gian trong SQL | dùng `clock_timestamp()`, không dùng `now()`: connection trong pool giữ transaction mở nên `now()` đứng yên ở quá khứ |
+| Dọn dẹp | job mỗi giờ xoá phiên quá hạn tuyệt đối + 1 ngày (dòng đã thu hồi giữ tới đó để client cũ còn nhận đúng thông báo) |
+
+Thứ tự triển khai khi thêm migration: backup, `python main.py migrate`, rồi mới deploy code (code mới ghi vào `auth_sessions` lúc đăng nhập nên thiếu bảng là lỗi 500).
+
+Pha C (chưa làm, phá dữ liệu nên chạy sau cùng): xoá `auth_refresh_tokens`, cột `app_users.active_session_id`, route `/auth/refresh` và code JWT. Điều kiện trước khi làm: không còn client nào dùng JWT (Flask đóng băng, `tools/hr_contact_tool.html` chuyển sang session token, Next.js chạy ổn vài ngày).
 
 ## 18. Crawler: debug và mở rộng
 
