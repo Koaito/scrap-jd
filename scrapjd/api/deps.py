@@ -52,6 +52,7 @@ from scrapjd import db as db_module
 from scrapjd.api import error_codes
 from scrapjd.api import security
 from scrapjd.db.pg_types import Conn
+from scrapjd.db.sessions import REVOKE_INACTIVE, REVOKE_REPLACED
 
 
 def get_db() -> Iterator[Conn]:
@@ -83,14 +84,119 @@ def get_db() -> Iterator[Conn]:
 
 # auto_error=False -> tự kiểm tra thiếu header để trả message rõ ràng
 # hơn thay vì lỗi mặc định chung chung của FastAPI.
-_bearer_scheme = HTTPBearer(auto_error=False)
+# Tên công khai (không gạch dưới) vì route logout cũng cần đọc header Authorization (xem auth_session.logout).
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def _authenticate_session_token(token: str, conn: Conn) -> dict[str, Any]:
+    """Xác thực SESSION TOKEN mờ (Mục 3, Pha A): tra auth_sessions theo SHA-256 của token, KÈM luôn thông tin
+    người dùng trong một câu SELECT. Cùng bất biến với luồng JWT: role/is_active luôn là giá trị MỚI NHẤT từ
+    DB ở request này (khoá tài khoản/đổi role có hiệu lực ngay ở request kế tiếp).
+
+    Ánh xạ lỗi (giữ nguyên các mã mà frontend đã rẽ nhánh, xem lib/session-end.ts):
+      - không có dòng nào (token lạ/giả/đã bị dọn), hoặc hết hạn trượt/tuyệt đối -> 401 TOKEN_EXPIRED
+        (chuỗi cũ giữ nguyên để frontend cũ không vỡ; hết hạn thường là chuyện bình thường, im lặng về /login)
+      - thu hồi do đăng nhập nơi khác (revoked_reason='replaced')                    -> 401 SESSION_REPLACED
+      - thu hồi do lý do khác (logout, đổi mật khẩu, admin)                          -> 401 SESSION_REVOKED
+      - thu hồi do khoá tài khoản VÀ tài khoản còn bị khoá                           -> 403 AUTH_ACCOUNT_INACTIVE
+        (đúng mã người dùng nhận trước đây khi bị khoá; nếu admin đã mở khoá lại thì rơi về SESSION_REVOKED)
+      - phiên còn hiệu lực nhưng tài khoản is_active=false                           -> 403 AUTH_ACCOUNT_INACTIVE
+
+    Thứ tự kiểm tra: thu hồi trước, hết hạn sau, khoá tài khoản cuối — giống thứ tự "session rồi mới inactive"
+    của luồng JWT. Ghi last_seen_at (đẩy hạn trượt) có giới hạn tần suất, xem db.touch_session; chỉ ghi khi
+    phiên hợp lệ hoàn toàn."""
+    row = db_module.get_session_for_auth(
+        conn,
+        security.hash_session_token(token),
+        touch_interval_seconds=security.SESSION_TOUCH_INTERVAL_SECONDS,
+    )
+    if row is None:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": error_codes.TOKEN_EXPIRED,
+                "message": "Phiên đăng nhập không hợp lệ hoặc đã hết hạn — đăng nhập lại.",
+            },
+        )
+
+    if row["revoked_at"] is not None:
+        reason = row["revoked_reason"]
+        if reason == REVOKE_REPLACED:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "error_code": error_codes.SESSION_REPLACED,
+                    "message": "Tài khoản này vừa đăng nhập ở một nơi khác — "
+                                "phiên đăng nhập hiện tại đã bị đăng xuất. Mỗi "
+                                "tài khoản chỉ dùng được ở 1 nơi tại 1 thời điểm.",
+                },
+            )
+        if reason == REVOKE_INACTIVE and not row["is_active"]:
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_code": error_codes.AUTH_ACCOUNT_INACTIVE,
+                    "message": "Tài khoản không còn hoạt động.",
+                },
+            )
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": error_codes.SESSION_REVOKED,
+                "message": "Phiên đăng nhập này không còn hiệu lực — đăng nhập lại.",
+            },
+        )
+
+    if row["absolute_expired"] or row["idle_expired"]:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": error_codes.TOKEN_EXPIRED,
+                "message": "Phiên đăng nhập đã hết hạn — đăng nhập lại.",
+            },
+        )
+
+    if not row["is_active"]:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": error_codes.AUTH_ACCOUNT_INACTIVE,
+                "message": "Tài khoản không còn hoạt động.",
+            },
+        )
+
+    if row["needs_touch"]:
+        db_module.touch_session(
+            conn,
+            str(row["session_id"]),
+            idle_days=security.SESSION_IDLE_DAYS,
+            min_interval_seconds=security.SESSION_TOUCH_INTERVAL_SECONDS,
+        )
+        # Commit NGAY: connection mượn từ pool không được rollback khi request chỉ đọc (xem get_db), nên một
+        # UPDATE bỏ dở sẽ trôi sang request kế tiếp dùng lại connection này. Chạy trước body route nên không có
+        # thao tác ghi nào khác đang chờ trong transaction.
+        conn.commit()
+
+    return {
+        "sub": str(row["ss_user_id"]),
+        "role": row["role"],
+        "email": row["email"],
+        "is_active": True,
+        "sid": str(row["session_id"]),
+        "type": "session",
+    }
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(_bearer_scheme),
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     conn: Conn = Depends(get_db),
 ) -> dict[str, Any]:
-    """Verify JWT access token trong header `Authorization: Bearer
+    """Xác thực header `Authorization: Bearer <token>`. Hai loại token được chấp nhận (Mục 3, Pha A), phân
+    biệt bằng tiền tố `s1.`: SESSION TOKEN mờ lưu DB (xem _authenticate_session_token ở trên) và JWT access
+    token cũ (phần còn lại của docstring này, đường chạy không đổi). Cả hai trả cùng dạng dict
+    (sub/role/email/is_active/sid) nên mọi router dùng require_role() không phải đổi gì.
+
+    Phần dưới mô tả đường JWT: verify JWT access token trong header `Authorization: Bearer
     <token>`, trả payload (dict có 'sub'=ss_user_id, 'role', 'email',
     'is_active') — 'role' và 'is_active' luôn là giá trị MỚI NHẤT đọc từ
     DB (app_users) ở request này, không phải giá trị đóng băng trong JWT.
@@ -135,6 +241,8 @@ def get_current_user(
                 "message": "Thiếu header 'Authorization: Bearer <access_token>'.",
             },
         )
+    if security.is_session_token(credentials.credentials):
+        return _authenticate_session_token(credentials.credentials, conn)
     payload = security.decode_access_token(credentials.credentials)
     if payload is None:
         raise HTTPException(

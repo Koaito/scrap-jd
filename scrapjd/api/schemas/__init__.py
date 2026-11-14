@@ -108,6 +108,7 @@ from scrapjd.api.schemas.auth import (
     LoginRequest,
     TokenPairOut,
     RefreshRequest,
+    LogoutRequest,
     AccessTokenOut,
     ChangePasswordRequest,
     UserProfileUpdate,
@@ -199,7 +200,7 @@ __all__ = [
     "MaintenanceRunRequest", "MaintenanceAccepted", "MaintenanceStatusOut",
     "PaginatedMaintenanceRuns", "MaintenanceLogOut", "MaintenanceLogsOut",
     # auth
-    "LoginRequest", "TokenPairOut", "RefreshRequest", "AccessTokenOut",
+    "LoginRequest", "TokenPairOut", "RefreshRequest", "LogoutRequest", "AccessTokenOut",
     "ChangePasswordRequest", "UserProfileUpdate", "UserOut", "UserCreateByAdmin", "UserCreatedOut",
     "UserRoleUpdate", "UserActiveStatusUpdate", "RegisterRequest", "RegisterOut",
     "ResendVerificationRequest", "ForgotPasswordRequest", "ResetPasswordRequest",

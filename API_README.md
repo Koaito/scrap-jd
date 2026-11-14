@@ -83,11 +83,41 @@ Luồng:
 1. Có tài khoản qua **tự đăng ký** (`POST /auth/register` — luôn role
    `user`, phải xác thực email trước khi login được) hoặc **admin tạo
    hộ** (`POST /auth/users` — chọn được role, không cần xác thực email).
-2. `POST /auth/login` (email + password) → trả `access_token` (JWT, sống
-   30 phút) + `refresh_token` (sống dài hơn, xoay vòng mỗi lần dùng).
-3. Gửi kèm `Authorization: Bearer <access_token>` cho route cần biết
-   user thật hoặc route quản lý tài khoản (`/auth/me`, đổi mật khẩu...).
-4. `POST /auth/refresh` khi access token hết hạn, lấy cặp token mới.
+2. `POST /auth/login` (email + password) → trả `session_token` (xem "Session mờ" bên dưới) **và** cặp cũ
+   `access_token` (JWT, sống 30 phút) + `refresh_token` (sống dài hơn, xoay vòng mỗi lần dùng).
+3. Gửi kèm `Authorization: Bearer <token>` cho route cần biết user thật hoặc route quản lý tài khoản
+   (`/auth/me`, đổi mật khẩu...). `<token>` là `session_token` (khuyến nghị) hoặc `access_token` cũ.
+4. `POST /auth/refresh` khi access token hết hạn, lấy cặp token mới. **Chỉ cần cho client dùng JWT cũ**; client
+   dùng `session_token` không bao giờ cần gọi route này.
+
+#### Session mờ lưu DB (Mục 3, Pha A — đang chạy song song với JWT)
+
+Backend chấp nhận **cả hai** loại token trong `Authorization: Bearer`, phân biệt bằng tiền tố: session token bắt
+đầu bằng `s1.`, JWT bắt đầu bằng `eyJ`. Mọi route đọc dữ liệu người dùng như nhau với cả hai
+(`get_current_user()` trả cùng dạng dict), nên không route nào phải đổi.
+
+- Session token là chuỗi ngẫu nhiên (48 byte), **không chứa nội dung**. DB (bảng `auth_sessions`) chỉ lưu
+  SHA-256 của nó. Token thô chỉ trả về đúng một lần ở `POST /auth/login`. Không có đường nào đọc lại token thô.
+- Hai hạn, cả hai đều bắt buộc: **tuyệt đối** (mặc định 30 ngày từ lúc tạo, không bao giờ kéo dài) và **trượt**
+  (mặc định 7 ngày kể từ lần dùng gần nhất, đẩy lên khi dùng, tối đa mỗi 5 phút một lần ghi DB). Chỉnh bằng
+  `SESSION_ABSOLUTE_DAYS` / `SESSION_IDLE_DAYS`. `session_expires_at` trong response đăng nhập là hạn tuyệt đối,
+  dùng làm `maxAge` của cookie.
+- `role` và `is_active` luôn đọc mới từ DB ở mỗi request: đổi role hoặc khoá tài khoản có hiệu lực ngay.
+- **Single-session giữ nguyên**: đăng nhập mới thu hồi phiên cũ (lý do `replaced`). Một lần đăng nhập sinh ra cả
+  session token lẫn cặp JWT dùng **chung một `session_id`**, nên thu hồi bằng cách nào cũng làm chết cả hai.
+- Đổi mật khẩu, đặt lại mật khẩu, khoá tài khoản (`PATCH .../active-status` với `is_active=false`) và logout đều
+  thu hồi session mờ.
+- Mã lỗi giữ nguyên để frontend không phải đổi: `session_replaced` (đăng nhập nơi khác), `session_revoked` (đăng
+  xuất / đổi mật khẩu), `token_expired` (hết hạn trượt hoặc tuyệt đối, hoặc token không tồn tại), và
+  `auth_account_inactive` (403, tài khoản bị khoá).
+- `POST /auth/logout` nhận session token qua header `Authorization` (không cần body), **hoặc** `refresh_token`
+  trong body như trước. Gửi cả hai thì xử lý cả hai.
+- Phiên hết hạn được dọn định kỳ (mỗi giờ) khỏi bảng. Dòng đã thu hồi được giữ tới hết hạn tuyệt đối cộng một
+  ngày để client cũ còn nhận đúng thông báo.
+
+Thứ tự chuyển đổi (xem `docs/ROADMAP_CAI_THIEN_DAI_HAN.md` mục 5.4): Pha A (backend nhận cả hai, mục này) → Pha B
+(frontend chuyển sang `session_token`) → Pha C (gỡ JWT, `/auth/refresh`, `auth_refresh_tokens`,
+`active_session_id`). Chưa làm Pha C: đừng gỡ code JWT khi chưa có số liệu cho thấy không còn client nào dùng.
 
 ### Lớp 3 — Phân quyền 3 cấp
 
@@ -155,7 +185,7 @@ email tồn tại, gửi link đặt lại qua Resend, token sống 1 giờ, dù
 1 lần.
 
 `POST /auth/reset-password` (token + mật khẩu mới) → đổi mật khẩu, sau
-đó thu hồi toàn bộ refresh token cũ của user (phiên đăng nhập cũ bị đá
+đó thu hồi toàn bộ refresh token cũ **và session mờ** của user (phiên đăng nhập cũ bị đá
 ra ngay, không đợi access token 30 phút tự hết hạn).
 
 ---
@@ -200,10 +230,10 @@ ra ngay, không đợi access token 30 phút tự hết hạn).
 | GET | `/auth/verify-email?token=` | Kích hoạt tài khoản — bấm từ link trong email, trả HTML | **KHÔNG cần API key** |
 | POST | `/auth/resend-verification` | Xin gửi lại email xác thực | **KHÔNG cần API key** |
 | POST | `/auth/forgot-password` | Xin link đặt lại mật khẩu qua email — luôn trả message chung chung | API key |
-| POST | `/auth/reset-password` | Đặt mật khẩu mới bằng token từ email, thu hồi toàn bộ refresh token cũ | API key |
-| POST | `/auth/login` | Đăng nhập, trả `access_token` + `refresh_token`. Chặn nếu email chưa xác thực hoặc tài khoản bị khoá | API key |
+| POST | `/auth/reset-password` | Đặt mật khẩu mới bằng token từ email, thu hồi toàn bộ refresh token cũ và session mờ | API key |
+| POST | `/auth/login` | Đăng nhập, trả `session_token` (+ `session_expires_at`) và cặp cũ `access_token` + `refresh_token`. Chặn nếu email chưa xác thực hoặc tài khoản bị khoá | API key |
 | POST | `/auth/refresh` | Xoay vòng lấy access token mới | API key |
-| POST | `/auth/logout` | Thu hồi refresh token hiện tại | API key |
+| POST | `/auth/logout` | Đăng xuất: thu hồi session mờ (header `Authorization: Bearer s1...`, không cần body) và/hoặc refresh token (body `{"refresh_token"}`). Luôn `204` | API key |
 | GET | `/auth/me` | Thông tin tài khoản đang đăng nhập | API key + JWT |
 | POST | `/auth/change-password` | Tự đổi mật khẩu | API key + JWT |
 | POST | `/auth/users` | Admin tạo hộ tài khoản mới, chọn được role | API key + JWT (admin) |

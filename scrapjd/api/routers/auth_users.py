@@ -27,6 +27,7 @@ from scrapjd.api.schemas import (
     UserCreateByAdmin, UserCreatedOut, UserOut, UserRoleUpdate,
 )
 from scrapjd.db.pg_types import Conn, Row
+from scrapjd.db.sessions import REVOKE_INACTIVE
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -207,6 +208,11 @@ def update_user_active_status(
     updated = db_module.update_user_active_status(conn, ss_user_id, payload.is_active)
     if not updated:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.USER_ACCOUNT_NOT_FOUND, "message": "Không tìm thấy tài khoản."})
+    if not payload.is_active:
+        # Mục 3, Pha A: khoá tài khoản thu hồi mọi session mờ (lý do 'inactive'). Chặn ở get_current_user() theo
+        # is_active đã đủ để từ chối NGAY, nhưng thu hồi thật để nếu admin mở khoá lại sau này thì các phiên cũ
+        # (có thể của kẻ đã chiếm tài khoản) không tự sống lại.
+        db_module.revoke_all_sessions_for_user(conn, ss_user_id, REVOKE_INACTIVE)
     conn.commit()
 
     return db_module.get_user_by_id(conn, ss_user_id)

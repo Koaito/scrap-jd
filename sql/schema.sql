@@ -177,6 +177,45 @@ CREATE TABLE IF NOT EXISTS auth_refresh_tokens (
 CREATE INDEX IF NOT EXISTS idx_auth_refresh_tokens_user   ON auth_refresh_tokens(ss_user_id);
 CREATE INDEX IF NOT EXISTS idx_auth_refresh_tokens_expiry ON auth_refresh_tokens(expires_at);
 
+-- Phiên đăng nhập "mờ" lưu trong DB (Mục 3, Pha A; migration 0045_add_auth_sessions.sql — đọc file đó để
+-- hiểu thiết kế). Cookie frontend chứa session token ngẫu nhiên, DB chỉ giữ SHA-256 của nó. session_id dùng
+-- chung với app_users.active_session_id và claim `sid` của JWT cùng lần đăng nhập.
+CREATE TABLE IF NOT EXISTS auth_sessions (
+    session_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    ss_user_id       UUID NOT NULL REFERENCES app_users(ss_user_id),
+
+    -- SHA-256 hex (64 ký tự thường). CHECK chặn việc lỡ ghi token thô vào đây.
+    token_hash       VARCHAR(64) NOT NULL UNIQUE,
+
+    created_at       TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    last_seen_at     TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    expires_at       TIMESTAMPTZ NOT NULL,
+    idle_expires_at  TIMESTAMPTZ NOT NULL,
+
+    revoked_at       TIMESTAMPTZ,
+    revoked_reason   VARCHAR(30),
+
+    user_agent       TEXT,
+    ip_address       VARCHAR(45),
+
+    CONSTRAINT ck_auth_sessions_token_hash_sha256
+        CHECK (token_hash ~ '^[0-9a-f]{64}$'),
+    CONSTRAINT ck_auth_sessions_revoked_pair
+        CHECK ((revoked_at IS NULL) = (revoked_reason IS NULL)),
+    CONSTRAINT ck_auth_sessions_revoked_reason
+        CHECK (revoked_reason IS NULL
+               OR revoked_reason IN ('logout', 'replaced', 'password_changed', 'admin', 'inactive')),
+    CONSTRAINT ck_auth_sessions_idle_within_absolute
+        CHECK (idle_expires_at <= expires_at)
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user
+    ON auth_sessions(ss_user_id);
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_active
+    ON auth_sessions(ss_user_id) WHERE revoked_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry
+    ON auth_sessions(expires_at);
+
 CREATE TABLE IF NOT EXISTS companies (
     company_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_name     VARCHAR(255) NOT NULL,

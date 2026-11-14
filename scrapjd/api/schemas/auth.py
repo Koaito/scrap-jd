@@ -30,12 +30,27 @@ class TokenPairOut(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
     must_change_password: bool = False
+    # Mục 3, Pha A (cộng thêm, client cũ bỏ qua 2 field này): session token "mờ" lưu DB. Frontend mới chỉ
+    # cần 2 field này (gửi session_token làm `Authorization: Bearer`, đặt maxAge cookie theo
+    # session_expires_at = hạn TUYỆT ĐỐI); cặp access/refresh ở trên còn đó cho client cũ tới khi gỡ ở Pha C.
+    # session_token chỉ trả đúng 1 lần ở đây, DB chỉ giữ SHA-256 của nó.
+    session_token: str
+    session_expires_at: datetime
 
 
 class RefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     
     refresh_token: str = Field(..., min_length=1)
+
+
+class LogoutRequest(BaseModel):
+    """Body (TUỲ CHỌN) cho POST /auth/logout. Client dùng session token mới (Mục 3) chỉ cần gửi header
+    `Authorization: Bearer <session_token>`, không cần body. Client cũ gửi `refresh_token` như trước vẫn chạy.
+    Gửi cả hai thì xử lý cả hai."""
+    model_config = ConfigDict(extra="forbid")
+
+    refresh_token: Optional[str] = Field(None, min_length=1)
 
 
 class AccessTokenOut(BaseModel):

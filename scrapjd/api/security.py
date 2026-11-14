@@ -12,11 +12,19 @@ vòng) — KHÁC scrapjd/api/auth.py (API_KEY tĩnh dùng chung cho mọi client
      lúc login/refresh, DB chỉ lưu bản hash (sha256), giống cách không
      bao giờ lưu mật khẩu thô.
 
+  4. (Mục 3, Pha A) Session token "mờ" lưu trong DB — ngẫu nhiên, không chứa nội dung, DB chỉ lưu SHA-256
+     (bảng auth_sessions, xem sql/0045_add_auth_sessions.sql). Backend chấp nhận CẢ JWT cũ lẫn session token
+     mới, phân biệt bằng tiền tố `s1.` (JWT luôn bắt đầu bằng `eyJ`, không bao giờ khớp tiền tố này).
+
 Biến môi trường bắt buộc (xem .env.example):
   JWT_SECRET_KEY — khoá ký JWT, PHẢI đủ dài/ngẫu nhiên (vd
     `python -c "import secrets; print(secrets.token_urlsafe(32))"`).
     Fail-closed giống API_KEY: thiếu -> mọi thao tác JWT lỗi ngay khi
     import (không âm thầm dùng khoá yếu mặc định).
+
+Biến môi trường tuỳ chọn cho session mờ (có mặc định, xem .env.example):
+  SESSION_ABSOLUTE_DAYS — hạn TUYỆT ĐỐI của phiên (mặc định 30 ngày kể từ lúc tạo).
+  SESSION_IDLE_DAYS — hạn TRƯỢT (mặc định 7 ngày kể từ lần dùng gần nhất), không vượt hạn tuyệt đối.
 
 THAM SỐ CÓ THỂ CHỈNH (hằng số bên dưới, không cần đổi qua .env vì hiếm
 khi cần đổi runtime):
@@ -95,6 +103,42 @@ REFRESH_REUSE_GRACE_SECONDS = 10
 # thô sơ, không quá khắt khe với người dùng thật gõ nhầm vài lần.
 FAILED_LOGIN_LOCK_THRESHOLD = 5
 FAILED_LOGIN_LOCK_MINUTES = 15
+
+# ------------------------------------------------------------------
+# Session mờ lưu DB (Mục 3, Pha A)
+# ------------------------------------------------------------------
+
+# Tiền tố phân biệt session token với JWT. JWT bắt đầu bằng "eyJ" (base64 của `{"`) nên không thể khớp
+# tiền tố này. Đổi tiền tố là đổi định dạng token: mọi phiên đang có hết hiệu lực. Đừng đổi.
+SESSION_TOKEN_PREFIX = "s1."
+
+# Chỉ đặt lại khi thật sự cần đổi giá trị mặc định; các hằng ở đây là NGUỒN DUY NHẤT của ngưỡng này.
+SESSION_TOUCH_INTERVAL_SECONDS = 300  # ghi last_seen_at tối đa 5 phút một lần mỗi phiên (không phải mỗi request)
+
+
+def _env_positive_int(name: str, default: int) -> int:
+    """Đọc số nguyên dương từ biến môi trường; thiếu/để trống thì dùng default. Giá trị sai (chữ, 0, âm) làm
+    ứng dụng DỪNG ngay lúc import thay vì âm thầm dùng giá trị khác — cùng nguyên tắc fail-closed với
+    JWT_SECRET_KEY: cấu hình hạn phiên sai mà vẫn chạy là một lỗi bảo mật khó phát hiện."""
+    raw = os.getenv(name, "").strip()
+    if not raw:
+        return default
+    try:
+        value = int(raw)
+    except ValueError:
+        raise RuntimeError(f"Biến môi trường {name}={raw!r} không phải số nguyên dương.") from None
+    if value < 1:
+        raise RuntimeError(f"Biến môi trường {name}={raw!r} phải >= 1.")
+    return value
+
+
+SESSION_ABSOLUTE_DAYS = _env_positive_int("SESSION_ABSOLUTE_DAYS", 30)
+SESSION_IDLE_DAYS = _env_positive_int("SESSION_IDLE_DAYS", 7)
+if SESSION_IDLE_DAYS > SESSION_ABSOLUTE_DAYS:
+    raise RuntimeError(
+        f"SESSION_IDLE_DAYS ({SESSION_IDLE_DAYS}) không được lớn hơn SESSION_ABSOLUTE_DAYS "
+        f"({SESSION_ABSOLUTE_DAYS}): hạn trượt không thể dài hơn hạn tuyệt đối."
+    )
 
 _password_hasher = PasswordHasher()  # dùng tham số mặc định của argon2-cffi (đã được tinh chỉnh hợp lý sẵn cho web app)
 
@@ -222,6 +266,30 @@ def generate_session_id() -> str:
     phải khoá tra cứu công khai) — UUID đơn giản, đủ duy nhất, và khớp
     kiểu cột UUID của app_users.active_session_id."""
     return str(uuid.uuid4())
+
+
+# ------------------------------------------------------------------
+# Session token mờ (Mục 3, Pha A) — sinh ngẫu nhiên, DB chỉ lưu bản hash
+# ------------------------------------------------------------------
+
+def generate_session_token() -> str:
+    """Session token thô: tiền tố `s1.` + 48 byte ngẫu nhiên (token_urlsafe, 64 ký tự) từ `secrets`. Không phải
+    JWT, không chứa email/role/hạn — chỉ là khoá tra cứu. Token thô CHỈ trả về cho client đúng một lần lúc đăng
+    nhập; DB chỉ lưu hash_session_token(token). KHÔNG log giá trị này."""
+    return SESSION_TOKEN_PREFIX + secrets.token_urlsafe(48)
+
+
+def hash_session_token(token: str) -> str:
+    """SHA-256 hex (64 ký tự) của session token (gồm cả tiền tố). Deterministic để tra ngược được bằng token
+    thô client gửi lên; không cần salt hay Argon2 vì token đã đủ entropy (48 byte), khác mật khẩu do người
+    gõ. Tra thẳng theo hash trong DB (UNIQUE) là đủ, không cần so sánh bí mật bằng compare_digest."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def is_session_token(token: str) -> bool:
+    """True nếu chuỗi mang tiền tố session token (không kiểm tra token có hợp lệ hay không). Dùng để chọn
+    đường xác thực: session token tra DB, còn lại coi là JWT cũ."""
+    return token.startswith(SESSION_TOKEN_PREFIX)
 
 
 # ------------------------------------------------------------------

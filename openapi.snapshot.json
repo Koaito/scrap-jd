@@ -2985,17 +2985,24 @@
           "auth"
         ],
         "summary": "Logout",
-        "description": "Đăng xuất — thu hồi ĐÚNG refresh token gửi lên (không đụng tới\ntoken của thiết bị khác). Không lỗi nếu token không tồn tại/đã thu\nhồi từ trước (đăng xuất nhiều lần vẫn coi là thành công, tránh lộ\nthông tin qua khác biệt response).",
+        "description": "Đăng xuất. Nhận HAI loại credential (Mục 3, Pha A), có thể gửi cả hai:\n\n1. SESSION TOKEN mờ trong header `Authorization: Bearer s1....` (đường của frontend mới): thu hồi đúng\n   phiên đó (lý do 'logout'), đồng thời cho JWT + refresh token CÙNG LẦN ĐĂNG NHẬP chết theo (xoá\n   active_session_id nếu nó vẫn trỏ vào phiên này, thu hồi refresh token) — nếu không, refresh token\n   đã phát lúc đăng nhập sẽ còn dùng được để \"hồi sinh\" phiên sau khi đã đăng xuất. Không đụng phiên mới\n   hơn nếu người dùng đã đăng nhập lại ở nơi khác giữa chừng (khi đó phiên này đã bị thu hồi từ trước).\n2. `refresh_token` trong body (đường cũ): hành vi như trước — thu hồi đúng refresh token đó, xoá\n   active_session_id; thêm: thu hồi mọi session mờ còn hiệu lực của người dùng đó (cùng một lần đăng nhập\n   nên phải chết cùng).\n\nKhông lỗi nếu credential không tồn tại/đã thu hồi từ trước, hoặc không gửi gì cả (đăng xuất nhiều lần vẫn\ncoi là thành công, tránh lộ thông tin qua khác biệt response). Header Authorization mang JWT (không phải\nsession token) bị bỏ qua, vì JWT không có cách thu hồi riêng lẻ ngoài active_session_id.",
         "operationId": "logout_auth_logout_post",
         "requestBody": {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RefreshRequest"
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/LogoutRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "204": {
@@ -3018,6 +3025,9 @@
           },
           {
             "APIKeyQuery": []
+          },
+          {
+            "HTTPBearer": []
           }
         ]
       }
@@ -10804,6 +10814,26 @@
         ],
         "title": "LoginRequest"
       },
+      "LogoutRequest": {
+        "properties": {
+          "refresh_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refresh Token"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "LogoutRequest",
+        "description": "Body (TUỲ CHỌN) cho POST /auth/logout. Client dùng session token mới (Mục 3) chỉ cần gửi header\n`Authorization: Bearer <session_token>`, không cần body. Client cũ gửi `refresh_token` như trước vẫn chạy.\nGửi cả hai thì xử lý cả hai."
+      },
       "MaintenanceAccepted": {
         "properties": {
           "run_id": {
@@ -12284,12 +12314,23 @@
             "type": "boolean",
             "title": "Must Change Password",
             "default": false
+          },
+          "session_token": {
+            "type": "string",
+            "title": "Session Token"
+          },
+          "session_expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Session Expires At"
           }
         },
         "type": "object",
         "required": [
           "access_token",
-          "refresh_token"
+          "refresh_token",
+          "session_token",
+          "session_expires_at"
         ],
         "title": "TokenPairOut"
       },

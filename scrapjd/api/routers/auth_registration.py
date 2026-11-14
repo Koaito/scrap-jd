@@ -38,6 +38,7 @@ from scrapjd.api.schemas import (
     ResendVerificationRequest, ResetPasswordRequest,
 )
 from scrapjd.db.pg_types import Conn
+from scrapjd.db.sessions import REVOKE_PASSWORD_CHANGED
 
 public_router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -275,6 +276,9 @@ def reset_password(payload: ResetPasswordRequest, request: Request, conn: Conn =
     # Single-session: clear active_session_id — nhất quán với
     # change_password()/logout() (xem docstring change_password()).
     db_module.set_active_session_id(conn, ss_user_id, None)
+    # Mục 3, Pha A: thu hồi cả session mờ. Đặt lại mật khẩu thường vì nghi lộ tài khoản, nên phiên đang cầm
+    # session token (kể cả của kẻ tấn công) phải chết ngay, giống JWT/refresh token ở trên.
+    db_module.revoke_all_sessions_for_user(conn, ss_user_id, REVOKE_PASSWORD_CHANGED)
     conn.commit()
 
     return MessageOut(message="Đặt lại mật khẩu thành công — vui lòng đăng nhập lại bằng mật khẩu mới.")

@@ -22,21 +22,49 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials
 
 from scrapjd import db as db_module
 from scrapjd.api import error_codes
 from scrapjd.api import security
-from scrapjd.api.deps import get_db, get_current_user
-from scrapjd.api.rate_limit import get_user_id_or_ip, limiter
+from scrapjd.api.deps import bearer_scheme, get_db, get_current_user
+from scrapjd.api.rate_limit import get_client_ip, get_user_id_or_ip, limiter
 from scrapjd.api.schemas import (
-    AccessTokenOut, ChangePasswordRequest, LoginRequest, RefreshRequest,
+    AccessTokenOut, ChangePasswordRequest, LoginRequest, LogoutRequest, RefreshRequest,
     TokenPairOut, UserOut, UserProfileUpdate,
 )
 from scrapjd.db.pg_types import Conn, Row
+from scrapjd.db.sessions import REVOKE_LOGOUT, REVOKE_PASSWORD_CHANGED, REVOKE_REPLACED
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Giới hạn độ dài trước khi ghi DB: user_agent do client tự khai (TEXT trong DB nhưng không có lý do lưu cả
+# header khổng lồ), ip_address là VARCHAR(45) nên giá trị lạ (không phải IP) dài hơn sẽ làm INSERT lỗi.
+_MAX_USER_AGENT_LEN = 500
+_MAX_IP_LEN = 45
+
+
+def _start_session(conn: Conn, user_row: Row, request: Request, session_id: str) -> tuple[str, Row]:
+    """Tạo phiên mờ mới (Mục 3, Pha A) cho lần đăng nhập vừa thành công, trả (session_token THÔ, dòng session).
+    session_id là CÙNG giá trị đã ghi vào app_users.active_session_id và nhúng vào JWT của lần đăng nhập này,
+    nên thu hồi bằng cách nào cũng làm chết cả hai loại credential. Token thô chỉ trả về cho client đúng một
+    lần, DB chỉ lưu SHA-256. IP lấy theo get_client_ip (chỉ tin X-Client-IP khi có X-API-Key hợp lệ) để lưu IP
+    người dùng cuối thay vì IP của server Next.js."""
+    session_token = security.generate_session_token()
+    ua = request.headers.get("user-agent")
+    session = db_module.create_session(
+        conn,
+        session_id=session_id,
+        ss_user_id=str(user_row["ss_user_id"]),
+        token_hash=security.hash_session_token(session_token),
+        absolute_days=security.SESSION_ABSOLUTE_DAYS,
+        idle_days=security.SESSION_IDLE_DAYS,
+        user_agent=ua[:_MAX_USER_AGENT_LEN] if ua else None,
+        ip_address=get_client_ip(request)[:_MAX_IP_LEN],
+    )
+    return session_token, session
 
 
 def _issue_token_pair(conn: Conn, user_row: Row, request: Request, session_id: str) -> tuple[str, str]:
@@ -147,16 +175,22 @@ def login(payload: LoginRequest, request: Request, conn: Conn = Depends(get_db))
     # song song thoải mái).
     ss_user_id = str(user["ss_user_id"])
     db_module.revoke_all_refresh_tokens_for_user(conn, ss_user_id)
+    # Mục 3, Pha A: cùng quy tắc "login mới luôn thắng" áp cho session mờ — phiên cũ bị thu hồi với lý do
+    # 'replaced' (client cũ nhận session_replaced thay vì lỗi hết hạn chung chung) TRƯỚC khi tạo phiên mới.
+    db_module.revoke_all_sessions_for_user(conn, ss_user_id, REVOKE_REPLACED)
     new_session_id = security.generate_session_id()
     db_module.set_active_session_id(conn, ss_user_id, new_session_id)
 
     access_token, refresh_token = _issue_token_pair(conn, user, request, new_session_id)
+    session_token, session = _start_session(conn, user, request, new_session_id)
     conn.commit()
 
     return TokenPairOut(
         access_token=access_token,
         refresh_token=refresh_token,
         must_change_password=user["must_change_password"],
+        session_token=session_token,
+        session_expires_at=session["expires_at"],
     )
 
 
@@ -303,21 +337,51 @@ def refresh(payload: RefreshRequest, request: Request, conn: Conn = Depends(get_
 # 30/minute theo IP — cùng lý do refresh() ở trên (chặn gọi lặp vô ích,
 # không phải vì token đoán được).
 @limiter.limit("30/minute")
-def logout(request: Request, payload: RefreshRequest, conn: Conn = Depends(get_db)) -> None:
-    """Đăng xuất — thu hồi ĐÚNG refresh token gửi lên (không đụng tới
-    token của thiết bị khác). Không lỗi nếu token không tồn tại/đã thu
-    hồi từ trước (đăng xuất nhiều lần vẫn coi là thành công, tránh lộ
-    thông tin qua khác biệt response)."""
-    stored = db_module.get_refresh_token_by_hash(
-        conn, security.hash_refresh_token(payload.refresh_token)
-    )
-    if stored is not None:
-        db_module.revoke_refresh_token(conn, str(stored["refresh_token_id"]))
-        # Single-session: clear luôn active_session_id — access token
-        # còn sống (chưa hết 30 phút) của phiên này cũng bị từ chối
-        # ngay ở get_current_user(), không cần đợi tự hết hạn.
-        db_module.set_active_session_id(conn, str(stored["ss_user_id"]), None)
-        conn.commit()
+def logout(
+    request: Request,
+    payload: Optional[LogoutRequest] = None,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(bearer_scheme),
+    conn: Conn = Depends(get_db),
+) -> None:
+    """Đăng xuất. Nhận HAI loại credential (Mục 3, Pha A), có thể gửi cả hai:
+
+    1. SESSION TOKEN mờ trong header `Authorization: Bearer s1....` (đường của frontend mới): thu hồi đúng
+       phiên đó (lý do 'logout'), đồng thời cho JWT + refresh token CÙNG LẦN ĐĂNG NHẬP chết theo (xoá
+       active_session_id nếu nó vẫn trỏ vào phiên này, thu hồi refresh token) — nếu không, refresh token
+       đã phát lúc đăng nhập sẽ còn dùng được để "hồi sinh" phiên sau khi đã đăng xuất. Không đụng phiên mới
+       hơn nếu người dùng đã đăng nhập lại ở nơi khác giữa chừng (khi đó phiên này đã bị thu hồi từ trước).
+    2. `refresh_token` trong body (đường cũ): hành vi như trước — thu hồi đúng refresh token đó, xoá
+       active_session_id; thêm: thu hồi mọi session mờ còn hiệu lực của người dùng đó (cùng một lần đăng nhập
+       nên phải chết cùng).
+
+    Không lỗi nếu credential không tồn tại/đã thu hồi từ trước, hoặc không gửi gì cả (đăng xuất nhiều lần vẫn
+    coi là thành công, tránh lộ thông tin qua khác biệt response). Header Authorization mang JWT (không phải
+    session token) bị bỏ qua, vì JWT không có cách thu hồi riêng lẻ ngoài active_session_id."""
+    if credentials is not None and security.is_session_token(credentials.credentials):
+        session = db_module.get_session_by_token_hash(
+            conn, security.hash_session_token(credentials.credentials)
+        )
+        if session is not None and session["revoked_at"] is None:
+            user_id = str(session["ss_user_id"])
+            db_module.revoke_session(conn, str(session["session_id"]), REVOKE_LOGOUT)
+            db_module.clear_active_session_id_if(conn, user_id, str(session["session_id"]))
+            db_module.revoke_all_refresh_tokens_for_user(conn, user_id)
+            conn.commit()
+
+    if payload is not None and payload.refresh_token:
+        stored = db_module.get_refresh_token_by_hash(
+            conn, security.hash_refresh_token(payload.refresh_token)
+        )
+        if stored is not None:
+            db_module.revoke_refresh_token(conn, str(stored["refresh_token_id"]))
+            # Single-session: clear luôn active_session_id — access token
+            # còn sống (chưa hết 30 phút) của phiên này cũng bị từ chối
+            # ngay ở get_current_user(), không cần đợi tự hết hạn.
+            db_module.set_active_session_id(conn, str(stored["ss_user_id"]), None)
+            db_module.revoke_all_sessions_for_user(
+                conn, str(stored["ss_user_id"]), REVOKE_LOGOUT
+            )
+            conn.commit()
     return None
 
 
@@ -418,6 +482,9 @@ def change_password(
     # kế tiếp, nhất quán với logout(). Người dùng cần đăng nhập lại để
     # lấy phiên mới, kể cả trên chính thiết bị vừa đổi mật khẩu.
     db_module.set_active_session_id(conn, user["sub"], None)
+    # Mục 3, Pha A: thu hồi cả session mờ — nếu thiếu dòng này, đổi mật khẩu sẽ KHÔNG đăng xuất được các thiết
+    # bị lộ đang cầm session token (lỗ hổng bảo mật, không chỉ thiếu tính năng).
+    db_module.revoke_all_sessions_for_user(conn, user["sub"], REVOKE_PASSWORD_CHANGED)
     conn.commit()
 
     return db_module.get_user_by_id(conn, user["sub"])

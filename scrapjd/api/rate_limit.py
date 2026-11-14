@@ -99,6 +99,13 @@ def get_user_id_or_ip(request: Request) -> str:
     auth_header = request.headers.get("authorization", "")
     if auth_header.lower().startswith("bearer "):
         token = auth_header[7:]
+        if security.is_session_token(token):
+            # Session mờ (Mục 3, Pha A) không chứa user id và key_func không có kết nối DB, nên khoá theo CHÍNH
+            # PHIÊN: 16 ký tự đầu của SHA-256 token (không bao giờ dùng token thô làm khoá — nó sẽ nằm trong
+            # bộ nhớ slowapi và có thể lọt vào log/báo lỗi). Single-session nên 1 người dùng = 1 phiên còn
+            # sống, hạn mức vẫn tính theo người, không theo IP. Token giả/hết hạn bị get_current_user() từ
+            # chối (401) trước khi request tới được decorator rate limit, nên không làm phình bộ đếm.
+            return f"session:{security.hash_session_token(token)[:16]}"
         payload = security.decode_access_token(token)
         if payload and payload.get("sub"):
             return f"user:{payload['sub']}"
