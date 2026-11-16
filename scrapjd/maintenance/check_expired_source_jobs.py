@@ -70,8 +70,7 @@ CHẠY THỦ CÔNG qua nút bấm trên web (trang bảo trì dữ liệu, job_t
 'check_expired_jobs' — xem scrapjd/api/maintenance_runner.py) hoặc CLI, gợi ý
 1 tuần/lần.
 
-DỌN CV (thêm 08/2026 — xem việc_chưa_làm.txt mục "chưa có hệ thống tự
-động dọn CV của học viên khi đã ứng tuyển những Job hết hạn"): SAU khi
+DỌN CV (học viên đã ứng tuyển những Job hết hạn): SAU khi
 đóng job (cả 2 nhánh deadline lẫn 404/410 ở trên), script quét TOÀN BỘ
 job_applications của MỌI job đang CLOSED (không riêng job vừa đóng
 trong lượt chạy này — bao gồm cả backlog job đã đóng từ trước, kể cả

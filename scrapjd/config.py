@@ -13,34 +13,14 @@ import psycopg2
 from psycopg2.extensions import parse_dsn
 
 # ------------------------------------------------------------------
-# 08/2026 — ĐẢO CẤU TRÚC category-first (trước đây là 3 dict riêng
-# TOPCV_CATEGORIES / VIETNAMWORKS_CATEGORIES / CAREERVIET_CATEGORIES,
-# mỗi dict tự lặp lại "label" + "matching_industry" cho từng category).
+# JOB_CATEGORIES là NGUỒN SỰ THẬT DUY NHẤT về category crawl: mỗi category khai báo một lần (label và
+# matching_industry dùng chung mọi nguồn) cùng sub-dict "sources" liệt kê nguồn nào crawl được category này kèm
+# field đặc thù của nguồn (url / query / keyword). Nguồn không có category thì KHÔNG xuất hiện trong "sources",
+# nên nhìn một chỗ là thấy category nào phủ đủ 3 nguồn và thiếu ở đâu (thiếu có chủ đích, không phải sót).
 #
-# Lý do đảo: 3 dict cũ có CÙNG bộ key (data-analyst, data-engineer...)
-# nhưng là 3 bản khai báo độc lập -> dễ lệch dữ liệu khi sửa 1 nơi quên
-# nơi kia. Hậu quả thực tế đã xảy ra: TopCV/VietnamWorks có category
-# "ui-ux-design", còn CareerViet thì không (CareerViet không có kết quả
-# thật cho keyword này — xem xác nhận bên dưới) — với 3 dict riêng thì
-# việc "CareerViet thiếu 1 category" trông giống thiếu sót/bug hơn là
-# 1 lựa chọn có chủ đích, vì không có nơi nào so sánh chéo được cả 3
-# nguồn cho cùng 1 category.
-#
-# JOB_CATEGORIES bên dưới là NGUỒN SỰ THẬT DUY NHẤT: mỗi category khai
-# báo 1 lần (label + matching_industry dùng chung cho mọi nguồn), và 1
-# sub-dict "sources" liệt kê nguồn nào crawl được category này kèm field
-# đặc thù của nguồn đó (url/query/keyword). Nguồn nào KHÔNG có category
-# này thì đơn giản là KHÔNG xuất hiện trong "sources" — nhìn 1 chỗ là
-# thấy ngay category nào phủ đủ 3 nguồn, category nào thiếu ở đâu.
-#
-# TOPCV_CATEGORIES / VIETNAMWORKS_CATEGORIES / CAREERVIET_CATEGORIES bên
-# dưới JOB_CATEGORIES là 3 "view" TỰ ĐỘNG SINH RA từ JOB_CATEGORIES (xem
-# hàm _categories_for_source) — giữ NGUYÊN hình dạng {key: {label, url/
-# query/keyword, matching_industry}} như trước, để scrapjd/adapters/topcv.py,
-# scrapjd/adapters/vietnamworks.py, scrapjd/adapters/careerviet.py, main.py và
-# scrapjd/sources_registry.py KHÔNG cần sửa gì (chúng chỉ import 3 tên biến này
-# như cũ). Nói cách khác: sửa TẬN GỐC ở JOB_CATEGORIES, phần còn lại của
-# codebase tự động thấy thay đổi.
+# TOPCV_CATEGORIES / VIETNAMWORKS_CATEGORIES / CAREERVIET_CATEGORIES bên dưới là 3 view TỰ SINH từ đây
+# (_categories_for_source), dạng {key: {label, url/query/keyword, matching_industry}}. Adapter, main.py và
+# sources_registry.py chỉ import 3 tên đó. Thêm hoặc sửa category thì sửa ở JOB_CATEGORIES, đừng sửa view.
 # ------------------------------------------------------------------
 JOB_CATEGORIES: dict[str, dict[str, Any]] = {
     "data-analyst": {
@@ -94,14 +74,9 @@ JOB_CATEGORIES: dict[str, dict[str, Any]] = {
         "sources": {
             "topcv": {"url": "https://www.topcv.vn/tim-viec-lam-ui-ux-design-cr826cb827cl317"},
             "vietnamworks": {"query": "ui ux design"},
-            # CareerViet: KHÔNG có "careerviet" ở đây (có chủ đích, không
-            # phải thiếu sót) — đã tự kiểm tra thật bằng
-            # https://careerviet.vn/viec-lam/ui-ux-design-k-vi.html
-            # (08/2026), keyword không tồn tại trên CareerViet (trang
-            # không có kết quả, không phải ra job linh tinh) -> thêm vào
-            # sẽ khiến fetch_jobs() chạy vô ích cho category này. Nếu sau
-            # này CareerViet có category UI/UX dưới slug khác, thêm lại
-            # tại đây kèm keyword đã xác nhận đúng.
+            # Cố ý KHÔNG có "careerviet": keyword này không tồn tại trên CareerViet (trang
+            # https://careerviet.vn/viec-lam/ui-ux-design-k-vi.html không có kết quả), thêm vào chỉ khiến fetch_jobs()
+            # chạy vô ích. Nếu CareerViet có category UI/UX dưới slug khác, thêm lại kèm keyword đã kiểm.
         },
     },
 }
@@ -111,12 +86,9 @@ DEFAULT_CATEGORY = "data-analyst"
 
 
 def _categories_for_source(source_key: str) -> dict[str, dict[str, Any]]:
-    """Sinh view {category_key: {label, matching_industry, <field nguồn>}}
-    từ JOB_CATEGORIES cho 1 nguồn cụ thể — chỉ gồm category mà nguồn đó
-    THỰC SỰ có trong "sources" (xem docstring khối JOB_CATEGORIES ở
-    trên). Dùng để tạo TOPCV_CATEGORIES/VIETNAMWORKS_CATEGORIES/
-    CAREERVIET_CATEGORIES bên dưới mà không cần khai báo lại thủ công.
-    """
+    """View {category_key: {label, matching_industry, <field nguồn>}} của JOB_CATEGORIES cho một nguồn, chỉ gồm
+    category mà nguồn đó THỰC SỰ có trong "sources". Dùng để sinh TOPCV_CATEGORIES, VIETNAMWORKS_CATEGORIES,
+    CAREERVIET_CATEGORIES bên dưới."""
     result = {}
     for cat_key, cat in JOB_CATEGORIES.items():
         source_fields = cat["sources"].get(source_key)
@@ -130,9 +102,7 @@ def _categories_for_source(source_key: str) -> dict[str, dict[str, Any]]:
     return result
 
 
-# 3 view phái sinh — giữ NGUYÊN tên biến + hình dạng cũ, mọi nơi khác
-# trong codebase (scrapjd/adapters/*, main.py, scrapjd/sources_registry.py) import các
-# tên này y hệt trước khi đảo cấu trúc, không cần sửa gì thêm.
+# 3 view phái sinh từ JOB_CATEGORIES (xem khối chú thích ở trên).
 TOPCV_CATEGORIES = _categories_for_source("topcv")
 VIETNAMWORKS_CATEGORIES = _categories_for_source("vietnamworks")
 CAREERVIET_CATEGORIES = _categories_for_source("careerviet")
@@ -175,16 +145,11 @@ DEFAULT_MAX_PAGES = 3
 # Độ trễ giữa các request (giây)
 REQUEST_DELAY_SECONDS = 5.0
 
-# 08/2026: TopCV bắt đầu trả 403 liên tục khi crawl chạy TỪ SERVER RENDER
-# (IP datacenter), trong khi CÙNG code chạy từ máy cá nhân (IP dân dụng)
-# vẫn qua bình thường -> khả năng cao là chặn theo UY TÍN IP (IP
-# reputation), KHÔNG PHẢI thiếu header/TLS fingerprint (2 cái đó adapter
-# đã xử lý đúng, xem scrapjd/adapters/topcv.py). Hướng dứt điểm là dùng proxy IP
-# dân dụng (chưa có kinh phí, xem lịch sử trao đổi) — TẠM THỜI trong lúc
-# chưa có proxy, tăng delay + thêm jitter ngẫu nhiên riêng cho TopCV để
-# giảm khả năng bị đánh dấu "hành vi bot" lại, KHÔNG áp dụng cho
-# VietnamWorks/CareerViet (2 nguồn đó chưa có dấu hiệu bị chặn tương tự,
-# tăng delay chung sẽ làm chậm crawl không cần thiết).
+# TopCV trả 403 liên tục khi crawl chạy từ server Render (IP datacenter) dù cùng code chạy từ máy cá nhân (IP dân
+# dụng) vẫn qua: nhiều khả năng bị chặn theo uy tín IP, không phải thiếu header hay TLS fingerprint (adapter đã xử
+# lý, xem scrapjd/adapters/topcv.py). Cách dứt điểm là proxy IP dân dụng (chưa có). Tạm thời tăng delay và thêm
+# jitter ngẫu nhiên RIÊNG cho TopCV; VietnamWorks và CareerViet chưa bị chặn nên không tăng chung, kẻo crawl chậm
+# vô ích.
 TOPCV_REQUEST_DELAY_SECONDS = float(os.getenv("TOPCV_REQUEST_DELAY_SECONDS", "12.0"))
 # Biên độ +/- ngẫu nhiên cộng vào TOPCV_REQUEST_DELAY_SECONDS mỗi request
 # (giây) — né việc khoảng cách giữa các request đều tăm tắp (dễ nhận diện
@@ -218,6 +183,7 @@ try:
     load_dotenv()
 except ImportError:
     pass
+
 
 def build_db_config(env: Mapping[str, str]) -> dict[str, Any]:
     """Dựng tham số kết nối Postgres từ biến môi trường.
@@ -256,118 +222,76 @@ def build_db_config(env: Mapping[str, str]) -> dict[str, Any]:
 DB_CONFIG: dict[str, Any] = build_db_config(os.environ)
 
 # ------------------------------------------------------------------
-# Connection pool cho API layer (db.init_pool(), xem db.py) — CHỈ dùng
-# bởi scrapjd/api/app.py lúc startup, KHÔNG ảnh hưởng CLI (main.py vẫn dùng
-# db.get_connection() mở/đóng trực tiếp như cũ).
+# Connection pool cho API layer (db.init_pool()): CHỈ app.py dùng lúc startup, CLI (main.py) vẫn mở/đóng
+# connection trực tiếp bằng db.get_connection().
 #
-# 08/2026 (2 lần chỉnh liên tiếp, xem lịch sử trao đổi):
-#   (1) Hạ 20 -> 8 để fix lỗi "EMAXCONNSESSION ... pool_size: 15" khi
-#       còn dùng Session Pooler (port 5432, giới hạn CỨNG 15 connection
-#       thật phía Supabase).
-#   (2) SAU KHI đã chuyển hẳn sang Transaction Pooler (PGPORT=6543, xem
-#       .env.example) -> NÂNG LẠI 8 -> 20: 8 hoá ra QUÁ THẤP cho tải
-#       polling thật (nhiều tab, nhiều job_type card tự poll status/
-#       logs mỗi 1-2 giây cùng lúc) -> tự cạn NGAY TRONG pool nội bộ
-#       của app (psycopg2.pool.PoolError: "connection pool exhausted"),
-#       KHÔNG liên quan gì tới giới hạn phía Supabase nữa. Transaction
-#       Pooler multiplex nhiều client xuống ít connection thật phía sau
-#       (không phải 1-1 như session mode) nên app HOÀN TOÀN AN TOÀN để
-#       mở nhiều connection hơn ở tầng này — 20 vẫn nằm trong khả năng
-#       xử lý bình thường của pooler.
+# DB_POOL_MAX = 20 giả định Transaction Pooler của Supabase (PGPORT=6543, xem .env.example): pooler dồn nhiều client
+# xuống ít connection thật, nên mở nhiều connection ở tầng app là an toàn. Số nhỏ hơn (từng thử 8) cạn pool nội bộ
+# (psycopg2.pool.PoolError "connection pool exhausted") khi nhiều tab và card bảo trì poll status/log mỗi 1-2 giây.
 #
-# maxconn NÊN thấp hơn giới hạn connection Postgres phía Render/Supabase
-# cho phép — nếu LỠ đổi PGPORT về lại 5432 (Session Pooler/Direct) mà
-# QUÊN hạ số này xuống, sẽ tái phát đúng lỗi EMAXCONNSESSION ở mục (1)
-# phía trên.
+# CẢNH BÁO: đổi PGPORT về 5432 (Session Pooler hoặc Direct) thì PHẢI hạ DB_POOL_MAX xuống dưới giới hạn connection
+# thật của Supabase/Render (Session Pooler giới hạn cứng 15), nếu không sẽ gặp lỗi EMAXCONNSESSION.
 # ------------------------------------------------------------------
 DB_POOL_MIN = int(os.getenv("DB_POOL_MIN", "2"))
 DB_POOL_MAX = int(os.getenv("DB_POOL_MAX", "20"))
 
-# 08/2026 (xem lịch sử trao đổi "connection pool exhausted" + bounded-
-# wait ở scrapjd/db/connection.py:get_pooled_connection()) — số giây TỐI ĐA sẽ
-# retry chờ pool có slot trống trước khi raise psycopg2.pool.PoolError
-# thật, thay vì raise NGAY khi gặp burst polling thoáng qua (nhiều tab/
-# job_type card cùng xin connection trong tích tắc trong khi mỗi query
-# thường chỉ giữ connection vài chục ms). 2 giây là đủ để hấp thụ burst
-# bình thường mà KHÔNG làm request treo lâu tới mức người dùng cảm nhận
-# được — nghẽn kéo dài THẬT SỰ (không phải burst thoáng qua) vẫn sẽ
-# raise lỗi rõ ràng sau đúng khoảng thời gian này, không che giấu vấn
-# đề bằng cách chờ vô thời hạn.
+# Số giây TỐI ĐA get_pooled_connection() (scrapjd/db/connection.py) retry chờ pool có slot trống trước khi raise
+# psycopg2.pool.PoolError. Đủ để hấp thụ burst polling thoáng qua (mỗi query thường giữ connection vài chục ms) mà
+# request không treo lâu; nghẽn kéo dài thật vẫn raise lỗi rõ ràng sau đúng khoảng này, không che bằng cách chờ vô hạn.
 DB_POOL_WAIT_TIMEOUT = float(os.getenv("DB_POOL_WAIT_TIMEOUT", "2.0"))
 
 # ------------------------------------------------------------------
-# Crawl watchdog (08/2026, xem scrapjd/api/services/crawl_watchdog.py +
-# sql/migration_add_crawl_runs.sql) — phát hiện lượt crawl bị TREO
-# (process bị kill giữa chừng, network timeout vô hạn...) rồi tự đánh
-# dấu 'error' để giải phóng UNIQUE INDEX idx_crawl_runs_one_active_per_source,
-# tránh 1 nguồn bị "khoá" crawl mãi mãi.
+# Crawl watchdog (scrapjd/api/services/crawl_watchdog.py): phát hiện lượt crawl bị TREO (process bị kill, network
+# timeout vô hạn...) rồi đánh dấu 'error' để giải phóng UNIQUE INDEX idx_crawl_runs_one_active_per_source, tránh một
+# nguồn bị khoá crawl mãi. Hai ngưỡng (db.reconcile_stale_runs):
 #
-# Watchdog tính theo 2 ngưỡng (đổi 10/2026, xem db.reconcile_stale_runs):
-#
-# CRAWL_STALE_NO_PROGRESS_MINUTES: lượt 'running' bị coi là treo nếu KHÔNG có
-# tiến độ mới (progress.last_update, ghi sau MỖI job xử lý xong) trong ngần
-# này phút. Khoảng lặng hợp lệ dài nhất là 1 job đơn lẻ: tối đa vài lần
-# fetch (chi tiết + hồ sơ công ty), mỗi lần retry 3 lần backoff
-# delay*2/4/8 — TopCV (delay ~12s) khoảng 3 phút/lần fetch, tức < 10 phút
-# cho cả job. 30 phút là dư buffer. Không phụ thuộc max_jobs/số trang nên
-# crawl dài vẫn chạy được miễn còn có tiến độ (trước đây đo tổng thời gian
-# từ lúc tạo, 120 phút, dễ huỷ nhầm lượt hợp lệ như TopCV max_jobs=1000).
+# CRAWL_STALE_NO_PROGRESS_MINUTES: lượt 'running' bị coi là treo nếu KHÔNG có tiến độ mới (progress.last_update, ghi
+# sau MỖI job xong) trong ngần này phút. Khoảng lặng hợp lệ dài nhất là một job đơn lẻ: vài lần fetch (chi tiết, hồ
+# sơ công ty), mỗi lần retry 3 lần backoff delay*2/4/8, TopCV (delay ~12s) khoảng 3 phút mỗi lần fetch, tức dưới 10
+# phút cho cả job; 30 phút là dư. Không phụ thuộc max_jobs hay số trang nên crawl dài vẫn chạy được miễn còn tiến độ
+# (đo tổng thời gian từ lúc tạo sẽ huỷ nhầm lượt hợp lệ như TopCV max_jobs=1000).
 CRAWL_STALE_NO_PROGRESS_MINUTES = max(1, int(os.getenv("CRAWL_STALE_NO_PROGRESS_MINUTES", "30")))
 
-# CRAWL_STALE_TIMEOUT_MINUTES: giờ CHỈ áp cho lượt 'queued' (chưa chạy, không
-# có heartbeat), tính từ lúc tạo dòng — dùng cho trường hợp background task bị
-# mất trước khi kịp chạy. Phải LỚN hơn thời gian 1 lượt có thể xếp hàng chờ
-# slot trong GLOBAL_JOB_SEMAPHORE (scrapjd/api/concurrency.py) vì job đang giữ slot có
-# thể chạy rất lâu; 120 phút giữ nguyên như trước.
+# CRAWL_STALE_TIMEOUT_MINUTES: CHỈ áp cho lượt 'queued' (chưa chạy, không có heartbeat), tính từ lúc tạo dòng, cho
+# trường hợp background task mất trước khi kịp chạy. Phải LỚN hơn thời gian một lượt có thể xếp hàng chờ slot trong
+# GLOBAL_JOB_SEMAPHORE (scrapjd/api/concurrency.py), vì job đang giữ slot có thể chạy rất lâu.
 CRAWL_STALE_TIMEOUT_MINUTES = int(os.getenv("CRAWL_STALE_TIMEOUT_MINUTES", "120"))
 
-# Tần suất watchdog quét bảng crawl_runs — không cần nhanh (đây là lớp
-# dự phòng, không phải cơ chế chính), 10 phút đủ để giải phóng nguồn bị
-# treo trong thời gian hợp lý mà không tốn tài nguyên quét liên tục.
+# Tần suất watchdog quét bảng crawl_runs: đây là lớp dự phòng, không cần nhanh; 10 phút giải phóng nguồn bị treo
+# trong thời gian hợp lý mà không tốn tài nguyên quét liên tục.
 CRAWL_WATCHDOG_INTERVAL_MINUTES = int(os.getenv("CRAWL_WATCHDOG_INTERVAL_MINUTES", "10"))
 
 # ------------------------------------------------------------------
-# Ngắt mạch khi bị chặn GIỮA CHỪNG (đợt 3, 10/2026, xem
-# scrapjd/adapters/base.py::BaseAdapter._note_fetch_failure).
+# Ngắt mạch khi bị chặn GIỮA CHỪNG (scrapjd/adapters/base.py::BaseAdapter._note_fetch_failure). CrawlBlockedError chỉ
+# raise ở TRANG ĐẦU; IP bị ban ở job thứ 10 thì mọi job còn lại vẫn chạy đủ 3 lần retry (TopCV: 12s x (2+4+8) ~ 168s
+# mỗi lần fetch) rồi ghi skipped_fetch_failed và đi tiếp, phí hàng giờ và còn đập tiếp vào IP đã bị đánh dấu.
 #
-# CrawlBlockedError cũ chỉ raise ở TRANG ĐẦU. IP bị ban ở job thứ 10 thì mọi
-# job còn lại vẫn chạy đủ 3 lần retry (TopCV: 12s x (2+4+8) ~ 168s/lần fetch)
-# rồi ghi skipped_fetch_failed và đi tiếp — phí hàng giờ và còn đập tiếp vào
-# IP đã bị đánh dấu.
-#
-# CRAWL_BLOCK_CONSECUTIVE_FAILURES: số lần fetch thất bại LIÊN TIẾP (mỗi lần
-# đã hết retry, chưa có request nào thành công xen giữa) thì dừng cả lượt.
-# 3 lần TopCV ~ 8 phút không tiến độ, vẫn thấp hơn ngưỡng watchdog
-# CRAWL_STALE_NO_PROGRESS_MINUTES (30). Đặt 0 để tắt ngắt mạch.
-# 404/410 (tin đã gỡ) KHÔNG tính — đó là trang hết hạn thật, không phải bị chặn.
+# CRAWL_BLOCK_CONSECUTIVE_FAILURES: số lần fetch thất bại LIÊN TIẾP (mỗi lần đã hết retry, chưa có request nào thành
+# công xen giữa) thì dừng cả lượt. 3 lần TopCV ~ 8 phút không tiến độ, vẫn thấp hơn ngưỡng watchdog
+# CRAWL_STALE_NO_PROGRESS_MINUTES (30). Đặt 0 để tắt ngắt mạch. 404/410 (tin đã gỡ) KHÔNG tính: đó là trang hết hạn
+# thật, không phải bị chặn.
 CRAWL_BLOCK_CONSECUTIVE_FAILURES = max(0, int(os.getenv("CRAWL_BLOCK_CONSECUTIVE_FAILURES", "3")))
 
-# Chỉ để CẢNH BÁO: khi bắt đầu 1 lượt crawl, nếu cùng nguồn vừa có lượt bị
-# chặn trong ngần này phút thì ghi WARNING vào log live. KHÔNG chặn bấm chạy
-# (admin có thể vừa đổi proxy/IP và muốn thử lại ngay).
+# Chỉ để CẢNH BÁO: khi bắt đầu một lượt crawl, nếu cùng nguồn vừa có lượt bị chặn trong ngần này phút thì ghi WARNING
+# vào log live. KHÔNG chặn bấm chạy (admin có thể vừa đổi proxy/IP và muốn thử lại ngay).
 CRAWL_BLOCK_COOLDOWN_MINUTES = max(0, int(os.getenv("CRAWL_BLOCK_COOLDOWN_MINUTES", "60")))
 
 # ------------------------------------------------------------------
-# Đánh dấu lượt crawl "degraded" (đợt 3, 10/2026, xem scrapjd/field_stats.py::
-# degraded_reasons): lượt vẫn status='done' nhưng dữ liệu nhiều khả năng sai
-# vì selector hỏng. Chỉ xét các field BẮT BUỘC phải có nội dung (xem
-# CRITICAL_FIELDS trong scrapjd/field_stats.py), nên ngưỡng cao mới an toàn.
+# Đánh dấu lượt crawl "degraded" (scrapjd/field_stats.py::degraded_reasons): lượt vẫn status='done' nhưng dữ liệu
+# nhiều khả năng sai vì selector hỏng. Chỉ xét các field BẮT BUỘC có nội dung (CRITICAL_FIELDS trong field_stats.py),
+# nên ngưỡng cao mới an toàn.
 DEGRADED_EMPTY_RATE = min(1.0, max(0.0, float(os.getenv("DEGRADED_EMPTY_RATE", "0.9"))))
 
 # ------------------------------------------------------------------
-# Job đã có trong DB nhưng còn thiếu work_type/deadline/parsed_content: sau
-# khi đã fetch chi tiết, chỉ fetch lại sau ngần này NGÀY (xem
-# scrapjd/db/jobs.py::job_needs_detail_enrichment). Nhiều tin trên nguồn không ghi hạn
-# nộp, nếu cứ thiếu là fetch lại thì mọi lượt crawl đều tốn request cho
-# chính những job đó mãi mãi. Vẫn giữ khả năng tự chữa: sửa xong selector bị
-# hỏng thì tối đa chừng này ngày sau job được vá. Đặt 0 để về hành vi cũ
-# (fetch lại ở mọi lượt crawl).
+# Job đã có trong DB nhưng còn thiếu work_type/deadline/parsed_content: sau khi đã fetch chi tiết, chỉ fetch lại sau
+# ngần này NGÀY (scrapjd/db/jobs.py::job_needs_detail_enrichment). Nhiều tin trên nguồn không ghi hạn nộp; nếu cứ thiếu
+# là fetch lại thì mọi lượt crawl đều tốn request cho chính những job đó mãi. Vẫn tự chữa được: sửa xong selector hỏng
+# thì tối đa chừng này ngày sau job được vá. Đặt 0 để fetch lại ở mọi lượt crawl.
 DETAIL_RECHECK_DAYS = max(0, int(os.getenv("DETAIL_RECHECK_DAYS", "7")))
 
 # ------------------------------------------------------------------
-# Snapshot HTML/JSON gốc để debug khi parser hỏng (đợt 3, 10/2026, xem
-# scrapjd/snapshots.py + sql/migration_add_crawl_snapshots.sql). Lưu trong Postgres
-# (gzip), giới hạn cứng để không ăn hết dung lượng gói free.
+# Snapshot HTML/JSON gốc để debug khi parser hỏng (scrapjd/snapshots.py). Lưu trong Postgres (gzip), giới hạn cứng để
+# không ăn hết dung lượng gói free.
 SNAPSHOT_MAX_PER_RUN = max(0, int(os.getenv("SNAPSHOT_MAX_PER_RUN", "6")))
 # Cắt body dài hơn mức này (ký tự) trước khi nén — trang listing/chi tiết
 # thật thường < 500k ký tự.
@@ -375,14 +299,10 @@ SNAPSHOT_MAX_CHARS = max(1000, int(os.getenv("SNAPSHOT_MAX_CHARS", "1500000")))
 # Snapshot cũ hơn ngần này ngày bị xoá mỗi lần lưu snapshot mới.
 SNAPSHOT_RETENTION_DAYS = max(1, int(os.getenv("SNAPSHOT_RETENTION_DAYS", "14")))
 
-# 08/2026 (xem sql/migration_add_maintenance_runs.sql,
-# scrapjd/api/services/maintenance_watchdog.py) — đối xứng CRAWL_STALE_TIMEOUT_MINUTES/
-# CRAWL_WATCHDOG_INTERVAL_MINUTES ở trên nhưng cho 5 job bảo trì dữ liệu
-# (backfill/enrich/check_expired). 180 phút mặc định (dài hơn crawl) vì
-# scrapjd/maintenance/enrich_company_web_info.py/get_company_fb_linkedin_link.py gọi
-# Tavily+Gemini cho TỪNG company — chậm hơn hẳn crawl page-by-page, chỉnh
-# qua env nếu limit tối đa cho phép (5000, xem MaintenanceRunRequest.limit)
-# khiến 1 lượt chạy vượt quá con số này.
+# Watchdog cho 5 job bảo trì dữ liệu (backfill / enrich / check_expired; scrapjd/api/services/maintenance_watchdog.py),
+# đối xứng CRAWL_STALE_TIMEOUT_MINUTES và CRAWL_WATCHDOG_INTERVAL_MINUTES ở trên. Mặc định 180 phút (dài hơn crawl) vì
+# enrich_company_web_info và get_company_fb_linkedin_link gọi Tavily + Gemini cho TỪNG công ty, chậm hơn hẳn crawl từng
+# trang; chỉnh qua env nếu limit tối đa (5000, MaintenanceRunRequest.limit) khiến một lượt vượt số này.
 MAINTENANCE_STALE_TIMEOUT_MINUTES = int(os.getenv("MAINTENANCE_STALE_TIMEOUT_MINUTES", "180"))
 MAINTENANCE_WATCHDOG_INTERVAL_MINUTES = int(os.getenv("MAINTENANCE_WATCHDOG_INTERVAL_MINUTES", "10"))
 
@@ -405,27 +325,16 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "")
 SUPABASE_CV_BUCKET = os.getenv("SUPABASE_CV_BUCKET", "cv-files")
 
 # ------------------------------------------------------------------
-# Giới hạn dung lượng request body — chặn SỚM ở tầng middleware
-# (08/2026, xem scrapjd/api/app.py::reject_oversized_request)
+# Giới hạn dung lượng request body, chặn SỚM ở tầng middleware (scrapjd/api/app.py::reject_oversized_request).
 # ------------------------------------------------------------------
-# BỐI CẢNH: trước đây 2 endpoint có nhận file (POST /me/applications —
-# CV PDF, POST /import — CSV/XLSX) đều tự đọc HẾT body vào RAM
-# (`cv_file.file.read()` / raw_bytes) RỒI MỚI so sánh kích thước
-# (scrapjd/api/routers/me.py: > 5MB, scrapjd/api/services/file_parser.py: > 5000
-# dòng). Nghĩa là 1 request vài trăm MB vẫn bị đọc trọn vào bộ nhớ
-# trước khi bị từ chối — tốn RAM/CPU vô ích, và với tier free (RAM
-# thấp) có thể khiến cả process sập (đúng triệu chứng "gửi file lỗi
-# luôn web" thay vì chỉ đơn giản bị từ chối, xem việc_chưa_làm.txt).
+# Vì sao có: nếu endpoint tự đọc HẾT body vào RAM (`cv_file.file.read()`, raw_bytes) rồi mới so kích thước, một
+# request vài trăm MB vẫn bị đọc trọn trước khi bị từ chối, tốn RAM/CPU vô ích và có thể làm sập process trên tier
+# free (RAM thấp). Middleware từ chối ngay khi biết kích thước, trước khi đọc.
 #
-# 15MB (không phải trùng 5MB của CV) — vì middleware này chặn CHUNG ở
-# cấp app, phải đủ rộng cho request "hợp lệ lớn nhất" hiện có
-# (import CSV/XLSX tối đa 5000 dòng chưa có giới hạn byte riêng, thực
-# tế có thể vượt vài MB tuỳ số cột) cộng thêm overhead multipart, mà
-# vẫn đủ hẹp để chặn được các request thật sự bất thường. Đây là lớp
-# CHẶN SỚM (fail fast trước khi tốn RAM đọc file), KHÔNG thay thế cho
-# check nghiệp vụ cụ thể từng endpoint (5MB cho CV, 5000 dòng cho
-# import) — 2 lớp check đó vẫn giữ nguyên để báo lỗi đúng ngữ cảnh hơn
-# ("Dung lượng file CV tối đa là 5MB" rõ ràng hơn cho học viên so với
-# lỗi 413 chung chung).
+# 15MB (không phải 5MB của CV) vì middleware chặn CHUNG cấp app: phải đủ rộng cho request "hợp lệ lớn nhất" (import
+# CSV/XLSX tối đa 5000 dòng, chưa có giới hạn byte riêng, có thể vượt vài MB) cộng overhead multipart, mà vẫn đủ hẹp
+# để chặn request bất thường. Đây là lớp chặn sớm, KHÔNG thay thế check nghiệp vụ từng endpoint (5MB cho CV trong
+# routers/me.py, 5000 dòng cho import trong services/file_parser.py): giữ cả hai để báo lỗi đúng ngữ cảnh ("Dung lượng
+# file CV tối đa là 5MB" rõ hơn lỗi 413 chung chung).
 MAX_REQUEST_BODY_MB = int(os.getenv("MAX_REQUEST_BODY_MB", "15"))
 MAX_REQUEST_BODY_BYTES = MAX_REQUEST_BODY_MB * 1024 * 1024

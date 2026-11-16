@@ -130,9 +130,8 @@ def list_closed_job_applications_with_cv(conn: Conn, limit: Optional[int] = None
     CỐ Ý join job_status='CLOSED' (không lọc theo "vừa đóng trong lượt
     chạy này") — quét TOÀN BỘ job đã CLOSED trong DB, kể cả những job đã
     đóng từ trước (do SS chủ động đóng tay qua frontend, hoặc do lượt
-    chạy script trước NÀY chưa hỗ trợ dọn CV) — đúng đúng phạm vi mô tả ở
-    việc_chưa_làm.txt ("dọn CV của học viên khi đã ứng tuyển những Job
-    hết hạn trong database", không giới hạn "job vừa hết hạn hôm nay").
+    chạy script trước NÀY chưa hỗ trợ dọn CV) — đúng phạm vi "dọn CV của học
+    viên khi đã ứng tuyển những Job hết hạn trong database", không giới hạn "job vừa hết hạn hôm nay".
     Idempotent tự nhiên: application đã dọn thì cv_url đã NULL, không
     còn xuất hiện lại ở lần quét sau.
 

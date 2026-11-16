@@ -1,8 +1,6 @@
 """
 Test cho check_expired_source_jobs.cleanup_cvs_of_closed_jobs() — dọn CV
-của application thuộc job đã CLOSED, thêm 08/2026 (xem việc_chưa_làm.txt
-mục "chưa có hệ thống tự động dọn CV của học viên khi đã ứng tuyển
-những Job hết hạn").
+của application thuộc job đã CLOSED (hệ thống tự dọn CV của học viên đã ứng tuyển những Job hết hạn).
 
 Mock ở 2 điểm: db.list_closed_job_applications_with_cv/clear_application_cv
 (không cần Postgres thật) và cv_storage.delete_cv (không cần Supabase

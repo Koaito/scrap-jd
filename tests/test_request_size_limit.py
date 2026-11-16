@@ -1,7 +1,6 @@
 """
 Test cho middleware reject_oversized_request (scrapjd/api/app.py) — gate chặn
-request quá lớn ở tầng app, thêm 08/2026 (xem việc_chưa_làm.txt mục
-"Chưa có gate chặn gửi file quá lớn khi gửi CV").
+request quá lớn ở tầng app (tránh đọc cả file lớn vào RAM rồi mới từ chối, ví dụ khi gửi CV).
 
 Chỉ test HÀNH VI CỦA MIDDLEWARE (chặn dựa vào header Content-Length,
 chạy TRƯỚC auth/route) — KHÔNG cần API_KEY/JWT thật, vì middleware này

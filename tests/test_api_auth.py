@@ -10,7 +10,7 @@ tests/test_api_contacts.py (xem docstring ở đó), vì các route này có
 @limiter.limit(...) cần 1 Request thật (dùng fixture fake_request từ
 conftest.py), không phải MagicMock.
 
-4 tình huống grace period đối chiếu với chat237.txt (bảng "Chặt/Nới"):
+Các tình huống của grace period:
   - Race hợp lệ (2 request cùng gửi token A, token thay thế B còn sống)
     -> CHO QUA, cấp thêm 1 cặp mới.
   - Vừa logout (B đã bị revoke) -> CHẶN.
@@ -184,7 +184,7 @@ class TestRefreshGracePeriodBlocked:
         revoke qua revoke_all_refresh_tokens_for_user() -> chặn. Cùng
         đường code với test logout ở trên (server không phân biệt được
         LÝ DO B bị revoke, chỉ cần biết B đã revoked_at != NULL), viết
-        riêng để tài liệu hoá rõ từng tình huống trong bảng chat237.txt."""
+        riêng để tài liệu hoá rõ từng tình huống của grace period."""
         user_id = str(uuid.uuid4())
         token_a_id = str(uuid.uuid4())
         token_b_id = str(uuid.uuid4())
