@@ -1,3 +1,11 @@
+# GHIM phiên bản (E11). Hai lớp:
+#   1. Thư viện trực tiếp ở dưới ghim bằng `==` (không dùng `>=`), để mỗi lần Render build ra đúng một bản.
+#   2. `constraints.txt` ghim nốt thư viện GIÁN TIẾP (starlette, pydantic, numpy, ...): `-c` nằm ngay trong file này
+#      nên Render vẫn chỉ cần `pip install -r requirements.txt`, không phải đổi lệnh build.
+# Nâng bản: sửa số ở đây, chạy `python scripts/refresh_constraints.py` (Python 3.12) để sinh lại constraints.txt, rồi chạy
+# `ruff check .`, `mypy`, `pytest`. Dependabot (.github/dependabot.yml) mở PR nâng bản để CI tự kiểm.
+-c constraints.txt
+
 # Thư viện HTTP duy nhất của repo là curl_cffi: các adapter crawl cần giả lập
 # TLS fingerprint Chrome để qua chặn 403 của WAF (requests thuần không làm
 # được), scrapjd/api/storage.py (gọi Supabase Storage) dùng chung cho đỡ phải giữ
@@ -8,49 +16,49 @@
 # pytest, cập nhật các `# type: ignore` quanh curl_cffi cho khớp (xem `grep -rn "kiểm ở bản" scrapjd`). Dependabot
 # (.github/dependabot.yml) mở PR nâng bản để CI tự kiểm.
 curl_cffi==0.17.0
-beautifulsoup4>=4.12.0
-psycopg2-binary>=2.9.9
-python-dotenv>=1.0.0
+beautifulsoup4==4.15.0
+psycopg2-binary==2.9.13
+python-dotenv==1.2.4
 
 # Dùng cho scrapjd/maintenance/enrich_company_web_info.py (script riêng, xem docstring đầu
 # file đó) — tra cứu website/tax_id công ty qua Tavily search + Gemini
 # trích xuất. Không cần nếu chỉ chạy pipeline crawl chính.
-tavily-python>=0.5.0
-google-genai>=1.0.0
+tavily-python==0.8.5
+google-genai==3.3.0
 
 # Dùng cho API layer (scrapjd/api/) — expose dữ liệu qua HTTP cho frontend.
 # Không cần nếu chỉ chạy pipeline crawl CLI (main.py) như cũ.
-fastapi>=0.115.0
-uvicorn[standard]>=0.32.0
-python-multipart>=0.0.9
+fastapi==0.163.1
+uvicorn[standard]==0.54.0
+python-multipart==0.0.33
 
 # Dùng cho lớp đăng nhập TỪNG NGƯỜI (scrapjd/api/security.py, scrapjd/api/routers/auth.py)
 # — KHÁC API_KEY tĩnh (scrapjd/api/auth.py, không cần 2 lib này). Không cần nếu
 # chỉ dùng API_KEY chung, không có nhu cầu đăng nhập cá nhân qua frontend.
-argon2-cffi>=23.1.0
-pyjwt>=2.9.0
+argon2-cffi==25.1.0
+pyjwt==2.15.1
 
 # Dùng cho gửi email xác thực đăng ký công khai (scrapjd/api/email_service.py,
 # POST /auth/register) — thêm 08/2026, xem
 # sql/migration_add_email_verification.sql. Không cần nếu tắt hẳn luồng
 # đăng ký công khai (chỉ dùng POST /auth/users admin tạo hộ).
-resend>=2.36.0
+resend==2.53.2
 
 # Dùng cho rate limiting 4 route công khai (scrapjd/api/rate_limit.py,
 # scrapjd/api/routers/auth.py: register/resend-verification/forgot-password/
 # reset-password) — thêm 08/2026. Không cần nếu chỉ dùng CLI main.py.
-slowapi>=0.1.9
+slowapi==0.1.10
 
 # Dùng cho tính năng Import/Export CSV/XLSX (scrapjd/api/services/file_parser.py)
 # — thêm 08/2026, xem requirements.md/design.md tính năng import/export.
 # pandas: đọc/ghi CSV + DataFrame validate. openpyxl: engine đọc/ghi XLSX
 # (pandas cần lib này cài kèm để xử lý .xlsx, không tự có sẵn).
-pandas>=2.2.0
-openpyxl>=3.1.0
+pandas==3.1.1
+openpyxl==3.1.5
 
 # Dùng cho APScheduler chạy cleanup task định kỳ (dọn import_previews
 # hết hạn, xem scrapjd/api/services/preview_cleanup.py) — thêm 08/2026.
-apscheduler>=3.10.4
+apscheduler==3.11.3
 
 # Test dependencies (pytest + httpx cho TestClient FastAPI). pytest-asyncio:
 # 5 test ở tests/test_api_import_export.py test route `async def
@@ -58,11 +66,11 @@ apscheduler>=3.10.4
 # @pytest.mark.asyncio — thiếu plugin này pytest KHÔNG chạy được test
 # async (báo "async def functions are not natively supported"), thêm
 # 08/2026 lúc rà lại CI (xem .github/workflows/test.yml).
-pytest>=8.0.0
-pytest-asyncio>=0.24,<1.0
-httpx>=0.27.0
+pytest==8.4.2
+pytest-asyncio==0.26.0
+httpx==0.28.1
 
 # Đo độ phủ test (coverage), chỉ dùng khi chạy `pytest --cov` ở local và CI (cấu hình ở pyproject.toml,
 # mục [tool.coverage.*]). Không ảnh hưởng lúc chạy app. Thêm cùng chỗ với pytest vì Render và CI cùng cài một
 # requirements.txt; tách requirements-dev.txt là việc của E11 (ghim phiên bản).
-pytest-cov>=5.0
+pytest-cov==7.1.0

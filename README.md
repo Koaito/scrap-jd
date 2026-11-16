@@ -43,6 +43,11 @@ source venv/bin/activate          # Git Bash trên Windows: source venv/Scripts/
 pip install -r requirements.txt
 ```
 
+Phiên bản thư viện được ghim: thư viện trực tiếp ghim `==` trong `requirements.txt`, thư viện gián tiếp (starlette,
+pydantic, numpy...) ghim trong `constraints.txt` (`requirements.txt` đọc nó qua dòng `-c`, nên lệnh cài vẫn như trên).
+Nâng một thư viện: sửa số trong `requirements.txt`, chạy `python scripts/refresh_constraints.py` (bằng Python 3.12) để
+sinh lại `constraints.txt`, rồi chạy `ruff check .`, `mypy`, `pytest`. Không sửa tay `constraints.txt`.
+
 ### 2. Cấu hình `.env`
 
 ```bash
