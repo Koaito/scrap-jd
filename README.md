@@ -35,7 +35,7 @@ trung vào pipeline crawl, các script bổ trợ và quy trình vận hành.
 
 ### 1. Môi trường Python
 
-Cần Python 3.10 trở lên (CI dùng 3.12).
+Cần Python 3.12 (ghi trong `.python-version`; CI và Render đọc cùng file này, `pyproject.toml` yêu cầu `>=3.12`).
 
 ```bash
 python -m venv venv

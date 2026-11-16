@@ -1,8 +1,10 @@
 # Công cụ kiểm kiểu (mypy), chỉ dùng ở local và CI, KHÔNG cài lúc deploy lên Render (Render chỉ đọc requirements.txt).
 # Cài: pip install -r requirements-dev.txt
 # Ghim đúng phiên bản vì mỗi bản mypy và mỗi bản stubs có thể báo thêm hoặc bớt lỗi, làm kết quả đổi dù code không đổi.
-# Cấu hình mypy ở pyproject.toml, mục [tool.mypy].
+# Cấu hình mypy ở pyproject.toml, mục [tool.mypy]. ruff cũng ghim ở đây (cấu hình ở ruff.toml): mỗi bản ruff có thể
+# thêm rule mới, nên để tự nâng ngầm là CI đỏ dù code không đổi.
 -r requirements.txt
 mypy==2.4.0
+ruff==0.17.5
 types-psycopg2==2.9.21.20261008
 pandas-stubs==3.0.5.260914
