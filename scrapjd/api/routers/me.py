@@ -45,6 +45,8 @@ from scrapjd.api.schemas import (
 )
 from scrapjd.db.pg_types import Conn, Row
 
+_CV_MAX_BYTES = 5 * 1024 * 1024  # giữ khớp thông báo "tối đa 5MB" ở dưới
+
 router = APIRouter(prefix="/me", tags=["me"])
 
 
@@ -74,9 +76,14 @@ def apply_to_job(
     if not (cv_file.filename or "").lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_CV_FORMAT_INVALID, "message": "Chỉ chấp nhận file CV định dạng .pdf."})
     
-    file_bytes = cv_file.file.read()
-    if len(file_bytes) > 5 * 1024 * 1024:
+    # Đọc tối đa trần + 1 byte: đủ để biết "vượt trần" mà không nạp cả file khổng lồ vào RAM.
+    file_bytes = cv_file.file.read(_CV_MAX_BYTES + 1)
+    if len(file_bytes) > _CV_MAX_BYTES:
         raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_CV_FILE_TOO_LARGE, "message": "Dung lượng file CV tối đa là 5MB."})
+    # Đuôi .pdf do người dùng tự đặt; storage lại gắn cứng Content-Type application/pdf. Kiểm chữ ký
+    # file để HTML/EXE đổi đuôi không lọt vào bucket rồi được phục vụ như PDF.
+    if not file_bytes.startswith(b"%PDF-"):
+        raise HTTPException(status_code=400, detail={"error_code": error_codes.PROFILE_CV_FORMAT_INVALID, "message": "Chỉ chấp nhận file CV định dạng .pdf."})
 
     # 2. Tạo bản ghi ban đầu để lấy application_id
     try:
