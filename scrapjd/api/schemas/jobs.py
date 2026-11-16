@@ -160,6 +160,9 @@ class DuplicateJobGroup(BaseModel):
     company: str
     position: str
     jobs: list[JobHealthListItem]
+    # id của job NÊN GIỮ (một phần tử của `jobs`) hoặc null khi không đủ căn cứ. Chỉ là gợi ý tham khảo: so deadline
+    # giữa các job trong nhóm, xem db.job_health.suggest_keep_job_id() về các ca trả null.
+    suggest_keep: Optional[str] = None
 
 
 class JobDataHealth(BaseModel):

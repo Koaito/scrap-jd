@@ -3,6 +3,7 @@ db.job_health — thống kê "tình trạng dữ liệu" của job cho tab Tìn
 dữ liệu (tách từ scrapjd/db/jobs.py, 10/2026). Chỉ SELECT, không ghi.
 """
 
+from collections.abc import Mapping, Sequence
 from datetime import date
 from typing import Any, Optional
 
@@ -80,6 +81,29 @@ def _job_health_rows_from_counts(row: Row) -> list[dict[str, Any]]:
     return rows
 
 
+def suggest_keep_job_id(jobs: Sequence[Mapping[str, Any]]) -> Optional[str]:
+    """Gợi ý nên GIỮ job nào trong một nhóm nghi trùng: id của job có `deadline` xa nhất (suy luận "crawl gần đây
+    hơn, còn hạn dài hơn"), hoặc None khi không đủ căn cứ. Chỉ là gợi ý tham khảo cho staff, không tự đóng gì.
+
+    Hàm thuần (không DB). Chỉ so `deadline`; job không có hạn không tham gia so sánh và cũng không bị loại
+    khỏi nhóm. Trả None khi:
+      - có ít hơn 2 job có deadline (không có gì để so);
+      - mọi deadline bằng nhau (không phân biệt được);
+      - deadline xa nhất thuộc về từ 2 job trở lên (hoà ở đầu bảng thì chọn một trong số đó là đoán bừa).
+    Trường hợp cuối chặt hơn cách đọc "không trùng nhau hết" theo nghĩa đen: nhóm {hạn 20/12, 20/12, 20/11} không
+    được gợi ý, vì không có lý do để giữ job này mà bỏ job kia cùng hạn 20/12."""
+    dated = [(j["deadline"], j["id"]) for j in jobs if j.get("deadline") is not None]
+    if len(dated) < 2:
+        return None
+    latest = max(d for d, _ in dated)
+    if all(d == latest for d, _ in dated):
+        return None
+    winners = [job_id for d, job_id in dated if d == latest]
+    if len(winners) != 1:
+        return None
+    return str(winners[0])
+
+
 def get_job_data_health(conn: Conn, today: Optional[date] = None) -> dict[str, Any]:
     """Thay thế cho việc frontend (blueprints/crawl_status.py bên
     mindx-jobs) từng phải gọi list_all_jobs(include_content=True) — kéo
@@ -117,9 +141,10 @@ def get_job_data_health(conn: Conn, today: Optional[date] = None) -> dict[str, A
       job_health_by_source: list[{"source","total","rows"}] — group
         theo source_name, "" hiển thị "Không rõ nguồn" (khớp hành vi cũ),
         sort total giảm dần.
-      duplicate_job_groups: list[{"company","position","jobs":[...]}] —
+      duplicate_job_groups: list[{"company","position","jobs":[...],"suggest_keep"}] —
         group theo (company_id, lower(trim(job_title))), CHỈ job OPEN,
-        HAVING >= 2, sort số job trong nhóm giảm dần."""
+        HAVING >= 2, sort số job trong nhóm giảm dần. `suggest_keep`: id job nên giữ hoặc None, xem
+        suggest_keep_job_id()."""
     import datetime as _dt
     if today is None:
         today = _dt.date.today()
@@ -221,6 +246,8 @@ def get_job_data_health(conn: Conn, today: Optional[date] = None) -> dict[str, A
         dup_groups.setdefault(key, {
             "company": r["company_name"], "position": r["job_title"], "jobs": [],
         })["jobs"].append(_job_row_out(r))
+    for group in dup_groups.values():
+        group["suggest_keep"] = suggest_keep_job_id(group["jobs"])
     duplicate_job_groups = sorted(dup_groups.values(), key=lambda g: len(g["jobs"]), reverse=True)
 
     return {

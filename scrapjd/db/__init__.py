@@ -127,6 +127,7 @@ from scrapjd.db.job_queries import (
 )
 from scrapjd.db.job_health import (
     get_job_data_health,
+    suggest_keep_job_id,
 )
 from scrapjd.db.stats import (
     get_stats_summary,
@@ -404,6 +405,7 @@ __all__ = [
     "get_job_by_id",
     "get_jobs_by_company_id",
     "get_job_data_health",
+    "suggest_keep_job_id",
     "get_stats_summary",
     "get_job_engagement_counts",
     "get_monthly_engagement_stats",

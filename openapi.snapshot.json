@@ -8662,6 +8662,17 @@
             },
             "type": "array",
             "title": "Jobs"
+          },
+          "suggest_keep": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Suggest Keep"
           }
         },
         "type": "object",

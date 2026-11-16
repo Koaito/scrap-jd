@@ -277,6 +277,91 @@ def test_job_data_health_duplicate_groups_sorted_by_size_desc():
     assert groups[1]["company"] == "B"
 
 
+# ---------------------------------------------------------------------------
+# suggest_keep: gợi ý job nên giữ trong nhóm nghi trùng (chỉ so deadline)
+# ---------------------------------------------------------------------------
+
+from datetime import date
+
+import pytest
+
+
+def _j(job_id, deadline):
+    return {"id": job_id, "position": "P", "company": "C", "deadline": deadline, "source": "TopCV"}
+
+
+@pytest.mark.parametrize(
+    "jobs, expected",
+    [
+        # deadline xa nhất thắng, bất kể thứ tự trong nhóm
+        ([_j("a", date(2026, 12, 1)), _j("b", date(2026, 12, 20))], "b"),
+        ([_j("a", date(2026, 12, 20)), _j("b", date(2026, 12, 1)), _j("c", date(2026, 11, 1))], "a"),
+        # job không có hạn không tham gia so sánh, nhưng nhóm vẫn đủ căn cứ nếu còn >= 2 job có hạn
+        ([_j("a", None), _j("b", date(2026, 12, 1)), _j("c", date(2026, 12, 20))], "c"),
+        # deadline dạng chuỗi ISO (so được như ngày)
+        ([_j("a", "2026-12-01"), _j("b", "2026-12-20")], "b"),
+    ],
+)
+def test_suggest_keep_picks_the_farthest_deadline(jobs, expected):
+    assert db.suggest_keep_job_id(jobs) == expected
+
+
+@pytest.mark.parametrize(
+    "jobs",
+    [
+        [],
+        [_j("a", date(2026, 12, 1))],  # một job có hạn: không có gì để so
+        [_j("a", None), _j("b", date(2026, 12, 1))],  # chỉ một job có hạn
+        [_j("a", None), _j("b", None)],  # không ai có hạn
+        [_j("a", date(2026, 12, 1)), _j("b", date(2026, 12, 1))],  # hạn trùng hết
+        # hoà ở đầu bảng: không có lý do chọn job này hơn job kia (chặt hơn cách đọc "không trùng hết")
+        [_j("a", date(2026, 12, 20)), _j("b", date(2026, 12, 20)), _j("c", date(2026, 11, 20))],
+    ],
+)
+def test_suggest_keep_returns_none_without_enough_basis(jobs):
+    assert db.suggest_keep_job_id(jobs) is None
+
+
+def test_suggest_keep_does_not_mutate_or_reorder_input():
+    jobs = [_j("a", date(2026, 12, 1)), _j("b", date(2026, 12, 20))]
+    before = [dict(j) for j in jobs]
+    db.suggest_keep_job_id(jobs)
+    assert jobs == before
+
+
+def test_job_data_health_groups_carry_suggest_keep_and_match_api_schema():
+    """Mỗi nhóm có đủ khoá suggest_keep (id hoặc None) và cả kết quả vẫn hợp lệ với schema JobDataHealth của API."""
+    from scrapjd.api.schemas.jobs import JobDataHealth
+
+    def row(job_id, company_id, title, deadline):
+        return {"job_id": job_id, "job_title": title, "company_id": company_id, "company_name": company_id.upper(),
+                "deadline": deadline, "source_name": "TopCV", "position_key": title.lower()}
+
+    conn = FakeConn(
+        fetchone_queue=[_job_counts(4)],
+        fetchall_queue=[
+            [],  # source breakdown
+            [],  # expired
+            [
+                row("a1", "c1", "Backend", date(2026, 12, 1)),
+                row("a2", "c1", "Backend", date(2026, 12, 20)),
+                row("b1", "c2", "QA", None),
+                row("b2", "c2", "QA", None),
+            ],
+        ],
+    )
+    result = db.get_job_data_health(conn)
+    by_company = {g["company"]: g for g in result["duplicate_job_groups"]}
+    assert by_company["C1"]["suggest_keep"] == "a2"
+    assert by_company["C2"]["suggest_keep"] is None
+    parsed = JobDataHealth(**result)
+    assert [g.suggest_keep for g in parsed.duplicate_job_groups if g.company == "C1"] == ["a2"]
+    # suggest_keep luôn là id của một job nằm trong chính nhóm đó
+    for g in result["duplicate_job_groups"]:
+        if g["suggest_keep"] is not None:
+            assert g["suggest_keep"] in {j["id"] for j in g["jobs"]}
+
+
 def test_job_data_health_zero_total_no_division_error():
     conn = FakeConn(
         fetchone_queue=[_job_counts(0)],

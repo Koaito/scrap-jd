@@ -339,7 +339,7 @@ Trả về sẵn (tính bằng SQL trong `db.get_job_data_health()`, không kéo
     {"source": "TopCV", "total": 400, "rows": [...]}
   ],
   "duplicate_job_groups": [
-    {"company": "Công ty ABC", "position": "Fresher Backend", "jobs": [...]}
+    {"company": "Công ty ABC", "position": "Fresher Backend", "jobs": [...], "suggest_keep": "<id job nên giữ hoặc null>"}
   ]
 }
 ```
@@ -348,6 +348,11 @@ Dùng cho tab "Tình trạng dữ liệu" bên frontend (mindx-jobs) — thay th
 cách cũ kéo `list_all_jobs(include_content=True)` (toàn bộ job kèm
 `parsed_content` JSONB) về rồi tự đếm/group bằng Python. `expired_open_jobs`
 sort theo deadline mới nhất trước (job vừa hết hạn cần xử lý gấp hơn).
+
+`duplicate_job_groups[].suggest_keep` là id của job NÊN GIỮ trong nhóm (một phần tử của `jobs`), chỉ là gợi ý tham
+khảo: job có `deadline` xa nhất. Là `null` khi không đủ căn cứ: dưới 2 job có deadline, mọi deadline bằng nhau, hoặc
+deadline xa nhất thuộc về từ 2 job trở lên (hoà thì không chọn bừa). Job không có deadline không tham gia so sánh
+nhưng vẫn nằm trong `jobs`. Quy tắc nằm ở `db.suggest_keep_job_id()`.
 
 ### `POST /companies` — tạo công ty thủ công
 
