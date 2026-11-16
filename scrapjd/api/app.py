@@ -317,6 +317,33 @@ app.include_router(messages.router, dependencies=_require_key)
 app.include_router(auth.public_router)
 
 
+@app.get("/healthz", include_in_schema=False, response_model=None)
+def healthz() -> JSONResponse:
+    """Health check CÔNG KHAI cho monitor ngoài (UptimeRobot, Render health check): không cần API key,
+    có chạm DB (`SELECT 1`) nên bắt được ca DB sập mà /health không thấy. Chỉ trả "ok" hoặc "degraded",
+    không lộ lỗi hay cấu hình. Ẩn khỏi OpenAPI nên không đổi snapshot và types.ts của frontend."""
+    try:
+        conn = db_module.get_pooled_connection()
+    except Exception:
+        logging.getLogger(__name__).exception("healthz: không lấy được connection")
+        return JSONResponse(status_code=503, content={"status": "degraded"})
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        conn.rollback()
+        return JSONResponse(content={"status": "ok"})
+    except Exception:
+        logging.getLogger(__name__).exception("healthz: truy vấn DB lỗi")
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return JSONResponse(status_code=503, content={"status": "degraded"})
+    finally:
+        db_module.release_connection(conn)
+
+
 @app.get("/health", tags=["meta"], dependencies=_require_key, response_model=None)
 def health_check() -> dict[str, str]:
     """Kiểm tra server sống. LƯU Ý: endpoint này CŨNG yêu cầu API key
