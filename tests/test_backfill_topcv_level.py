@@ -278,8 +278,8 @@ class TestRun:
         assert done_ids == ["a", "b"]
 
 
-def test_load_done(tmp_path):
+def test_read_state_file(tmp_path):
     p = tmp_path / "done"
-    assert bf.load_done(str(p)) == set()
+    assert bf.read_state_file(str(p)) == set()
     p.write_text("a\nb\n\n", encoding="utf-8")
-    assert bf.load_done(str(p)) == {"a", "b"}
+    assert bf.read_state_file(str(p)) == {"a", "b"}

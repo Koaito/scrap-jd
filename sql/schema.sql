@@ -216,6 +216,20 @@ CREATE INDEX IF NOT EXISTS idx_auth_sessions_user_active
 CREATE INDEX IF NOT EXISTS idx_auth_sessions_expiry
     ON auth_sessions(expires_at);
 
+-- Tiến độ các script vá dữ liệu (scripts/backfill/*; migration 0046_add_backfill_progress.sql — đọc file đó để
+-- hiểu thiết kế). Mỗi dòng = script_name đã xử lý xong item_id, thay cho file .backfill_*.done cục bộ.
+CREATE TABLE IF NOT EXISTS backfill_progress (
+    script_name VARCHAR(60) NOT NULL,
+    item_id     TEXT        NOT NULL,
+    done_at     TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    PRIMARY KEY (script_name, item_id),
+    CONSTRAINT ck_backfill_progress_not_blank
+        CHECK (script_name <> '' AND item_id <> '')
+);
+
+COMMENT ON TABLE backfill_progress IS
+    'Tiến độ script vá dữ liệu (scripts/backfill/*): mỗi dòng = script_name đã xử lý xong item_id (hiện là job_id). Thay cho file .backfill_*.done cục bộ.';
+
 CREATE TABLE IF NOT EXISTS companies (
     company_id       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_name     VARCHAR(255) NOT NULL,

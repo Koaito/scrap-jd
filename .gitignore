@@ -28,7 +28,8 @@ Thumbs.db
 # Log files (nếu sau này thêm logging ra file)
 *.log
 
-# File tiến độ của backfill_vnw_detail.py (cục bộ, không commit)
+# File tiến độ kiểu cũ của scripts/backfill (nay tiến độ nằm trong bảng backfill_progress; giữ dòng này để file còn sót
+# chờ --import-state-file không bị lỡ git add)
 .backfill_vnw_detail.done
 .backfill_topcv_level.done
 

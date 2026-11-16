@@ -46,9 +46,10 @@ riêng, để không ghi JD của vị trí này vào dòng mang tiêu đề v�
 chuyển hướng sang slug mới của CÙNG mã job
 (nhà tuyển dụng sửa tiêu đề) thì script đi theo 1 bước rồi vá bình thường. Ngắt mạch (bị chặn liên tiếp) dừng cả script; chạy lại sau.
 
-TIẾN ĐỘ: với --apply, job đã xử lý xong được ghi vào file trạng thái
-(mặc định .backfill_vnw_detail.done) để lần chạy sau bỏ qua; dùng --reset-state
-để xoá. Dry-run không ghi file này.
+TIẾN ĐỘ: với --apply, job đã xử lý xong được ghi vào bảng backfill_progress trong DB (script_name =
+'backfill_vnw_detail') để lần chạy sau, ở bất kỳ máy nào, bỏ qua; dùng --reset-state để xoá tiến độ và chạy lại
+từ đầu. Dry-run không ghi tiến độ. Còn file .backfill_vnw_detail.done từ trước khi có bảng này thì nhập một lần:
+    python -m scripts.backfill.backfill_vnw_detail --import-state-file .backfill_vnw_detail.done --limit 20
 
 LƯU Ý TRÙNG LẶP: đổi level_id làm trigger set_job_hash tính lại content_hash (khoá cũ,
 còn gồm level). Khoá chống trùng hiện hành (dedup_key = company + title + province) không
@@ -68,13 +69,14 @@ from scrapjd.adapters.base import CrawlBlockedError
 from scrapjd.adapters.vietnamworks import VietnamWorksAdapter
 from scrapjd.pipeline import _build_parsed_content_and_raw  # cùng cách dựng parsed_content như crawl
 from scrapjd.db.pg_types import Conn, fetch_count
+from scripts.backfill import progress_marker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                      datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
 SOURCE_NAME = "VietnamWorks"
-DEFAULT_STATE_FILE = ".backfill_vnw_detail.done"
+SCRIPT_NAME = "backfill_vnw_detail"  # khoá tiến độ trong bảng backfill_progress (đừng đổi: đổi là mất tiến độ cũ)
 _JD_KEYS = ("job_description", "requirements", "perks", "required_skills")
 _PROGRESS_EVERY = 25
 _SAMPLE_LIMIT = 10
@@ -293,9 +295,10 @@ def run(conn: Conn, adapter: VietnamWorksAdapter, rows: list[dict[str, Any]], *,
 
 
 # ----------------------------------------------------------------------
-# File tiến độ + báo cáo + CLI
+# Tiến độ (bảng backfill_progress) + báo cáo + CLI
 # ----------------------------------------------------------------------
-def load_done(path: str) -> set[str]:
+def read_state_file(path: str) -> set[str]:
+    """Đọc file `.done` kiểu cũ (mỗi dòng một job_id) để nhập vào DB bằng --import-state-file. Thiếu file thì rỗng."""
     if not os.path.exists(path):
         return set()
     with open(path, encoding="utf-8") as f:
@@ -342,24 +345,29 @@ def main() -> None:
     parser.add_argument("--include-closed", action="store_true", help="gồm cả job đã CLOSED")
     parser.add_argument("--created-before", default=None, metavar="YYYY-MM-DD",
                         help="chỉ lấy job tạo trước ngày này")
-    parser.add_argument("--state-file", default=DEFAULT_STATE_FILE, help="file ghi job đã xong")
-    parser.add_argument("--reset-state", action="store_true", help="xoá file tiến độ rồi chạy")
+    parser.add_argument("--import-state-file", default=None, metavar="FILE",
+                        help="nhập file .done kiểu cũ (mỗi dòng một job_id) vào DB rồi chạy; dùng một lần để giữ tiến độ cũ")
+    parser.add_argument("--reset-state", action="store_true",
+                        help="xoá tiến độ đã lưu trong DB của script này rồi chạy lại từ đầu")
     args = parser.parse_args()
-
-    if args.reset_state and os.path.exists(args.state_file):
-        os.remove(args.state_file)
-        logger.info("Đã xoá file tiến độ %s", args.state_file)
 
     conn = db.get_connection()
     try:
+        if args.reset_state:
+            n = db.reset_backfill_progress(conn, SCRIPT_NAME)
+            conn.commit()
+            logger.info("Đã xoá %d mục tiến độ của %s", n, SCRIPT_NAME)
+        if args.import_state_file:
+            imported = db.mark_backfill_done_many(conn, SCRIPT_NAME, read_state_file(args.import_state_file))
+            conn.commit()
+            logger.info("Đã nhập %d mục mới từ %s vào DB", imported, args.import_state_file)
         rows = select_jobs(conn, all_jobs=args.all_jobs, include_closed=args.include_closed,
                            limit=args.limit, before=args.created_before)
-        done = load_done(args.state_file)
+        done = db.load_backfill_done(conn, SCRIPT_NAME)
         if done:
             before = len(rows)
             rows = [r for r in rows if str(r["job_id"]) not in done]
-            logger.info("Bỏ qua %d job đã xong ở lần chạy trước (file %s)",
-                        before - len(rows), args.state_file)
+            logger.info("Bỏ qua %d job đã xong ở lần chạy trước (bảng backfill_progress)", before - len(rows))
         logger.info("Có %d job cần xử lý (%s)", len(rows), "GHI DB" if args.apply else "chạy thử")
 
         level_ids = {code: db.get_level_id(conn, code) for code in normalize.LEVEL_ORDER}
@@ -367,18 +375,9 @@ def main() -> None:
         dup_before = count_duplicate_groups(conn)
 
         adapter = VietnamWorksAdapter()
-        state_fh = open(args.state_file, "a", encoding="utf-8") if args.apply else None
-        try:
-            def on_done(job_id: str) -> None:
-                assert state_fh is not None  # on_done chỉ được truyền khi --apply, lúc đó file tiến độ đã mở
-                state_fh.write(f"{job_id}\n")
-                state_fh.flush()
-
-            summary = run(conn, adapter, rows, apply=args.apply, level_ids=level_ids,
-                          on_done=on_done if args.apply else None)
-        finally:
-            if state_fh is not None:
-                state_fh.close()
+        on_done = progress_marker(conn, SCRIPT_NAME)
+        summary = run(conn, adapter, rows, apply=args.apply, level_ids=level_ids,
+                      on_done=on_done if args.apply else None)
 
         dup_after = count_duplicate_groups(conn) if args.apply else None
         print_report(summary, apply=args.apply, dup_before=dup_before, dup_after=dup_after)

@@ -35,9 +35,11 @@ KHÔNG chạy cùng lúc với một lượt crawl TopCV (cùng gửi request t�
 dễ bị chặn). Bị chặn liên tiếp thì script tự dừng, chạy lại sau.
 
 TIẾN ĐỘ: với --apply, job đã xong chắc chắn (đã ghi level mới, hoặc nhãn trang
-xác nhận level hiện tại đúng) được ghi vào file trạng thái (mặc định
-.backfill_topcv_level.done) để lần sau bỏ qua. Job chỉ suy từ chữ mà không đổi
-được thì KHÔNG ghi, để lần chạy có tải trang sau thử lại. --reset-state xoá file.
+xác nhận level hiện tại đúng) được ghi vào bảng backfill_progress trong DB
+(script_name = 'backfill_topcv_level') để lần sau, ở bất kỳ máy nào, bỏ qua. Job chỉ suy từ
+chữ mà không đổi được thì KHÔNG ghi, để lần chạy có tải trang sau thử lại. --reset-state xoá
+tiến độ trong DB. Còn file .backfill_topcv_level.done từ trước khi có bảng này thì nhập một lần
+bằng --import-state-file .backfill_topcv_level.done.
 
 LƯU Ý TRÙNG LẶP: đổi level_id làm trigger set_job_hash tính lại content_hash (khoá cũ,
 còn gồm level). Khoá chống trùng hiện hành (dedup_key = company + title + province) không
@@ -56,13 +58,14 @@ from scrapjd import normalize
 from scrapjd.adapters.base import CrawlBlockedError
 from scrapjd.adapters.topcv import TopCVAdapter
 from scrapjd.db.pg_types import Conn, fetch_count
+from scripts.backfill import progress_marker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s",
                     datefmt="%H:%M:%S")
 logger = logging.getLogger(__name__)
 
 SOURCE_NAME = "TopCV"
-DEFAULT_STATE_FILE = ".backfill_topcv_level.done"
+SCRIPT_NAME = "backfill_topcv_level"  # khoá tiến độ trong bảng backfill_progress (đừng đổi: đổi là mất tiến độ cũ)
 _PROGRESS_EVERY = 25
 _SAMPLE_LIMIT = 10
 
@@ -251,9 +254,10 @@ def run(conn: Conn, adapter: Optional[TopCVAdapter], rows: list[dict[str, Any]],
 
 
 # ----------------------------------------------------------------------
-# File tiến độ + báo cáo + CLI
+# Tiến độ (bảng backfill_progress) + báo cáo + CLI
 # ----------------------------------------------------------------------
-def load_done(path: str) -> set[str]:
+def read_state_file(path: str) -> set[str]:
+    """Đọc file `.done` kiểu cũ (mỗi dòng một job_id) để nhập vào DB bằng --import-state-file. Thiếu file thì rỗng."""
     if not os.path.exists(path):
         return set()
     with open(path, encoding="utf-8") as f:
@@ -303,24 +307,29 @@ def main() -> None:
     parser.add_argument("--include-closed", action="store_true", help="gồm cả job đã CLOSED")
     parser.add_argument("--created-before", default=None, metavar="YYYY-MM-DD",
                         help="chỉ lấy job tạo trước ngày này")
-    parser.add_argument("--state-file", default=DEFAULT_STATE_FILE, help="file ghi job đã xong")
-    parser.add_argument("--reset-state", action="store_true", help="xoá file tiến độ rồi chạy")
+    parser.add_argument("--import-state-file", default=None, metavar="FILE",
+                        help="nhập file .done kiểu cũ (mỗi dòng một job_id) vào DB rồi chạy; dùng một lần để giữ tiến độ cũ")
+    parser.add_argument("--reset-state", action="store_true",
+                        help="xoá tiến độ đã lưu trong DB của script này rồi chạy lại từ đầu")
     args = parser.parse_args()
-
-    if args.reset_state and os.path.exists(args.state_file):
-        os.remove(args.state_file)
-        logger.info("Đã xoá file tiến độ %s", args.state_file)
 
     conn = db.get_connection()
     try:
+        if args.reset_state:
+            n = db.reset_backfill_progress(conn, SCRIPT_NAME)
+            conn.commit()
+            logger.info("Đã xoá %d mục tiến độ của %s", n, SCRIPT_NAME)
+        if args.import_state_file:
+            imported = db.mark_backfill_done_many(conn, SCRIPT_NAME, read_state_file(args.import_state_file))
+            conn.commit()
+            logger.info("Đã nhập %d mục mới từ %s vào DB", imported, args.import_state_file)
         rows = select_jobs(conn, include_closed=args.include_closed, limit=args.limit,
                            before=args.created_before)
-        done = load_done(args.state_file)
+        done = db.load_backfill_done(conn, SCRIPT_NAME)
         if done:
             before = len(rows)
             rows = [r for r in rows if str(r["job_id"]) not in done]
-            logger.info("Bỏ qua %d job đã xong ở lần chạy trước (file %s)",
-                        before - len(rows), args.state_file)
+            logger.info("Bỏ qua %d job đã xong ở lần chạy trước (bảng backfill_progress)", before - len(rows))
         logger.info("Có %d job cần xử lý (%s, %s)", len(rows),
                     "GHI DB" if args.apply else "chạy thử",
                     "chỉ suy từ chữ" if args.no_fetch else "tải trang + suy từ chữ dự phòng")
@@ -330,18 +339,9 @@ def main() -> None:
         dup_before = count_duplicate_groups(conn)
 
         adapter = None if args.no_fetch else TopCVAdapter()
-        state_fh = open(args.state_file, "a", encoding="utf-8") if args.apply else None
-        try:
-            def on_done(job_id: str) -> None:
-                assert state_fh is not None  # on_done chỉ được truyền khi --apply, lúc đó file tiến độ đã mở
-                state_fh.write(f"{job_id}\n")
-                state_fh.flush()
-
-            summary = run(conn, adapter, rows, apply=args.apply, level_ids=level_ids,
-                          on_done=on_done if args.apply else None)
-        finally:
-            if state_fh is not None:
-                state_fh.close()
+        on_done = progress_marker(conn, SCRIPT_NAME)
+        summary = run(conn, adapter, rows, apply=args.apply, level_ids=level_ids,
+                      on_done=on_done if args.apply else None)
 
         dup_after = count_duplicate_groups(conn) if args.apply else None
         print_report(summary, apply=args.apply, fetch=not args.no_fetch,

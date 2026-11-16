@@ -170,6 +170,12 @@ from scrapjd.db.auth import (
     get_user_by_reset_token_hash,
     reset_password_with_token,
 )
+from scrapjd.db.backfill_progress import (
+    load_backfill_done,
+    mark_backfill_done,
+    mark_backfill_done_many,
+    reset_backfill_progress,
+)
 from scrapjd.db.sessions import (
     REVOKE_LOGOUT,
     REVOKE_REPLACED,
@@ -541,5 +547,9 @@ __all__ = [
     "list_conversations",
     "list_pending_requests_for_ss",
     "search_people",
+    "load_backfill_done",
+    "mark_backfill_done",
+    "mark_backfill_done_many",
+    "reset_backfill_progress",
 ]
 

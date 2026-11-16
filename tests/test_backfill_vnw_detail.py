@@ -463,8 +463,8 @@ def test_select_sql_never_touches_manually_edited_jobs():
     assert "jp.updated_by IS NULL" in bf._SELECT_SQL
 
 
-def test_load_done_reads_ids_and_tolerates_missing_file(tmp_path):
-    assert bf.load_done(str(tmp_path / "none.done")) == set()
+def test_read_state_file_reads_ids_and_tolerates_missing_file(tmp_path):
+    assert bf.read_state_file(str(tmp_path / "none.done")) == set()
     f = tmp_path / "x.done"
     f.write_text("a\nb\n\n", encoding="utf-8")
-    assert bf.load_done(str(f)) == {"a", "b"}
+    assert bf.read_state_file(str(f)) == {"a", "b"}
