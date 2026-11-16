@@ -54,7 +54,7 @@ File `.env.example` chia thành các nhóm và ghi chú từng biến. Bạn ch�
 
 | Bạn muốn làm gì | Biến cần điền |
 | --- | --- |
-| Crawl, `migrate`, `stats`, mọi lệnh `python main.py ...` | Nhóm PostgreSQL: `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGSSLMODE` |
+| Crawl, `migrate`, `stats`, mọi lệnh `python main.py ...` | Nhóm PostgreSQL: hoặc `DATABASE_URL` (ưu tiên), hoặc sáu biến `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD`, `PGSSLMODE` |
 | Chạy API local (`uvicorn scrapjd.api.app:app`) | Thêm `API_KEY`, `JWT_SECRET_KEY`, `ALLOWED_ORIGINS` |
 | Gửi email xác thực / quên mật khẩu, upload CV | `RESEND_API_KEY`, `EMAIL_FROM`, `API_BASE_URL`, `FRONTEND_BASE_URL`; `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` |
 | Chạy script `enrich_*` | `GEMINI_API_KEY`; riêng `scrapjd/maintenance/enrich_company_web_info.py` thêm `TAVILY_API_KEY` |
@@ -66,6 +66,11 @@ Dashboard, mục *Connect*, chọn *Transaction pooler*: `PGHOST` có dạng
 `aws-0-<vùng>.pooler.supabase.com`, `PGPORT=6543`, `PGUSER` có dạng
 `postgres.<mã-project>`. Postgres cài trên máy thì dùng `PGHOST=localhost`,
 `PGPORT=5432` và `PGSSLMODE=disable`.
+
+Nếu nơi cấp DB đưa sẵn một chuỗi URL (`postgresql://user:mật_khẩu@host:port/tên_db`), đặt thẳng chuỗi đó vào
+`DATABASE_URL` thay vì dịch sang sáu biến. Đã đặt `DATABASE_URL` thì các biến `PG*` bị bỏ qua hoàn toàn. Mật khẩu có
+ký tự đặc biệt phải mã hoá phần trăm (`@` thành `%40`); URL không ghi `sslmode` thì mặc định `require`, DB cục bộ thêm
+`?sslmode=disable`.
 
 **Tạo `API_KEY` và `JWT_SECRET_KEY`** (hai khoá phải khác nhau):
 

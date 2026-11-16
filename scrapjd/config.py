@@ -6,7 +6,11 @@ logic pipeline hay adapter.
 """
 
 import os
+from collections.abc import Mapping
 from typing import Any
+
+import psycopg2
+from psycopg2.extensions import parse_dsn
 
 # ------------------------------------------------------------------
 # 08/2026 — ĐẢO CẤU TRÚC category-first (trước đây là 3 dict riêng
@@ -215,14 +219,41 @@ try:
 except ImportError:
     pass
 
-DB_CONFIG: dict[str, Any] = {
-    "host": os.getenv("PGHOST", "localhost"),
-    "port": os.getenv("PGPORT", "5432"),
-    "dbname": os.getenv("PGDATABASE", "Student Success — Job Postings & Company Contacts"),
-    "user": os.getenv("PGUSER", "postgres"),
-    "password": os.getenv("PGPASSWORD", ""),
-    "sslmode": os.getenv("PGSSLMODE", "require"),
-}
+def build_db_config(env: Mapping[str, str]) -> dict[str, Any]:
+    """Dựng tham số kết nối Postgres từ biến môi trường.
+
+    `DATABASE_URL` (dạng `postgresql://user:mật_khẩu@host:port/dbname?sslmode=...`) được ưu tiên:
+    đây là định dạng mà `pg_dump`, trang Connect của Supabase và hầu hết nền tảng cấp sẵn, nên khỏi phải
+    dịch tay sang sáu biến. Không đặt (hoặc để trống) thì dùng nhóm `PG*` như trước. Không trộn hai
+    nguồn: đã có `DATABASE_URL` thì `PGHOST`, `PGPORT`... bị bỏ qua hoàn toàn, để một biến cũ còn sót
+    trong môi trường không âm thầm đổi nơi kết nối.
+
+    Ký tự đặc biệt trong mật khẩu phải được mã hoá phần trăm (`@` thành `%40`); `parse_dsn` tự giải mã.
+    URL không ghi `sslmode` thì mặc định `require` (cùng mặc định với nhóm `PG*`), nên bỏ sót tham số
+    đó không làm kết nối rơi về không mã hoá. Muốn tắt SSL (DB cục bộ) thì ghi `?sslmode=disable`.
+    """
+    url = env.get("DATABASE_URL", "").strip()
+    if url:
+        try:
+            cfg: dict[str, Any] = dict(parse_dsn(url))
+        except psycopg2.ProgrammingError:
+            # Không đưa URL vào thông báo lỗi: nó chứa mật khẩu.
+            raise ValueError(
+                "DATABASE_URL không hợp lệ (đúng dạng: postgresql://user:mật_khẩu@host:port/tên_db)"
+            ) from None
+        cfg.setdefault("sslmode", "require")
+        return cfg
+    return {
+        "host": env.get("PGHOST", "localhost"),
+        "port": env.get("PGPORT", "5432"),
+        "dbname": env.get("PGDATABASE", "Student Success — Job Postings & Company Contacts"),
+        "user": env.get("PGUSER", "postgres"),
+        "password": env.get("PGPASSWORD", ""),
+        "sslmode": env.get("PGSSLMODE", "require"),
+    }
+
+
+DB_CONFIG: dict[str, Any] = build_db_config(os.environ)
 
 # ------------------------------------------------------------------
 # Connection pool cho API layer (db.init_pool(), xem db.py) — CHỈ dùng
