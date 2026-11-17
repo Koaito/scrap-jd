@@ -22,6 +22,10 @@ trị tổng hợp từ các listing của nó. Hệ quả ở tầng ghi, mọi
   6. URL của listing trả HTTP 404/410: đúng listing đó đóng 'expired_auto' (close_listing_dead, C3b). HTTP 2xx
      chỉ ghi last_seen_at (mark_listing_seen), KHÔNG đổi UNKNOWN thành OPEN (bạn chốt 09/10).
 
+THỨ TỰ KHOÁ (E1): luôn khoá dòng job TRƯỚC, rồi mới ghi các listing của nó. Hàm nhận job_id khoá job ở câu
+đầu tiên. Hàm chỉ nhận URL phải gọi lock_job_of_listing trước khi UPDATE listing; ghi listing trước rồi khoá job
+sau (qua sync_job_from_listings) là đi ngược, và gặp một đường đi xuôi thì hai transaction giữ khoá của nhau.
+
 CHƯA ĐỔI CHỖ ĐỌC: không đoạn code nào đọc các cột này để ra quyết định (đó là C2 và C3). Mọi hàm ở đây chỉ
 ghi, không tự commit (đúng quy ước lớp db: nơi gọi chịu trách nhiệm).
 
@@ -119,11 +123,45 @@ def insert_listing(conn: Conn, *, job_id: str, source_name: str, source_url: str
         return cur.rowcount > 0
 
 
+_LOCK_JOB_OF_LISTING_ATTEMPTS = 5
+
+
+def lock_job_of_listing(conn: Conn, source_url: str) -> Optional[str]:
+    """Khoá dòng job (FOR NO KEY UPDATE, cùng mức với insert_listing và sync_job_from_listings) của listing có
+    URL này, và trả job_id đã khoá; None nếu URL không có listing. Gọi TRƯỚC khi ghi listing theo URL, để giữ
+    thứ tự job -> listing của cả lớp db (xem docstring module). Khoá giữ tới hết transaction. Không commit.
+
+    URL chỉ cho biết listing, chưa cho biết job, nên phải đọc job_id rồi mới khoá được. Trong lúc chờ khoá, gộp
+    job (merge_duplicates) có thể đã chuyển listing sang job khác hoặc xoá job cũ. Vì vậy sau khi khoá phải tra
+    lại: listing còn thuộc đúng job vừa khoá mới trả về, không thì thử lại với job mới. Chuyển liên tiếp quá
+    _LOCK_JOB_OF_LISTING_ATTEMPTS lần thì raise RuntimeError, vì ghi listing khi không giữ khoá job đang sở hữu
+    nó là cách tạo lại deadlock mà không ai thấy."""
+    with conn.cursor() as cur:
+        for _ in range(_LOCK_JOB_OF_LISTING_ATTEMPTS):
+            cur.execute("SELECT job_id FROM job_sources_log WHERE source_url = %s", (source_url,))
+            row = cur.fetchone()
+            if row is None:
+                return None
+            job_id = str(row[0])
+            cur.execute("SELECT 1 FROM job_postings WHERE job_id = %s FOR NO KEY UPDATE", (job_id,))
+            if cur.fetchone() is None:
+                continue                                  # job vừa bị xoá (gộp): đọc lại xem listing ở đâu
+            cur.execute("SELECT 1 FROM job_sources_log WHERE source_url = %s AND job_id = %s", (source_url, job_id))
+            if cur.fetchone() is not None:
+                return job_id
+    raise RuntimeError(f"Không khoá được job của listing {source_url}: listing bị chuyển job "
+                       f"{_LOCK_JOB_OF_LISTING_ATTEMPTS} lần liên tiếp.")
+
+
 def mark_listing_detail_checked(conn: Conn, source_url: str, *, deadline: Optional[date] = None) -> None:
     """Fetch THÀNH CÔNG trang chi tiết của URL này: ghi detail_checked_at (như trước C1) và last_seen_at.
     `deadline` (nếu có) là hạn đọc được từ chính trang đó, ghi vào listing; None thì giữ hạn cũ (cùng quy
     tắc \"không xoá dữ liệu cũ khi lượt sau không lấy được\" của update_job_fields). Không đổi
-    listing_status: một lần fetch chưa đủ để kết luận lại trạng thái. Không đụng job_postings."""
+    listing_status: một lần fetch chưa đủ để kết luận lại trạng thái. Khoá dòng job trước khi ghi listing
+    (lock_job_of_listing), rồi đồng bộ job theo listing."""
+    job_id = lock_job_of_listing(conn, source_url)
+    if job_id is None:
+        return
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -132,28 +170,25 @@ def mark_listing_detail_checked(conn: Conn, source_url: str, *, deadline: Option
                    last_seen_at = GREATEST(last_seen_at, now()),
                    deadline = COALESCE(%s, deadline)
              WHERE source_url = %s
-            RETURNING job_id
             """,
             (deadline, source_url),
         )
-        row = cur.fetchone()
-    if row is not None:
-        sync_job_from_listings(conn, str(row[0]))      # hạn listing đổi thì hạn job suy ra có thể đổi theo
+    sync_job_from_listings(conn, job_id)          # hạn listing đổi thì hạn job suy ra có thể đổi theo
 
 
 def mark_listing_seen(conn: Conn, source_url: str) -> bool:
     """Ghi last_seen_at = now() cho URL vừa được xác nhận còn ở nguồn (HTTP 2xx của
-    check_expired_source_jobs). Không đổi listing_status. Trả True nếu có dòng được ghi."""
+    check_expired_source_jobs). Không đổi listing_status. Khoá dòng job trước khi ghi listing
+    (lock_job_of_listing), rồi đồng bộ job theo listing. Trả True nếu có dòng được ghi."""
+    job_id = lock_job_of_listing(conn, source_url)
+    if job_id is None:
+        return False
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE job_sources_log SET last_seen_at = GREATEST(last_seen_at, now()) WHERE source_url = %s "
-            "RETURNING job_id",
+            "UPDATE job_sources_log SET last_seen_at = GREATEST(last_seen_at, now()) WHERE source_url = %s",
             (source_url,),
         )
-        row = cur.fetchone()
-    if row is None:
-        return False
-    sync_job_from_listings(conn, str(row[0]))          # job chưa có listing OPEN thì URL suy ra theo last_seen_at
+    sync_job_from_listings(conn, job_id)          # job chưa có listing OPEN thì URL suy ra theo last_seen_at
     return True
 
 
