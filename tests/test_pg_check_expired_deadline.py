@@ -480,6 +480,37 @@ def test_net_2xx_updates_last_seen_but_keeps_unknown(pg_conn, run_script):
     assert _job_row(pg_conn, job)[0] == "OPEN"
 
 
+def test_net_2xx_write_error_on_one_listing_does_not_stop_the_run(pg_conn, run_script):
+    """E1b: câu UPDATE last_seen_at của listing đầu lỗi thật (trigger raise) làm transaction hỏng. Lượt chạy
+    phải rollback, bỏ qua listing đó và vẫn ghi listing sau; không để lỗi nổi ra làm dừng cả lượt, và kết nối
+    dùng lại được (không kẹt InFailedSqlTransaction)."""
+    bad_job, good_job = _job(pg_conn), _job(pg_conn)
+    bad, good = _first_listing_url(pg_conn, bad_job), _first_listing_url(pg_conn, good_job)
+    _age_listing(pg_conn, bad)
+    _age_listing(pg_conn, good)
+    bad_before, good_before = _last_seen(pg_conn, bad), _last_seen(pg_conn, good)
+    with pg_conn.cursor() as cur:
+        cur.execute("""
+            CREATE FUNCTION e1b_fail_seen() RETURNS trigger AS $$
+            BEGIN RAISE EXCEPTION 'e1b: UPDATE bị từ chối'; END $$ LANGUAGE plpgsql;
+            CREATE TRIGGER e1b_fail_seen BEFORE UPDATE ON job_sources_log
+                FOR EACH ROW WHEN (NEW.source_url = %s) EXECUTE FUNCTION e1b_fail_seen();
+        """, (bad,))
+    pg_conn.commit()
+    try:
+        stats = _net(run_script, {})
+    finally:
+        pg_conn.rollback()
+        with pg_conn.cursor() as cur:
+            cur.execute("DROP TRIGGER e1b_fail_seen ON job_sources_log; DROP FUNCTION e1b_fail_seen()")
+        pg_conn.commit()
+
+    assert stats["still_alive"] == 2
+    assert _last_seen(pg_conn, bad) == bad_before                    # ghi lỗi nên không đổi
+    assert _last_seen(pg_conn, good) > good_before                   # listing sau vẫn được ghi
+    assert _job_row(pg_conn, bad_job)[0] == "OPEN"
+
+
 def test_net_dead_unknown_listing_closes(pg_conn, run_script):
     job = _job(pg_conn)
     unknown = _add_listing(pg_conn, job, status="UNKNOWN")

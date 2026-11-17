@@ -304,9 +304,15 @@ def _check_source_urls(conn: Conn, checker: _Throttled404Checker, by_job: dict[A
         elif status_code is not None and 200 <= status_code < 300:
             stats["still_alive"] += 1
             if not dry_run:
-                # Bằng chứng còn sống (C1): chỉ ghi last_seen_at, không đổi trạng thái listing.
-                db.mark_listing_seen(conn, url)
-                conn.commit()
+                # Bằng chứng còn sống (C1): chỉ ghi last_seen_at, không đổi trạng thái listing. Như hai nhánh
+                # đóng listing ở trên (E1b): lỗi ghi một listing (khoá, ràng buộc, mất kết nối...) chỉ bỏ qua
+                # listing đó, không dừng cả lượt. still_alive vẫn đếm vì URL đã trả 2xx; chỉ bằng chứng chưa ghi.
+                try:
+                    db.mark_listing_seen(conn, url)
+                    conn.commit()
+                except Exception as exc:  # noqa: BLE001 - lỗi một listing không được chặn cả lượt kiểm tra
+                    conn.rollback()
+                    logger.warning("  -> lỗi khi ghi last_seen_at của listing %s (job %s): %s", url, job_id, exc)
         else:
             # None (lỗi fetch) hoặc mã khác (3xx lạ, 403, 5xx...) — KHÔNG mơ hồ đủ để tự kết luận.
             stats["needs_manual_check"] += 1

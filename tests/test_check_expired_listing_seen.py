@@ -62,3 +62,22 @@ def test_dead_url_closes_listing_then_syncs_job(mock_conn):
     close_dead.assert_called_once_with(mock_conn, "job-1", URL)
     assert stats["listings_expired_by_source_dead"] == 1
     seen.assert_not_called()
+
+
+def test_error_marking_one_listing_seen_rolls_back_and_continues(mock_conn):
+    """E1b: lỗi ghi last_seen_at của một listing (vd RuntimeError của lock_job_of_listing, deadlock, mất kết
+    nối) không dừng cả lượt: rollback rồi sang listing kế, listing sau vẫn được ghi và commit."""
+    def seen(conn, url):
+        if url == "https://x/a":
+            raise RuntimeError("boom")
+
+    listings = [("j1", "DA", "https://x/a", FUTURE), ("j2", "DB", "https://x/b", FUTURE)]
+    with patch.object(script.db, "get_connection", return_value=mock_conn), \
+         patch.object(script.db, "list_checkable_listings", return_value=listings), \
+         patch.object(script.db, "mark_listing_seen", side_effect=seen) as seen_mock, \
+         patch.object(script, "_Throttled404Checker", return_value=_Checker(200)):
+        stats = script.run(skip_cv_cleanup=True)
+
+    assert [c.args[1] for c in seen_mock.call_args_list] == ["https://x/a", "https://x/b"]
+    mock_conn.rollback.assert_called_once()
+    assert stats["still_alive"] == 2                     # cả hai URL đều trả 2xx, dù một bằng chứng chưa ghi
