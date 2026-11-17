@@ -85,10 +85,11 @@ def sync_job_from_listings(conn: Conn, job_id: str) -> dict[str, tuple[Any, Any]
         assignments = ", ".join(f"{col} = %s" for col in changes)
         values = [new for _, new in changes.values()] + [job_id]
         cur.execute("SELECT set_config(%s, 'on', true)", (SKIP_UPDATED_AT_SETTING,))
-        try:
-            cur.execute(f"UPDATE job_postings SET {assignments} WHERE job_id = %s", values)
-        finally:
-            cur.execute("SELECT set_config(%s, %s, true)", (SKIP_UPDATED_AT_SETTING, previous))
+        cur.execute(f"UPDATE job_postings SET {assignments} WHERE job_id = %s", values)
+        # Không bọc try/finally: UPDATE lỗi thì transaction đã hỏng, set_config trong finally sẽ nổ
+        # InFailedSqlTransaction và đè mất lỗi gốc. Cờ đặt bằng is_local = true nên tự hoàn lại khi rollback
+        # (kể cả rollback về savepoint), không rò sang câu sau.
+        cur.execute("SELECT set_config(%s, %s, true)", (SKIP_UPDATED_AT_SETTING, previous))
     if "job_status" in changes:
         logger.info("Job %s: trạng thái %s -> %s theo các listing.", job_id, *changes["job_status"])
     return changes

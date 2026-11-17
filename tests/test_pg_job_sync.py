@@ -517,3 +517,47 @@ def test_two_crawlers_reposting_a_closed_job_reopen_it_exactly_once(pg_conn):
 
 def test_auto_reopen_reasons_constant_is_what_the_listing_rule_reopens_on():
     assert AUTO_REOPEN_REASONS == frozenset({"expired_auto"})
+
+
+# ============================================================ lỗi gốc không bị che (E5)
+def test_failing_job_update_surfaces_the_original_error(pg_conn):
+    """Câu UPDATE job lỗi thì người gọi phải thấy ĐÚNG lỗi đó. Trước đây khối finally khôi phục cờ
+    skip_updated_at chạy trên transaction đã hỏng và nổ InFailedSqlTransaction, đè mất lỗi gốc."""
+    job = _job(pg_conn, deadline=FUTURE)
+    _raw(pg_conn, "UPDATE job_sources_log SET deadline = %s WHERE job_id = %s", (FUTURE2, job))
+    _raw(pg_conn, """
+        CREATE FUNCTION pg_temp_boom() RETURNS trigger LANGUAGE plpgsql AS
+        $$ BEGIN RAISE EXCEPTION 'loi_goc_cua_update_job'; END $$""")
+    _raw(pg_conn, "CREATE TRIGGER trg_boom BEFORE UPDATE ON job_postings "
+                  "FOR EACH ROW EXECUTE FUNCTION pg_temp_boom()")
+    try:
+        with pytest.raises(psycopg2.Error) as caught:
+            sync_job_from_listings(pg_conn, job)
+        assert "loi_goc_cua_update_job" in str(caught.value)
+    finally:
+        pg_conn.rollback()
+        _raw(pg_conn, "DROP TRIGGER trg_boom ON job_postings")
+        _raw(pg_conn, "DROP FUNCTION pg_temp_boom()")
+
+
+def test_failed_sync_does_not_leak_skip_updated_at_after_savepoint_rollback(pg_conn):
+    """Người gọi bắt lỗi bằng savepoint rồi đi tiếp: cờ skip_updated_at không được còn bật cho các câu sau."""
+    job = _job(pg_conn, deadline=FUTURE)
+    _raw(pg_conn, "UPDATE job_sources_log SET deadline = %s WHERE job_id = %s", (FUTURE2, job))
+    _raw(pg_conn, """
+        CREATE FUNCTION pg_temp_boom() RETURNS trigger LANGUAGE plpgsql AS
+        $$ BEGIN RAISE EXCEPTION 'boom'; END $$""")
+    _raw(pg_conn, "CREATE TRIGGER trg_boom BEFORE UPDATE ON job_postings "
+                  "FOR EACH ROW EXECUTE FUNCTION pg_temp_boom()")
+    try:
+        with pg_conn.cursor() as cur:
+            cur.execute("SAVEPOINT sp")
+            with pytest.raises(psycopg2.Error):
+                sync_job_from_listings(pg_conn, job)
+            cur.execute("ROLLBACK TO SAVEPOINT sp")
+            cur.execute("SELECT current_setting(%s, true)", (SKIP_UPDATED_AT_SETTING,))
+            assert cur.fetchone()[0] in (None, "", "off")
+    finally:
+        pg_conn.rollback()
+        _raw(pg_conn, "DROP TRIGGER trg_boom ON job_postings")
+        _raw(pg_conn, "DROP FUNCTION pg_temp_boom()")
