@@ -28,6 +28,14 @@ from scrapjd.db.jobs import JOB_CLEARABLE_FIELD_TO_COLUMN, update_job
 # ------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _no_dedup_lock():
+    """Các test này kiểm câu SQL trên cursor giả; khoá chống trùng của đường sửa (E4) cần DB thật và đã có
+    test riêng ở tests/test_pg_update_job_dedup_lock.py."""
+    with patch("scrapjd.db.jobs.lock_dedup_key_for_job_edit"):
+        yield
+
+
 def _conn_and_cursor():
     cur = MagicMock()
     cur.rowcount = 1

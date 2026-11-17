@@ -12,7 +12,7 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Optional
 
 from scrapjd.config import DETAIL_RECHECK_DAYS
-from scrapjd.db.job_dedup_lock import lock_job_dedup_key
+from scrapjd.db.job_dedup_lock import lock_dedup_key_for_job_edit, lock_job_dedup_key
 from scrapjd.db.job_levels import _check_level_signals, _check_level_stamp, _derived_level_assignments
 from scrapjd.db.listing_state import (
     CONFLICT_NONE,
@@ -570,6 +570,9 @@ def update_job(conn: Conn, job_id: str, *, job_title: Optional[str] = None,
     if conflict:
         raise ValueError(f"cột vừa được gán giá trị vừa yêu cầu xoá: {conflict}")
 
+    # E4: đổi tiêu đề/tỉnh là đổi dedup_key (trigger) -> giành khoá chống trùng của khoá mới trước khi ghi.
+    lock_dedup_key_for_job_edit(conn, job_id, job_title=job_title, province_id=province_id,
+                                clear_province="province_id" in clear_cols)
     if updated_by is not None:
         updates.append("updated_by = %s")
         values.append(updated_by)

@@ -453,25 +453,34 @@ def patch_job(
         if field in payload.model_fields_set and getattr(payload, field) is None
     }
 
-    updated = db_module.update_job(
-        conn, job_id,
-        job_title=payload.job_title,
-        matching_industry=payload.matching_industry,
-        level_id=level_id,
-        province_id=province_id,
-        work_type=payload.work_type,
-        currency=payload.currency,
-        salary_min=salary_min,
-        salary_max=salary_max,
-        salary_type=payload.salary_type,
-        salary_period=payload.salary_period,
-        deadline=payload.deadline,
-        parsed_content=payload.parsed_content.model_dump(exclude_none=True) if payload.parsed_content else None,
-        job_status=payload.job_status,
-        ss_team_notes=payload.ss_team_notes,
-        updated_by=user["sub"],
-        clear_fields=clear_fields,
-    )
+    try:
+        updated = db_module.update_job(
+            conn, job_id,
+            job_title=payload.job_title,
+            matching_industry=payload.matching_industry,
+            level_id=level_id,
+            province_id=province_id,
+            work_type=payload.work_type,
+            currency=payload.currency,
+            salary_min=salary_min,
+            salary_max=salary_max,
+            salary_type=payload.salary_type,
+            salary_period=payload.salary_period,
+            deadline=payload.deadline,
+            parsed_content=payload.parsed_content.model_dump(exclude_none=True) if payload.parsed_content else None,
+            job_status=payload.job_status,
+            ss_team_notes=payload.ss_team_notes,
+            updated_by=user["sub"],
+            clear_fields=clear_fields,
+        )
+    except JobDedupLockTimeout:
+        # E4: đang có thao tác khác giữ khoá cùng công ty/tiêu đề/tỉnh. get_db rollback khi route raise.
+        raise HTTPException(
+            status_code=503,
+            detail={"error_code": error_codes.JOB_DEDUP_LOCK_TIMEOUT,
+                    "message": "Có thao tác khác đang ghi job cùng công ty, tên và tỉnh. "
+                               "Đợi vài giây rồi thử lại."},
+        )
     if not updated:
         raise HTTPException(status_code=404, detail={"error_code": error_codes.JOB_JOB_NOT_FOUND, "message": "Không tìm thấy job"})
 

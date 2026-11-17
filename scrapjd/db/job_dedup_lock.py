@@ -69,3 +69,66 @@ def lock_job_dedup_key(conn: Conn, *, company_id: str, job_title: str, province_
             raise JobDedupLockTimeout(
                 f"Chờ quá {timeout_ms} ms để giành khoá chống trùng job '{job_title}'") from exc
         cur.execute("SELECT set_config('lock_timeout', %s, true)", (previous,))
+
+
+def lock_dedup_key_for_job_edit(conn: Conn, job_id: str, *, job_title: Optional[str] = None,
+                                province_id: Optional[int] = None, clear_province: bool = False,
+                                timeout_ms: int = JOB_DEDUP_LOCK_TIMEOUT_MS) -> None:
+    """E4: giành khoá chống trùng của khoá MỚI trước khi update_job đổi tiêu đề hoặc tỉnh của job.
+
+    VẤN ĐỀ: trigger set_job_dedup_key tính lại dedup_key ở mọi UPDATE, nên sửa job_title/province_id là
+    đổi khoá chống trùng. crawl (pipeline) và nhập tay (create_manual_job) đều giành khoá advisory theo
+    khoá đó rồi mới "tra trùng, rồi insert"; đường sửa không giành thì nó chen vào giữa hai bước ấy: crawl
+    tra thấy "chưa có", nhân viên đổi một job khác sang đúng khoá đó, rồi crawl insert, ra hai job cùng khoá.
+    Chốt chặn duy nhất trước đây là UNIQUE(source_url), không liên quan tới khoá này.
+
+    CÁCH CHẶN: giành khoá của khoá MỚI (cùng công thức job_dedup_key() của DB) rồi giữ tới commit/rollback của
+    nơi gọi. Bên crawl đến sau chờ, rồi tra lại và thấy job vừa sửa. Nếu crawl đến trước thì nhân viên chờ rồi
+    vẫn sửa được: khoá chỉ xếp hàng, KHÔNG từ chối (không có UNIQUE trên dedup_key, và nhân viên được quyền
+    cố ý để hai job cùng khoá, báo cáo trùng sẽ thấy).
+
+    Chỉ khoá khi khoá THẬT SỰ đổi: form gửi lại đúng tiêu đề/tỉnh đang có, hay chỉ sửa field khác, thì không
+    khoá gì (tránh chờ nhau vô ích). Không khoá khoá CŨ: rời khỏi một khoá không thể tạo trùng.
+
+    Thứ tự khoá: advisory trước, rồi dòng job (FOR NO KEY UPDATE), giống pipeline (advisory rồi mới sửa/gộp job)
+    và quy ước "job trước, listing sau" của listing_state. Khoá khoá advisory dựa vào lần đọc dòng job KHÔNG
+    khoá, nên sau đó đọc lại dòng job KHOÁ DÒNG và tính lại khoá. Thường hai lần khớp nhau, xong. Nếu công
+    ty/tiêu đề/tỉnh của job đã bị đổi giữa hai lần đọc (vd gộp công ty) thì khoá vừa giành không còn đúng; lúc này
+    dòng job đã bị ta giữ nên không ai đổi được nữa, ta giành thêm đúng khoá tính từ dòng đã khoá (một lần,
+    không vòng lặp). Ca hiếm này giành advisory khi đã giữ dòng job (ngược thứ tự thường lệ): nếu một transaction
+    khác đang giữ khoá đó và chờ dòng job thì Postgres báo deadlock cho một bên (lỗi rõ ràng, không ghi sai).
+
+    job_id không tồn tại: không khoá gì, update_job sẽ tự trả False. Cùng điều kiện với lock_job_dedup_key:
+    kết nối không autocommit; chờ quá timeout_ms thì JobDedupLockTimeout (nơi gọi phải rollback)."""
+    if job_title is None and province_id is None and not clear_province:
+        return
+    first = _read_edit_target(conn, job_id, job_title, province_id, clear_province, lock_row=False)
+    if first is None or not first[3]:
+        return
+    lock_job_dedup_key(conn, company_id=first[0], job_title=first[1], province_id=first[2],
+                       timeout_ms=timeout_ms)
+    locked = _read_edit_target(conn, job_id, job_title, province_id, clear_province, lock_row=True)
+    if locked is None or locked[:3] == first[:3] or not locked[3]:
+        return
+    lock_job_dedup_key(conn, company_id=locked[0], job_title=locked[1], province_id=locked[2],
+                       timeout_ms=timeout_ms)
+
+
+def _read_edit_target(conn: Conn, job_id: str, job_title: Optional[str], province_id: Optional[int],
+                      clear_province: bool,
+                      *, lock_row: bool) -> Optional[tuple[str, str, Optional[int], bool]]:
+    """(company_id, tiêu đề mới, tỉnh mới, khoá có đổi không) của job nếu áp thay đổi vào; None nếu không có job.
+    lock_row=True đọc FOR NO KEY UPDATE (cùng mức với UPDATE job thường và insert_listing)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT company_id::text, job_title, province_id, dedup_key FROM job_postings "
+            "WHERE job_id = %s" + (" FOR NO KEY UPDATE" if lock_row else ""), (job_id,))
+        found = cur.fetchone()
+        if found is None:
+            return None
+        company_id, cur_title, cur_province, cur_key = found
+        new_title = job_title if job_title is not None else cur_title
+        new_province = None if clear_province else (province_id if province_id is not None else cur_province)
+        cur.execute("SELECT job_dedup_key(%s::uuid, %s::text, %s::int)", (company_id, new_title, new_province))
+        new_key = fetch_scalar(cur)
+    return company_id, new_title, new_province, new_key != cur_key

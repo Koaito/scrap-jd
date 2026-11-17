@@ -74,6 +74,7 @@ from scrapjd.db.jobs import (
     job_exists_by_id,
 )
 from scrapjd.db.job_dedup_lock import (
+    lock_dedup_key_for_job_edit,
     lock_job_dedup_key,
     JobDedupLockTimeout,
     JOB_DEDUP_LOCK_TIMEOUT_MS,
@@ -394,6 +395,7 @@ __all__ = [
     "count_jobs",
     "find_manual_job_duplicate",
     "find_similar_open_jobs",
+    "lock_dedup_key_for_job_edit",
     "lock_job_dedup_key",
     "JobDedupLockTimeout",
     "JOB_DEDUP_LOCK_TIMEOUT_MS",

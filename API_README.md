@@ -303,6 +303,12 @@ là lương/tháng.
 
 ### `PATCH /jobs/{job_id}` — sửa job
 
+Khi PATCH làm đổi khoá chống trùng (đổi `job_title` hoặc `province_name` sang giá trị khác sau khi chuẩn hoá),
+request giành khoá advisory của khoá mới, giống `POST /jobs` (E4): crawler và nhập tay cùng khoá phải chờ
+request này commit rồi mới tra trùng. Khoá chỉ xếp hàng, không từ chối: vẫn sửa được thành tiêu đề trùng
+job khác (báo cáo trùng sẽ thấy). PATCH không đổi khoá (sửa field khác, hay gửi lại đúng tiêu đề/tỉnh cũ)
+không khoá gì. Chờ quá 10 giây thì trả `503` với `error_code = job_dedup_lock_timeout`, không ghi gì.
+
 Chỉ gửi field muốn sửa, field không gửi giữ nguyên.
 
 ```json
