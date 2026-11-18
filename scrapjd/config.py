@@ -261,6 +261,11 @@ CRAWL_STALE_TIMEOUT_MINUTES = int(os.getenv("CRAWL_STALE_TIMEOUT_MINUTES", "120"
 # trong thời gian hợp lý mà không tốn tài nguyên quét liên tục.
 CRAWL_WATCHDOG_INTERVAL_MINUTES = int(os.getenv("CRAWL_WATCHDOG_INTERVAL_MINUTES", "10"))
 
+# CRAWL_BATCH_ORPHAN_GRACE_MINUTES: watchdog chỉ đóng batch crawl 'running' mà không còn run nào chạy khi hoạt động cuối
+# (run con kết thúc gần nhất) đã cách hơn ngần này phút. Giữa lúc một run xong và lúc run kế tiếp được tạo batch cũng
+# không có run nào chạy trong vài giây, nên phải chờ để không đóng nhầm batch đang tiến hành bình thường.
+CRAWL_BATCH_ORPHAN_GRACE_MINUTES = max(1, int(os.getenv("CRAWL_BATCH_ORPHAN_GRACE_MINUTES", "10")))
+
 # ------------------------------------------------------------------
 # Ngắt mạch khi bị chặn GIỮA CHỪNG (scrapjd/adapters/base.py::BaseAdapter._note_fetch_failure). CrawlBlockedError chỉ
 # raise ở TRANG ĐẦU; IP bị ban ở job thứ 10 thì mọi job còn lại vẫn chạy đủ 3 lần retry (TopCV: 12s x (2+4+8) ~ 168s

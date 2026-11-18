@@ -242,10 +242,9 @@ def start_batch(source: str, categories: list[str], pages: Optional[int],
 
     Raise db.ActiveCrawlExistsError nếu source này đang có 1 lượt
     'queued'/'running' chưa xong (category đầu tiên đụng UNIQUE INDEX
-    y hệt start_crawl() đơn lẻ) — router bắt lỗi này để trả 409, batch
-    KHÔNG được tạo trong trường hợp đó (create_run() raise TRƯỚC khi
-    kịp ghi crawl_batches... thật ra crawl_batches đã ghi trước, xem
-    lưu ý bên dưới).
+    y hệt start_crawl() đơn lẻ) — router bắt lỗi này để trả 409. Dòng
+    crawl_batches vừa tạo được xoá trước khi raise (xem chú thích bên
+    dưới), nên batch không để lại dấu vết nào trong trường hợp đó.
 
     Mượn/trả connection từ pool chung (xem docstring module ở đầu
     file, mục CONNECTION POOL) — hàm này chạy trong request handler,
@@ -256,26 +255,27 @@ def start_batch(source: str, categories: list[str], pages: Optional[int],
     effective_pages = resolve_effective_pages(pages, max_jobs)
     conn = db_module.get_pooled_connection()
     try:
-        # Tạo crawl_batches TRƯỚC (cần batch_id để category đầu trỏ
-        # vào) — nếu create_crawl_run() bên dưới raise
-        # ActiveCrawlExistsError, dòng crawl_batches này sẽ CÔ LẬP
-        # (không có run con nào, mãi 'running') vì đã commit riêng.
-        # Chấp nhận đánh đổi này (giống mọi hàm create_batch/create_run
-        # khác trong module, tự commit ngay, không dùng transaction lồng
-        # nhau) — router vẫn trả đúng 409 cho người dùng thấy ngay tại
-        # chỗ, dòng batch mồ côi này vô hại (không hiện ở GET
-        # /crawl/batch nếu frontend chỉ query theo status='running' gần
-        # đây, và không chặn crawl nguồn khác) — dọn tay nếu cần thiết,
-        # không phải lỗi nghiêm trọng ở quy mô nội bộ hiện tại.
+        # Tạo crawl_batches TRƯỚC (cần batch_id để category đầu trỏ vào). Nếu
+        # run đầu bị từ chối (ActiveCrawlExistsError: nguồn đang có lượt
+        # chạy) thì batch vừa tạo chưa có run nào và sẽ không bao giờ có,
+        # nên xoá luôn thay vì để lại 1 dòng 'running' vĩnh viễn trong lịch
+        # sử (crawl_batches và crawl_runs mỗi bên commit riêng nên không thể
+        # rollback chung). Nếu process chết đúng giữa 2 bước thì
+        # close_orphaned_batches() sẽ đóng batch mồ côi đó.
         batch_id = db_module.create_crawl_batch(
             conn, source=source, categories=categories, pages=effective_pages,
             max_jobs=max_jobs, triggered_by=triggered_by,
         )
-        first_run_id = db_module.create_crawl_run(
-            conn, source=source, category=categories[0], pages=effective_pages,
-            max_jobs=max_jobs, triggered_by=triggered_by,
-            batch_id=batch_id, batch_position=0,
-        )
+        try:
+            first_run_id = db_module.create_crawl_run(
+                conn, source=source, category=categories[0], pages=effective_pages,
+                max_jobs=max_jobs, triggered_by=triggered_by,
+                batch_id=batch_id, batch_position=0,
+            )
+        except Exception:
+            conn.rollback()
+            db_module.delete_crawl_batch(conn, batch_id)
+            raise
         return batch_id, first_run_id
     finally:
         db_module.release_connection(conn)

@@ -358,6 +358,11 @@ def reconcile_orphaned_runs(conn: Conn) -> int:
     mồ côi (orphaned) từ 1 lần chạy trước đã chết dở — không tồn tại
     trường hợp dòng đó vẫn đang thực sự được xử lý bởi 1 process khác.
 
+    CHỈ sửa crawl_runs. Batch cha của các run này (crawl_batches) được đóng
+    bởi db.close_orphaned_batches(), gọi NGAY SAU hàm này ở lifespan — batch
+    chỉ đóng được khi không còn run nào 'queued'/'running', nên thứ tự quan
+    trọng (xem docstring hàm đó).
+
     Trả về số dòng đã reconcile (dùng để log, không bắt buộc xử lý)."""
     with conn.cursor() as cur:
         cur.execute(

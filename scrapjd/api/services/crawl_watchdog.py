@@ -11,6 +11,10 @@ scrapjd/api/app.py::lifespan) — lớp đó chỉ bắt được trường hợ
 Watchdog này bắt thêm trường hợp process KHÔNG restart nhưng 1
 background task bị treo (network timeout vô hạn, deadlock...).
 
+Watchdog cũng đóng các batch crawl không còn run nào chạy
+(db.close_orphaned_crawl_batches): batch chỉ được nối tiếp bởi chính task đang
+chạy run của nó, nên run treo/chết là batch mất người đóng.
+
 Đăng ký chạy qua APScheduler trong lifespan của scrapjd/api/app.py, DÙNG CHUNG
 1 scheduler instance với cleanup import_previews (scrapjd/api/services/
 preview_cleanup.py) — không tạo thêm scheduler riêng, cùng tinh thần
@@ -20,7 +24,11 @@ preview_cleanup.py) — không tạo thêm scheduler riêng, cùng tinh thần
 import logging
 
 from scrapjd import db as db_module
-from scrapjd.config import CRAWL_STALE_NO_PROGRESS_MINUTES, CRAWL_STALE_TIMEOUT_MINUTES
+from scrapjd.config import (
+    CRAWL_BATCH_ORPHAN_GRACE_MINUTES,
+    CRAWL_STALE_NO_PROGRESS_MINUTES,
+    CRAWL_STALE_TIMEOUT_MINUTES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +49,15 @@ def run_crawl_watchdog_once() -> None:
                 "(đang chạy mà không có tiến độ mới quá %d phút, hoặc chờ "
                 "chưa chạy quá %d phút).",
                 count, CRAWL_STALE_NO_PROGRESS_MINUTES, CRAWL_STALE_TIMEOUT_MINUTES,
+            )
+        # Run bị đánh lỗi ở trên (hoặc task chết không restart) làm batch mất
+        # người nối tiếp. Đóng sau khoảng chờ, xem db.close_orphaned_batches().
+        closed = db_module.close_orphaned_crawl_batches(
+            conn, grace_minutes=CRAWL_BATCH_ORPHAN_GRACE_MINUTES,
+        )
+        if closed:
+            logger.warning(
+                "Crawl watchdog: đã đóng %d batch crawl không còn run nào chạy.", closed,
             )
     except Exception:
         conn.rollback()

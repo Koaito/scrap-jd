@@ -112,6 +112,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "Khởi động: đã reconcile %d lượt crawl mồ côi từ lần chạy trước.",
                 _orphaned,
             )
+        # Batch chỉ được nối tiếp bởi task đang chạy run của nó; process cũ
+        # chết thì không ai đóng batch. PHẢI chạy SAU dòng trên (run mồ côi đã
+        # được đóng thì batch mới thật sự không còn run nào đang chạy) và
+        # grace 0 vì lúc khởi động chắc chắn không task nào còn nối tiếp.
+        _orphaned_batches = db_module.close_orphaned_crawl_batches(_startup_conn)
+        if _orphaned_batches:
+            logging.getLogger(__name__).warning(
+                "Khởi động: đã đóng %d batch crawl mồ côi từ lần chạy trước.",
+                _orphaned_batches,
+            )
     finally:
         db_module.release_connection(_startup_conn)
 

@@ -75,6 +75,17 @@ def advance_batch(conn: Conn, batch_id: str, finished_position: int) -> Optional
         logger.error("advance_batch() gọi với batch_id không tồn tại: %s", batch_id)
         return None
 
+    if batch["status"] != "running":
+        # Batch đã bị đóng từ ngoài (close_orphaned_batches() sau khi watchdog
+        # coi run treo là lỗi) mà task cũ lại tỉnh dậy và gọi tới đây: không
+        # đẻ thêm run cho batch đã khép lại, nếu không lịch sử sẽ có batch
+        # 'error'/'done' mà vẫn đang có run chạy.
+        logger.warning(
+            "advance_batch(): batch %s đã ở trạng thái '%s', không tạo category kế tiếp.",
+            batch_id, batch["status"],
+        )
+        return None
+
     categories = batch["categories"]
     next_position = finished_position + 1
     if next_position >= len(categories):
@@ -118,6 +129,81 @@ def mark_error(conn: Conn, batch_id: str, error: str) -> None:
             (error, datetime.now(timezone.utc), batch_id),
         )
     conn.commit()
+
+
+def delete_batch(conn: Conn, batch_id: str) -> None:
+    """Xoá 1 batch CHƯA có run con nào (ON DELETE CASCADE ở crawl_runs.batch_id
+    sẽ xoá cả run con nếu có, nên chỉ gọi khi biết chắc batch vừa tạo mà
+    run đầu thất bại — xem scrapjd/api/crawl_runner.py::start_batch()).
+    Ngoài trường hợp đó dùng close_orphaned_batches(), không xoá lịch sử."""
+    with conn.cursor() as cur:
+        cur.execute("DELETE FROM crawl_batches WHERE batch_id = %s", (batch_id,))
+    conn.commit()
+
+
+def close_orphaned_batches(conn: Conn, *, grace_minutes: int = 0) -> int:
+    """Đóng mọi batch 'running' KHÔNG còn run nào 'queued'/'running' — tức
+    không còn gì đang chạy để tự nối tiếp category kế. Trả về số batch đã đóng.
+
+    Batch chỉ được nối tiếp bởi chính task đang chạy run của nó
+    (crawl_runner._run_batch_locked). Task đó chết thì không ai đóng batch:
+    reconcile_orphaned_runs() / reconcile_stale_runs() chỉ sửa crawl_runs, nên
+    batch kẹt 'running' mãi (8 batch trong dữ liệu 11/2026). Trạng thái được
+    suy ra từ số run đã tạo so với danh sách category, theo đúng định nghĩa
+    ở sql/migration_add_crawl_batches.sql ('done' = đã chạy hết danh sách, dù
+    category nào lỗi; 'error' = dừng sớm):
+
+    - số run >= số category -> 'done' (run cuối bị chết cũng tính: category đó
+      đã được chạy, không còn gì để nối tiếp).
+    - ít hơn -> 'error', ghi rõ đã tạo bao nhiêu run trên tổng số category.
+
+    finished_at lấy mốc kết thúc run con cuối (rơi về created_at nếu batch
+    không có run nào), không phải now(), để lịch sử cũ không bị đổi thành
+    ngày dọn.
+
+    grace_minutes: chỉ đóng batch mà hoạt động cuối (run con kết thúc cuối
+    cùng, hoặc created_at) đã cách hơn ngần này phút. Cần > 0 khi gọi định kỳ
+    (watchdog): giữa lúc một run xong và lúc advance_batch() tạo run kế tiếp
+    batch cũng không có run nào đang chạy trong chốc lát, không được đóng
+    nhầm. Đặt 0 CHỈ khi gọi lúc khởi động, SAU reconcile_orphaned_runs() (lúc
+    đó chắc chắn không còn task nào đang nối tiếp, cùng lý do ở docstring của
+    hàm đó)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            WITH agg AS (
+                SELECT cb.batch_id,
+                       jsonb_array_length(cb.categories)               AS total,
+                       count(cr.run_id)                                AS n_runs,
+                       count(cr.run_id) FILTER (
+                           WHERE cr.status IN ('queued', 'running'))   AS n_active,
+                       COALESCE(max(cr.finished_at), cb.created_at)    AS last_activity
+                FROM crawl_batches cb
+                LEFT JOIN crawl_runs cr ON cr.batch_id = cb.batch_id
+                WHERE cb.status = 'running'
+                GROUP BY cb.batch_id, cb.categories, cb.created_at
+            )
+            UPDATE crawl_batches cb
+            SET status = (CASE WHEN a.n_runs >= a.total THEN 'done' ELSE 'error' END)::crawl_status_enum,
+                error = CASE
+                    WHEN a.n_runs >= a.total THEN NULL
+                    ELSE format(
+                        'Batch dừng giữa chừng: chỉ tạo được %%s/%%s category (process bị '
+                        'dừng hoặc run bị treo), các category còn lại không được chạy.',
+                        a.n_runs, a.total)
+                END,
+                finished_at = a.last_activity
+            FROM agg a
+            WHERE cb.batch_id = a.batch_id
+              AND a.n_active = 0
+              AND a.last_activity <= now() - make_interval(mins => %s)
+            RETURNING cb.batch_id
+            """,
+            (grace_minutes,),
+        )
+        count = cur.rowcount
+    conn.commit()
+    return count
 
 
 _BATCH_SELECT_COLUMNS = """
