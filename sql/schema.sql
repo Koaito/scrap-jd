@@ -408,7 +408,8 @@ CREATE TABLE IF NOT EXISTS job_sources_log (
     log_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     job_id            UUID NOT NULL REFERENCES job_postings(job_id),
     source_name       VARCHAR(100),
-    source_url        VARCHAR(500),
+    -- NOT NULL và không rỗng (E3, sql/0047_job_sources_log_source_url_not_null.sql): URL là định danh của listing.
+    source_url        VARCHAR(500) NOT NULL,
     raw_jd_content    TEXT,
     salary_raw_content VARCHAR(255),
     collected_date    DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -430,6 +431,7 @@ CREATE TABLE IF NOT EXISTS job_sources_log (
     -- (D2, sql/0041_unique_source_url_job_sources_log.sql). Ràng buộc UNIQUE (job_id, source_url) cũ
     -- (uq_job_source) đã gỡ ở C2, sql/0044_drop_uq_job_source.sql: UNIQUE (source_url) đã bao nó.
     CONSTRAINT uq_job_sources_log_source_url UNIQUE (source_url),
+    CONSTRAINT chk_job_sources_log_source_url_not_blank CHECK (source_url <> ''),
     CONSTRAINT chk_job_sources_log_listing_status CHECK (
         listing_status IN ('OPEN', 'CLOSED', 'UNKNOWN')
     ),
