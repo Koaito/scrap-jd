@@ -195,6 +195,10 @@ from scrapjd.db.sessions import (
     delete_stale_sessions,
     count_sessions_for_user,
 )
+from scrapjd.db.auth_cleanup import (
+    clear_expired_user_tokens,
+    delete_stale_refresh_tokens,
+)
 from scrapjd.db.contacts import (
     list_company_contacts,
     list_all_contacts,
@@ -461,6 +465,8 @@ __all__ = [
     "revoke_all_sessions_for_user",
     "clear_active_session_id_if",
     "delete_stale_sessions",
+    "delete_stale_refresh_tokens",
+    "clear_expired_user_tokens",
     "count_sessions_for_user",
     "list_company_contacts",
     "list_all_contacts",

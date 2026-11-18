@@ -67,6 +67,7 @@ from scrapjd.api.rate_limit import limiter
 from scrapjd.api.routers import auth, companies, contacts, crawl, dashboard, jobs, maintenance, me, meta, audit_logs, import_export, email_templates, messages
 from scrapjd.api.services.preview_cleanup import CLEANUP_INTERVAL_MINUTES, run_cleanup_once
 from scrapjd.api.services.session_cleanup import SESSION_CLEANUP_INTERVAL_MINUTES, run_session_cleanup_once
+from scrapjd.api.services.token_cleanup import TOKEN_CLEANUP_INTERVAL_MINUTES, run_token_cleanup_once
 from scrapjd.api.services.crawl_watchdog import run_crawl_watchdog_once
 from scrapjd.api.services.maintenance_watchdog import run_maintenance_watchdog_once
 from scrapjd.config import (
@@ -153,6 +154,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Dọn phiên đăng nhập hết hạn (Mục 3, Pha A) — DÙNG CHUNG scheduler này, xem
     # scrapjd/api/services/session_cleanup.py.
     scheduler.add_job(run_session_cleanup_once, "interval", minutes=SESSION_CLEANUP_INTERVAL_MINUTES)
+    # Dọn refresh token và token xác minh/đặt lại mật khẩu hết hạn — job riêng, xem
+    # scrapjd/api/services/token_cleanup.py.
+    scheduler.add_job(run_token_cleanup_once, "interval", minutes=TOKEN_CLEANUP_INTERVAL_MINUTES)
     # Watchdog crawl treo (08/2026) — DÙNG CHUNG scheduler này, không
     # tạo thêm process/thread riêng. Đây là LỚP DỰ PHÒNG THỨ 2, bổ sung
     # cho reconcile_orphaned_crawl_runs() ở trên (chỉ bắt được lúc
