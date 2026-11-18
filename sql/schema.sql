@@ -419,8 +419,9 @@ CREATE TABLE IF NOT EXISTS job_sources_log (
     detail_checked_at TIMESTAMPTZ,
 
     -- Trạng thái của chính listing (URL tin đăng) này (C1, sql/0043_add_listing_state_job_sources_log.sql).
-    -- UNKNOWN = chưa kết luận: mặc định cho dòng ghi bởi code chưa biết các cột này.
-    listing_status    VARCHAR(10) NOT NULL DEFAULT 'UNKNOWN',
+    -- UNKNOWN = chưa kết luận. KHÔNG có DEFAULT (sql/0049_job_sources_log_listing_status_no_default.sql): mọi lần ghi
+    -- phải đặt rõ, để đường ghi mới quên cột này lỗi ngay thay vì lặng lẽ sinh UNKNOWN (sql/0048 đã đóng UNKNOWN di sản).
+    listing_status    VARCHAR(10) NOT NULL,
     deadline          DATE,
     first_seen_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -1370,7 +1371,7 @@ COMMENT ON COLUMN job_postings.closed_at IS
     'Lúc job chuyển sang CLOSED. NULL khi OPEN, hoặc job đóng từ trước khi có cột mà không biết giờ.';
 
 COMMENT ON COLUMN job_sources_log.listing_status IS
-    'Trạng thái của listing (URL tin đăng) này: OPEN | CLOSED | UNKNOWN (chưa kết luận, mặc định cho dòng ghi bởi code cũ).';
+    'Trạng thái của listing (URL tin đăng) này: OPEN | CLOSED | UNKNOWN (chưa kết luận; không còn tự sinh, mọi lần ghi phải đặt rõ, xem 0049).';
 COMMENT ON COLUMN job_sources_log.deadline IS
     'Hạn nộp của chính listing này. NULL = không biết hoặc tin không ghi hạn.';
 COMMENT ON COLUMN job_sources_log.first_seen_at IS
