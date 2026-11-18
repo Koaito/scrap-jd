@@ -1,0 +1,17 @@
+# Cấu hình quét bí mật bằng gitleaks (checklist an ninh repo public, B3).
+# Chạy trong CI ở job `secret-scan` (.github/workflows/test.yml) và chạy tay được bằng:
+#   gitleaks git . --log-opts="--all" --config .gitleaks.toml
+#
+# Nguyên tắc: dùng toàn bộ rule mặc định, chỉ cho qua đúng từng chuỗi giả đã biết. KHÔNG cho qua cả thư mục
+# tests/ hay cả một rule, vì khi đó một khoá thật dán nhầm vào test sẽ không bị bắt. Mỗi allowlist phải đồng
+# thời khớp đường dẫn (AND), và tests/test_gitleaks_config.py chặn việc nới lỏng cấu hình này.
+title = "scrap-jd"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Mật khẩu giả dùng trong fixture của test phiên đăng nhập (quét 18/11/2026: 2 phát hiện, cả hai là chuỗi này)"
+condition = "AND"
+paths = ['''^tests/test_pg_auth_sessions\.py$''']
+regexes = ['''^MatKhau-(Test-123|Moi-456)$''']

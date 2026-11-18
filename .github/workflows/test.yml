@@ -90,3 +90,33 @@ jobs:
         # Bảng markdown hiện ngay trên trang Actions của lượt chạy, khỏi phải mở log. Dùng lệnh có sẵn của
         # `coverage` nên không thêm action bên thứ ba nào (repo public, xem mục 9 trong kế hoạch).
         run: coverage report --format=markdown >> "$GITHUB_STEP_SUMMARY"
+
+  secret-scan:
+    # Quét bí mật trong toàn bộ lịch sử git (checklist an ninh repo public, B3). Repo public nên một khoá lọt vào
+    # commit là lộ ngay, và xoá khỏi code không xoá được khỏi lịch sử. Chạy song song với job `test`, mất vài giây.
+    # Không dùng action bên thứ ba: tải thẳng binary từ bản phát hành chính thức của gitleaks, ghim phiên bản và
+    # kiểm sha256 (lấy từ gitleaks_8.30.0_checksums.txt của bản phát hành) nên bản bị thay thế sẽ làm job đỏ.
+    # Nâng phiên bản: đổi cả GITLEAKS_VERSION lẫn GITLEAKS_SHA256 (lấy từ file checksums của bản phát hành).
+    # tests/test_gitleaks_config.py khoá hình dạng của job này và của .gitleaks.toml để không bị nới lỏng dần.
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GITLEAKS_VERSION: "8.30.0"
+      GITLEAKS_SHA256: "79a3ab579b53f71efd634f3aaf7e04a0fa0cf206b7ed434638d1547a2470a66e"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Cần đủ lịch sử: mặc định checkout chỉ lấy 1 commit nên quét không thấy gì ở các commit trước.
+          fetch-depth: 0
+
+      - name: Cài gitleaks (kiểm sha256)
+        run: |
+          curl -sSfL -o gitleaks.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gitleaks.tgz" | sha256sum -c -
+          tar -xzf gitleaks.tgz gitleaks
+
+      - name: Quét toàn bộ lịch sử
+        # --redact: log của lượt chạy là công khai nên không in giá trị bí mật nếu có phát hiện.
+        # Cấu hình và allowlist ở .gitleaks.toml. Có phát hiện thì exit khác 0 và job đỏ.
+        run: ./gitleaks git . --log-opts="--all" --config .gitleaks.toml --redact --no-banner --exit-code 1
