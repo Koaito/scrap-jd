@@ -20,6 +20,7 @@ from typing import Optional
 import psycopg2
 import psycopg2.extras
 from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_count, fetch_scalar
+from scrapjd.db.sql_like import contains_pattern
 
 logger = logging.getLogger(__name__)
 
@@ -495,7 +496,7 @@ def search_people(conn: Conn, query: str, *, requester_role: str) -> list[Row]:
                 ORDER BY full_name
                 LIMIT 20
                 """,
-                (f"%{query}%",),
+                (contains_pattern(query),),
             )
         else:
             cur.execute(
@@ -507,6 +508,6 @@ def search_people(conn: Conn, query: str, *, requester_role: str) -> list[Row]:
                 ORDER BY full_name
                 LIMIT 20
                 """,
-                (f"%{query}%",),
+                (contains_pattern(query),),
             )
         return fetch_all_rows(cur)

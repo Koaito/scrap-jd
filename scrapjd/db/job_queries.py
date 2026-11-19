@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 import psycopg2.extras
 from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_optional_row
+from scrapjd.db.sql_like import contains_pattern
 
 
 _JOB_SELECT_COLUMNS = """
@@ -128,7 +129,7 @@ def list_jobs(conn: Conn, *, industry: Optional[str] = None, province_name: Opti
         params.append(job_status)
     if keyword:
         conditions.append("jp.job_title ILIKE %s")
-        params.append(f"%{keyword}%")
+        params.append(contains_pattern(keyword))
     if created_by:
         conditions.append("jp.created_by = %s")
         params.append(created_by)

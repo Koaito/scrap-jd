@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 import psycopg2.extras
 from scrapjd.db.pg_types import Conn, Row, fetch_all_rows, fetch_one_row, fetch_optional_row
+from scrapjd.db.sql_like import contains_pattern
 
 
 _COMPANY_SELECT_COLUMNS = """
@@ -54,7 +55,7 @@ def list_companies(conn: Conn, *, keyword: Optional[str] = None,
 
     if keyword:
         conditions.append("c.company_name ILIKE %s")
-        params.append(f"%{keyword}%")
+        params.append(contains_pattern(keyword))
     if province_name:
         conditions.append("p.province_name = %s")
         params.append(province_name)

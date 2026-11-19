@@ -48,6 +48,11 @@ _header_scheme = APIKeyHeader(name="X-API-Key", auto_error=False)
 _query_scheme = APIKeyQuery(name="api_key", auto_error=False)
 
 
+def _query_key_allowed() -> bool:
+    """Đọc lúc gọi (không phải lúc import) để test và cấu hình nóng đổi được."""
+    return os.getenv("ALLOW_QUERY_API_KEY", "").strip().lower() == "true"
+
+
 def has_valid_api_key_header(request: Request) -> bool:
     """True nếu request mang header X-API-Key ĐÚNG giá trị API_KEY. Chỉ
     đọc HEADER (không đọc ?api_key= trên query string) và không raise gì
@@ -72,7 +77,9 @@ def require_api_key(
             detail={"error_code": error_codes.AUTH_SERVER_MISSING_API_KEY, "message": "Server chưa cấu hình API_KEY — xem .env.example."},
         )
 
-    supplied = header_key or query_key
+    # ?api_key= bị ghi vào access log, lịch sử trình duyệt và header Referer, nên mặc định TẮT.
+    # Chỉ bật khi cần dev/curl nhanh: ALLOW_QUERY_API_KEY=true. Frontend và Flask gửi bằng header.
+    supplied = header_key or (query_key if _query_key_allowed() else "")
     if not supplied or not secrets.compare_digest(supplied, _API_KEY):
         raise HTTPException(
             status_code=401,
